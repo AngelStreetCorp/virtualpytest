@@ -20,8 +20,8 @@
 manifest 404'd:
 
 ```
-GET https://rpitest.angelstreet.io/host/vpt-pi1/stream/capture1/segments/output.m3u8   404
-GET https://rpitest.angelstreet.io/host/vpt-pi1/stream/capture2/segments/output.m3u8   200
+GET https://<pi-server-host>/host/vpt-pi1/stream/capture1/segments/output.m3u8   404
+GET https://<pi-server-host>/host/vpt-pi1/stream/capture2/segments/output.m3u8   200
 ```
 
 On the Pi, `capture1` had no `hot/segments/output.m3u8` at all while `capture2/3/4` had fresh ones.

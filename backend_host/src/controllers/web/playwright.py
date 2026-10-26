@@ -46,9 +46,43 @@ BROWSER_CDP_CLOSE_TIMEOUT_SECONDS = 3.0
 # default, 2026-09-29). 500 ms still covers the usual 250-300 ms debounce of search-as-you-type.
 INPUT_TEXT_SETTLE_MS = 500
 
+# Commands agents invent on a web device, and what to use instead (TASK-135 turn-waste analysis)
+UNKNOWN_COMMAND_HINTS = {
+    'click_element_by_id': "Use click_element with params {'element_id': '#<id>'}. ",
+    'type_text': "Use input_text with params {'selector': ..., 'text': ...}. ",
+    'execute_pyautogui': "execute_pyautogui_* is a desktop command: send it with action_type 'desktop', "
+                         "or on the page use press_key, input_text or tap_x_y. ",
+}
+
+
+def unknown_command_hint(command: str) -> str:
+    return next((h for k, h in UNKNOWN_COMMAND_HINTS.items() if command.startswith(k)), '')
+
 # =============================================================
 # Single decorator to guarantee execution on controller loop
 # =============================================================
+# How long a caller waits for the controller loop to answer. The loop is one thread for
+# every Playwright op of this host, so when it wedges an unbounded wait left the run and
+# its browser alive for ever (BUG-0842). The wait is bounded and the failure says so.
+CONTROLLER_LOOP_RESULT_TIMEOUT_SECONDS = float(os.getenv('VPT_CONTROLLER_LOOP_TIMEOUT', '120'))
+
+
+def _controller_loop_result(fut, timeout: Optional[float] = None):
+    """The controller loop's answer, waited for with a bound.
+
+    ``fut.result()`` without a timeout blocked for ever when the loop never completed the
+    coroutine: the run never reported and its browser never came down (BUG-0842).
+    """
+    import concurrent.futures
+    budget = CONTROLLER_LOOP_RESULT_TIMEOUT_SECONDS if timeout is None else timeout
+    try:
+        return fut.result(timeout=budget)
+    except concurrent.futures.TimeoutError:
+        fut.cancel()
+        raise TimeoutError(
+            f'The Playwright controller loop did not answer within {budget:g}s') from None
+
+
 def ensure_controller_loop(func):
     async def wrapper(self, *args, **kwargs):
         import asyncio
@@ -63,8 +97,19 @@ def ensure_controller_loop(func):
             return await func(self, *args, **kwargs)
         fut = self._submit_to_controller_loop(func(self, *args, **kwargs))
         if current_loop is None:
-            return fut.result()
-        return await asyncio.wrap_future(fut)
+            return _controller_loop_result(fut)
+        # Bounded, and the bound really bounds: `asyncio.wait` leaves the pending work
+        # alone on timeout, where `wait_for` waits for a cancellation that a running
+        # coroutine never grants.
+        wrapped = asyncio.wrap_future(fut)
+        done, _pending = await asyncio.wait(
+            {wrapped}, timeout=CONTROLLER_LOOP_RESULT_TIMEOUT_SECONDS)
+        if not done:
+            wrapped.cancel()
+            raise TimeoutError(
+                f'The Playwright controller loop did not answer within '
+                f'{CONTROLLER_LOOP_RESULT_TIMEOUT_SECONDS:g}s')
+        return wrapped.result()
     return wrapper
 from ..base_controller import WebControllerInterface
 
@@ -88,6 +133,21 @@ from  backend_host.src.lib.utils.webkit_utils import WebKitUtils
 
 # Import verification mixin
 from .playwright_verifications import PlaywrightVerificationsMixin
+
+
+GOTO_TIMEOUT_MIN_MS = int(os.environ.get('VPT_WEB_GOTO_TIMEOUT_MIN_MS', '15000'))
+GOTO_TIMEOUT_DEFAULT_MS = int(os.environ.get('VPT_WEB_GOTO_TIMEOUT_MS', '30000'))
+
+
+def resolve_goto_timeout(params: Dict[str, Any]) -> int:
+    """Page-load timeout (ms) of navigate_to_url: `page_load_timeout` or legacy `timeout`, never `wait_time`.
+    Never below VPT_WEB_GOTO_TIMEOUT_MIN_MS (15 s), so a short edge pause cannot make a slow page fail."""
+    asked = params.get('page_load_timeout') or params.get('timeout') or GOTO_TIMEOUT_DEFAULT_MS
+    try:
+        asked = int(asked)
+    except (TypeError, ValueError):
+        asked = GOTO_TIMEOUT_DEFAULT_MS
+    return max(asked, GOTO_TIMEOUT_MIN_MS)
 
 
 class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterface):
@@ -265,6 +325,26 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             return pages[0]
         return await context.new_page()
     
+    def _kill_browser_process(self) -> bool:
+        """Kill the browser process this controller drove. No loop, no CDP, no waiting.
+
+        The graceful close is a nicety, the process kill is the guarantee, and the
+        guarantee must not depend on the graceful step: when the close hung, the kill
+        that sat behind it never ran and the browser outlived the run (BUG-0760).
+        """
+        used_a_browser = (self.__class__._chrome_process is not None or self.__class__._browser is not None
+                          or self.__class__._chrome_running)
+        if not used_a_browser:
+            # Only when this run used a browser at all: a script that never touched the
+            # web controller has no business taking down a browser somebody opened by hand.
+            print(f"[PLAYWRIGHT]: No browser was launched or attached by this run; leaving the debug port alone")
+            return False
+        try:
+            return bool(self.utils.kill_chrome(chrome_process=self.__class__._chrome_process))
+        except Exception as e:
+            print(f"[PLAYWRIGHT]: Chrome kill error ignored: {type(e).__name__}: {str(e)}")
+            return False
+
     async def _cleanup_persistent_browser(self):
         """Close the browser this run used, whether it launched it or attached to one.
 
@@ -292,25 +372,15 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
         except Exception as e:
             print(f"[PLAYWRIGHT]: Browser close error ignored: {type(e).__name__}: {str(e)}")
         _log_phase('web.cleanup.playwright_browser_close', _t)
-        _t = _phase_t0()
-        await stop_playwright(self.__class__._playwright)
-        _log_phase('web.cleanup.stop_playwright', _t)
 
         # Hard guarantee: the launched process group (if any) and then any listener still
         # on the port - a browser this run only attached to has no Popen to terminate.
-        # Only when this run used a browser at all: a script that never touched the web
-        # controller has no business taking down a browser somebody opened by hand.
-        used_a_browser = (self.__class__._chrome_process is not None or browser is not None
-                          or self.__class__._chrome_running)
-        if used_a_browser:
-            _t = _phase_t0()
-            try:
-                self.utils.kill_chrome(chrome_process=self.__class__._chrome_process)
-            except Exception as e:
-                print(f"[PLAYWRIGHT]: Chrome kill error ignored: {type(e).__name__}: {str(e)}")
-            _log_phase('web.cleanup.kill_chrome', _t)
-        else:
-            print(f"[PLAYWRIGHT]: No browser was launched or attached by this run; leaving the debug port alone")
+        _t = _phase_t0()
+        self._kill_browser_process()
+        _log_phase('web.cleanup.kill_chrome', _t)
+        _t = _phase_t0()
+        await stop_playwright(self.__class__._playwright)
+        _log_phase('web.cleanup.stop_playwright', _t)
 
         # Reset flags/state
         self.__class__._playwright = None
@@ -328,6 +398,11 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             await asyncio.wait_for(self._cleanup_persistent_browser(), timeout=timeout_seconds)
         except Exception as e:
             print(f"[PLAYWRIGHT]: Cleanup timed out or failed: {type(e).__name__}: {str(e)}")
+            # The graceful close hung, so the browser is still alive: kill it here.
+            # The kill used to sit only INSIDE the routine, behind the graceful close,
+            # so a hang there left the browser running while the controller believed
+            # there was none - and nothing else ever came back for it (BUG-0760).
+            self._kill_browser_process()
             # Cut off before (or while) stopping Playwright: its driver must not outlive the
             # run (BUG-0191). A browser left on the port is an orphan the next connect handles.
             await self._drop_playwright_handles()
@@ -638,6 +713,24 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
                 'connected': False
             }
     
+    def _browser_still_running(self) -> Optional[int]:
+        """The pid of the browser that still holds our debug port, or None.
+
+        This is what tells "the browser is closed" from "the close was only asked for".
+        A close that cannot answer that question must not report success (BUG-0760).
+        """
+        from shared.src.lib.utils.leaked_browser_reaper import browser_pid_for_port, pid_is_running
+        port = getattr(self.utils, 'debug_port', None)
+        if not port:
+            return None
+        try:
+            pid = browser_pid_for_port(int(port))
+        except (TypeError, ValueError):
+            return None
+        if pid and pid_is_running(pid):
+            return pid
+        return None
+
     def close_browser(self, wait: bool = False, wait_timeout: float = 22.0) -> Dict[str, Any]:
         """Clean up the persistent browser/Chrome process.
 
@@ -648,12 +741,17 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
         loop thread is a daemon thread, so a caller that's about to exit the
         process (e.g. end-of-script teardown) MUST wait=True or the cleanup
         can be cut off mid-flight and leave Chrome running.
+
+        The result says what really happened: with wait=True, ``success`` means the
+        browser is gone; without it, the close is only scheduled, so ``confirmed`` is
+        False and ``browser_still_running`` names the pid that is still there.
         """
         print(f"[PLAYWRIGHT]: {'Waiting for' if wait else 'Scheduling non-blocking'} browser cleanup")
         # Pre-emptively mark disconnected so next actions reconnect if needed
         self.__class__._browser_connected = False
         scheduled = False
         waited = False
+        error = ''
         try:
             # Ensure cleanup runs on the controller loop where Playwright objects live
             fut = self._submit_to_controller_loop(self._cleanup_persistent_browser_with_timeout(15))
@@ -663,17 +761,73 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
                     fut.result(timeout=wait_timeout)
                     waited = True
                 except Exception as e:
-                    print(f"[PLAYWRIGHT]: Timed out waiting for browser cleanup ({type(e).__name__}: {e}); continuing")
-        except RuntimeError:
+                    error = f'{type(e).__name__}: {e}'
+                    print(f"[PLAYWRIGHT]: Timed out waiting for browser cleanup ({error}); continuing")
+        except RuntimeError as e:
+            error = f'{type(e).__name__}: {e}'
             # No running loop (unlikely since execute_command is async) - best effort fallback: do nothing blocking
             print(f"[PLAYWRIGHT]: No running asyncio loop; skipping async cleanup scheduling")
+        still_running = self._browser_still_running()
+        confirmed = still_running is None
+        if not confirmed:
+            print(f"[PLAYWRIGHT]: Browser {still_running} is still running after the close")
         return {
-            'success': True,
-            'error': '',
+            # success means the browser is gone. A close that was only scheduled says
+            # so: it never reports a close that did not happen (BUG-0760).
+            'success': confirmed,
+            'error': '' if confirmed else (error or f'the browser is still running (pid {still_running})'),
             'execution_time': 0,
             'connected': False,
             'scheduled_async_cleanup': scheduled,
-            'waited_for_cleanup': waited
+            'waited_for_cleanup': waited,
+            'confirmed': confirmed,
+            'browser_still_running': still_running,
+        }
+
+    async def close_browser_confirmed(self, wait_timeout: float = 22.0) -> Dict[str, Any]:
+        """Close the browser and wait for the result, so the answer is a confirmation.
+
+        The cleanup runs on the controller loop; awaiting its future leaves the
+        caller's event loop free while the browser really goes away. A caller that
+        trusts this result is told the truth: success means the browser is gone.
+        """
+        print(f"[PLAYWRIGHT]: Waiting for browser cleanup")
+        # Pre-emptively mark disconnected so next actions reconnect if needed
+        self.__class__._browser_connected = False
+        scheduled = False
+        waited = False
+        error = ''
+        try:
+            fut = self._submit_to_controller_loop(self._cleanup_persistent_browser_with_timeout(15))
+            scheduled = True
+            try:
+                await asyncio.wait_for(
+                    asyncio.wrap_future(fut, loop=asyncio.get_running_loop()),
+                    timeout=wait_timeout)
+                waited = True
+            except asyncio.TimeoutError:
+                error = f'The browser cleanup did not finish within {wait_timeout}s'
+                print(f"[PLAYWRIGHT]: {error}")
+            except Exception as e:
+                error = f'{type(e).__name__}: {e}'
+                print(f"[PLAYWRIGHT]: Browser cleanup failed ({error})")
+        except RuntimeError as e:
+            error = f'{type(e).__name__}: {e}'
+            # No running loop (unlikely since execute_command is async) - best effort fallback: do nothing blocking
+            print(f"[PLAYWRIGHT]: No running asyncio loop; skipping async cleanup scheduling")
+        still_running = self._browser_still_running()
+        confirmed = still_running is None
+        if not confirmed:
+            print(f"[PLAYWRIGHT]: Browser {still_running} is still running after the close")
+        return {
+            'success': confirmed,
+            'error': '' if confirmed else (error or f'the browser is still running (pid {still_running})'),
+            'execution_time': 0,
+            'connected': False,
+            'scheduled_async_cleanup': scheduled,
+            'waited_for_cleanup': waited,
+            'confirmed': confirmed,
+            'browser_still_running': still_running,
         }
     
     async def _inject_consent_cookies_if_needed(self, url: str) -> bool:
@@ -744,11 +898,114 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
         except Exception as e:
             self._log(f"DOM capture skipped: {e}")
 
+    async def _photo_page(self, path: str, timeout: float = 5.0) -> Optional[str]:
+        """The half of `capture_page_screenshot` that has to run on the controller loop."""
+        context = self.__class__._context
+        if context is None:
+            return None
+        try:
+            pages = context.pages
+        except Exception as e:
+            self._log(f"Page screenshot skipped (no pages): {type(e).__name__}: {e}")
+            return None
+        if not pages:
+            return None
+        page = pages[0]
+        try:
+            directory = os.path.dirname(path)
+            if directory:
+                os.makedirs(directory, exist_ok=True)
+            # The timeout belongs to Playwright, not only to our wait for the future: a
+            # screenshot of a page that never settles has no timeout of its own, so it
+            # holds the controller loop — and every request queued behind it — until
+            # something else gives up. In the TASK-161 web smoke that was three minutes
+            # per hop: the hop's own screenshot blocked the loop, the navigation behind
+            # it waited, and the walker's 180 s navigation timeout was what finally
+            # released it. The walk then failed every screen of the second pass.
+            await page.screenshot(path=path, full_page=False, timeout=max(1, int(timeout * 1000)))
+        except Exception as e:
+            self._log(f"Page screenshot skipped: {type(e).__name__}: {e}")
+            return None
+        return path
+
+    def capture_page_screenshot(self, path: str, timeout: float = 5.0) -> Optional[str]:
+        """Write a screenshot of THIS run's own page to `path`, and return the path.
+
+        Every browser run on a host shares one X display (`DISPLAY=:1`), so the
+        screen capture the report used to fall back on (VNC / x11grab, the newest
+        file of the host's capture folder) shows whichever Chrome window happens to
+        be on top — with parallel runs that is regularly the *other* run's browser
+        (TASK-146). A page screenshot belongs to the run that took it.
+
+        Returns None when there is no live page to photograph, or when the
+        screenshot fails; the caller then falls back to the screen capture. It
+        never opens a new page: a screenshot must not change what the run is doing.
+
+        Deliberately **not** `@ensure_controller_loop`. That decorator answers two
+        different ways: `fut.result()` from a plain thread, but an *awaitable* when
+        the caller already has a running loop — so a caller that asked for a path
+        received a coroutine and failed on `os.path.exists()` with `stat: path should
+        be string, bytes, os.PathLike or integer, not coroutine`, which the caller
+        swallowed and fell back to the screen capture (seen live 2026-10-21, twice).
+        Submitting to the controller loop and blocking on the future gives the same
+        answer to either kind of caller, and the timeout stops a wedged driver from
+        stalling the run.
+
+        The default timeout is **5 s, not 20**: the capture is queued on the same
+        controller loop as the navigation, so a busy loop (a page still loading, a
+        browser that was restarted under the run) makes it wait its whole budget and
+        then produce nothing. A viewport screenshot takes ~100 ms when the loop is
+        free — measured 79-107 ms on the TASK-161 web smokes — so 5 s is fifty times
+        the real cost, and the difference is pure waiting. At 20 s, one web tree walk
+        spent 21.7 of its 30 minutes in screenshot timeouts (TASK-161, 2026-10-23):
+        the hop-start frame and the verification probe each paid the full budget,
+        and the walk blew past the point where it could finish.
+        """
+        import concurrent.futures
+
+        try:
+            fut = self._submit_to_controller_loop(self._photo_page(path, timeout))
+        except Exception as e:
+            self._log(f"Page screenshot skipped (no controller loop): {type(e).__name__}: {e}")
+            return None
+        try:
+            return fut.result(timeout=timeout)
+        except concurrent.futures.TimeoutError:
+            fut.cancel()
+            self._log(f"Page screenshot timed out after {timeout:g}s")
+            return None
+        except Exception as e:
+            self._log(f"Page screenshot failed: {type(e).__name__}: {e}")
+            return None
+
+    async def _bounded_title(self, page, timeout: float = 5.0) -> str:
+        """The page title, but never longer than `timeout` seconds.
+
+        `page.title()` is a protocol call with no timeout of its own: on a renderer that
+        is busy or blocked (a donation modal's script, a JS dialog) it never returns.
+        Measured on `web-internetarchive` (TASK-161, 2026-10-23): the page had loaded,
+        the renderer stopped answering, and every later hop of the walk died inside the
+        title read — the navigation never returned, so the walk burned its 180 s budget
+        per hop and the second pass failed on all of them. An empty title is the honest
+        answer there: the URL is what says the page loaded.
+        """
+        try:
+            return await asyncio.wait_for(page.title(), timeout=timeout)
+        except asyncio.TimeoutError:
+            self._log(f"Page title read timed out after {timeout:g}s (renderer busy)")
+            return ''
+        except Exception as e:
+            self._log(f"Page title read failed: {type(e).__name__}: {e}")
+            return ''
+
     @ensure_controller_loop
     async def navigate_to_url(self, url: str, timeout: int = 60000, follow_redirects: bool = True) -> Dict[str, Any]:
         """Navigate to a URL."""
         start_time = time.time()
         try:
+            # `/settings` or `/{lang}/settings` = same page in the language the app shows now (BUG-0703)
+            from shared.src.lib.utils.localize_identity import resolve_app_url
+            url = resolve_app_url(url, self.current_url)
             normalized_url = self.utils.normalize_url(url)
             self._log(f"Navigating to {url} (normalized: {normalized_url}) with timeout {timeout}ms")
 
@@ -770,7 +1027,7 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             self._flutter_app_detected = None
 
             self.current_url = page.url
-            self.page_title = await page.title()
+            self.page_title = await self._bounded_title(page)
 
             _t = _phase_t0()
             await self._capture_dom_snapshot(page)
@@ -809,7 +1066,11 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             try:
                 if 'page' in locals():
                     current_url = page.url
-                    current_title = await page.title()
+                    # The title is a nicety here, not the verdict: the URL is what says the
+                    # page loaded. A renderer that stopped answering (a modal script, a JS
+                    # dialog) must not turn a loaded page into a failed navigation, and
+                    # `page.title()` has no timeout of its own.
+                    current_title = await self._bounded_title(page)
                     # If we got a valid URL and title, page loaded successfully
                     page_loaded = current_url and current_url != 'about:blank'
                     print(f"[PLAYWRIGHT]: Current page state - URL: {current_url}, Title: {current_title[:50]}...")
@@ -966,6 +1227,7 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
                     # Try multiple Playwright-native strategies in order of specificity
                     native_selectors = [
                         f'text="{term}"',                    # Exact text match
+                        f'[id="{term}"]',                    # A bare element id (kc-login)
                         f'input[value="{term}" i]',          # Input buttons (submit/button with value)
                         f'button:has-text("{term}")',         # Button containing text
                         f'a:has-text("{term}")',              # Link containing text
@@ -974,6 +1236,10 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
 
                     for sel in native_selectors:
                         try:
+                            # Count first (no wait): clicking an absent selector waits out its 3 s timeout,
+                            # 15 s per click on a Flutter page where none match (TASK-135).
+                            if not await page.locator(sel).count():
+                                continue
                             await page.click(sel, timeout=3000)
                             execution_time = int((time.time() - start_time) * 1000)
                             print(f"[PLAYWRIGHT]: Native text click successful: {sel}")
@@ -1226,8 +1492,16 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             matches = self._search_dumped_elements(selector, elements)
             
             if matches:
-                # Found element - return coordinates like Android mobile does
-                first_match = matches[0]
+                # Found element - return coordinates like Android mobile does.
+                # Skip matches without a usable box (off-screen / zero-size flt-semantics nodes):
+                # a later match in the same dump often has one (BUG-0701).
+                usable = [m for m in matches if self._has_usable_box(m.get('position'))]
+                if not usable:
+                    execution_time = int((time.time() - start_time) * 1000)
+                    error_msg = f"Element found but no coordinates available ({len(matches)} match(es) for '{selector}' have no usable bounding box)"
+                    print(f"[PLAYWRIGHT]: {error_msg}")
+                    return {'success': False, 'error': error_msg, 'execution_time': execution_time}
+                first_match = usable[0]
                 execution_time = int((time.time() - start_time) * 1000)
                 
                 # Log with element_id like click_element does
@@ -1279,6 +1553,13 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
                 'selector_attempted': selector
             }
     
+    @staticmethod
+    def _has_usable_box(position: Any) -> bool:
+        """True when a dumped element's position can be clicked: has x/y and a non-zero size."""
+        if not isinstance(position, dict) or position.get('x') is None or position.get('y') is None:
+            return False
+        return (position.get('width') or 0) > 0 and (position.get('height') or 0) > 0
+
     def _calculate_match_score(self, search_term: str, matched_value: str, element: Dict[str, Any] = None) -> tuple:
         """
         Calculate match quality score for prioritization.
@@ -1552,8 +1833,14 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             # Get persistent page from browser+context
             page = await self._get_persistent_page()
 
-            # Execute JavaScript with a hard timeout
-            result = await asyncio.wait_for(page.evaluate(script), timeout=timeout)
+            # Execute JavaScript with a hard timeout. A top-level `return` is a SyntaxError for evaluate: run the
+            # script as a function body instead (agents write it that way, TASK-135).
+            try:
+                result = await asyncio.wait_for(page.evaluate(script), timeout=timeout)
+            except Exception as e:
+                if 'Illegal return statement' not in str(e):
+                    raise
+                result = await asyncio.wait_for(page.evaluate(f"(() => {{\n{script}\n}})()"), timeout=timeout)
 
             execution_time = int((time.time() - start_time) * 1000)
             self._log(f"JS done {script_summary} in {execution_time}ms")
@@ -2176,17 +2463,34 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
         if current_loop is None or current_loop is not controller_loop:
             fut = self._submit_to_controller_loop(self.execute_command(command, params))
             if current_loop is None:
-                # If no running loop (unlikely inside async), block and return result
-                return fut.result()
+                # If no running loop (unlikely inside async), block and return result.
+                # Bounded: a wedged controller loop must fail the command, not hang the run.
+                try:
+                    return _controller_loop_result(fut)
+                except TimeoutError as exc:
+                    return {'success': False, 'error': str(exc), 'execution_time': 0}
             else:
-                # Bridge concurrent.futures.Future to awaitable in current loop
-                return await asyncio.wrap_future(fut)
+                # Bridge concurrent.futures.Future to awaitable in current loop, bounded:
+                # `asyncio.wait` leaves the pending work alone on timeout, where
+                # `wait_for` waits for a cancellation a running coroutine never grants.
+                wrapped = asyncio.wrap_future(fut)
+                done, _pending = await asyncio.wait(
+                    {wrapped}, timeout=CONTROLLER_LOOP_RESULT_TIMEOUT_SECONDS)
+                if not done:
+                    wrapped.cancel()
+                    return {
+                        'success': False,
+                        'error': (f'The Playwright controller loop did not answer within '
+                                  f'{CONTROLLER_LOOP_RESULT_TIMEOUT_SECONDS:g}s'),
+                        'execution_time': 0,
+                    }
+                return wrapped.result()
         
         # ============== From here on, we are on the controller loop ==============
         if command in ('navigate_to_url', 'navigate'):
             url = params.get('url')
-            # Use wait_time (standard action param) OR timeout (legacy) with default fallback
-            timeout = params.get('wait_time') or params.get('timeout', 30000)
+            # The goto has its own timeout (BUG-0714): `wait_time` is the pause AFTER the action, never the load limit
+            timeout = resolve_goto_timeout(params)
             follow_redirects = params.get('follow_redirects', True)
             
             if not url:
@@ -2230,13 +2534,15 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             return await self.navigate_to_url(url, timeout=timeout, follow_redirects=follow_redirects)
         
         elif command == 'click_element':
-            # Standardize parameter names: convert 'text', 'selector' to 'element_id'
+            # Standardize parameter names: convert 'text', 'selector', 'xpath' to 'element_id'
             element_id = params.get('element_id') or params.get('selector') or params.get('text')
+            if not element_id and params.get('xpath'):
+                element_id = params['xpath'] if params['xpath'].startswith('xpath=') else f"xpath={params['xpath']}"
             
             if not element_id:
                 return {
                     'success': False,
-                    'error': 'element_id parameter is required',
+                    'error': 'element_id parameter is required (an id like #login, CSS, XPath or the visible text)',
                     'execution_time': 0
                 }
                 
@@ -2323,7 +2629,10 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             return await self.open_browser()
         
         elif command == 'close_browser':
-            return self.close_browser()  # Returns success but doesn't actually close
+            # Wait for the cleanup and report its real outcome: a caller that trusts
+            # this result must not be told a browser died that is still running
+            # (BUG-0760). The browser closed is the same one as before.
+            return await self.close_browser_confirmed()
         
         elif command == 'connect_browser':
             return await self.connect_browser()
@@ -2407,7 +2716,8 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
             print(f"[PLAYWRIGHT]: Unknown command: {command}")
             return {
                 'success': False,
-                'error': f'Unknown command: {command}',
+                'error': f'Unknown command: {command}. {unknown_command_hint(command)}'
+                         f'Call list_actions for the web commands.',
                 'execution_time': 0
             }
     

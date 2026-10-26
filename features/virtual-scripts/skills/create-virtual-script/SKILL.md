@@ -2,6 +2,8 @@
 name: create-virtual-script
 description: Write, edit and save a virtual script (DB-stored Python test script), then optionally run it on a device
 timeout_seconds: 3600
+think_budget_seconds: 120
+max_tool_calls: 40
 tools:
   - list_scripts
   - get_virtual_script
@@ -33,6 +35,10 @@ runnable at once: no deploy. It appears in Run Tests (green "VS" badge) and in l
 
 ## Flow
 
+0. **A vague ask gets one question first.** "create a script", "write a test" with no behaviour, target or app:
+   ask ONE short question (what should it check or do, on which app or device) and save nothing yet. Never
+   invent a script to have something to show: Atlas used to save made-up scripts (SC_CHK_01_TcpReachability,
+   SC_TPL_*_StarterTemplate) on a bare "create a script" (TASK-172 / TASK-175 benches).
 1. **Understand the ask.** If the script navigates an app, call list_userinterfaces() and
    get_userinterface_complete(userinterface_name) to get the real node names. Never invent a node.
 2. **Editing an existing script?** Call get_virtual_script(name) first and change that source.

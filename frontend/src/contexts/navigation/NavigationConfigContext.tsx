@@ -152,7 +152,7 @@ interface NavigationConfigContextType {
   saveEdge: (treeId: string, edgeData: NavigationEdge, options?: { skipCacheUpdate?: boolean }) => Promise<any>;
   
   // Batch operations
-  saveTreeData: (treeId: string, nodes: any[], edges: any[], deletedNodeIds?: string[], deletedEdgeIds?: string[], viewport?: any) => Promise<void>;
+  saveTreeData: (treeId: string, nodes: any[], edges: any[], deletedNodeIds?: string[], deletedEdgeIds?: string[], viewport?: any) => Promise<{ redirected_to_dev?: boolean }>;
   
   // Nested tree operations
   loadNodeSubTrees: (treeId: string, nodeId: string) => Promise<any[]>;
@@ -466,7 +466,7 @@ export const NavigationConfigProvider: React.FC<{ children: React.ReactNode }> =
     }
   };
 
-  const saveTreeData = async (treeId: string, nodes: any[], edges: any[], deletedNodeIds?: string[], deletedEdgeIds?: string[], viewport?: any): Promise<void> => {
+  const saveTreeData = async (treeId: string, nodes: any[], edges: any[], deletedNodeIds?: string[], deletedEdgeIds?: string[], viewport?: any): Promise<{ redirected_to_dev?: boolean }> => {
     const payload: any = {
       nodes,
       edges,
@@ -478,6 +478,7 @@ export const NavigationConfigProvider: React.FC<{ children: React.ReactNode }> =
     if (!result.success) {
       throw new Error(result.error);
     }
+    return { redirected_to_dev: !!result.redirected_to_dev };
   };
 
   // Cache invalidation function - invalidates cache entries across all servers for the given interface

@@ -14,6 +14,7 @@ cp "$BRIEF" "$RUNS/$TS.brief.md"; t0=$(date +%s)
 ( cd "$WT" && ANTHROPIC_API_KEY="$K" timeout $((MIN * 60)) claude -p --model claude-haiku-5-5 --output-format json \
     --allowedTools "Bash Read Edit Write Glob Grep" --permission-mode acceptEdits < "$BRIEF" > "$OUT" 2> "$RUNS/$TS.err" )
 echo "exit=$? wall=$(( ($(date +%s) - t0) / 60 )) min  result=$OUT"
+python3 "$(dirname "$0")/../ai_report_claude_cli.py" "$OUT" --script promo/run_builder.sh   # ai_calls row (BUG-0721)
 python3 - "$OUT" <<'PY'
 import json, sys
 d = json.load(open(sys.argv[1])); u = d["modelUsage"]["claude-haiku-5-5"]

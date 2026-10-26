@@ -3,7 +3,7 @@
 # (picked up automatically by install_host.sh when features/companion is deployed,
 # see docs/technical/FEATURES.md).
 #
-# EXPERIMENTAL — OFF BY DEFAULT (same pattern as vpt-transcript / ENABLE_TRANSCRIPTION):
+# EXPERIMENTAL — OFF BY DEFAULT (same pattern as vpt-monitor-audio / ENABLE_TRANSCRIPTION):
 #   the unit runs but only sleeps until ENABLE_COMPANION=true. Do NOT flip the value
 #   below: that turns it on for every host of the fleet. Enable one host with a drop-in:
 #     sudo systemctl edit vpt-companion.service

@@ -54,17 +54,21 @@ import { ScriptParameterRow } from '../components/common/ParameterInput/ScriptPa
 
 
 
-import { buildServerUrl } from '../utils/buildUrlUtils';
+import { buildServerUrl, buildServerUrlForServer } from '../utils/buildUrlUtils';
 import { api } from '../utils/apiClient';
 import { getCampaignBadge } from '../config/constants';
 import { getCachedCampaignExecutableList, peekCachedCampaignExecutableList, getCachedExecutableList } from '../utils/executionListCache';
 import { openR2Url } from '../utils/infrastructure/cloudflareUtils';
 import { buildScriptArgs } from '../utils/scriptArgsUtils';
+import { useServerManager } from '../hooks/useServerManager';
+import { lookupHostServerUrl } from '../hooks/allServer/useRowServerUrl';
+import { useScriptServerUrl } from '../hooks/allServer/useScriptServerUrl';
 import {
   isTargetKeyCompatibleWithRules,
   isHostCompatibleWithRules,
   isDeviceCompatibleWithRules,
-  normalizeTargetRules,
+  effectiveTargetRules,
+  hostHasDeviceWithId,
   TargetRules,
 } from '../utils/targetCompatibility';
 import { CampaignConfig, ScriptConfiguration } from '../types/pages/Campaign_Types';
@@ -72,161 +76,34 @@ import type { RerunPayload } from '../types/common/Rerun_Types';
 import { RunWithInputsDialog } from '../components/testcase/RunWithInputsDialog';
 import { stampInputValues } from '../utils/testcase/scriptInputUtils';
 import { validateCronExpression } from '../utils/cronUtils';
-import { formatExecutionHistoryTimestamp, formatToLocalTimeShort } from '../utils/dateUtils';
+import { formatToLocalTimeShort } from '../utils/dateUtils';
 import { CronHelper } from '../components/common/CronHelper';
 import { ExecutionHistoryRow } from '../components/common/ExecutionHistoryTable';
+import { LiveRunDialog } from '../components/common/LiveRunDialog';
+import { useLiveScriptProgress } from '../hooks/script/useLiveScriptProgress';
 import ExecutionHistorySection from '../components/common/ExecutionHistorySection';
-import { CampaignScriptLike, mapCampaignScriptsToHistoryRows } from '../utils/executionHistoryUtils';
+import {
+  buildTargetKey,
+  collectAbortableRunningExecutions,
+  ExecutionRecord,
+  executionRecordToHistoryRow,
+  formatTargetLabel,
+  getExecutionDeviceId,
+  normalizeExecutionHistory,
+  RUN_TESTS_HISTORY_LIMIT,
+} from '../utils/executionHistoryRecords';
+import { useExecutionHistoryRecords } from '../hooks/executions/useExecutionHistoryRows';
+import { useExecutionHistoryFilters } from '../hooks/executions/useExecutionHistoryFilters';
+import { ExecutionHistoryFilters } from '../components/common/ExecutionHistoryFilters';
 import { useUserSession } from '../hooks/useUserSession';
+import { DeviceMaintenanceBadge } from '../components/common/DeviceMaintenanceBadge';
+import { useMaintenanceGuard } from '../hooks/platformUpdate/useMaintenanceGuard';
+import { useI18n } from '../i18n/useI18n';
+import { dangerButtonSx, dangerIconSx, rateColor, segmentedSx, StatTiles } from '../components/common/PageChrome';
+import { TYPOGRAPHY } from '../constants/typography';
 
 const RUN_VERSION_SELECTOR_ENABLED = isRunVersionSelectorEnabled();
 
-// Simple execution record interface
-interface ExecutionRecord {
-  id: string;
-  executionType: 'script' | 'testcase' | 'campaign';
-  scriptName: string;
-  hostName: string;
-  deviceId?: string;
-  deploymentId?: string;
-  deploymentExecutionId?: string;
-  backendTaskId?: string;
-  deviceModel?: string; // Add device model field
-  startedAtRaw?: string;
-  completedAtRaw?: string;
-  startTime: string;
-  endTime?: string;
-  status: 'running' | 'completed' | 'failed' | 'aborted' | 'queued' | 'skipped';
-  testResult?: 'success' | 'failure'; // New field for actual test outcome
-  parameters?: string;
-  reportUrl?: string;
-  logsUrl?: string; // Add logs URL field
-  campaignSuccess?: boolean;
-  campaignScripts?: CampaignScriptLike[];
-  // Launch-time config so the row's rerun icon can relaunch without
-  // refetching anything (see RerunPayload above).
-  rerunPayload?: RerunPayload;
-}
-
-const parseExecutionDisplayTimestamp = (value?: string): number => {
-  if (!value) return 0;
-  const parsed = new Date(value).getTime();
-  return Number.isNaN(parsed) ? 0 : parsed;
-};
-
-const applyExecutionTimestamps = (record: ExecutionRecord): ExecutionRecord => {
-  const next = { ...record };
-
-  if (next.startedAtRaw) {
-    next.startTime = formatToLocalTimeShort(next.startedAtRaw);
-  } else if (next.startTime) {
-    next.startedAtRaw = next.startTime;
-  }
-
-  if (next.completedAtRaw) {
-    next.endTime = formatToLocalTimeShort(next.completedAtRaw);
-  } else if (next.endTime) {
-    next.completedAtRaw = next.endTime;
-  }
-
-  return next;
-};
-
-const getExecutionRecordScore = (record: ExecutionRecord): number => {
-  let score = 0;
-
-  if (record.id?.length === 36) score += 4;
-  if (record.deploymentExecutionId) score += 4;
-  if (record.deploymentId) score += 2;
-  if (record.backendTaskId) score += 2;
-  if (record.endTime) score += 2;
-  if (record.reportUrl) score += 1;
-  if (record.logsUrl) score += 1;
-  if (record.testResult) score += 1;
-  if (record.status === 'completed' || record.status === 'failed' || record.status === 'aborted' || record.status === 'skipped') {
-    score += 3;
-  } else if (record.status === 'running') {
-    score += 1;
-  }
-
-  return score;
-};
-
-const pickPreferredExecutionRecord = (left: ExecutionRecord, right: ExecutionRecord): ExecutionRecord => {
-  const leftScore = getExecutionRecordScore(left);
-  const rightScore = getExecutionRecordScore(right);
-
-  if (rightScore > leftScore) {
-      return {
-        ...right,
-      backendTaskId: right.backendTaskId || left.backendTaskId,
-      startedAtRaw: right.startedAtRaw || left.startedAtRaw,
-      completedAtRaw: right.completedAtRaw || left.completedAtRaw,
-      endTime: right.endTime || left.endTime,
-      reportUrl: right.reportUrl || left.reportUrl,
-      logsUrl: right.logsUrl || left.logsUrl,
-        testResult: right.testResult || left.testResult,
-        parameters: right.parameters || left.parameters,
-        deviceModel: right.deviceModel || left.deviceModel,
-        campaignSuccess: right.campaignSuccess ?? left.campaignSuccess,
-        campaignScripts: (right.campaignScripts && right.campaignScripts.length > 0) ? right.campaignScripts : left.campaignScripts,
-      };
-  }
-
-  return {
-    ...left,
-    backendTaskId: left.backendTaskId || right.backendTaskId,
-    startedAtRaw: left.startedAtRaw || right.startedAtRaw,
-    completedAtRaw: left.completedAtRaw || right.completedAtRaw,
-    endTime: left.endTime || right.endTime,
-    reportUrl: left.reportUrl || right.reportUrl,
-    logsUrl: left.logsUrl || right.logsUrl,
-    testResult: left.testResult || right.testResult,
-    parameters: left.parameters || right.parameters,
-    deviceModel: left.deviceModel || right.deviceModel,
-    campaignSuccess: left.campaignSuccess ?? right.campaignSuccess,
-    campaignScripts: (left.campaignScripts && left.campaignScripts.length > 0) ? left.campaignScripts : right.campaignScripts,
-  };
-};
-
-const normalizeExecutionHistory = (
-  records: ExecutionRecord[],
-  limit: number = RUN_TESTS_HISTORY_LIMIT,
-): ExecutionRecord[] => {
-  const byId = new Map<string, ExecutionRecord>();
-
-  records.forEach((record) => {
-    if (!record?.id) {
-      return;
-    }
-
-    const hydratedRecord = applyExecutionTimestamps(record);
-
-    const current = byId.get(hydratedRecord.id);
-    byId.set(
-      hydratedRecord.id,
-      current ? pickPreferredExecutionRecord(current, hydratedRecord) : hydratedRecord,
-    );
-  });
-
-  return Array.from(byId.values())
-    .sort((left, right) => {
-      const timeDiff =
-        parseExecutionDisplayTimestamp(right.completedAtRaw || right.endTime || right.startedAtRaw || right.startTime) -
-        parseExecutionDisplayTimestamp(left.completedAtRaw || left.endTime || left.startedAtRaw || left.startTime);
-      if (timeDiff !== 0) return timeDiff;
-
-      const targetDiff = `${left.hostName}:${left.deviceId || 'host'}`
-        .localeCompare(`${right.hostName}:${right.deviceId || 'host'}`);
-      if (targetDiff !== 0) return targetDiff;
-
-      const scriptDiff = left.scriptName.localeCompare(right.scriptName);
-      if (scriptDiff !== 0) return scriptDiff;
-
-      return left.id.localeCompare(right.id);
-    })
-    .slice(0, limit);
-};
 
 type SelectedExecutableInstance = ExecutableItem & { instanceId: string };
 
@@ -285,7 +162,6 @@ interface ScriptAnalysis {
 
 const RUN_TESTS_STATE_KEY = 'run_tests_ui_state_v1';
 const RUN_TESTS_PARAMETER_CACHE_KEY = 'run_tests_parameter_cache_v1';
-const RUN_TESTS_HISTORY_LIMIT = 20;
 const ENVIRONMENT_LABELS: Record<'dev' | 'test' | 'prod', string> = { dev: 'Dev', test: 'Test', prod: 'Prod' };
 
 const normalizeLoadedCampaign = (campaign: any): Omit<CampaignConfig, 'host' | 'device'> => ({
@@ -310,11 +186,26 @@ const normalizeLoadedCampaign = (campaign: any): Omit<CampaignConfig, 'host' | '
 
 
 const RunTests: React.FC = () => {
+  const { t } = useI18n();
   const location = useLocation();
   const [searchParams, setSearchParams] = useSearchParams();
   const { isMobile, isTablet } = useResponsiveMode();
   const isCompact = isMobile || isTablet;
   const P = useAgentChatPalette();
+  // TASK-113: per-row action calls (checkLock / abortRunning) dispatch
+  // to the device's home server, not the currently selected one. The
+  // catalog fetch already stamps every host with its home server URL
+  // (ServerManagerProvider.tsx:421-424); the lookup is the single source
+  // of truth for "this host belongs to that server". The currently
+  // selected server is the fallback when a host is not (yet) on any
+  // known server (same as today's behavior, so single-server flows
+  // are unaffected).
+  const { serverHostsData, selectedServer } = useServerManager();
+  // TASK-113: per-script / per-testcase action calls (script/analyze,
+  // testcase/{id}/versions) key on a script name that lives on ONE
+  // server. The script-server index fans out the script list per
+  // server and resolves the home URL.
+  const { serverUrlFor: scriptServerUrlFor, error: scriptIndexError } = useScriptServerUrl();
   /**
    * The per-device target chip in a parameter row.
    *
@@ -330,13 +221,15 @@ const RunTests: React.FC = () => {
     ? {}
     : { position: 'sticky' as const, left: 0, zIndex: 1, bgcolor: 'background.paper' };
   const execColumns = useResizableColumns([
-    { key: 'target', initialWidth: 160, minWidth: 80 },
-    { key: 'script', initialWidth: 240, minWidth: 100 },
-    { key: 'start', initialWidth: 120, minWidth: 70 },
-    { key: 'end', initialWidth: 120, minWidth: 70 },
-    { key: 'status', initialWidth: 120, minWidth: 80 },
-    { key: 'report', initialWidth: 120, minWidth: 80 },
-    { key: 'logs', initialWidth: 120, minWidth: 80 },
+    { key: 'target', initialWidth: 140, minWidth: 80 },
+    { key: 'script', initialWidth: 220, minWidth: 100 },
+    { key: 'start', initialWidth: 90, minWidth: 70 },
+    { key: 'end', initialWidth: 90, minWidth: 70 },
+    { key: 'result', initialWidth: 120, minWidth: 80 },
+    { key: 'duration', initialWidth: 80, minWidth: 60 },
+    { key: 'status', initialWidth: 110, minWidth: 80 },
+    { key: 'report', initialWidth: 70, minWidth: 60 },
+    { key: 'logs', initialWidth: 70, minWidth: 60 },
     { key: 'rerun', initialWidth: 70, minWidth: 50 },
   ]);
   const { executeMultipleScripts, isExecuting, executingIds } = useScript();
@@ -346,18 +239,16 @@ const RunTests: React.FC = () => {
   // a one-shot copy that waited behind it — a phantom "running forever" row.
   const runLaunchingRef = useRef(false);
   const [isRunLaunching, setIsRunLaunching] = useState(false);
+  const { guardAny, guardDialog: maintenanceGuardDialog } = useMaintenanceGuard();
   const { executeCampaign } = useCampaign();
   const { createDeployment, runDeploymentNow } = useDeployment();
   const {
-    runningExecutions: ctxRunningExecutions,
-    queuedExecutions: ctxQueuedExecutions,
-    completedExecutions: ctxCompletedExecutions,
     refresh: refreshExecutions,
     subscribeSystemUpdate,
   } = useRunExecutions();
   const { executeTestCase } = useTestCaseExecution();
   const { getTestCase } = useTestCaseSave();
-  const { showInfo, showSuccess, showError } = useToast();
+  const { showInfo, showSuccess, showError, showWarning } = useToast();
   
   const [browserTab, setBrowserTab] = useState<'tests' | 'campaigns'>(
     searchParams.get('tab') === 'campaigns' ? 'campaigns' : 'tests',
@@ -391,9 +282,6 @@ const RunTests: React.FC = () => {
   const [deviceInfoByDevice, setDeviceInfoByDevice] = useState<DeviceInfoMap>({});
   const [deviceInfoModalOpen, setDeviceInfoModalOpen] = useState(false);
   const [selectedExecutableItems, setSelectedExecutableItems] = useState<SelectedExecutableInstance[]>([]);
-  // Result filter for Last Executions. A long history is mostly passes, and the row someone
-  // is looking for is nearly always the one that failed.
-  const [historyResultFilter, setHistoryResultFilter] = useState<'all' | 'success' | 'failure'>('all');
 
   // Scripts by default at every width: the list is mostly disk scripts, and on a phone an
   // unfiltered list is a long scroll before anything recognisable appears.
@@ -425,7 +313,6 @@ const RunTests: React.FC = () => {
     allHosts,
     getDevicesFromHost,
   } = useTargetSelection();
-  const previouslyRunningTargetsRef = useRef<Set<string>>(new Set());
   const { isDeviceAllowed, isScriptAllowed } = useWorkspaceContext();
 
   /**
@@ -493,7 +380,6 @@ const RunTests: React.FC = () => {
 
   const [loadingScripts, setLoadingScripts] = useState<boolean>(false);
   const [activeExecutions, setActiveExecutions] = useState<ExecutionRecord[]>([]);
-  const executions = activeExecutions;
   const setExecutions = setActiveExecutions;
   const [scriptCallbackUrl, setScriptCallbackUrl] = useState<string>('');
   // Which dev/test/prod DB row a virtual script instance runs (per selected
@@ -535,6 +421,8 @@ const RunTests: React.FC = () => {
     const lockedSet = new Set(selectedExecutionLockedTargets);
     return (key: string) => {
       if (lockedSet.has(key)) return true;
+      // Busy with one of the user's own executions: treated as locked so the run queues.
+      if (runningTargetKeys.has(key)) return true;
       // Check has_running_deployment from host data (available for all targets, no extra API call)
       const [hostName, deviceId] = key.split(':');
       if (!hostName) return false;
@@ -542,32 +430,14 @@ const RunTests: React.FC = () => {
       const device = devices.find((d: any) => d.device_id === (deviceId || 'host'));
       return Boolean(device?.has_running_deployment);
     };
-  }, [selectedExecutionLockedTargets, getDevicesFromHost]);
+  }, [selectedExecutionLockedTargets, getDevicesFromHost, runningTargetKeys]);
 
+  // Busy (running / locked) targets stay selectable: the run queues them until free.
   const selectedRunnableTargetKeys = useMemo(
-    () => Array.from(selectedDevices.keys()).filter(
-      (key) => !runningTargetKeys.has(key) && !isTargetLocked(key),
-    ),
-    [selectedDevices, runningTargetKeys, isTargetLocked],
+    () => Array.from(selectedDevices.keys()),
+    [selectedDevices],
   );
   const selectedRunnableTargetCount = selectedRunnableTargetKeys.length;
-
-  // When a target finishes running, drop it from the target selection so the
-  // checkbox, "N targets selected" counter, and Selected Items panel all agree
-  // (otherwise the just-finished target stays force-checked + disabled and the
-  // user can't unselect it).
-  useEffect(() => {
-    const previous = previouslyRunningTargetsRef.current;
-    const finished: string[] = [];
-    previous.forEach((key) => {
-      if (!runningTargetKeys.has(key)) {
-        finished.push(key);
-      }
-    });
-    previouslyRunningTargetsRef.current = new Set(runningTargetKeys);
-    if (finished.length === 0) return;
-    filterTargetKeys((key) => !finished.includes(key));
-  }, [runningTargetKeys, filterTargetKeys]);
 
   const scheduleRepeatError = useMemo(() => {
     if (scheduleRepeatMode !== 'periodic' || !scheduleRepeat.trim()) {
@@ -585,105 +455,23 @@ const RunTests: React.FC = () => {
     setSelectorTypeFilter(browserTab === 'campaigns' ? null : 'script');
   }, [browserTab]);
 
-  function getExecutionDeviceId(deviceId?: string) {
-    if (deviceId && deviceId.trim()) {
-      return deviceId;
-    }
-    return 'host';
-  }
+  const historyExecutions = useExecutionHistoryRecords();
 
-  function buildTargetKey(hostName: string, deviceId?: string) {
-    return `${hostName}:${getExecutionDeviceId(deviceId)}`;
-  }
-
-  function formatTargetLabel(hostName: string, deviceId?: string, deviceDisplayName?: string) {
-    const normalizedDeviceId = getExecutionDeviceId(deviceId);
-    if (normalizedDeviceId === 'host') {
-      return hostName;
-    }
-    // Show the target device in front of the host so the device is the primary
-    // identifier, while the host stays visible to disambiguate the same
-    // device_name across hosts (e.g. "example-v1:host-1").
-    return `${deviceDisplayName || normalizedDeviceId}:${hostName}`;
-  }
-
-  const mapDeploymentExecutionToRecord = useCallback((execution: any): ExecutionRecord | null => {
-    const deployment = execution?.deployments;
-    const deploymentExecutionId = execution?.id;
-    const deploymentId = execution?.deployment_id || deployment?.id;
-    const startedAt = execution?.started_at || execution?.scheduled_at;
-    const rawStatus = String(execution?.status || '').toLowerCase();
-    const status = rawStatus === 'running' || rawStatus === 'completed' || rawStatus === 'failed' || rawStatus === 'aborted' || rawStatus === 'queued' || rawStatus === 'skipped'
-      ? rawStatus as ExecutionRecord['status']
-      : 'queued';
-
-    if (!deploymentId || !deployment?.host_name || !startedAt) {
-      return null;
-    }
-
-    const isFileCampaign = !deployment?.campaign_id && (deployment?.script_name || '').toLowerCase().includes('campaign');
-    const executionType: ExecutionRecord['executionType'] = (deployment?.campaign_id || isFileCampaign) ? 'campaign' : 'script';
-    const reportUrl = execution?.report_url || execution?.reportUrl;
-    const rawLogsUrl = execution?.logs_url || execution?.logsUrl;
-
-    // Hoist the launch-time rerun config from the deployment row (written by
-    // create_adhoc_execution and the /server/deployment/create route). For
-    // script-type rows that predate this column, synthesize one from the
-    // existing fields so older entries are still rerunnable.
-    let rerunPayload: RerunPayload | undefined;
-    if (deployment?.rerun_payload && typeof deployment.rerun_payload === 'object') {
-      rerunPayload = deployment.rerun_payload as RerunPayload;
-    } else if (executionType === 'script') {
-      rerunPayload = {
-        type: 'script',
-        scriptName: deployment.script_name || '',
-        hostName: deployment.host_name,
-        deviceId: deployment.device_id || 'host',
-        parameters: deployment.parameters || '',
-      };
-    }
-
-    return {
-      id: deploymentExecutionId || deploymentId,
-      executionType,
-      scriptName: (executionType === 'campaign' ? execution?.campaign_name : null) || deployment?.script_name || deployment?.name || 'Deployment',
-      hostName: deployment.host_name,
-      deviceId: deployment.device_id || 'host',
-      deploymentId,
-      deploymentExecutionId: deploymentExecutionId || undefined,
-      startedAtRaw: startedAt,
-      completedAtRaw: execution?.completed_at || undefined,
-      startTime: formatToLocalTimeShort(startedAt),
-      endTime: execution?.completed_at ? formatToLocalTimeShort(execution.completed_at) : undefined,
-      status,
-      testResult: status === 'completed'
-        ? (execution?.success ? 'success' : 'failure')
-        : status === 'failed'
-          ? 'failure'
-          : undefined,
-      reportUrl: reportUrl || undefined,
-      logsUrl: rawLogsUrl ? getLogsUrl(rawLogsUrl) : reportUrl ? getLogsUrl(reportUrl) : undefined,
-      campaignSuccess: execution?.campaign_success,
-      campaignScripts: Array.isArray(execution?.campaign_scripts) ? execution.campaign_scripts : undefined,
-      rerunPayload,
-    };
-  }, []);
-
-  const historyExecutions = useMemo<ExecutionRecord[]>(() => {
-    const combined = [
-      ...ctxRunningExecutions,
-      ...ctxQueuedExecutions,
-      ...ctxCompletedExecutions,
-    ];
-    const records = combined
-      .map((execution: any) => mapDeploymentExecutionToRecord(execution))
-      .filter((record): record is ExecutionRecord => Boolean(record));
-    // Keep every record (scripts + campaigns) here — the tab/workspace filters
-    // and the final RUN_TESTS_HISTORY_LIMIT slice happen in visibleExecutions.
-    // Slicing to 20 now would drop all script rows whenever the 20 most recent
-    // executions are campaigns (e.g. an hourly campaign deployment).
-    return normalizeExecutionHistory(records, Infinity);
-  }, [ctxRunningExecutions, ctxQueuedExecutions, ctxCompletedExecutions, mapDeploymentExecutionToRecord]);
+  /**
+   * The running executions the operator can SEE, not only the ones this browser
+   * session started.
+   *
+   * `activeExecutions` holds the runs this page started. After a reload it is
+   * empty while the Last Executions table still shows the run the server
+   * reports as running — and the Abort button used to read only the local
+   * list, so it was greyed out exactly when the operator was looking at a run
+   * they could not stop (QA-OPS-20). The table already merges both sources,
+   * so the button does the same.
+   */
+  const abortableRunningExecutions = useMemo(
+    () => collectAbortableRunningExecutions(activeExecutions, historyExecutions),
+    [activeExecutions, historyExecutions],
+  );
 
   const getPlannedStartDate = useCallback((): string | null => {
     if (startDateOption === 'now') return null;
@@ -823,11 +611,7 @@ const RunTests: React.FC = () => {
       tags: [],
       badgeLabel: getCampaignBadge(item.source).label,
       badgeColor: getCampaignBadge(item.source).color,
-      target_rules: normalizeTargetRules(item.compatibility_rules?.[0] || {
-        target_type: 'device',
-        host_os: 'all',
-        device_model: 'all',
-      }),
+      target_rules: effectiveTargetRules(item.compatibility_rules?.[0]),
     }))
   ), [campaignExecutables]);
 
@@ -1001,8 +785,13 @@ const RunTests: React.FC = () => {
       selectedKeys.map(async (deviceKey) => {
         const [hostName, deviceId] = deviceKey.split(':');
         const effectiveDeviceId = getExecutionDeviceId(deviceId);
+        // TASK-113: route the lock check to the device's home server.
+        const homeServerUrl = lookupHostServerUrl(serverHostsData, hostName) ?? selectedServer;
         try {
-          const response = await fetch(buildServerUrl('/server/control/checkLock'), {
+          const response = await fetch(buildServerUrlForServer(
+            homeServerUrl,
+            '/server/control/checkLock',
+          ), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ host_name: hostName, device_id: effectiveDeviceId }),
@@ -1340,7 +1129,9 @@ const RunTests: React.FC = () => {
 
     analysisRequestsRef.current.add(scriptId);
     try {
-      const analysis = await api.post(buildServerUrl('/server/script/analyze'), {
+      // TASK-113: route the analysis to the script's home server.
+      const scriptHome = scriptServerUrlFor(scriptId) ?? selectedServer;
+      const analysis = await api.post(buildServerUrlForServer(scriptHome, '/server/script/analyze'), {
         script_name: scriptId,
       }) as ScriptAnalysis;
 
@@ -1361,24 +1152,42 @@ const RunTests: React.FC = () => {
     }
   }, [buildInitialParameterValues, scriptAnalysisCache, selectedScript]);
 
+  /**
+   * The rules the selected executable declares, or the default for one that
+   * declares none.
+   *
+   * The default MUST be the same one the executable list uses, because the two
+   * answer the same question about the same script: `isExecutableCompatibleWithCurrentSelection`
+   * treats a rule-less script as compatible with everything (so legacy scripts
+   * do not disappear from the list), while this default used to say 'device'
+   * only. The gap was invisible until the target was picked FIRST: the list
+   * showed the script, the operator picked it, and the pruning effect below
+   * then deleted the target — a host_vnc browser target included — so the Run
+   * button stayed greyed out with no message (QA-OPS-19).
+   *
+   * A host-level target is the `host` pseudo-device (the host_vnc browser
+   * device), and `isTargetKeyCompatibleWithRules` judges a 'device'-typed rule
+   * against it as "not a device". 'all' is therefore the default that agrees
+   * with the list; a script that DOES declare 'device' keeps pruning the
+   * host-level target, and the list hides that script for such a target in the
+   * first place, so the two stay consistent in both directions.
+   */
   const selectedExecutableRules = useMemo<TargetRules>(() => {
     if (browserTab === 'campaigns') {
       const rules = selectedCampaignExecutable?.compatibility_rules || [];
-      return normalizeTargetRules(rules[0] || { target_type: 'device', host_os: 'all', device_model: 'all' });
+      return effectiveTargetRules(rules[0]);
     }
+    // A script that declares no target rules can run on any target: the server only
+    // checks the rules a script actually declares (server_script_routes.py), and the
+    // other direction on this page already treats a rule-less script as compatible with
+    // everything (isExecutableCompatibleWithCurrentSelection). Defaulting to 'device'
+    // here made the page prune a target the server would have run happily — the user
+    // ticked a target, picked a script, and the target un-ticked itself (BUG-0789).
     if (selectedExecutable?.type === 'testcase') {
-      return selectedExecutable.target_rules || {
-        target_type: 'device',
-        host_os: 'all',
-        device_model: 'all',
-      };
+      return effectiveTargetRules(selectedExecutable.target_rules);
     }
 
-    return selectedExecutable?.target_rules || {
-      target_type: 'device',
-      host_os: 'all',
-      device_model: 'all',
-    };
+    return effectiveTargetRules(selectedExecutable?.target_rules);
   }, [browserTab, selectedCampaignExecutable, selectedExecutable]);
   const isHostSelectionMode = selectedExecutableRules.target_type === 'host';
 
@@ -1715,8 +1524,10 @@ const RunTests: React.FC = () => {
     // When a script/testcase doesn't declare target_rules, treat it as
     // compatible with everything (host- or device-selection) instead of
     // hiding it — otherwise legacy scripts silently disappear from the
-    // executable list.
-    const rules = item.target_rules || { target_type: 'all', host_os: 'all', device_model: 'all' };
+    // executable list. effectiveTargetRules() is the ONE place that answers
+    // "what are the rules of this executable", so the list and the pruning
+    // below can never answer differently (QA-OPS-19 / BUG-0789).
+    const rules = effectiveTargetRules(item.target_rules);
 
     return Array.from(selectedDevices.keys()).some((key) =>
       isTargetKeyCompatibleWithRules(key, allHosts, rules),
@@ -1749,8 +1560,19 @@ const RunTests: React.FC = () => {
       filterTargetKeys((key) => rules.some((rule) => isTargetKeyCompatibleWithRules(key, allHosts, rule)));
       return;
     }
-    filterTargetKeys((key) => isTargetKeyCompatibleWithRules(key, allHosts, selectedExecutableRules));
-  }, [browserTab, selectedExecutable, selectedCampaignExecutable, selectedExecutableRules, allHosts, filterTargetKeys]);
+    const keeps = (key: string) => isTargetKeyCompatibleWithRules(key, allHosts, selectedExecutableRules);
+    // Say what was dropped. A target that un-ticks itself with no word is what the QA
+    // sweep reported: the panel went back to "0 selected" and Run stayed greyed out
+    // (BUG-0789).
+    const dropped = Array.from(selectedDevices.keys()).filter((key) => !keeps(key));
+    if (dropped.length > 0) {
+      const name = selectedExecutable?.name || 'The selected script';
+      showWarning(
+        `${name} cannot run on ${dropped.length === 1 ? 'that target' : 'those targets'} — the target was removed`,
+      );
+    }
+    filterTargetKeys(keeps);
+  }, [browserTab, selectedExecutable, selectedCampaignExecutable, selectedExecutableRules, allHosts, filterTargetKeys, selectedDevices, showWarning]);
 
   // Normalize the selected target key shape to match the current panel mode so
   // the target panel, selected-items panel, and execution logic all read the
@@ -1781,8 +1603,17 @@ const RunTests: React.FC = () => {
 
         const normalizedDeviceId = getExecutionDeviceId(rawDeviceId);
         const normalizedDeviceKey = `${hostName}:${normalizedDeviceId}`;
+        // A device id of 'host' is the host_vnc pseudo-device — the browser
+        // device the target list offers like any other device — and NOT
+        // "the host". The old guard dropped every such target on the string
+        // alone, so picking a script deleted a browser target the operator had
+        // just ticked (QA-OPS-19 / BUG-0789). What it was really guarding is a
+        // host selection on a host that has no such device: the key stays only
+        // when the host really has a device with that id.
+        const host = allHosts.find((entry) => entry.host_name === hostName);
+        const deviceExists = hostHasDeviceWithId(host, normalizedDeviceId);
         if (
-          normalizedDeviceId !== 'host' &&
+          deviceExists &&
           isTargetKeyCompatibleWithRules(normalizedDeviceKey, allHosts, selectedExecutableRules)
         ) {
           next.set(normalizedDeviceKey, ui);
@@ -1858,7 +1689,10 @@ const RunTests: React.FC = () => {
 
 
   const handleAbortRunningTargets = async () => {
-    const runningExecutions = executions.filter((exec) => exec.status === 'running');
+    // The runs this page started, plus the ones the server still reports as
+    // running (a reload empties the local list but the table keeps showing
+    // them). See `abortableRunningExecutions`.
+    const runningExecutions = abortableRunningExecutions;
     if (runningExecutions.length === 0) {
       showInfo('No running targets to abort');
       return;
@@ -1884,8 +1718,10 @@ const RunTests: React.FC = () => {
         const abortEndpoint = hasTestcaseExecution
           ? '/server/testcase/abortRunning'
           : '/server/script/abortRunning';
+        // TASK-113: route the abort to the device's home server.
+        const homeServerUrl = lookupHostServerUrl(serverHostsData, hostName) ?? selectedServer;
         try {
-          const response = await fetch(buildServerUrl(abortEndpoint), {
+          const response = await fetch(buildServerUrlForServer(homeServerUrl, abortEndpoint), {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ host_name: hostName, device_id: effectiveDeviceId }),
@@ -1935,8 +1771,10 @@ const RunTests: React.FC = () => {
         ? '/server/testcase/abortRunning'
         : '/server/script/abortRunning';
     const deviceId = getExecutionDeviceId(abort.deviceId || '');
+    // TASK-113: route the abort to the device's home server.
+    const homeServerUrl = lookupHostServerUrl(serverHostsData, abort.hostName ?? '') ?? selectedServer;
     try {
-      const response = await fetch(buildServerUrl(endpoint), {
+      const response = await fetch(buildServerUrlForServer(homeServerUrl, endpoint), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -2136,8 +1974,15 @@ const RunTests: React.FC = () => {
       }
 
       try {
+        // TASK-113: route the testcase versions fetch to the
+        // executable's home server. Falls back to the selected server
+        // when the index doesn't yet have the executable (e.g. user
+        // picked from a just-loaded list before the index rebuilt).
+        const executableHome = selectedExecutable?.id
+          ? scriptServerUrlFor(selectedExecutable.id) ?? selectedServer
+          : selectedServer;
         const response = await api.get<{ success: boolean; versions: VersionSnapshotRecord[] }>(
-          buildServerUrl(`/server/testcase/${selectedExecutable.id}/versions`),
+          buildServerUrlForServer(executableHome, `/server/testcase/${selectedExecutable.id}/versions`),
         );
         if (!response?.success || !Array.isArray(response.versions) || response.versions.length === 0) {
           throw new Error('Failed to load testcase versions');
@@ -2234,11 +2079,17 @@ const RunTests: React.FC = () => {
     devices: T[],
     { allowOwnManualLock = false }: { allowOwnManualLock?: boolean } = {},
   ) => {
+    const knownBusy = (device: T) => {
+      const key = `${device.hostName}:${getExecutionDeviceId(device.deviceId)}`;
+      return runningTargetKeys.has(key) || isTargetLocked(key);
+    };
     const lockChecks = await Promise.all(
       devices.map(async (device) => {
         try {
           const effectiveDeviceId = getExecutionDeviceId(device.deviceId);
-          const response = await fetch(buildServerUrl('/server/control/checkLock'), {
+          // TASK-113: route the lock check to the device's home server.
+          const homeServerUrl = lookupHostServerUrl(serverHostsData, device.hostName) ?? selectedServer;
+          const response = await fetch(buildServerUrlForServer(homeServerUrl, '/server/control/checkLock'), {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -2251,12 +2102,13 @@ const RunTests: React.FC = () => {
           const data = await response.json();
           return {
             device,
-            locked: Boolean(data?.is_locked),
+            locked: Boolean(data?.is_locked) || knownBusy(device),
             lockInfo: data?.lock_info,
           };
         } catch {
           // Fail-open on transient network issues; backend lock acquisition still arbitrates.
-          return { device, locked: false, lockInfo: null };
+          // Targets already known busy are still queued rather than run directly.
+          return { device, locked: knownBusy(device), lockInfo: null };
         }
       }),
     );
@@ -2266,10 +2118,17 @@ const RunTests: React.FC = () => {
     lockChecks.forEach((entry) => {
       const ownManualLock =
         allowOwnManualLock &&
+        !knownBusy(entry.device) &&
         Boolean(sessionUserId) &&
         entry.lockInfo?.owner_type === 'manual_control' &&
         entry.lockInfo?.owner_user_id === sessionUserId;
-      if (entry.locked && !ownManualLock) {
+      // A device held by a browser-isolated run is NOT blocked. That run drives a Chrome
+      // of its own (its own debug port and profile), so the server starts another
+      // browser test beside it instead of queueing it (TASK-146). The server stays the
+      // arbiter: if the script being started is not browser-isolated, it queues or
+      // refuses the run there, exactly as before.
+      const heldByBrowserRun = String(entry.lockInfo?.lock_reason || '').endsWith('#browser_isolated');
+      if (entry.locked && !ownManualLock && !heldByBrowserRun) {
         blocked.push({ device: entry.device, lockInfo: entry.lockInfo });
       } else {
         runnable.push(entry.device);
@@ -2413,7 +2272,7 @@ const RunTests: React.FC = () => {
     }
     const allDevices: DeviceExecution[] = [];
 
-    // Iterate over selected runnable devices (running/execution-locked targets are skipped)
+    // Iterate over selected devices (busy ones are queued by splitDevicesByLockState)
     selectedRunnableTargetKeys.forEach((deviceKey) => {
       const [hostName, deviceId] = deviceKey.split(':');
 
@@ -2430,7 +2289,7 @@ const RunTests: React.FC = () => {
     });
 
     if (allDevices.length === 0) {
-      showError('No runnable target selected (current selections are running or execution-locked)');
+      showError('Select at least one target');
       return;
     }
 
@@ -2462,7 +2321,11 @@ const RunTests: React.FC = () => {
       }
       if (queuedCount > 0) {
         void refreshExecutions();
-        showSuccess(`Queued ${queuedCount} locked device(s) — will run when free`);
+        showSuccess(
+          lockSplit.runnable.length > 0
+            ? t('Started {n}, queued {m} busy target(s) — they run when free', { n: lockSplit.runnable.length, m: queuedCount })
+            : t('Queued {n} busy target(s) — they run when free', { n: queuedCount }),
+        );
       }
       }
     }
@@ -2735,11 +2598,11 @@ const RunTests: React.FC = () => {
       } else {
         // Multi-device final summary
         if (successCount === allDevices.length) {
-          showSuccess(`🎉 All ${allDevices.length} devices completed successfully!`);
+          showSuccess(`All ${allDevices.length} devices completed successfully!`);
         } else if (successCount > 0) {
-          showInfo(`📊 Final: ${successCount}/${allDevices.length} devices successful`);
+          showInfo(`Final: ${successCount}/${allDevices.length} devices successful`);
         } else {
-          showError(`💥 All ${allDevices.length} devices failed`);
+          showError(`All ${allDevices.length} devices failed`);
         }
       }
       
@@ -2776,7 +2639,7 @@ const RunTests: React.FC = () => {
     }
     const allDevices: DeviceExecution[] = [];
 
-    // Iterate over selected runnable devices (running/execution-locked targets are skipped)
+    // Iterate over selected devices (busy ones are queued by splitDevicesByLockState)
     selectedRunnableTargetKeys.forEach((deviceKey) => {
       const [hostName, deviceId] = deviceKey.split(':');
 
@@ -2787,7 +2650,7 @@ const RunTests: React.FC = () => {
     });
 
     if (allDevices.length === 0 || !selectedScript) {
-      showError('Please select a script and at least one runnable target');
+      showError('Please select a script and at least one target');
       return;
     }
 
@@ -2816,7 +2679,11 @@ const RunTests: React.FC = () => {
       }
       if (queuedCount > 0) {
         void refreshExecutions();
-        showSuccess(`Queued ${queuedCount} locked device(s) — will run when free`);
+        showSuccess(
+          lockSplit.runnable.length > 0
+            ? t('Started {n}, queued {m} busy target(s) — they run when free', { n: lockSplit.runnable.length, m: queuedCount })
+            : t('Queued {n} busy target(s) — they run when free', { n: queuedCount }),
+        );
       }
     }
 
@@ -3131,11 +2998,11 @@ const RunTests: React.FC = () => {
       } else {
         // Multi-device final summary
         if (successCount === allDevices.length) {
-          showSuccess(`🎉 All ${allDevices.length} devices completed successfully!`);
+          showSuccess(`All ${allDevices.length} devices completed successfully!`);
         } else if (successCount > 0) {
-          showInfo(`📊 Final: ${successCount}/${allDevices.length} devices successful`);
+          showInfo(`Final: ${successCount}/${allDevices.length} devices successful`);
         } else {
-          showError(`💥 All ${allDevices.length} devices failed`);
+          showError(`All ${allDevices.length} devices failed`);
         }
       }
 
@@ -3625,7 +3492,18 @@ const RunTests: React.FC = () => {
     }
   };
 
-  const handleRunAction = async () => {
+  // A run on a device under maintenance asks first (TASK-97 G6); the selection keys are "host:device".
+  const handleRunAction = () => {
+    guardAny(
+      Array.from(selectedDevices.keys()).map((key) => {
+        const [hostName, deviceId] = key.split(':');
+        return { hostName, deviceId };
+      }),
+      () => void startRunAction(),
+    );
+  };
+
+  const startRunAction = async () => {
     if (runLaunchingRef.current) return;
     runLaunchingRef.current = true;
     setIsRunLaunching(true);
@@ -3644,12 +3522,17 @@ const RunTests: React.FC = () => {
     }
 
     if (browserTab === 'campaigns') {
-      const devices = selectedRunnableTargetKeys.map((deviceKey) => {
+      const freeKeys = selectedRunnableTargetKeys.filter((key) => !isTargetLocked(key));
+      const skippedCount = selectedRunnableTargetKeys.length - freeKeys.length;
+      if (skippedCount > 0) {
+        showInfo(t('Skipped {n} busy target(s) — campaigns cannot queue yet', { n: skippedCount }));
+      }
+      const devices = freeKeys.map((deviceKey) => {
         const [hostName, deviceId] = deviceKey.split(':');
         return { hostName, deviceId };
       });
       if (devices.length === 0) {
-        showError('Please select at least one runnable target');
+        if (skippedCount === 0) showError('Please select at least one target');
         return;
       }
       await executeCampaignOnDevices(devices);
@@ -3670,7 +3553,7 @@ const RunTests: React.FC = () => {
   // selectedDevices/selectedExecutable/perDeviceParams — the user's current
   // selection is preserved. Rerun is run-now only: if the target is locked,
   // the executor surfaces an error toast (no scheduler fallback).
-  const handleRerun = useCallback(async (payload: RerunPayload) => {
+  const rerunNow = useCallback(async (payload: RerunPayload) => {
     if (payload.type === 'script') {
       await executeScriptOnDevices(
         [{ hostName: payload.hostName, deviceId: payload.deviceId }],
@@ -3739,6 +3622,13 @@ const RunTests: React.FC = () => {
       return;
     }
   }, []);
+
+  const handleRerun = useCallback(
+    async (payload: RerunPayload) => {
+      guardAny([{ hostName: payload.hostName, deviceId: payload.deviceId }], () => void rerunNow(payload));
+    },
+    [guardAny, rerunNow],
+  );
 
 
 
@@ -3809,12 +3699,8 @@ const RunTests: React.FC = () => {
   
   const selectedTargetEntries = useMemo(
     () => {
-      // Skip locked/running devices — their checkbox is force-checked and the
-      // user can't uncheck them, but the row only applies to whatever script
-      // already owns the lock. Don't carry it into a newly-selected script's
-      // Selected Items panel (the run also skips them — see selectedRunnableTargetKeys).
+      // Busy (running/locked) targets keep their row: the run queues them.
       const entries = Array.from(selectedDevices.keys())
-        .filter((deviceKey) => !runningTargetKeys.has(deviceKey) && !isTargetLocked(deviceKey))
         .map((deviceKey) => {
           const [hostName, deviceId] = deviceKey.split(':');
           // Resolve the live device_name so the chip label matches the rest of
@@ -3838,7 +3724,7 @@ const RunTests: React.FC = () => {
         return true;
       });
     },
-    [selectedDevices, getDevicesFromHost, runningTargetKeys, isTargetLocked],
+    [selectedDevices, getDevicesFromHost],
   );
 
   // Copy a source target's per-device params to every other selected target,
@@ -3967,95 +3853,52 @@ const RunTests: React.FC = () => {
     () => visibleExecutions.map((execution) => {
       const hostDevices = getDevicesFromHost(execution.hostName);
       const deviceObject = execution.deviceId ? hostDevices.find((d) => d.device_id === execution.deviceId) : undefined;
-      const deviceDisplayName = deviceObject?.device_name || undefined;
-
-      // Parameters this script/device ran with — local rows carry them on the
-      // record, DB rows carry them on the script rerunPayload. Drop --host and
-      // --device (the Target column already shows them), then break the CLI
-      // string onto one line per flag so the hover tooltip stays readable.
-      const rawParams = execution.parameters
-        || (execution.rerunPayload?.type === 'script' ? execution.rerunPayload.parameters : '');
-      const trimmedParams = rawParams
-        ? rawParams.replace(/(^|\s)--(host|device)\s+\S+/g, '').trim()
-        : '';
-      const parametersLabel = trimmedParams
-        ? trimmedParams.replace(/\s+--/g, '\n--')
-        : undefined;
-
-      return {
-        id: execution.id,
-        targetLabel: formatTargetLabel(execution.hostName, execution.deviceId, deviceDisplayName),
-        scriptLabel: getScriptDisplayName(execution.scriptName, aiTestCasesInfo),
-        parametersLabel,
-        startedLabel: formatExecutionHistoryTimestamp(execution.startedAtRaw || execution.startTime),
-        completedLabel: formatExecutionHistoryTimestamp(execution.completedAtRaw || execution.endTime),
-        status: execution.status,
-        resultSuccess: execution.executionType === 'campaign'
-          ? (execution.campaignSuccess ?? (execution.testResult === 'success' ? true : execution.testResult === 'failure' ? false : null))
-          : (execution.testResult === 'success' ? true : execution.testResult === 'failure' ? false : null),
-        reportUrl: execution.reportUrl,
-        logsUrl: execution.logsUrl,
-        campaignScripts: mapCampaignScriptsToHistoryRows(execution.campaignScripts),
-        hideTopLevelLogs: execution.executionType === 'campaign',
-        // Only show the rerun icon on completed rows — reruns while the
-        // original is still running/queued just race the original.
-        rerunPayload: (execution.status === 'completed' || execution.status === 'failed')
-          ? execution.rerunPayload
-          : undefined,
-        abortPayload: execution.status === 'running'
-          ? { hostName: execution.hostName, deviceId: execution.deviceId, executionType: execution.executionType }
-          : undefined,
-      };
+      return executionRecordToHistoryRow(
+        execution,
+        deviceObject?.device_name || undefined,
+        getScriptDisplayName(execution.scriptName, aiTestCasesInfo),
+      );
     }),
     [aiTestCasesInfo, getDevicesFromHost, visibleExecutions],
   );
 
-  const filteredExecutionHistoryRows = useMemo(
-    () => (historyResultFilter === 'all'
-      ? executionHistoryRows
-      // `resultSuccess` is null while a run is queued or still going; such a row belongs to
-      // neither bucket, so a filtered view drops it rather than guessing which it will become.
-      : executionHistoryRows.filter((row) => row.resultSuccess === (historyResultFilter === 'success'))),
-    [executionHistoryRows, historyResultFilter],
-  );
-  const hasSuccessfulExecution = executionHistoryRows.some((row) => row.resultSuccess === true);
-  const hasFailedExecution = executionHistoryRows.some((row) => row.resultSuccess === false);
-
-  useEffect(() => {
-    if ((historyResultFilter === 'success' && !hasSuccessfulExecution)
-      || (historyResultFilter === 'failure' && !hasFailedExecution)) {
-      setHistoryResultFilter('all');
+  const liveProgress = useLiveScriptProgress(buildTargetKey);
+  const [liveRunId, setLiveRunId] = useState<string | null>(null);
+  const liveRunRow = executionHistoryRows.find((row) => row.id === liveRunId) ?? null;
+  const openLiveRun = (row: ExecutionHistoryRow) => {
+    setLiveRunId(row.id);
+    if (row.liveKey && row.abortPayload) {
+      void liveProgress.loadSnapshot(row.liveKey, row.abortPayload.hostName, getExecutionDeviceId(row.abortPayload.deviceId));
     }
-  }, [historyResultFilter, hasFailedExecution, hasSuccessfulExecution]);
+  };
 
-  const historyResultFilterControl = (
-    <ToggleButtonGroup
-      exclusive
-      size="small"
-      value={historyResultFilter}
-      onChange={(_e, v) => v !== null && setHistoryResultFilter(v)}
-      sx={{
-        bgcolor: P.hoverBg, p: 0.25, borderRadius: 2, gap: 0.25,
-        '& .MuiToggleButton-root': {
-          border: '1px solid transparent !important', borderRadius: '6px !important',
-          py: 0.25, px: 1.25, fontSize: '0.72rem', textTransform: 'none', color: P.textSecondary,
-        },
-        '& .MuiToggleButton-root.Mui-selected': {
-          bgcolor: P.surface, color: P.accentText, fontWeight: 600,
-          borderColor: `${P.borderColor} !important`, '&:hover': { bgcolor: P.surface },
-        },
-      }}
-    >
-      <ToggleButton value="all">All</ToggleButton>
-      <ToggleButton value="success" disabled={!hasSuccessfulExecution}>Success</ToggleButton>
-      <ToggleButton value="failure" disabled={!hasFailedExecution}>Failure</ToggleButton>
-    </ToggleButtonGroup>
-  );
+  const historyFilters = useExecutionHistoryFilters(executionHistoryRows);
+  const filteredExecutionHistoryRows = historyFilters.filteredRows;
+
+  // Summary strip above the launch form: only data this page already loads.
+  const runningNowCount = executionHistoryRows.filter((row) => row.status === 'running').length;
+  const finishedRows = executionHistoryRows.filter((row) => row.resultSuccess != null);
+  const lastTen = finishedRows.slice(0, 10);
+  const avgPassRate = lastTen.length ? Math.round((lastTen.filter((row) => row.resultSuccess).length / lastTen.length) * 100) : null;
+  const failingRuns = finishedRows.filter((row) => row.resultSuccess === false).length;
+  const runsSummaryTiles = [
+    { label: t('running now'), value: runningNowCount },
+    {
+      label: t('all passed'),
+      value: finishedRows.length - failingRuns,
+      color: P.success,
+      extra: avgPassRate != null ? <span style={{ color: rateColor(avgPassRate, P) }}>{t('{n}% of last 10', { n: avgPassRate })}</span> : undefined,
+    },
+    { label: t('with failures'), value: failingRuns, color: failingRuns > 0 ? P.error : undefined },
+  ];
+
+  const historyResultFilterControl = <ExecutionHistoryFilters filters={historyFilters} />;
 
   return (
     <Box sx={{ px: isMobile ? 0.25 : isTablet ? 0.75 : 1, pt: isMobile ? 0.25 : 0.5, pb: isMobile ? 0.25 : isTablet ? 0.75 : 1 }}>
+      {maintenanceGuardDialog}
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, gap: 1, flexWrap: 'wrap' }}>
-        <Typography component="h1" sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
+        <Typography component="h1" sx={{ fontSize: TYPOGRAPHY.pageTitle.size, fontWeight: 600 }}>
           Run Tests
         </Typography>
         <ToggleButtonGroup
@@ -4063,17 +3906,7 @@ const RunTests: React.FC = () => {
           exclusive
           value={browserTab}
           onChange={(_e, v) => v && handleBrowserTabChange(v)}
-          sx={{
-              bgcolor: P.hoverBg, p: 0.375, borderRadius: 2, gap: 0.375,
-              '& .MuiToggleButton-root': {
-                border: '1px solid transparent !important', borderRadius: '6px !important',
-                textTransform: 'none', fontSize: 13, fontWeight: 500, color: P.textSecondary, py: 0.4, px: 2,
-              },
-              '& .MuiToggleButton-root.Mui-selected': {
-                bgcolor: P.surface, color: P.accentText, fontWeight: 600,
-                borderColor: `${P.borderColor} !important`, '&:hover': { bgcolor: P.surface },
-              },
-            }}
+          sx={segmentedSx(P)}
         >
           <ToggleButton value="tests">Tests</ToggleButton>
           <ToggleButton value="campaigns">Campaigns</ToggleButton>
@@ -4091,13 +3924,15 @@ const RunTests: React.FC = () => {
         </Card>
       ) : null}
 
+      <StatTiles tiles={runsSummaryTiles} collapsible defaultCollapsed storageKey="runtests.summary" />
+
       <Grid
         container
         spacing={2}
         sx={{
           // One card look for the whole page: hairline border, no shadow, rounder corners.
           '& .MuiCard-root': { borderRadius: 3, border: `1px solid ${P.borderColor}`, boxShadow: 'none' },
-          '& .MuiCard-root .MuiTypography-h6': { fontSize: '1rem', fontWeight: 600 },
+          '& .MuiCard-root .MuiTypography-h6': { fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600 },
         }}
       >
         <Grid item xs={12}>
@@ -4120,12 +3955,12 @@ const RunTests: React.FC = () => {
                     onUpdateUserinterface={updateDeviceUserinterface}
                     allHosts={allHosts}
                     getDevicesFromHost={getDevicesFromHost}
-                    isTargetDisabled={(key) => runningTargetKeys.has(key) || !!targetUnavailableReason(key)}
+                    isTargetDisabled={(key) => !!targetUnavailableReason(key)}
                     getDisabledReason={targetUnavailableReason}
-                    isTargetForceChecked={(key) => runningTargetKeys.has(key)}
                     isTargetLocked={isTargetLocked}
                     getLockTooltip={(key) => lockTooltips[key] || 'Locked'}
                     hostOnly={selectedExecutableRules.target_type === 'host'}
+                    showFavorites
                     disableInternalScroll={isCompact}
                     isHostVisible={(hostName) => {
                       const host = allHosts.find((h: any) => h.host_name === hostName);
@@ -4138,13 +3973,19 @@ const RunTests: React.FC = () => {
                       return device ? isDeviceCompatibleWithRules(host, device, selectedExecutableRules) : false;
                     }}
                     showUserinterfaceSelector={false}
-                    selectionCountLabel={`${selectedRunnableTargetCount} target${selectedRunnableTargetCount !== 1 ? 's' : ''} selected`}
+                    selectionCountLabel={t('{n} selected', { n: selectedRunnableTargetCount })}
                   />
                 </Box>
 
                 <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                  {scriptIndexError && browserTab === 'tests' ? (
+                    <Typography variant="caption" color="error" role="alert">
+                      {scriptIndexError}
+                    </Typography>
+                  ) : null}
                   <UnifiedExecutableSelector
                     dataKey={browserTab}
+                    favoriteKind={browserTab === 'campaigns' ? 'campaign' : undefined}
                     value={browserTab === 'tests' ? null : selectedCampaignSelectorItem}
                     selectedItems={browserTab === 'tests' ? selectedExecutableItems : selectedCampaignSelectorItems}
                     onChange={(item) => {
@@ -4181,6 +4022,29 @@ const RunTests: React.FC = () => {
                           void addCampaignSelection(matchedCampaign);
                         }
                       });
+                    }}
+                    onUnselectItems={(items) => {
+                      const ids = new Set(items.map((entry) => entry.id));
+                      if (browserTab === 'campaigns') {
+                        const next = selectedCampaignExecutableItems.filter((entry) => !ids.has(entry.id));
+                        setSelectedCampaignExecutableItems(next);
+                        if (next.length === 0) {
+                          setSelectedCampaignExecutable(null);
+                          setSelectedCampaignConfig(null);
+                        } else if (selectedCampaignExecutable && ids.has(selectedCampaignExecutable.id)) {
+                          void handleSelectCampaignExecutable(next[next.length - 1]);
+                        }
+                        return;
+                      }
+                      const next = selectedExecutableItems.filter((entry) => !ids.has(entry.id));
+                      setSelectedExecutableItems(next);
+                      if (next.length === 0) {
+                        setSelectedExecutable(null);
+                        setSelectedScript('');
+                        setExpandedItemId(null);
+                      } else if (selectedExecutable && ids.has(selectedExecutable.id)) {
+                        setSelectedExecutable(next[next.length - 1]);
+                      }
                     }}
                     onUnselectAllVisible={browserTab === 'campaigns' ? () => {
                       setSelectedCampaignExecutable(null);
@@ -4280,7 +4144,7 @@ const RunTests: React.FC = () => {
                   onClick={handleRunAction}
                   sx={{
                     px: 2.5, fontWeight: 600, textTransform: 'none',
-                    bgcolor: P.accent, color: '#1a1a1a',
+                    bgcolor: P.accent, color: P.onAccent,
                     '&:hover': { bgcolor: P.accentHover },
                     '&.Mui-disabled': { bgcolor: P.hoverBg, color: P.textMuted },
                   }}
@@ -4304,10 +4168,9 @@ const RunTests: React.FC = () => {
                 {!isCompact && (
                   <Button
                     variant="outlined"
-                    color="error"
                     onClick={handleAbortRunningTargets}
-                    sx={{ textTransform: 'none' }}
-                    disabled={browserTab === 'campaigns' || runningTargetKeys.size === 0}
+                    sx={{ ...dangerButtonSx(P), textTransform: 'none' }}
+                    disabled={browserTab === 'campaigns' || abortableRunningExecutions.length === 0}
                   >
                     Abort
                   </Button>
@@ -4496,9 +4359,9 @@ const RunTests: React.FC = () => {
                     )}
                     <IconButton
                       size="small"
-                      color="error"
                       onClick={clearExecutableSelections}
                       title="Clear all selected items"
+                      sx={dangerIconSx(P)}
                     >
                       <DeleteOutlineIcon fontSize="small" />
                     </IconButton>
@@ -4523,7 +4386,7 @@ const RunTests: React.FC = () => {
                       }}
                     >
                       <AccordionSummary
-                        expandIcon={<ExpandMoreIcon sx={{ fontSize: 18 }} />}
+                        expandIcon={<ExpandMoreIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />}
                         sx={{
                           minHeight: 34,
                           px: 1,
@@ -4545,13 +4408,13 @@ const RunTests: React.FC = () => {
                               label={getExecutableBadge(item).label}
                               size="small"
                               color={getExecutableBadge(item).color}
-                              sx={{ height: '16px', fontSize: '0.6rem', minWidth: '24px' }}
+                              sx={{ height: '16px', fontSize: TYPOGRAPHY.microMeta.size, minWidth: '24px' }}
                             />
                             <Typography
                               variant="body2"
                               sx={{
                                 fontWeight: 600,
-                                fontSize: '0.82rem',
+                                fontSize: TYPOGRAPHY.body.size,
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap',
@@ -4579,8 +4442,7 @@ const RunTests: React.FC = () => {
                           )}
                           <IconButton
                             size="small"
-                            color="error"
-                            sx={{ mr: 0.25 }}
+                            sx={{ ...dangerIconSx(P), mr: 0.25 }}
                             onClick={(event) => { event.stopPropagation(); removeTestSelection(item.instanceId); }}
                           >
                             <DeleteOutlineIcon fontSize="small" />
@@ -4606,11 +4468,12 @@ const RunTests: React.FC = () => {
                                   <Chip
                                     size="small"
                                     label={label}
-                                    icon={locked ? <LockIcon sx={{ fontSize: 14 }} /> : undefined}
+                                    icon={locked ? <LockIcon sx={{ fontSize: TYPOGRAPHY.body.size }} /> : undefined}
                                     variant="filled"
                                     color={locked ? 'warning' : 'default'}
-                                    sx={{ maxWidth: '100%', fontSize: '0.7rem' }}
+                                    sx={{ maxWidth: '100%', fontSize: TYPOGRAPHY.caption.size }}
                                   />
+                                  <DeviceMaintenanceBadge deviceKey={deviceKey} size={14} />
                                 </Box>
                                 {/* Copy-to-all: push this row's params (except UI/variant) to every other target */}
                                 {selectedTargetEntries.length > 1 && itemDisplayParameters.length > 0 && (
@@ -4621,7 +4484,7 @@ const RunTests: React.FC = () => {
                                         onClick={() => copyParamsToAllTargets(item.instanceId, deviceKey, itemDisplayParameters)}
                                         sx={{ p: 0.25 }}
                                       >
-                                        <ContentCopyIcon sx={{ fontSize: 16 }} />
+                                        <ContentCopyIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
                                       </IconButton>
                                     </Tooltip>
                                   </Box>
@@ -4674,7 +4537,7 @@ const RunTests: React.FC = () => {
                       }}
                     >
                       <AccordionSummary
-                        expandIcon={<ExpandMoreIcon sx={{ fontSize: 18 }} />}
+                        expandIcon={<ExpandMoreIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />}
                         sx={{
                           minHeight: 34,
                           px: 1,
@@ -4696,13 +4559,13 @@ const RunTests: React.FC = () => {
                               label={getCampaignBadge(item.source).label}
                               size="small"
                               color={getCampaignBadge(item.source).color}
-                              sx={{ height: '16px', fontSize: '0.6rem', minWidth: '24px' }}
+                              sx={{ height: '16px', fontSize: TYPOGRAPHY.microMeta.size, minWidth: '24px' }}
                             />
                             <Typography
                               variant="body2"
                               sx={{
                                 fontWeight: 600,
-                                fontSize: '0.82rem',
+                                fontSize: TYPOGRAPHY.body.size,
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap',
@@ -4713,8 +4576,7 @@ const RunTests: React.FC = () => {
                           </Box>
                           <IconButton
                             size="small"
-                            color="error"
-                            sx={{ mr: 0.25 }}
+                            sx={{ ...dangerIconSx(P), mr: 0.25 }}
                             onClick={(event) => { event.stopPropagation(); removeCampaignSelection(item.id); }}
                           >
                             <DeleteOutlineIcon fontSize="small" />
@@ -4735,7 +4597,7 @@ const RunTests: React.FC = () => {
 
                             return (
                               <Box key={scriptConfig.script_name}>
-                                <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.75rem', color: 'text.secondary', pl: 0.5, display: 'block', mb: 0.25 }}>
+                                <Typography variant="caption" sx={{ fontWeight: 600, fontSize: TYPOGRAPHY.caption.size, color: 'text.secondary', pl: 0.5, display: 'block', mb: 0.25 }}>
                                   {scriptConfig.script_name}
                                 </Typography>
                                 {/* Single shared horizontal scrollbar for all device rows */}
@@ -4748,11 +4610,12 @@ const RunTests: React.FC = () => {
                                           <Chip
                                             size="small"
                                             label={label}
-                                            icon={locked ? <LockIcon sx={{ fontSize: 14 }} /> : undefined}
+                                            icon={locked ? <LockIcon sx={{ fontSize: TYPOGRAPHY.body.size }} /> : undefined}
                                             variant="filled"
                                             color={locked ? 'warning' : 'default'}
-                                            sx={{ maxWidth: '100%', fontSize: '0.7rem' }}
+                                            sx={{ maxWidth: '100%', fontSize: TYPOGRAPHY.caption.size }}
                                           />
+                                          <DeviceMaintenanceBadge deviceKey={deviceKey} size={14} />
                                         </Box>
                                         {/* Copy-to-all: push this row's params (except UI/variant) to every other target */}
                                         {selectedTargetEntries.length > 1 && displayParams.length > 0 && (
@@ -4763,7 +4626,7 @@ const RunTests: React.FC = () => {
                                                 onClick={() => copyParamsToAllTargets(campaignScriptKey, deviceKey, displayParams)}
                                                 sx={{ p: 0.25 }}
                                               >
-                                                <ContentCopyIcon sx={{ fontSize: 16 }} />
+                                                <ContentCopyIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
                                               </IconButton>
                                             </Tooltip>
                                           </Box>
@@ -4848,10 +4711,12 @@ const RunTests: React.FC = () => {
             titleExtra={historyResultFilterControl}
             rows={filteredExecutionHistoryRows}
             scriptColumnLabel={browserTab === 'campaigns' ? 'Campaign' : 'Test'}
+            richColumns
             emptyMessage={browserTab === 'campaigns' ? 'No campaign executions yet' : 'No test executions yet'}
             onOpenUrl={handleOpenR2Url}
             onRerun={handleRerun}
             onAbort={handleAbortHistoryRow}
+            liveRun={{ getProgress: (row) => (row.liveKey ? liveProgress.byTarget[row.liveKey] : undefined), onOpen: openLiveRun }}
             isCompact={isCompact}
             isTablet={isTablet}
             cardSx={{ '& .MuiCardContent-root': { p: 2, '&:last-child': { pb: 2 } } }}
@@ -4865,6 +4730,14 @@ const RunTests: React.FC = () => {
           />
         </Grid>
       </Grid>
+
+      <LiveRunDialog
+        row={liveRunRow}
+        progress={liveRunRow?.liveKey ? liveProgress.byTarget[liveRunRow.liveKey] : undefined}
+        onClose={() => setLiveRunId(null)}
+        onStop={(row) => { void handleAbortHistoryRow(row); }}
+        streamProps={{ allHosts, getDevicesFromHost, isActive: true }}
+      />
 
       <DeviceInfoModal
         open={deviceInfoModalOpen}

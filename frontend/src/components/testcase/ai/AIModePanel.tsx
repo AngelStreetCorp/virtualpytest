@@ -5,6 +5,7 @@ import { AIEditPreview } from './AIEditPreview';
 import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import VisibilityIcon from '@mui/icons-material/Visibility';
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface AIModePanelProps {
   aiPrompt?: string;
@@ -44,8 +45,8 @@ export const AIModePanel: React.FC<AIModePanelProps> = ({
           onChange={(_, mode) => mode && aiEdit.setMode(mode)}
           disabled={isGenerating || aiEdit.isEditing}
         >
-          <ToggleButton value="new" sx={{ fontSize: 11 }}>New graph</ToggleButton>
-          <ToggleButton value="edit" sx={{ fontSize: 11 }}>Edit open graph</ToggleButton>
+          <ToggleButton value="new" sx={{ fontSize: TYPOGRAPHY.microMeta.size }}>New graph</ToggleButton>
+          <ToggleButton value="edit" sx={{ fontSize: TYPOGRAPHY.microMeta.size }}>Edit open graph</ToggleButton>
         </ToggleButtonGroup>
       )}
       <TextField

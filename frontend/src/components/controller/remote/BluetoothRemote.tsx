@@ -42,6 +42,8 @@ import {
 } from '../../../hooks/controller/useBluetoothRemote';
 import { useConfirmDialog } from '../../../hooks/useConfirmDialog';
 import { Host } from '../../../types/common/Host_Types';
+import { neutralButtonSx, primaryButtonSx } from '../../common/PageChrome';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface BluetoothRemoteProps {
   host: Host;
@@ -59,8 +61,13 @@ interface BluetoothRemoteProps {
    * Called whenever the BLE dot color should change. RemotePanel uses
    * this to render the dot in its header next to the remote title.
    * Passing `null` would clear the dot; we always pass a color here.
+   * The `blink` flag is true while the link is actively being woken or
+   * recovered (a transient action) — RemotePanel plays a soft opacity
+   * pulse on the dot so the operator sees motion, not just a static
+   * amber pill. Pure colour changes (degraded / fully connected) are
+   * not blinked; the steady colour is the signal there.
    */
-  onStatusChange?: (color: string, tooltip: string) => void;
+  onStatusChange?: (color: string, tooltip: string, blink: boolean) => void;
 }
 
 /**
@@ -112,6 +119,7 @@ export const BluetoothRemote = React.memo(
       startPairing,
       resume,
       coldWake,
+      reconnecting,
       getLogs,
       logsSince,
       clearLogsSince,
@@ -148,6 +156,12 @@ export const BluetoothRemote = React.memo(
     // snapshot briefly flashes the amber "Remote connected but not
     // responding" state. Waiting for fullyConnected hides it.
     const [pairingIntent, setPairingIntent] = useState(false);
+    // The operator pressed Power (cold wake): show the wake screen for that
+    // wake only; a drop on its own keeps the remote mounted.
+    const [userWake, setUserWake] = useState(false);
+    useEffect(() => {
+      if (!isWaking) setUserWake(false);
+    }, [isWaking]);
 
     // Safety net: independent of the hook's pair-poll loop, force-clear
     // pairingIntent BLE_PAIR_WAIT_S after the user clicked pair. Guards against any
@@ -332,6 +346,7 @@ export const BluetoothRemote = React.memo(
       if (!status.daemon_active) return P.error;
       if (!status.bond_present) return P.error;
       if (degraded) return P.warning;  // amber — connected but keys won't work
+      if (reconnecting) return P.warning;  // amber — link dropped, a press reconnects
       if (fullyConnected && status.connected) return P.success;
       return P.error; // bonded but STB disconnected
     })();
@@ -346,12 +361,17 @@ export const BluetoothRemote = React.memo(
 
     // Publish dot color + tooltip upward to RemotePanel's header whenever
     // either changes. useEffect with primitive deps so we don't thrash on
-    // every render.
+    // every render. The blink flag is the wake / re-link transient — the
+    // dot already turns amber on reconnecting, so blink is a motion
+    // confirmation, not a colour change. See BUG-0420 history (this
+    // replaces the inline "Waking STB…" badge that lived on top of the
+    // remote image).
+    const dotBlink = isWaking || reconnecting;
     useEffect(() => {
       if (onStatusChange) {
-        onStatusChange(dotColor, dotTooltip);
+        onStatusChange(dotColor, dotTooltip, dotBlink);
       }
-    }, [dotColor, dotTooltip, onStatusChange]);
+    }, [dotColor, dotTooltip, dotBlink, onStatusChange]);
 
     // ---- Headline for the action screen --------------------------------
     const actionHeadline = (() => {
@@ -492,15 +512,15 @@ export const BluetoothRemote = React.memo(
           }}
         >
           {activelyPairing || isWaking ? (
-            <BluetoothSearchingIcon sx={{ fontSize: 56, color: P.accentText }} />
+            <BluetoothSearchingIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: P.accentText }} />
           ) : !status ? (
             <CircularProgress size={28} />
           ) : !status.daemon_active ? (
-            <BluetoothIcon sx={{ fontSize: 56, color: P.error }} />
+            <BluetoothIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: P.error }} />
           ) : degraded ? (
-            <BluetoothIcon sx={{ fontSize: 56, color: P.warning }} />
+            <BluetoothIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: P.warning }} />
           ) : (
-            <BluetoothSearchingIcon sx={{ fontSize: 56, color: P.textMuted }} />
+            <BluetoothSearchingIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: P.textMuted }} />
           )}
 
           <Typography variant="subtitle1" sx={{ color: P.textPrimary }}>
@@ -539,7 +559,7 @@ export const BluetoothRemote = React.memo(
           )}
 
           {(pairPhase === 'timeout' || pairPhase === 'failed') && pairError && (
-            <Alert severity="error" sx={{ maxWidth: 380, fontSize: '0.8rem' }}>
+            <Alert severity="error" sx={{ maxWidth: 380, fontSize: TYPOGRAPHY.body.size }}>
               {pairError}
             </Alert>
           )}
@@ -579,38 +599,41 @@ export const BluetoothRemote = React.memo(
             {showResume && canManagePairing && (
               <Button
                 variant="contained"
-                color="warning"
                 size="small"
                 startIcon={isLoading ? <CircularProgress size={14} color="inherit" /> : <RefreshIcon />}
                 onClick={resume}
                 disabled={isLoading}
+                sx={primaryButtonSx(P)}
               >
                 {isLoading ? 'Resuming…' : 'Resume'}
               </Button>
             )}
             {showRepair && canManagePairing && (
               <Button
-                variant="contained"
-                color="warning"
+                variant="outlined"
                 size="small"
                 startIcon={isPairing ? <CircularProgress size={14} color="inherit" /> : <BluetoothIcon />}
                 onClick={triggerRepair}
                 disabled={isPairing}
+                sx={neutralButtonSx(P)}
               >
                 {isPairing ? 'Re-pairing…' : 'Re-pair'}
               </Button>
             )}
             {showPower && (
               <Button
-                variant="contained"
-                color="error"
+                variant="outlined"
                 size="small"
                 startIcon={
                   isWaking ? <CircularProgress size={14} color="inherit" /> : <PowerSettingsNewIcon />
                 }
-                onClick={coldWake}
+                onClick={() => {
+                  setUserWake(true);
+                  void coldWake();
+                }}
                 disabled={isWaking}
                 title="Press POWER to wake the STB from deep standby (Broadcom WoBLE)"
+                sx={neutralButtonSx(P)}
               >
                 {isWaking ? 'Waking…' : 'Power'}
               </Button>
@@ -647,6 +670,12 @@ export const BluetoothRemote = React.memo(
           position: 'relative',
         }}
       >
+        {/* No inline "Waking STB…" / "Reconnecting…" badge here. The
+            heading + subtext state the wake, the disabled Power button
+            shows its own progress, and the panel-header BLE status dot
+            turns amber and blinks while the wake / re-link is in flight
+            (see onStatusChange callback). Two spinners and a coloured
+            pill in one frame were redundant — see BUG-0420. */}
         {!isCollapsed && (
           <IconButton
             size="small"
@@ -667,9 +696,9 @@ export const BluetoothRemote = React.memo(
             }}
           >
             {showOverlays ? (
-              <VisibilityIcon sx={{ fontSize: 18 }} />
+              <VisibilityIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />
             ) : (
-              <VisibilityOffIcon sx={{ fontSize: 18 }} />
+              <VisibilityOffIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />
             )}
           </IconButton>
         )}
@@ -717,7 +746,7 @@ export const BluetoothRemote = React.memo(
             {isPairing || pairingIntent ? (
               <CircularProgress size={16} color="inherit" />
             ) : (
-              <BluetoothSearchingIcon sx={{ fontSize: 18 }} />
+              <BluetoothSearchingIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />
             )}
           </IconButton>
         )}
@@ -792,7 +821,9 @@ export const BluetoothRemote = React.memo(
                 <Typography
                   variant="caption"
                   sx={{
-                    fontSize: `${parseInt(layoutConfig.remote_info.text_style.fontSize) * remoteScale}px`,
+                    // ui-ok: no-literal-font-size — per-remote dynamic sizing from the layout
+                    // config (base px × remoteScale); not a role token.
+                    fontSize: `${parseInt(layoutConfig.remote_info.text_style.fontSize) * remoteScale}px`, // ui-ok: no-literal-font-size - overlay text scales with the remote image
                     fontWeight: layoutConfig.remote_info.text_style.fontWeight,
                     color: keyDisabled ? 'rgba(160, 160, 160, 0.5)' : layoutConfig.remote_info.text_style.color,
                     textShadow: layoutConfig.remote_info.text_style.textShadow,
@@ -852,7 +883,9 @@ export const BluetoothRemote = React.memo(
       // without `|| isPairing` the old bond's fullyConnected snapshot would
       // briefly re-show the remote (with a live Re-pair button) mid-pair.
       if (pairingIntent || isPairing || pairPhase === 'pairing') return renderActionScreen();
-      if (fullyConnected) return renderRemoteImage();
+      // A remote that worked this session stays mounted through link drops
+      // and the background auto-wake: the next press reconnects on the host.
+      if (fullyConnected || (reconnecting && !userWake)) return renderRemoteImage();
       return renderActionScreen();
     };
 
@@ -920,7 +953,7 @@ export const BluetoothRemote = React.memo(
           </Stack>
           <Stack direction="row" alignItems="center" spacing={0.5}>
             {logsSince && (
-              <Button size="small" onClick={clearLogsSince} sx={{ color: '#aaa', fontSize: '0.65rem', minWidth: 0 }}>
+              <Button size="small" onClick={clearLogsSince} sx={{ color: '#aaa', fontSize: TYPOGRAPHY.microMeta.size, minWidth: 0 }}>
                 Show all
               </Button>
             )}
@@ -938,7 +971,7 @@ export const BluetoothRemote = React.memo(
           sx={{
             minHeight: 28,
             px: 2,
-            '& .MuiTab-root': { minHeight: 28, py: 0.5, fontSize: '0.7rem', color: '#999' },
+            '& .MuiTab-root': { minHeight: 28, py: 0.5, fontSize: TYPOGRAPHY.caption.size, color: '#999' },
             '& .Mui-selected': { color: '#7aa !important' },
             '& .MuiTabs-indicator': { backgroundColor: '#7aa' },
           }}
@@ -950,7 +983,7 @@ export const BluetoothRemote = React.memo(
         <DialogContent
           sx={{
             fontFamily: 'monospace',
-            fontSize: '0.7rem',
+            fontSize: TYPOGRAPHY.caption.size,
             py: 1,
             height: '60vh',
             overflow: 'hidden',
@@ -963,7 +996,7 @@ export const BluetoothRemote = React.memo(
                   margin: 0,
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-all',
-                  fontSize: '0.7rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   lineHeight: 1.25,
                   color: '#ddd',
                 }}

@@ -173,6 +173,18 @@ def test_overlay_reads_the_known_transient_surfaces():
     assert scv.overlay(_tooltip()) == 'tooltip'
 
 
+def test_a_page_reaching_the_top_right_corner_is_not_a_notification():
+    """BUG-0535: a promo slate whose bright picture fills 0.80 x 0.88 of the frame from the top-right
+    corner was read as a notification banner. A notification is a band, not most of the screen."""
+    assert scv.overlay(_with_panel(25, 210, 0.20, 0.0, 1.0, 0.88)) != 'notification'
+
+
+def test_a_page_spanning_the_frame_height_is_not_a_popup():
+    """BUG-0535: the bright half of a promo slate (full height, to the right edge, dark left side)
+    read as a popup. A modal floats inside the frame."""
+    assert scv.overlay(_with_panel(25, 210, 0.33, 0.0, 1.0, 0.95)) != 'popup'
+
+
 def test_overlay_rejects_a_bright_bottom_strip_without_a_real_top_edge():
     """A photo / screensaver with a sunlit bottom strip is geometrically identical to a
     keyboard: a wide bright plate flush with the bottom edge. What it lacks is a real top
@@ -208,23 +220,72 @@ def test_top_edge_diff_returns_zero_when_the_plate_is_at_the_frame_top():
     assert scv.overlay(img) != 'keyboard'                     # the plate is at the frame top
 
 
-def test_overlay_has_no_defence_against_bright_text_on_a_dark_picture():
-    """MEASURED DEFECT, pinned so it cannot regress silently.
+def test_bright_text_on_a_dark_picture_is_not_a_transient():
+    """Was a pinned defect (tooltip 38x / keyboard 17x on capture4 promo slates). TASK-107 goal 7
+    recalibrated the rules on real frames: a tooltip is a solid, uniform callout with neutral
+    text, a keyboard is rows of keys. A promo slate is now at most an honest 'unknown'."""
+    assert scv.overlay(_promo_slate()) not in ('tooltip', 'keyboard', 'notification', 'popup')
 
-    Run over the real static-abstain frames from vpt-pi1/capture4, `overlay()` returned
-    tooltip 38x and keyboard 17x on broadcast promo slates -- content it is calling a UI
-    transient. Both the tooltip and the keyboard rules are "a brighter region over a
-    darker surround", and bright show typography on a near-black picture has that shape.
 
-    So a 78% "already answered" coverage number from overlay() is mostly false positives.
-    The fix is not here but upstream: a content/broadcast test (the channel bugelogo) has
-    to run FIRST and short-circuit, because overlay() cannot tell a slate from a
-    tooltip by shape alone.
+def _busy_page(w=640, h=360, seed=4):
+    """A TV home page: dark background, rows of photo-like tiles, a menu underline."""
+    rng = np.random.default_rng(seed)
+    img = np.full((h, w, 3), 22, np.uint8)
+    for r, y in enumerate((0.30, 0.62)):
+        for c in range(6):
+            x0, y0 = int((0.04 + c * 0.16) * w), int(y * h)
+            img[y0:y0 + int(0.22 * h), x0:x0 + int(0.14 * w)] = rng.integers(30, 230, (int(0.22 * h), int(0.14 * w), 3))
+    img[int(0.08 * h):int(0.08 * h) + 3, int(0.05 * w):int(0.95 * w)] = 230      # the menu underline
+    return img
 
-    This test documents the failure, so that when thresholds are retuned against real
-    dialog/tooltip frames the change is a deliberate one rather than a silent drift.
-    """
-    assert scv.overlay(_promo_slate()) in ('tooltip', 'keyboard', 'notification', 'popup')
+
+def _with_callout(img, x, y, cw, ch, fill, ink, colour_ink=False):
+    out = img.copy()
+    h, w = out.shape[:2]
+    X, Y, W, H = int(x * w), int(y * h), int(cw * w), int(ch * h)
+    out[Y - 2:Y + H + 2, X - 2:X + W + 2] = 10
+    out[Y:Y + H, X:X + W] = fill
+    for k in range(4):                                       # four words of text
+        x0 = X + W // 10 + k * (W // 5)
+        out[Y + H // 3:Y + 2 * H // 3, x0:x0 + W // 7] = (200, 0, 160) if colour_ink else ink
+    return out
+
+
+def test_tooltip_needs_a_solid_callout_with_neutral_text():
+    page = _busy_page()
+    assert scv.overlay(page) not in ('tooltip', 'keyboard', 'notification', 'popup')   # tiles, underline
+    assert scv.overlay(_with_callout(page, 0.40, 0.52, 0.18, 0.06, 230, 40)) == 'tooltip'
+    assert scv.overlay(_with_callout(page, 0.40, 0.52, 0.18, 0.06, 230, 40, colour_ink=True)) != 'tooltip'  # a logo
+
+
+def test_tooltip_on_a_light_page_is_a_dark_callout():
+    page = np.full((360, 640, 3), 245, np.uint8)
+    page[40:60, 30:610] = 200
+    assert scv.overlay(_with_callout(page, 0.40, 0.50, 0.18, 0.06, 40, 230)) == 'tooltip'
+
+
+def _key_grid(page, rows=4, cols=10, top=0.58, panel=True):
+    out = page.copy()
+    h, w = out.shape[:2]
+    y0 = int(top * h)
+    out[y0:, :] = 45 if panel else 22
+    kh, kw = (h - y0) // (rows + 1), w // (cols + 1)
+    for r in range(rows):
+        for c in range(cols):
+            y, x = y0 + kh // 2 + r * kh, kw // 2 + c * kw
+            out[y:y + kh - 6, x:x + kw - 6] = 100
+    return out
+
+
+def test_keyboard_is_rows_of_keys_not_a_tile_grid():
+    page = _busy_page()
+    assert scv.overlay(_key_grid(page)) == 'keyboard'
+    assert scv.overlay(_key_grid(page, rows=2, cols=7, panel=False)) != 'keyboard'   # two rows of app tiles
+
+
+def test_a_short_top_right_banner_is_a_notification():
+    page = _busy_page()
+    assert scv.overlay(_with_callout(page, 0.66, 0.01, 0.33, 0.11, 235, 50)) == 'notification'
 
 
 def test_overlay_is_unknown_without_a_frame():

@@ -28,6 +28,12 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Copy backend_server requirements and install with exact versions
+COPY backend_server/requirements.txt backend_server/
+RUN pip install --no-cache-dir -r backend_server/requirements.txt
+
+# VERSION.txt and shared/ change on nearly every commit: copied after the pip layer so a
+# rebuild reuses it.
 # Project-root version file: _read_local_deployed_version looks for /app/VERSION.txt
 # on Render/Docker (the Dockerfile's WORKDIR is /app/backend_server, so /app/ is
 # the project root). Without this copy the server reports deployed_version=null
@@ -39,16 +45,20 @@ COPY shared/ shared/
 # Add shared to PYTHONPATH
 ENV PYTHONPATH="/app/shared:/app/shared/src/lib:/app/backend_server/src"
 
-# Copy backend_server requirements and install with exact versions
-COPY backend_server/requirements.txt backend_server/
-RUN pip install --no-cache-dir -r backend_server/requirements.txt
-
 # Copy backend_server source scripts configuration
 COPY backend_server/src/ backend_server/src/
 COPY backend_server/scripts/ backend_server/scripts/
 COPY backend_server/config/ backend_server/config/
 # shared/src/lib/executors import backend_host modules — ship them (no runtime mount)
 COPY backend_host/src/ backend_host/src/
+
+# Project docs/ (markdown + OpenAPI specs + videos.json) — the search-docs and
+# video-library skills read it from /app/docs on the running container. The
+# root .dockerignore excludes `docs/`, so we cannot COPY it (would need
+# overriding .dockerignore or a separate build context). Instead the compose
+# file bind-mounts ../../docs:/app/docs:ro at runtime; this is the only path
+# the running container sees. The bind-mount also means live edits to docs/
+# show up on the next container restart without an image rebuild.
 
 # No .env is baked into the image: configuration arrives at runtime
 # (docker compose `env_file:` / `environment:`, or a mounted /app/.env).

@@ -87,8 +87,9 @@ def auto_lock(api, held: Dict[str, str], params: Dict[str, Any], host_name: str,
 
     ``held`` records locks this call acquired (released by the caller's ``_auto_unlock``).
     The device runs under the caller's own lock (no record, so it is not released) and is
-    refused - naming the holder - when anyone else holds it. ``force_unlock`` only stops a
-    running script/deployment/testcase; another person's Take Control is never taken.
+    refused - naming the holder - when anyone else holds it. ``force_unlock`` only clears a
+    STALE script/deployment/testcase lock; it never aborts another caller's live run or takes
+    another person's Take Control (BUG-0679).
     """
     sessions, user_id = caller_identity(params, host_name, device_id)
     session_id = sessions[0] if sessions else f"mcp-{tag}-{uuid.uuid4()}"
@@ -100,20 +101,27 @@ def auto_lock(api, held: Dict[str, str], params: Dict[str, Any], host_name: str,
     result = api.post('/server/control/takeControl', data=data, params=query)
 
     if (not result.get('success') and result.get('errorType') == 'device_locked' and force_unlock
-            and _lock_field(result, 'owner_type') in EXECUTION_OWNER_TYPES):
-        # Explicit opt-in: stop the running execution, then take the device.
+            and _lock_field(result, 'owner_type') in EXECUTION_OWNER_TYPES
+            and not is_own_lock(result, sessions, user_id)):
+        # Explicit opt-in: clear a stale run, then take the device. protect_live_execution
+        # makes the server refuse (device_busy) when the run is live and someone else's.
         result = api.post('/server/control/takeover', data={
             'host_name': host_name,
             'device_id': device_id,
             'requested_by_session': session_id,
             'stop_running_execution': True,
             'reason': 'mcp_force_unlock',
+            'protect_live_execution': True,
         }, params=query)
 
     if result.get('success'):
         if not result.get('reused'):
             held[device_key(host_name, device_id)] = session_id
         return None
+
+    if result.get('errorType') == 'device_busy':
+        return _error(f"Device '{device_id}' on host '{host_name}': {result.get('error')}. "
+                      "Wait for the run to finish or queue behind it.", 'device_busy')
 
     if result.get('errorType') != 'device_locked':
         return _error(f"Failed to lock device: {result.get('error', 'Unknown error')}")
@@ -126,5 +134,25 @@ def auto_lock(api, held: Dict[str, str], params: Dict[str, Any], host_name: str,
     text = (f"Device '{device_id}' on host '{host_name}' is in use by {holder(result)} ({owner_type}). "
             "Not taking it over - wait until they release it or ask them to.")
     if owner_type in EXECUTION_OWNER_TYPES:
-        text += " To stop their running execution, retry with force_unlock=true."
+        text += (" force_unlock=true only clears a stale lock; it will not abort their live run, "
+                 "so wait for it to finish.")
     return _error(text, 'device_locked')
+
+
+LOCK_TOOL_NAMES = ('take_control', 'release_control')
+
+
+def lock_command_error(actions) -> Optional[Dict[str, Any]]:
+    """MCP error when an action list carries take_control / release_control as a remote command.
+
+    Those are MCP tools, not controller commands: sent as an action the controller answers
+    "unknown command" (TASK-163). Say what to call instead so the model recovers in one step.
+    """
+    bad = sorted({(a.get('command') if isinstance(a, dict) else a) for a in actions or []
+                  if (a.get('command') if isinstance(a, dict) else a) in LOCK_TOOL_NAMES})
+    if not bad:
+        return None
+    return {"content": [{"type": "text", "text": (
+        f"Error: {', '.join(bad)} is a tool, not a remote command. Call the {bad[0]} tool for each device "
+        "(host_name + device_id). Locking is automatic inside execute_device_action / execute_group_action: "
+        "pass only remote commands such as press_key in actions.")}], "isError": True}

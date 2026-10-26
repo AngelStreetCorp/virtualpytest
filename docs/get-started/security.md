@@ -1,16 +1,23 @@
 # Security setup
 
-> **Going live?** Start with the [production hardening checklist](production-checklist.md): the
-> defaults the installers ship (MinIO, Redis, VNC, Postgres, open mode) and what to close first.
+> **Going live?** Read the [production hardening checklist](production-checklist.md) first.
 
-> **Purpose**: Security configuration and best practices for VirtualPyTest  
+Commands and settings are in the technical details.
+
+<div data-technical>
+
+> **Purpose**: Security configuration and best practices for VirtualPyTest
 > **Audience**: Security Engineers, DevOps, System Administrators
+
+</div>
 
 ---
 
 ## Overview
 
-### Security Layers
+Four layers protect the platform: connection, network, application and data.
+
+<div data-technical>
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -48,7 +55,7 @@
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Threat Model Summary
+</div>
 
 | Threat | Mitigation | Priority |
 |--------|------------|----------|
@@ -63,7 +70,13 @@
 
 ## Part A: Transport Security
 
+Encrypt every connection.
+
 ### SSL/TLS Configuration
+
+Use modern, strong settings. They turn off old protocols.
+
+<div data-technical>
 
 **Nginx SSL Settings (recommended):**
 
@@ -90,7 +103,13 @@ add_header X-Content-Type-Options nosniff;
 add_header X-XSS-Protection "1; mode=block";
 ```
 
+</div>
+
 ### Certificate Management (Let's Encrypt)
+
+A free certificate that renews itself.
+
+<div data-technical>
 
 **Initial Setup:**
 ```bash
@@ -127,7 +146,13 @@ sudo certbot certificates
 0 3 * * * root certbot renew --quiet --post-hook "systemctl reload nginx"
 ```
 
+</div>
+
 ### HTTPS Enforcement
+
+Plain web requests are redirected to HTTPS.
+
+<div data-technical>
 
 **Nginx Redirect:**
 ```nginx
@@ -143,11 +168,19 @@ server {
 add_header Strict-Transport-Security "max-age=63072000; includeSubDomains; preload" always;
 ```
 
+</div>
+
 ---
 
 ## Part B: Authentication & Authorization
 
+Servers and hosts share a secret key.
+
 ### API Keys (Server ↔ Host)
+
+Use a new random key for each install. Change it when a host is cloned or someone leaves.
+
+<div data-technical>
 
 **Purpose:** Authenticate communication between Backend Server and Backend Hosts.
 
@@ -189,7 +222,13 @@ def require_api_key(f):
     return decorated
 ```
 
+</div>
+
 ### Supabase Auth (Optional)
+
+Row-level security limits each user to their own team's rows. The server key never reaches the browser.
+
+<div data-technical>
 
 **Row Level Security (RLS):**
 ```sql
@@ -213,7 +252,18 @@ USING (team_id = auth.jwt() ->> 'team_id');
 SUPABASE_SERVICE_ROLE_KEY=your_service_role_key_here
 ```
 
+</div>
+
 ### CORS Configuration
+
+CORS decides which websites may call the API from a browser. Most setups need nothing.
+
+> **If you deployed before 2026-09-15**, redeploy the current code. See the [production checklist](production-checklist.md).
+
+Only list a website on another address than the server, for example a Vercel frontend calling a
+Render server ([Cloud Setup, Step 4.1](cloud-setup.md#41-cors-only-needed-if-the-frontend-calls-render-directly)).
+
+<div data-technical>
 
 `shared/src/lib/utils/app_utils.py` calls `CORS(app, origins=..., supports_credentials=True)` for
 both `backend_server` and `backend_host` — it is wired up, and it is the **only** origin-based
@@ -222,11 +272,11 @@ IP (verified against every shipped template) — CORS is it. Since 2026-09-15 (B
 allowed origins come from `CORS_ALLOWED_ORIGINS` (comma-separated; unset = the vendor's own
 known frontend domains, see `.env.example`) — there is **no `*` fallback**.
 
-> **If you deployed before 2026-09-15**, your server was almost certainly running
-> `origins="*", supports_credentials=True`, which Flask-CORS turns into "reflect whichever
-> `Origin` header the caller sends, and allow credentials for it" — any web page, anywhere,
-> could make a fully-credentialed cross-origin call to your API and read the response. Redeploy
-> the current code to pick up the fix; see the [production checklist](production-checklist.md).
+If you deployed before 2026-09-15, your server was almost certainly running
+`origins="*", supports_credentials=True`, which Flask-CORS turns into "reflect whichever
+`Origin` header the caller sends, and allow credentials for it" — any web page, anywhere,
+could make a fully-credentialed cross-origin call to your API and read the response. Redeploy
+the current code to pick up the fix; see the [production checklist](production-checklist.md).
 
 Set it only if your frontend is served from a **different origin** than this server — e.g. a
 Vercel-hosted frontend calling a Render-hosted server (see
@@ -241,11 +291,19 @@ in the first place.
 CORS_ALLOWED_ORIGINS=https://virtualpytest.vercel.app,https://yourdomain.com
 ```
 
+</div>
+
 ---
 
 ## Part C: Network Security
 
+Only the web server answers from the internet.
+
 ### Firewall Rules (UFW)
+
+The installer already limits the host API (port 6109) to your local network.
+
+<div data-technical>
 
 > Port 6109 (the host API) is now restricted to the LAN automatically by
 > `setup/local/linux/backend_host/install_host.sh` (STEP 11) — it auto-detects the host's own
@@ -301,7 +359,13 @@ sudo ufw allow 80/tcp
 sudo ufw status verbose
 ```
 
+</div>
+
 ### VLAN Isolation (Production)
+
+Keep devices on their own network with no internet access.
+
+<div data-technical>
 
 **Network Segmentation:**
 
@@ -327,7 +391,13 @@ ALLOW 10.0.2.0/24 → 10.0.1.0/24 : ESTABLISHED
 ALLOW 10.0.3.0/24 → ANY
 ```
 
+</div>
+
 ### VPN Options
+
+For remote access, use a VPN instead of opening ports, such as Tailscale or WireGuard.
+
+<div data-technical>
 
 **WireGuard (Self-hosted):**
 ```bash
@@ -354,11 +424,19 @@ sudo tailscale up --authkey=tskey-xxx
 # http://100.x.y.z:5109
 ```
 
+</div>
+
 ---
 
 ## Part D: Secrets Management
 
+Keep every password and key in `.env` files, never in git. Change them at once if one may have leaked.
+
 ### Environment Files (.env)
+
+Templates are shared through git. Real .env files are not.
+
+<div data-technical>
 
 **File Hierarchy:**
 ```
@@ -387,7 +465,11 @@ backend_host_*/.env
 setup/docker/hetzner_custom/config.env
 ```
 
+</div>
+
 ### Secret Categories
+
+The table shows how often to change each secret.
 
 | Secret | Location | Rotation |
 |--------|----------|----------|
@@ -398,6 +480,10 @@ setup/docker/hetzner_custom/config.env
 | `GRAFANA_ADMIN_PASSWORD` | .env | On first login |
 
 ### Secret Rotation
+
+Change the server key and every host key together, then restart.
+
+<div data-technical>
 
 **API Key Rotation:**
 ```bash
@@ -424,11 +510,19 @@ docker-compose -f docker-compose.yml restart
 # 4. Revoke old password in Supabase
 ```
 
+</div>
+
 ---
 
 ## Part E: Container Security
 
+Run each container with the fewest rights it needs.
+
 ### Non-Root Users
+
+Containers should run as a normal user, not as root.
+
+<div data-technical>
 
 **Dockerfile Best Practice:**
 ```dockerfile
@@ -445,7 +539,15 @@ USER appuser
 CMD ["gunicorn", "app:app"]
 ```
 
+</div>
+
 ### Privileged Mode (Hardware Access)
+
+Pass in only the devices a container uses. Full privileged mode gives the whole machine, so avoid it.
+
+**When required:** USB device access, HDMI capture and GPIO control.
+
+<div data-technical>
 
 **When Required:**
 - USB device access (`/dev/ttyUSB*`)
@@ -472,7 +574,13 @@ backend_host:
     - /dev:/dev
 ```
 
+</div>
+
 ### Image Security
+
+Use a fixed image version, install security patches, and scan images for known weaknesses.
+
+<div data-technical>
 
 **Base Image:**
 ```dockerfile
@@ -494,11 +602,19 @@ docker run --rm -v /var/run/docker.sock:/var/run/docker.sock \
 docker scout cves virtualpytest-backend-server:latest
 ```
 
+</div>
+
 ---
 
 ## Part F: External Services Security
 
+Give each outside service its own key, with the fewest rights it needs.
+
 ### Supabase
+
+Turn on row-level security on every table. Use the service role key only on the server.
+
+<div data-technical>
 
 **Security Checklist:**
 - [ ] Enable Row Level Security (RLS) on all tables
@@ -514,7 +630,13 @@ anon key:      Read public data only
 service role:  Full access (server-side only)
 ```
 
+</div>
+
 ### Cloudflare R2
+
+Use a dedicated token for one bucket, and set a CORS policy on it.
+
+<div data-technical>
 
 **Security Checklist:**
 - [ ] Create dedicated API token (not global)
@@ -535,7 +657,13 @@ service role:  Full access (server-side only)
 ]
 ```
 
+</div>
+
 ### OpenRouter
+
+Set a spending limit, and keep the key in an environment variable.
+
+<div data-technical>
 
 **Security Checklist:**
 - [ ] Set spending limits
@@ -555,7 +683,13 @@ def call_openrouter(prompt):
     pass
 ```
 
+</div>
+
 ### Grafana
+
+Change the default admin password right away, and turn off anonymous access.
+
+<div data-technical>
 
 **Security Checklist:**
 - [ ] Change default admin password immediately
@@ -591,11 +725,17 @@ GF_AUTH_ANONYMOUS_ENABLED=false
 GF_USERS_ALLOW_SIGN_UP=false
 ```
 
+</div>
+
 ---
 
 ## Appendix
 
 ### A. Security Checklist (Standalone)
+
+Check the basics: HTTPS, a firewall, a strong key and `.env` files that are not committed.
+
+<div data-technical>
 
 **Transport:**
 - [ ] HTTPS enabled (even for local, use self-signed)
@@ -619,7 +759,17 @@ GF_USERS_ALLOW_SIGN_UP=false
 - [ ] Docker group limited to trusted users
 - [ ] Regular image updates
 
+</div>
+
 ### B. Security Checklist (Production)
+
+Check these first. The full list is in the technical details.
+
+- Let's Encrypt certificate installed, with auto-renewal and HSTS
+- Strong API_KEY (32+ bytes), and CORS restricted to production domains
+- Supabase RLS enabled and the service role key protected
+
+<div data-technical>
 
 **Transport:**
 - [ ] Let's Encrypt certificate installed
@@ -669,7 +819,13 @@ GF_USERS_ALLOW_SIGN_UP=false
 - [ ] Anomaly detection enabled
 - [ ] Alert on security events
 
+</div>
+
 ### C. Incident Response
+
+If a key leaks, change it everywhere and restart the services.
+
+<div data-technical>
 
 **If API Key Compromised:**
 ```bash
@@ -709,6 +865,8 @@ docker logs virtualpytest-backend-server | grep -i "unauthorized\|401"
 # 5. Restore data from backup
 # 6. Review and patch vulnerability
 ```
+
+</div>
 
 ### D. Security Contacts
 

@@ -11,6 +11,11 @@
 # (DEVICEn_VIDEO) from backend_host/src/.env, so the same unit file drives any
 # number of slots — no per-device service file needed.
 #
+# vpt-stream.service enables these instances itself on every start
+# (setup/local/linux/backend_host/ensure_screencap_loops.sh), from the .env;
+# the manual `enable --now` above is only needed on a host whose installed
+# vpt-stream unit predates that ExecStartPre.
+#
 # For a real handset (e.g. `android_mobile` over USB) pair the slot with:
 #   DEVICEn_MODEL=android_mobile
 #   DEVICEn_ADB_SERIAL=<adb devices serial, USB or tcpip>
@@ -31,6 +36,11 @@
 # ffmpeg grabber starts polling it (run_ffmpeg.sh's imagefile branch waits up
 # to 120 s for the first valid frame).
 #
+# No After=multi-user.target here (BUG-0702): the unit is WantedBy=multi-user.target and
+# Before=vpt-stream.service, which is itself WantedBy=multi-user.target. Adding
+# After=multi-user.target closed an ordering cycle at boot; systemd broke it by
+# deleting vpt-stream's start job, so the ffmpeg capture stayed down after every reboot.
+#
 # Install with:
 #   setup/local/linux/backend_host/install_service.sh emulator-fifo
 # (install_service.sh detects the @ suffix in the source filename and installs
@@ -38,7 +48,6 @@
 
 [Unit]
 Description=VirtualPyTest screencap loop for Android device %i
-After=multi-user.target
 Before=vpt-stream.service
 
 [Service]

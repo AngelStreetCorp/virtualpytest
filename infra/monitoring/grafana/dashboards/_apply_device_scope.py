@@ -49,6 +49,7 @@ DEVICE_TABLES = {
     'system_device_metrics': 'device_id',
     'system_incident': 'device_id',
     'quality_metrics': 'device_id',
+    'image_telemetry_buckets': 'device_id',   # TASK-157; the dashboard widens the predicate to the host's own '_host' row
     'test_prompt_executions': 'device_id',
     'system_metrics': None,
 }

@@ -361,6 +361,38 @@ def host_config():
     return jsonify(response_data), status_code
 
 
+def _proxy_host_monitor_profiles(host_path: str):
+    """GET a /host/monitor/profiles* route of the selected registered host (read-only)."""
+    host_name = request.args.get('host_name')
+    if not host_name:
+        return jsonify({'success': False, 'error': 'host_name is required'}), 400
+    from backend_server.src.lib.utils.server_utils import get_host_manager
+    host_data = get_host_manager().get_host(host_name)
+    if not host_data:
+        return jsonify({'success': False, 'error': f'Host {host_name} not found'}), 404
+    from shared.src.lib.utils.build_url_utils import call_host
+    response_data, status_code = call_host(host_data, host_path, method='GET', data=None, timeout=15)
+    return jsonify(response_data), status_code
+
+
+@server_settings_bp.route('/host-monitor-profiles', methods=['GET'])
+@require_user_auth
+@require_permission('settings.general:view')
+@handle_route_exceptions('server_settings:host_monitor_profiles')
+def host_monitor_profiles():
+    """Monitoring profiles a host offers (title, services, model files, usable or why not) for the device picker."""
+    return _proxy_host_monitor_profiles('/host/monitor/profiles')
+
+
+@server_settings_bp.route('/host-monitor-profiles/status', methods=['GET'])
+@require_user_auth
+@require_permission('settings.general:view')
+@handle_route_exceptions('server_settings:host_monitor_profiles_status')
+def host_monitor_profiles_status():
+    """Saved vs applied profile per device and the outcome of the last restart; polled after a save."""
+    return _proxy_host_monitor_profiles('/host/monitor/profiles/status')
+
+
 @server_settings_bp.route('/host-grabbers', methods=['GET'])
 @require_user_auth
 @require_permission('settings.general:view')

@@ -16,7 +16,6 @@ import {
   Box,
   Button,
   Chip,
-  CircularProgress,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -28,6 +27,7 @@ import {
   Radio,
   RadioGroup,
   Select,
+  Skeleton,
   Switch,
   Table,
   TableBody,
@@ -280,14 +280,6 @@ export default function RunCICDPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
   if (configError) {
     return <Alert severity="warning">CI/CD not configured: {configError}</Alert>;
   }
@@ -303,6 +295,46 @@ export default function RunCICDPage() {
       )}
 
       {/* ── form ─────────────────────────────────────────────────────────── */}
+      {loading ? (
+        // Form/live/recent all wait on the same project+runners query — draw a
+        // skeleton that matches the first Paper (title bar + 3 selects + 4 radio
+        // rows) and keep the rest off the page until the real data arrives.
+        <>
+          <Paper variant="outlined" sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Skeleton variant="text" width={150} height={24} />
+            <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
+              <Skeleton variant="rounded" width={170} height={40} />
+              <Skeleton variant="rounded" width={170} height={40} />
+              <Skeleton variant="rounded" width={210} height={40} />
+              <Box sx={{ flex: 1 }} />
+              <Skeleton variant="rounded" width={88} height={32} />
+              <Skeleton variant="rounded" width={120} height={32} />
+            </Box>
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+              {[0, 1, 2].map((i) => (
+                <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Skeleton variant="circular" width={18} height={18} />
+                  <Skeleton variant="text" width={140} height={20} />
+                  <Skeleton variant="rounded" width={220} height={18} />
+                </Box>
+              ))}
+            </Box>
+          </Paper>
+          <Paper variant="outlined" sx={{ p: 1.5 }}>
+            <Skeleton variant="text" width={80} height={22} sx={{ mb: 1 }} />
+            {[0, 1].map((i) => (
+              <Box key={i} sx={{ display: 'flex', gap: 1.5, alignItems: 'center', py: 0.5 }}>
+                <Skeleton variant="text" width={50} height={18} />
+                <Skeleton variant="text" width={110} height={18} />
+                <Skeleton variant="text" width={210} height={18} />
+                <Skeleton variant="rounded" width={80} height={20} />
+                <Skeleton variant="text" width={70} height={18} />
+              </Box>
+            ))}
+          </Paper>
+        </>
+      ) : (
+      <>
       <Paper variant="outlined" sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
         <Box sx={{ display: 'flex', gap: 2, alignItems: 'center', flexWrap: 'wrap' }}>
           <FormControl size="small" sx={{ minWidth: 170 }}>
@@ -483,6 +515,8 @@ export default function RunCICDPage() {
           </Table>
         )}
       </Paper>
+      </>
+      )}
 
       <ProjectEditor
         open={editorOpen}

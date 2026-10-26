@@ -169,7 +169,11 @@ def execute_campaign():
     force_unlock = bool(data.get('force_unlock', False))
     if force_unlock:
         # strict=True: a new campaign is about to start on this device.
-        force_result = abort_and_force_unlock(host_name, device_id, strict=True)
+        force_result = abort_and_force_unlock(
+            host_name, device_id, strict=True, protect_others=True,
+            caller_sessions=[data['session_id']] if data.get('session_id') else None,
+            caller_user_id=owner_user_id,
+        )
         if not force_result.get('success'):
             return jsonify({
                 'success': False,

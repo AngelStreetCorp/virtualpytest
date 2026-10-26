@@ -75,8 +75,26 @@ publish_inputs_hash() {
 # hashes frontend/public AFTER prebuild has republished public/docs rather than
 # the docs sources: a backend change that leaves the rendered report identical
 # must not force a 1m45s Vite rebuild.
+#
+# The `features/*/frontend` trees belong in this list. An optional feature IS part of dist/
+# whenever it is enabled: vite.config.ts emits one static import per `features/<name>/frontend/
+# routes.tsx`, and its dev watcher covers the same files, so a feature-only change changes the
+# bundle. They used to be missing here, so the stamp did not move, ensure_dist.sh printed
+# "dist is current — skipping vite build", and the deploy shipped the PREVIOUS bundle while the
+# rsync'd sources on disk looked perfectly correct — for every optional feature (gitlab, zammad,
+# tuya, cicd, avq, drone, quicktest...). Only each feature's frontend half is hashed: a feature's
+# `lib/` and `db/` are backend inputs, and hashing those would buy a 1m45s rebuild nobody needs.
+# A feature's own `*.test.*` files are in there too, so editing one costs a rebuild; that is the
+# safe direction to be wrong in (a needless rebuild is visible, a stale bundle is not).
+#
+# VITE_DISABLED_FEATURES is folded in for the same reason: it decides WHICH features get imported
+# (vite.config.ts reads it), the deploy passes it as a build-time environment variable, and it is
+# not a file — so switching a feature on or off changes the bundle while nothing on disk moves.
+# When it comes from .env.production instead, that file is hashed below and the mixed-in empty
+# value is harmless.
 bundle_inputs_hash() {
-    hash_paths \
+    local files
+    files="$(hash_paths \
         "$FRONTEND_DIR/src" \
         "$FRONTEND_DIR/public" \
         "$FRONTEND_DIR/index.html" \
@@ -88,7 +106,10 @@ bundle_inputs_hash() {
         "$FRONTEND_DIR/tsconfig.node.json" \
         "$FRONTEND_DIR/postcss.config.js" \
         "$FRONTEND_DIR/.env.production" \
-        "$FRONTEND_DIR/VERSION.txt"
+        "$FRONTEND_DIR/VERSION.txt" \
+        "$REPO_ROOT"/features/*/frontend)" || return 1
+    printf '%s\nvpt-features-disabled=%s\n' "$files" "${VITE_DISABLED_FEATURES:-}" \
+        | sha1sum | awk '{print $1}'
 }
 
 # [6/6] Project metrics — the Analytics page's Project tab. Reads the bug files,

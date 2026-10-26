@@ -44,6 +44,7 @@ except ImportError as e:
     raise ImportError(f"Failed to import controller_manager: {e}. Check your Python path and environment setup.")
 from shared.src.lib.config.device_capabilities import expand_models
 from shared.src.lib.utils.build_url_utils import buildServerUrl, server_auth_headers
+from shared.src.lib.utils.stream_capability_utils import derive_stream_protocol
 
 # Disable SSL warnings for self-signed certificates
 import urllib3
@@ -234,6 +235,10 @@ client_registration_state = {
 # Ping thread for host mode
 ping_thread = None
 ping_stop_event = threading.Event()
+
+# The exit cleanup runs from the signal handler AND from atexit. This flag makes it
+# run ONCE, so the stop cannot burn the unit's TimeoutStopSec twice over (TASK-169).
+_cleanup_done = False
 
 
 def _read_int_env(var_name: str, default: int, minimum: int = 1) -> int:
@@ -461,36 +466,35 @@ def register_host_with_server(max_retries: Optional[int] = None, retry_delay: Op
 
 
 def get_devices_with_running_deployments():
-    """Check which devices have running deployments"""
+    """Check which devices have running deployments.
+
+    A 'running' row is a claim, not a fact: a run that died leaves the row behind, and
+    the device then looks busy for ever. Only the rows this host can still see running
+    count (E50).
+    """
     try:
         from shared.src.lib.utils.supabase_utils import get_supabase_client
         supabase = get_supabase_client()
         host = get_host()
-        
-        # Get all deployments for this host
-        deployments_result = supabase.table('deployments').select('id, device_id').eq('host_name', host.host_name).execute()
-        
-        if not deployments_result.data:
-            return set()
-        
-        deployment_ids = [d['id'] for d in deployments_result.data]
-        device_deployment_map = {d['id']: d['device_id'] for d in deployments_result.data}
-        
-        # Check for running executions
+
+        # Filter by host through the join: a list of every deployment id on the host is too long
+        # for a PostgREST URL once a host has ~1000 deployments (HTTP 414, BUG-0624)
         running_executions = supabase.table('deployment_executions')\
-            .select('deployment_id')\
-            .in_('deployment_id', deployment_ids)\
+            .select('id, started_at, deployment_id, deployments!inner(host_name, device_id)')\
+            .eq('deployments.host_name', host.host_name)\
             .eq('status', 'running')\
             .execute()
-        
+
+        from backend_host.src.services.execution_liveness import split_running_by_liveness
+        live_rows, _stale_rows = split_running_by_liveness(running_executions.data or [])
+
         # Return set of device_ids with running deployments
         running_devices = set()
-        for execution in running_executions.data:
-            deployment_id = execution['deployment_id']
-            device_id = device_deployment_map.get(deployment_id)
+        for execution in live_rows:
+            device_id = (execution.get('deployments') or {}).get('device_id')
             if device_id:
                 running_devices.add(device_id)
-        
+
         return running_devices
     except Exception as e:
         print(f"[@host] Error checking running deployments: {e}")
@@ -624,7 +628,9 @@ def stop_metrics_thread():
 
     if metrics_thread and metrics_thread.is_alive():
         metrics_stop_event.set()
-        metrics_thread.join(timeout=5)
+        # 2 s, not 5 — see stop_ping_thread(): a thread stuck in an HTTP call must
+        # not hold the exit open (TASK-169).
+        metrics_thread.join(timeout=2)
         print("⏹️ [HOST] Metrics thread stopped")
 
 
@@ -667,9 +673,16 @@ def send_ping_to_server():
 
         # Add deployment status to device data
         devices_with_status = []
+        # Host fact, not device fact: is there a MediaMTX WHEP endpoint here at all?
+        webrtc_available = bool((host_system_stats or {}).get('webrtc'))
         for device in host.get_devices():
             device_dict = device.to_dict()
             device_dict['has_running_deployment'] = device.device_id in running_deployment_devices
+            # BUG-0833: what this device can actually deliver. WebRTC needs BOTH a WHEP
+            # endpoint on this host AND a v4l2 capture publishing to it; a cloud device
+            # farm has neither (its video_url is a recording link, not a stream). The UI
+            # offers WEB only where this says 'whep'.
+            device_dict['stream_protocol'] = derive_stream_protocol(device_dict, webrtc_available)
             devices_with_status.append(device_dict)
 
         ping_data = {
@@ -791,7 +804,14 @@ def unregister_from_server():
         
         unregister_url = client_registration_state['urls'].get('unregister')
         if unregister_url:
-            response = requests.post(unregister_url, json=unregister_data, headers=server_auth_headers(), timeout=10)
+            # 2 s connect / 3 s read, not 10 s: the unregister is a courtesy call to
+            # the server, and the server is very often already down when the host is
+            # stopped (a deploy restarts both). A 10 s wait here sat inside the
+            # exit path and pushed the whole stop past systemd's TimeoutStopSec=30,
+            # so systemd SIGKILLed the host (TASK-169) and every server->host call
+            # in that window answered 502.
+            response = requests.post(unregister_url, json=unregister_data,
+                                      headers=server_auth_headers(), timeout=(2, 3))
             
             if response.status_code == 200:
                 print("✅ [HOST] Unregistered successfully")
@@ -848,7 +868,10 @@ def stop_ping_thread():
     
     if ping_thread and ping_thread.is_alive():
         ping_stop_event.set()
-        ping_thread.join(timeout=5)
+        # 2 s, not 5: the thread may be inside an HTTP call to the server, and the
+        # server is usually DOWN during the restart that triggered this stop — the
+        # join would otherwise burn its whole timeout before the exit continues.
+        ping_thread.join(timeout=2)
         print("⏹️ [HOST] Ping thread stopped")
 
 
@@ -860,7 +883,22 @@ def signal_handler(signum, frame):
 
 
 def cleanup_on_exit():
-    """Cleanup function called on exit."""
+    """Cleanup function called on exit. Idempotent and bounded (TASK-169).
+
+    The stop path runs this from the signal handler AND from atexit, so the work
+    used to happen twice: up to 2x(5 s + 5 s + 10 s) = 40 s inside a unit whose
+    TimeoutStopSec is 30 s. systemd then SIGKILLed the whole cgroup and the host
+    was unreachable for the rest of the restart — every server->host call in that
+    window came back as a 502 (vpt-pi1, 2026-10-23).
+
+    Now: one pass only, and each step is bounded (see stop_ping_thread /
+    stop_metrics_thread / unregister_from_server). Worst case ~7 s, which leaves
+    room for the HTTP server to drain inside the systemd budget.
+    """
+    global _cleanup_done
+    if _cleanup_done:
+        return
+    _cleanup_done = True
     print("🧹 [HOST] Cleaning up...")
     stop_ping_thread()
     stop_metrics_thread()
@@ -973,6 +1011,9 @@ def get_remote_controller_by_type(device_id: str, remote_type: str, quiet: bool 
         'appium': ('AppiumRemoteController',),
         'bluetooth_remote': ('BluetoothRemoteController',),
         'vega': ('VegaRemoteController',),
+        # Samsung Tizen TV network remote (samsungtvws over ws/8002). The frontend
+        # sends 'samsung_tizen' for the tizen model's remote panel.
+        'samsung_tizen': ('SamsungTizenRemoteController',),
         # Tello drone (TASK-32). REMOTE_CONTROLLERS in controllers/__init__.py
         # builds it from DEVICE{i}_TELLO_IP, but a controller that exists and a
         # controller this lookup can find are two different things: without this

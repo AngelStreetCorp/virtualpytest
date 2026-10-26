@@ -1,0 +1,37 @@
+# drone: a drone's (or any vehicle's) own readings next to its picture (TASK-90 goal 12). No picture analysis: the vehicle controller in
+# vpt-host writes telemetry_status.json into the device's metadata folder (shared/src/lib/drone/telemetry_status.py), the img service attaches
+# it to every frame JSON and raises the vehicle's incidents. docs/agent/devices/MONITOR_PROFILES.md section 11.
+name: drone
+services: { img: true, audio: false, subtitle: false }
+# burn_in: true   # also draw the HUD INTO the video (stream, recordings, captures, thumbnails). Off by default, see the docs; or DEVICE<N>_TELEMETRY_BURN_IN=1
+img:
+  runtime: edge
+  analyzers:
+    - type: telemetry
+      sample_hz: 2
+      battery_low: 20     # percent, at or below while flying
+      temp_high: 80       # degrees C, at or above while flying
+      stale_s: 3          # telemetry older than this is "no telemetry"
+events:
+  flying:         { attr: label, equals: flying }
+  battery_low:    { attr: label, equals: battery_low }
+  temp_high:      { attr: label, equals: temp_high }
+  telemetry_lost: { attr: label, equals: telemetry_lost }
+incidents:          # the incident manager adds its own 30 s pending time before an alert is created
+  battery_low:    { event: battery_low, after_s: 5 }
+  temp_high:      { event: temp_high, after_s: 10 }
+  telemetry_lost: { event: telemetry_lost, after_s: 0 }
+kpis:               # statistics since the last takeoff
+  - { name: flight_time, stat: { field: ft, fn: last } }
+  - { name: min_battery, stat: { field: bat, fn: min } }
+  - { name: max_altitude, stat: { field: alt, fn: max } }
+ui:
+  title: Drone
+  state_badge: { event: flying, label: FLYING, colour: green }
+  hud:                # top right, in this order; a field with no value is not drawn (the GPS row appears when a fix comes)
+    - { key: bat, label: Battery, short: BAT, format: battery, unit: '%', warn_below: 20 }
+    - { key: temp, label: Temp, short: TMP, unit: '°C', warn_above: 80 }
+    - { key: alt, label: Alt, short: ALT, unit: m, decimals: 1 }
+    - { key: spd, label: Speed, short: SPD, unit: m/s, decimals: 1 }
+    - { key: ft, label: Flight, short: FLT, format: duration }
+    - { key: lat, key2: lon, label: GPS, short: GPS, format: latlon }

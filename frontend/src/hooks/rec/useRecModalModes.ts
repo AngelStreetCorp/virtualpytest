@@ -34,22 +34,24 @@ export interface RecModalModesActions {
 export const useRecModalModes = (
   showRemoteByDefault: boolean,
   isControlActive: boolean,
-  isDesktopDevice: boolean
+  isDesktopDevice: boolean,
+  startInArchive: boolean = false,
+  // a counting device (eggs, cars): its overlay is what the device is for, so it shows without a click
+  monitoringByDefault: boolean = false
 ): RecModalModesState & RecModalModesActions => {
   const [showRemote, setShowRemote] = useState<boolean>(showRemoteByDefault);
   const [showWeb, setShowWeb] = useState<boolean>(false);
-  const [monitoringMode, setMonitoringMode] = useState<boolean>(false);
+  const [monitoringMode, setMonitoringMode] = useState<boolean>(monitoringByDefault && !startInArchive);
   const [aiAgentMode, setAiAgentMode] = useState<boolean>(false);
   const [restartMode, setRestartMode] = useState<boolean>(false);
-  const [isLiveMode, setIsLiveMode] = useState<boolean>(true);
+  const [isLiveMode, setIsLiveMode] = useState<boolean>(!startInArchive);
   const { showWarning } = useToast();
-
-  const remoteBeforeAiRef = useRef<boolean>(false);
 
   const prevControlActiveRef = useRef<boolean>(isControlActive);
   useEffect(() => {
     if (isControlActive && !prevControlActiveRef.current) {
       if (isDesktopDevice) {
+        setShowRemote(true);
         setShowWeb(true);
       } else {
         setShowRemote(true);
@@ -86,15 +88,9 @@ export const useRecModalModes = (
     if (newMode) {
       setMonitoringMode(false);
       setRestartMode(false);
-      // The AI prompt panel sits top-right over the remote: hide the remote while it is
-      // open and bring it back on close if it was showing.
-      remoteBeforeAiRef.current = showRemote;
-      setShowRemote(false);
-    } else if (remoteBeforeAiRef.current) {
-      setShowRemote(true);
     }
     setAiAgentMode(newMode);
-  }, [isControlActive, showWarning, aiAgentMode, showRemote]);
+  }, [isControlActive, showWarning, aiAgentMode]);
 
   const handleToggleRestart = useCallback(() => {
     if (!isControlActive) {
@@ -132,10 +128,10 @@ export const useRecModalModes = (
   const resetOnClose = useCallback(() => {
     setShowRemote(false);
     setShowWeb(false);
-    setMonitoringMode(false);
+    setMonitoringMode(monitoringByDefault);
     setAiAgentMode(false);
     setRestartMode(false);
-  }, []);
+  }, [monitoringByDefault]);
 
   return {
     showRemote,

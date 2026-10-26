@@ -38,6 +38,7 @@ else:
 
 # Speedtest functions moved to shared/src/lib/utils/network_utils.py
 from shared.src.lib.utils.network_utils import get_network_speed_cached
+from backend_server.src.lib.utils.uplink_utils import get_uplink_stats
 
 # All speedtest functions moved to shared/src/lib/utils/network_utils.py
 
@@ -416,7 +417,10 @@ def get_server_system_stats(skip_speedtest=False):
         # Backend_server returns zeros on failure for graceful degradation
         network_speed = get_network_speed_cached(skip_if_no_cache=skip_speedtest, return_zeros_on_failure=True)
         stats.update(network_speed)
-        
+
+        # Live uplink rate + 24h peak of the proxy NIC (Status page "Uplink" tile)
+        stats.update(get_uplink_stats())
+
         return stats
     except Exception as e:
         print(f"❌ Error getting server system stats: {e}")

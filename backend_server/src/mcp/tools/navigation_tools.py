@@ -15,6 +15,12 @@ from shared.src.lib.config.constants import APP_CONFIG, get_team_id
 
 # Upper bound of /server/navigation/execute: 5 + 30 + 5 + 120 s (see execute_navigation), plus slack.
 NAVIGATION_EXECUTE_TIMEOUT_S = 180
+# Localize = three frames 0.3 s apart + the matcher (+ a cold tree load on the first call).
+LOCALIZE_TIMEOUT_S = 60
+# Verdict kinds navigate_to_node starts from (TASK-104). Only a fingerprint match: 'live' is
+# full-frame motion, which a menu over a moving background also shows, and starting a path
+# from the wrong node costs more than starting from the remembered one.
+LOCALIZE_POSITION_KINDS = ('node',)
 
 
 class NavigationTools:
@@ -189,6 +195,101 @@ class NavigationTools:
             "total": total
         }
     
+    @staticmethod
+    def _localize_off(host_name: str, device_id: str) -> Optional[str]:
+        """Why Localize is off for this device, from the host's last ping, or None. No image monitor, no
+        Localize (owner, 2026-10-14): `monitoring_off` lists the devices whose profile runs no vpt-monitor-img,
+        the same list the frontend reads. An unknown host is not refused here: the host refuses it itself."""
+        try:
+            from backend_server.src.lib.utils.server_utils import get_host_manager
+            host = get_host_manager().get_host(host_name) or {}
+        except Exception:
+            return None
+        if device_id in ((host.get('system_stats') or {}).get('monitoring_off') or []):
+            return (f"Localize is off for {device_id} on {host_name}: its monitoring profile does not run "
+                    f"the image monitor (vpt-monitor-img)")
+        return None
+
+    def _localize(self, host_name: str, device_id: str, userinterface_name: str, team_id: str) -> Dict[str, Any]:
+        """POST the host's Localize (auto-proxied to /host/navigation/localize); the raw result."""
+        return self.api.post('/server/navigation/localize',
+                             data={'host_name': host_name, 'device_id': device_id,
+                                   'userinterface_name': userinterface_name},
+                             params={'team_id': team_id}, timeout=LOCALIZE_TIMEOUT_S)
+
+    def localize(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Where is the device now? One verdict from the live screen, the same answer as the
+        Localize button: kind = signal (black / no signal), live (video playing; node_id = the
+        tree's live node when one is flagged), node (a saved screen), overlay (popup / keyboard /
+        notification, node_id = the screen under it), known_screen (screen memory), or unknown.
+
+        Example: localize(host_name='host1', device_id='device1', userinterface_name='stb_tv')
+
+        Args:
+            params: {
+                'host_name': str (REQUIRED), 'device_id': str (REQUIRED),
+                'userinterface_name': str (REQUIRED - the tree to localize in)
+            }
+
+        Returns:
+            MCP-formatted response: the verdict as text plus {verdict, frame_url}
+        """
+        host_name = params.get('host_name')
+        device_id = params.get('device_id')
+        userinterface_name = params.get('userinterface_name')
+        team_id = params.get('team_id', get_team_id())
+        if not host_name or not device_id or not userinterface_name:
+            return {"content": [{"type": "text", "text": "Error: host_name, device_id and userinterface_name are required"}],
+                    "isError": True}
+        off = self._localize_off(host_name, device_id)
+        if off:
+            return {"content": [{"type": "text", "text": off}], "isError": True}
+        result = self._localize(host_name, device_id, userinterface_name, team_id)
+        if not result.get('success'):
+            return {"content": [{"type": "text", "text": f"Localize failed: {result.get('error', 'unknown error')}"}],
+                    "isError": True}
+        verdict = result.get('verdict') or {}
+        node = f" node_id={verdict['node_id']}" if verdict.get('node_id') else ''
+        text = (f"kind={verdict.get('kind')} label={verdict.get('label')}{node} "
+                f"confidence={verdict.get('confidence')}\nevidence={verdict.get('evidence')}\n"
+                f"frame={result.get('frame_url')}")
+        return {"content": [{"type": "text", "text": text}],
+                "verdict": verdict, "frame_url": result.get('frame_url')}
+
+    def localize_coverage(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        How much of each tree can Localize name? Per userinterface: screen nodes, % with a pixel
+        fingerprint, % with a device identity (android activity / web URL), the live node (or
+        none), fingerprint age in days, active "Wrong screen?" corrections (TASK-107 goal 3).
+
+        Example: localize_coverage(userinterface_name='stb_tv')
+
+        Args:
+            params: {'userinterface_name': str (optional - one interface; all when omitted)}
+
+        Returns:
+            MCP-formatted response: one line per interface plus {userinterfaces: [...]}
+        """
+        team_id = params.get('team_id', get_team_id())
+        query = {'team_id': team_id}
+        if params.get('userinterface_name'):
+            query['userinterface_name'] = params['userinterface_name']
+        result = self.api.get('/server/navigation/localize/coverage', params=query)
+        if not result.get('success'):
+            return {"content": [{"type": "text", "text": f"Coverage failed: {result.get('error', 'unknown error')}"}],
+                    "isError": True}
+        rows = result.get('userinterfaces') or []
+        lines = []
+        for r in rows:
+            age = r.get('fingerprint_age_days') or {}
+            live = (r.get('live_node') or {}).get('label') or 'none'
+            lines.append(f"{r['userinterface_name']}: {r['fingerprinted']}/{r['screens']} fingerprinted "
+                         f"({r['fingerprinted_pct']}%), identity {r['identity_pct']}%, live node {live}, "
+                         f"median age {age.get('median', '-')} d, corrections {r.get('corrections', 0)}")
+        return {"content": [{"type": "text", "text": "\n".join(lines) or "No userinterface found"}],
+                "userinterfaces": rows}
+
     def navigate_to_node(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Navigate to target node using pathfinding. Automatically acquires and releases device lock.
@@ -202,10 +303,16 @@ class NavigationTools:
                 'device_id': str (REQUIRED - device identifier),
                 'userinterface_name': str (REQUIRED - UI name for auto-resolving tree_id),
                 'target_node_label': str (REQUIRED - target screen like shop or home),
-                'force_unlock': bool (OPTIONAL - stop a running script/testcase/deployment holding the device; never another user's take-control),
+                'force_unlock': bool (OPTIONAL - clears a STALE lock or your own only; never aborts another caller's live run (device_busy: wait/queue) nor another user's take-control),
                 'session_id': str (OPTIONAL - session_id from take_control; runs under that lock),
-                'include_screenshot': bool (OPTIONAL - include a device screenshot of the resulting screen in the response, default true)
+                'include_screenshot': bool (OPTIONAL - true: always attach a screenshot; false: never;
+                                        omitted: only when Localize cannot confirm the target, TASK-107)
             }
+
+        After the goto (done or failed) Localize reads where the device is and the response says it
+        (`📍 Localize: ...`, and `localize` = the verdict), so an agent re-plans from the real
+        position without a screenshot. An image is attached when Localize does not confirm the
+        target (unknown / overlay / another node), or when the device has no Localize (lite).
 
         Returns:
             MCP-formatted response with navigation result
@@ -219,7 +326,9 @@ class NavigationTools:
         current_node_id = params.get('current_node_id')
         host_name = params.get('host_name')
         force_unlock = bool(params.get('force_unlock', False))
-        include_screenshot = params.get('include_screenshot', True)
+        include_screenshot = params.get('include_screenshot', 'auto')
+        # Private: the Atlas session's "was Stop pressed" check (TASK-140 G7). Never forwarded.
+        should_cancel = params.pop('_should_cancel', None)
 
         # Validate required parameters
         if not userinterface_name:
@@ -254,6 +363,13 @@ class NavigationTools:
                 data['target_node_id'] = target_node_id
             if target_node_label:
                 data['target_node_label'] = target_node_label
+            # No position given: start from the screen the fingerprints recognise (TASK-104),
+            # not from the executor's memory of the last run. Any other kind keeps the old behaviour.
+            if not current_node_id and not self._localize_off(host_name, device_id):
+                verdict = self._localize(host_name, device_id, userinterface_name, team_id).get('verdict') or {}
+                if verdict.get('kind') in LOCALIZE_POSITION_KINDS and verdict.get('node_id'):
+                    current_node_id = verdict['node_id']
+                print(f"[@MCP:navigate_to_node] localize kind={verdict.get('kind')} start={current_node_id}")
             if current_node_id:
                 data['current_node_id'] = current_node_id
 
@@ -274,7 +390,10 @@ class NavigationTools:
             # Check for errors
             if not result.get('success'):
                 error_msg = result.get('error', 'Navigation failed')
-                return {"content": [{"type": "text", "text": f"Navigation failed: {error_msg}"}], "isError": True}
+                return self._report_position(
+                    {"content": [{"type": "text", "text": f"Navigation failed: {error_msg}"}], "isError": True},
+                    include_screenshot, host_name, device_id, userinterface_name, team_id,
+                    target_node_id, target_node_label)
 
             # Check if async (returns execution_id) - SAME as frontend (navigationExecutionUtils.ts line 75)
             if result.get('execution_id'):
@@ -282,18 +401,54 @@ class NavigationTools:
                 print(f"[@MCP:navigate_to_node] Async execution started: {execution_id}")
 
                 # POLL for completion - SAME pattern as frontend (navigationExecutionUtils.ts line 84-142)
-                return self._poll_navigation_completion(execution_id, device_id, host_name, team_id, target_node_label or target_node_id, include_screenshot=include_screenshot)
-
-            # Sync result - return directly
-            print(f"[@MCP:navigate_to_node] Sync execution completed")
-            response = self.formatter.format_api_response(result)
-            if include_screenshot and not response.get('isError'):
-                self._attach_screenshot(response, device_id, host_name, team_id)
-            return response
+                response = self._poll_navigation_completion(execution_id, device_id, host_name, team_id,
+                                                            target_node_label or target_node_id,
+                                                            should_cancel=should_cancel)
+            else:
+                print(f"[@MCP:navigate_to_node] Sync execution completed")
+                response = self.formatter.format_api_response(result)
+            return self._report_position(response, include_screenshot, host_name, device_id, userinterface_name,
+                                         team_id, target_node_id, target_node_label)
         finally:
             # Auto-unlock device
             self._auto_unlock(host_name, device_id, team_id)
     
+    @staticmethod
+    def _confirms(verdict: Optional[Dict[str, Any]], target_id: Optional[str], target_label: Optional[str]) -> bool:
+        """The verdict names the target: a node (or the live node) whose id or label is the target's."""
+        if not verdict or verdict.get('kind') not in ('node', 'live') or not verdict.get('node_id'):
+            return False
+        norm = lambda v: str(v or '').strip().lower()
+        return (bool(target_id) and verdict['node_id'] == target_id) or \
+            (bool(target_label) and norm(verdict.get('label')) == norm(target_label))
+
+    def _report_position(self, response: Dict[str, Any], include_screenshot, host_name: str, device_id: str,
+                         userinterface_name: str, team_id: str, target_id: Optional[str],
+                         target_label: Optional[str]) -> Dict[str, Any]:
+        """After a goto: say where the device is (Localize), and attach a screenshot only when asked
+        (True) or when Localize cannot confirm the target ('auto'). TASK-107 goal 5: the agent reads a
+        one-line verdict instead of an image on every step."""
+        verdict = None
+        if include_screenshot is not False and not self._localize_off(host_name, device_id):
+            try:
+                verdict = self._localize(host_name, device_id, userinterface_name, team_id).get('verdict')
+            except Exception as e:
+                print(f"[@MCP:navigate_to_node] localize after goto failed: {e}")
+        confirmed = self._confirms(verdict, target_id, target_label)
+        if verdict:
+            node = f" node_id={verdict['node_id']}" if verdict.get('node_id') else ''
+            note = 'confirms the target' if confirmed else f"NOT the target ({target_label or target_id})"
+            response.setdefault('content', []).append({'type': 'text', 'text': (
+                f"📍 Localize: kind={verdict.get('kind')} label={verdict.get('label')}{node} "
+                f"confidence={verdict.get('confidence')} — {note}")})
+            response['localize'] = verdict
+        attach = include_screenshot is True or (include_screenshot == 'auto' and not confirmed)
+        print(f"[@MCP:navigate_to_node] position kind={(verdict or {}).get('kind')} confirmed={confirmed} "
+              f"screenshot={'attached' if attach else 'skipped'}")
+        if attach:
+            self._attach_screenshot(response, device_id, host_name, team_id)
+        return response
+
     def _attach_screenshot(self, response: Dict[str, Any], device_id: str, host_name: str, team_id: str) -> None:
         """Append a device screenshot (base64 image block) to an MCP response, in place.
 
@@ -303,7 +458,8 @@ class NavigationTools:
         if image_block:
             response.setdefault('content', []).append(image_block)
 
-    def _poll_navigation_completion(self, execution_id: str, device_id: str, host_name: str, team_id: str, target_label: str, max_wait: int = 120, include_screenshot: bool = False) -> Dict[str, Any]:
+    def _poll_navigation_completion(self, execution_id: str, device_id: str, host_name: str, team_id: str, target_label: str, max_wait: int = 120, include_screenshot: bool = False,
+                                    should_cancel=None) -> Dict[str, Any]:
         """
         Poll navigation execution until complete
         
@@ -318,7 +474,10 @@ class NavigationTools:
         while elapsed < max_wait:
             time.sleep(poll_interval)
             elapsed += poll_interval
-            
+
+            if should_cancel is not None and should_cancel():
+                return self._cancel_navigation(execution_id, device_id, host_name, team_id, target_label)
+
             # Poll status endpoint - SAME as frontend (navigationExecutionUtils.ts line 85-86)
             status = self.api.get(
                 f'/server/navigation/execution/{execution_id}/status',
@@ -343,6 +502,10 @@ class NavigationTools:
                 error = status.get('error', 'Navigation failed')
                 return {"content": [{"type": "text", "text": f"❌ Navigation failed: {error}"}], "isError": True}
             
+            elif current_status == 'cancelled':
+                return {"content": [{"type": "text", "text": f"Navigation stopped: {status.get('message') or 'cancelled'}"}],
+                        "isError": False}
+
             elif current_status == 'running':
                 progress = status.get('progress', 0)
                 message = status.get('message', 'Running...')
@@ -351,6 +514,20 @@ class NavigationTools:
         print(f"[@MCP:poll_navigation] Navigation timed out after {max_wait}s")
         return {"content": [{"type": "text", "text": f"⏱️ Navigation timed out after {max_wait}s"}], "isError": True}
     
+    def _cancel_navigation(self, execution_id: str, device_id: str, host_name: str, team_id: str,
+                           target_label: str) -> Dict[str, Any]:
+        """The user pressed Stop: ask the host to stop before its next edge, and say where it got to."""
+        params = {'device_id': device_id, 'host_name': host_name, 'team_id': team_id}
+        step = ''
+        try:
+            self.api.post(f'/server/navigation/execution/{execution_id}/cancel', data={}, params=params, timeout=5)
+            status = self.api.get(f'/server/navigation/execution/{execution_id}/status', params=params)
+            step = status.get('message') or ''
+        except Exception as e:
+            print(f"[@MCP:poll_navigation] cancel call failed: {e}")
+        text = f"Navigation to {target_label} stopped by the user" + (f" at: {step}" if step else "")
+        return {"content": [{"type": "text", "text": text}], "isError": False}
+
     def _format_navigation_result(self, result: Dict[str, Any], target_label: str) -> str:
         """
         Format navigation result with detailed step information

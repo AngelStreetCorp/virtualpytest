@@ -28,7 +28,7 @@ export const TerminalBlock: React.FC<TerminalBlockProps> = ({ label, color, sele
         minHeight: 40,
         px: 2,
         py: 1,
-        background: P.surface,
+        background: P.surfaceSolid,
         border: selected ? `2px solid ${P.accent}` : `1px solid ${P.borderColor}`,
         borderLeft: `3px solid ${accentColor}`,
         borderRadius: 1.5,
@@ -49,7 +49,7 @@ export const TerminalBlock: React.FC<TerminalBlockProps> = ({ label, color, sele
       }}
     >
       <Typography 
-        fontSize={12} 
+        fontSize="0.75rem" 
         fontWeight={600} 
         sx={{ color: accentColor }}
       >

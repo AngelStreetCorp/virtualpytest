@@ -1,4 +1,8 @@
+import { AppIcon } from '../../../constants/icons';
 import RefreshIcon from '@mui/icons-material/Refresh';
+import ArrowBackIosNewIcon from '@mui/icons-material/ArrowBackIosNew';
+import HomeIcon from '@mui/icons-material/Home';
+import MenuIcon from '@mui/icons-material/Menu';
 import {
   Box,
   Button,
@@ -15,6 +19,7 @@ import {
   Snackbar,
   Alert,
   Tooltip,
+  IconButton,
 } from '@mui/material';
 import React from 'react';
 import { createPortal } from 'react-dom';
@@ -28,6 +33,7 @@ import { PanelInfo } from '../../../types/controller/Panel_Types';
 import { AndroidElement } from '../../../types/controller/Remote_Types';
 
 import { AndroidMobileOverlay } from './AndroidMobileOverlay';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 // adb returns package names only, so the launcher shows a readable name derived from the package
 // (full package name on hover). Overrides cover packages whose last segment reads badly.
@@ -40,6 +46,41 @@ const APP_NAME_OVERRIDES: Record<string, string> = {
   'com.spotify.music': 'Spotify',
   'com.whatsapp': 'WhatsApp',
 };
+
+// Back / Home / Menu row — sits beside the D-pad and is sized to match its
+// 36 px square cells.
+//
+// The grow has to live on the <span> (tooltipWrapperSx), not on the IconButton.
+// Tooltip needs a single ref-holding child, so the span is the row's flex item
+// and the IconButton inside it is NOT one. `flex` on the IconButton alone is
+// inert: the buttons collapsed to intrinsic icon width (~22 px) while height
+// stayed 32 px, so they rendered as tall slivers and the row kept a visibly
+// empty right-hand side. Making the span a flex container puts the intended
+// flex:1 back on the button.
+//
+// aspectRatio rather than a fixed height squares each button at whatever width
+// the row hands it, so the shape survives a narrow panel instead of being
+// correct at exactly one width.
+const tooltipWrapperSx = {
+  flex: 1,
+  minWidth: 28,
+  display: 'flex',
+};
+
+const iconBtnSx = {
+  flex: 1,
+  minWidth: 0,
+  p: 0,
+  aspectRatio: '1 / 1',
+  border: '1px solid',
+  borderColor: 'divider',
+  borderRadius: 1,
+  color: 'primary.main',
+  backgroundColor: 'transparent',
+  '&:hover': { backgroundColor: 'action.hover' },
+  '&.Mui-disabled': { color: 'action.disabled' },
+};
+
 const PACKAGE_NOISE = new Set([
   'com', 'org', 'net', 'android', 'google', 'apps', 'app', 'samsung', 'sec', 'microsoft',
   'office', 'mobile', 'client', 'mediaclient', 'activity', 'main', 'launcher',
@@ -181,7 +222,7 @@ export const AndroidMobileRemote = React.memo(
         setWaitingForDump(false);
         
         if (androidElements.length > 0) {
-          setToastMessage(`✅ Dump succeeded! ${androidElements.length} elements copied to clipboard`);
+          setToastMessage(`Dump succeeded! ${androidElements.length} elements copied to clipboard`);
           setToastSeverity('success');
           setToastOpen(true);
           
@@ -191,7 +232,7 @@ export const AndroidMobileRemote = React.memo(
           setModalOpen(true);
         } else {
           // Only show toast on failure (no modal)
-          setToastMessage('❌ Dump failed or no elements found');
+          setToastMessage('Dump failed or no elements found');
           setToastSeverity('error');
           setToastOpen(true);
         }
@@ -270,7 +311,7 @@ export const AndroidMobileRemote = React.memo(
             }
 
             // Show success toast
-            setToastMessage(`✅ Found ${result.matches.length} element(s)! Copied to clipboard`);
+            setToastMessage(`Found ${result.matches.length} element(s)! Copied to clipboard`);
             setToastSeverity('success');
             setToastOpen(true);
 
@@ -279,7 +320,7 @@ export const AndroidMobileRemote = React.memo(
             setModalContent(result.matches);
             setModalOpen(true);
           } else {
-            setToastMessage('❌ No elements found');
+            setToastMessage('No elements found');
             setToastSeverity('error');
             setToastOpen(true);
           }
@@ -287,7 +328,7 @@ export const AndroidMobileRemote = React.memo(
       } catch (error) {
         console.error('Element action error:', error);
         setActionStatus('error');
-        setToastMessage('❌ Action failed');
+        setToastMessage('Action failed');
         setToastSeverity('error');
         setToastOpen(true);
       } finally {
@@ -497,7 +538,10 @@ export const AndroidMobileRemote = React.memo(
         >
           <Box
             sx={{
-              maxWidth: '230px',
+              // Use the full panel width (containerWidth minus the outer padding).
+              // The 238px cap left the Back/Home/Menu row squeezed next to the
+              // D-pad even though the panel had room to spare.
+              maxWidth: '100%',
               margin: '0 auto',
               width: '100%',
             }}
@@ -510,10 +554,10 @@ export const AndroidMobileRemote = React.memo(
 
               <Box sx={{ display: 'flex', gap: 0.5, mb: 1, mt: 0 }}>
                 <FormControl fullWidth size="small" ref={appSelectRef} sx={{ minWidth: 0 }}>
-                  <InputLabel>Select an app...</InputLabel>
+                  <InputLabel>Select an app</InputLabel>
                   <Select
                     value={selectedApp}
-                    label="Select an app..."
+                    label="Select an app"
                     disabled={androidApps.length === 0 || isRefreshingApps}
                     onChange={(e) => {
                       const appPackage = e.target.value;
@@ -536,7 +580,7 @@ export const AndroidMobileRemote = React.memo(
                     }}
                   >
                     {launcherApps.map((app) => (
-                      <MenuItem key={app.packageName} value={app.packageName} sx={{ fontSize: '0.875rem', py: 0.75, px: 1.5 }}>
+                      <MenuItem key={app.packageName} value={app.packageName} sx={{ fontSize: TYPOGRAPHY.body.size, py: 0.75, px: 1.5 }}>
                         <Tooltip title={app.packageName} placement="left" enterDelay={300}>
                           <Box
                             component="span"
@@ -612,10 +656,10 @@ export const AndroidMobileRemote = React.memo(
                 size="small"
                 sx={{
                   '& .MuiOutlinedInput-root': {
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                   '& .MuiInputLabel-root': {
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                     transform: 'translate(14px, 9px) scale(1)',
                     '&.MuiInputLabel-shrink': {
                       transform: 'translate(14px, -6px) scale(0.75)',
@@ -667,7 +711,7 @@ export const AndroidMobileRemote = React.memo(
                           key={element.id}
                           value={element.id}
                           sx={{
-                            fontSize: '0.75rem',
+                            fontSize: TYPOGRAPHY.caption.size,
                             py: 0.5,
                             px: 1,
                             minHeight: 'auto',
@@ -751,34 +795,43 @@ export const AndroidMobileRemote = React.memo(
                 </Button>
                 <Box />
                 </Box>
-                <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, flex: 1, minWidth: 0 }}>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={() => handleRemoteCommand('BACK')}
-                  disabled={!session.connected}
-                  sx={{  }}
-                >
-                  Back
-                </Button>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={() => handleRemoteCommand('HOME')}
-                  disabled={!session.connected}
-                  sx={{  }}
-                >
-                  Home
-                </Button>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  onClick={() => handleRemoteCommand('MENU')}
-                  disabled={!session.connected}
-                  sx={{  }}
-                >
-                  Menu
-                </Button>
+                <Box sx={{ display: 'flex', flexDirection: 'row', gap: 0.5, flex: 1, minWidth: 0 }}>
+                <Tooltip title="Back (KEYCODE_BACK)">
+                  <Box component="span" sx={tooltipWrapperSx}>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleRemoteCommand('BACK')}
+                      disabled={!session.connected}
+                      sx={iconBtnSx}
+                    >
+                      <ArrowBackIosNewIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                </Tooltip>
+                <Tooltip title="Home (KEYCODE_HOME)">
+                  <Box component="span" sx={tooltipWrapperSx}>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleRemoteCommand('HOME')}
+                      disabled={!session.connected}
+                      sx={iconBtnSx}
+                    >
+                      <HomeIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                </Tooltip>
+                <Tooltip title="Menu / recents (KEYCODE_APP_SWITCH)">
+                  <Box component="span" sx={tooltipWrapperSx}>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleRemoteCommand('MENU')}
+                      disabled={!session.connected}
+                      sx={iconBtnSx}
+                    >
+                      <MenuIcon fontSize="small" />
+                    </IconButton>
+                  </Box>
+                </Tooltip>
                 </Box>
               </Box>
 
@@ -789,7 +842,7 @@ export const AndroidMobileRemote = React.memo(
                   size="small"
                   onClick={() => handleRemoteCommand('SWIPE_DOWN')}
                   disabled={!session.connected}
-                  sx={{ flex: 1, fontSize: '0.65rem', padding: '1px 2px', minWidth: '40px', maxWidth: '55px' }}
+                  sx={{ flex: 1, fontSize: TYPOGRAPHY.microMeta.size, padding: '1px 2px', minWidth: '40px', maxWidth: '55px' }}
                 >
                   Scr↑
                 </Button>
@@ -798,7 +851,7 @@ export const AndroidMobileRemote = React.memo(
                   size="small"
                   onClick={() => handleRemoteCommand('SWIPE_UP')}
                   disabled={!session.connected}
-                  sx={{ flex: 1, fontSize: '0.65rem', padding: '1px 2px', minWidth: '40px', maxWidth: '55px' }}
+                  sx={{ flex: 1, fontSize: TYPOGRAPHY.microMeta.size, padding: '1px 2px', minWidth: '40px', maxWidth: '55px' }}
                 >
                   Scr↓
                 </Button>
@@ -807,7 +860,7 @@ export const AndroidMobileRemote = React.memo(
                   size="small"
                   onClick={() => handleRemoteCommand('SWIPE_RIGHT')}
                   disabled={!session.connected}
-                  sx={{ flex: 1, fontSize: '0.65rem', padding: '1px 2px', minWidth: '40px', maxWidth: '55px' }}
+                  sx={{ flex: 1, fontSize: TYPOGRAPHY.microMeta.size, padding: '1px 2px', minWidth: '40px', maxWidth: '55px' }}
                 >
                   Scr←
                 </Button>
@@ -816,7 +869,7 @@ export const AndroidMobileRemote = React.memo(
                   size="small"
                   onClick={() => handleRemoteCommand('SWIPE_LEFT')}
                   disabled={!session.connected}
-                  sx={{ flex: 1, fontSize: '0.65rem', padding: '1px 2px', minWidth: '40px', maxWidth: '55px' }}
+                  sx={{ flex: 1, fontSize: TYPOGRAPHY.microMeta.size, padding: '1px 2px', minWidth: '40px', maxWidth: '55px' }}
                 >
                   Scr→
                 </Button>
@@ -868,7 +921,7 @@ export const AndroidMobileRemote = React.memo(
                     flex: 1,
                     minWidth: 0,
                     '& .MuiOutlinedInput-root': {
-                      fontSize: '0.75rem',
+                      fontSize: TYPOGRAPHY.caption.size,
                       '& input': { py: 0.5 },
                     },
                   }}
@@ -901,17 +954,17 @@ export const AndroidMobileRemote = React.memo(
                   }}
                   disabled={!session.connected}
                   sx={{
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                     '& .MuiSelect-select': { py: 0.5 },
                   }}
                 >
-                  <MenuItem value="click_id" sx={{ fontSize: '0.75rem' }}>
+                  <MenuItem value="click_id" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                     Click by ID
                   </MenuItem>
-                  <MenuItem value="click_text" sx={{ fontSize: '0.75rem' }}>
+                  <MenuItem value="click_text" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                     Click by Text
                   </MenuItem>
-                  <MenuItem value="find" sx={{ fontSize: '0.75rem' }}>
+                  <MenuItem value="find" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                     Find Element
                   </MenuItem>
                 </Select>
@@ -935,7 +988,7 @@ export const AndroidMobileRemote = React.memo(
                   }}
                   placeholder={
                     elementActionType === 'click_id'
-                      ? 'Element ID (number)'
+                      ? 'Element ID'
                       : elementActionType === 'click_text'
                       ? 'Element text'
                       : 'Search term'
@@ -953,7 +1006,7 @@ export const AndroidMobileRemote = React.memo(
                   sx={{
                     flex: 1,
                     '& .MuiOutlinedInput-root': {
-                      fontSize: '0.75rem',
+                      fontSize: TYPOGRAPHY.caption.size,
                       '& input': { py: 0.5 },
                     },
                   }}
@@ -977,8 +1030,8 @@ export const AndroidMobileRemote = React.memo(
                     <CircularProgress size={16} sx={{ color: 'white' }} />
                   ) : (
                     <>
-                      {actionStatus === 'success' && '✓ '}
-                      {actionStatus === 'error' && '✗ '}
+                      {actionStatus === 'success' && <AppIcon name="success" />}
+                      {actionStatus === 'error' && <AppIcon name="error" />}
                       {elementActionType === 'find' ? 'Find' : 'Click'}
                     </>
                   )}
@@ -1006,32 +1059,32 @@ export const AndroidMobileRemote = React.memo(
                     {index + 1}. Element
                   </Typography>
                   {(item.id || item.element_id) && (
-                    <Typography variant="caption" sx={{ display: 'block', color: 'text.primary', fontSize: '0.7rem', wordBreak: 'break-word' }}>
+                    <Typography variant="caption" sx={{ display: 'block', color: 'text.primary', fontSize: TYPOGRAPHY.caption.size, wordBreak: 'break-word' }}>
                       ID: {item.id || item.element_id}
                     </Typography>
                   )}
                   {item.text && item.text !== '<no text>' && (
-                    <Typography variant="caption" sx={{ display: 'block', color: 'text.primary', fontSize: '0.7rem', wordBreak: 'break-word' }}>
+                    <Typography variant="caption" sx={{ display: 'block', color: 'text.primary', fontSize: TYPOGRAPHY.caption.size, wordBreak: 'break-word' }}>
                       Text: {item.text}
                     </Typography>
                   )}
                   {item.contentDesc && item.contentDesc !== '<no content-desc>' && (
-                    <Typography variant="caption" sx={{ display: 'block', color: 'text.primary', fontSize: '0.7rem', wordBreak: 'break-word' }}>
+                    <Typography variant="caption" sx={{ display: 'block', color: 'text.primary', fontSize: TYPOGRAPHY.caption.size, wordBreak: 'break-word' }}>
                       Content-Desc: {item.contentDesc}
                     </Typography>
                   )}
                   {item.match_reason && (
-                    <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontSize: '0.7rem', wordBreak: 'break-word', fontStyle: 'italic' }}>
+                    <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontSize: TYPOGRAPHY.caption.size, wordBreak: 'break-word', fontStyle: 'italic' }}>
                       Match: {item.match_reason}
                     </Typography>
                   )}
                   {item.bounds && (
-                    <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontSize: '0.7rem', wordBreak: 'break-word' }}>
+                    <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontSize: TYPOGRAPHY.caption.size, wordBreak: 'break-word' }}>
                       Bounds: {typeof item.bounds === 'string' ? item.bounds : JSON.stringify(item.bounds)}
                     </Typography>
                   )}
                   {item.xpath && (
-                    <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontSize: '0.7rem', wordBreak: 'break-all' }}>
+                    <Typography variant="caption" sx={{ display: 'block', color: 'text.secondary', fontSize: TYPOGRAPHY.caption.size, wordBreak: 'break-all' }}>
                       XPath: {item.xpath}
                     </Typography>
                   )}

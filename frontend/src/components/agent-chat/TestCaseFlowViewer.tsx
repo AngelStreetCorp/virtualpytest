@@ -41,6 +41,7 @@ import { ApiCallBlock } from '../testcase/blocks/ApiCallBlock';
 import { SuccessEdge } from '../testcase/edges/SuccessEdge';
 import { FailureEdge } from '../testcase/edges/FailureEdge';
 import { DataEdge } from '../testcase/edges/DataEdge';
+import { ConfirmDialog } from '../common/ConfirmDialog';
 import { DEFAULT_VIEWPORT, ZOOM_CONSTRAINTS, FIT_VIEW_OPTIONS } from '../../constants/builderDefaults';
 
 // Node types for React Flow
@@ -154,7 +155,13 @@ const TestCaseFlowViewerContent: React.FC<TestCaseFlowViewerProps> = ({
   } = hookData;
 
   // Device control hook for automatic take/release
-  const { handleDeviceControl: deviceControlHandler, isControlLoading } = useDeviceControlWithForceUnlock({
+  const {
+    handleDeviceControl: deviceControlHandler,
+    isControlLoading,
+    confirmDialogState,
+    confirmDialogHandleConfirm,
+    confirmDialogHandleCancel,
+  } = useDeviceControlWithForceUnlock({
     host: selectedHost,
     device_id: selectedDeviceId,
     sessionId: 'testcase-flow-viewer-session',
@@ -407,6 +414,16 @@ const TestCaseFlowViewerContent: React.FC<TestCaseFlowViewerProps> = ({
           // User manually closes the progress bar
           unifiedExecution?.resetExecution();
         }}
+      />
+      <ConfirmDialog
+        open={confirmDialogState.open}
+        title={confirmDialogState.title}
+        message={confirmDialogState.message}
+        confirmText={confirmDialogState.confirmText}
+        cancelText={confirmDialogState.cancelText}
+        confirmColor={confirmDialogState.confirmColor}
+        onConfirm={confirmDialogHandleConfirm}
+        onCancel={confirmDialogHandleCancel}
       />
     </Box>
   );

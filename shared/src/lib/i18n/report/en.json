@@ -6,6 +6,7 @@
   "header.start": "Start:",
   "header.end": "End:",
   "header.open_testcase_builder": "Open in TestCase Builder",
+  "header.project_label": "Project",
   "header.save_pdf": "Save as PDF",
   "header.share_snapshot": "Share snapshot link",
   "summary.status": "Status:",
@@ -165,5 +166,12 @@
   "msg.loop_stopped_pass": "Loop stopped early (pass) at iteration {i}",
   "msg.loop_failed": "Loop failed at iteration {i}",
   "msg.loop_exhausted": "Loop exhausted {n} iterations without success",
-  "msg.loop_completed": "Loop completed {n} iterations"
+  "msg.loop_completed": "Loop completed {n} iterations",
+  "timeline.title": "Video timeline",
+  "timeline.hint": "Click a tile or a step to play the video from there.",
+  "timeline.ok": "OK",
+  "timeline.fail": "FAIL",
+  "link.timeline": "Timeline:",
+  "timeline.show_player": "Show player",
+  "timeline.hide_player": "Hide player"
 }

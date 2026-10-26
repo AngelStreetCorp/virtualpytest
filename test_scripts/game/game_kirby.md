@@ -113,3 +113,6 @@ The menu driver OCR:
 | `guard_counter` | guard ~0.4 s then two attacks; best right after a telegraphed hit. |
 | `keep_distance` | stay ~350 px away, step in only to land a hit; a safe neutral. |
 | `retreat` | move away and guard; use when both Kirbys are low on HP. |
+## AI usage
+
+With `--chooser jev` each Jev tactic call is listed in the report summary and the run log with model, tokens in/out and ms, after the totals. `--chooser fixed` says `AI: none`.

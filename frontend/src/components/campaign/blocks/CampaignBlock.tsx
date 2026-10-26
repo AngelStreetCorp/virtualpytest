@@ -33,6 +33,7 @@ import { useCampaignBuilder } from '../../../contexts/campaign/CampaignBuilderCo
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { useHostControl } from '../../../hooks/useHostManager';
 import { BlockOutputHandles, OutputType } from '../../common/builder/BlockOutputHandles';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNode['data']>) => {
   const { deleteNode, selectNode, linkOutputToInput, nodes, updateNode, executeBlock, state } = useCampaignBuilder();
@@ -51,12 +52,12 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
 
   // Get colors based on node type - muted, professional palette
   const getColors = () => {
-    if (id === 'start') return { accent: P.accent, bg: P.surface };
-    if (id === 'success') return { accent: P.success, bg: P.surface };
-    if (id === 'failure') return { accent: P.error, bg: P.surface };
-    if (isTestCase) return { accent: P.series[2], bg: P.surface };
-    if (isScript) return { accent: P.warning, bg: P.surface };
-    return { accent: P.textMuted, bg: P.surface };
+    if (id === 'start') return { accent: P.accent, bg: P.surfaceSolid };
+    if (id === 'success') return { accent: P.success, bg: P.surfaceSolid };
+    if (id === 'failure') return { accent: P.error, bg: P.surfaceSolid };
+    if (isTestCase) return { accent: P.series[2], bg: P.surfaceSolid };
+    if (isScript) return { accent: P.warning, bg: P.surfaceSolid };
+    return { accent: P.textMuted, bg: P.surfaceSolid };
   };
 
   const colors = getColors();
@@ -232,7 +233,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
           justifyContent: 'center',
           fontWeight: 'bold',
           color: colors.accent,
-          fontSize: '1.1rem',
+          fontSize: TYPOGRAPHY.cardTitle.size,
         }}
       >
         {/* Handles */}
@@ -318,7 +319,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                 size="small"
                 inputProps={{
                   maxLength: 30,
-                  style: { color: colors.accent, fontSize: 14, fontWeight: 600, padding: '2px 4px' }
+                  style: { color: colors.accent, fontSize: TYPOGRAPHY.body.size, fontWeight: 600, padding: '2px 4px' }
                 }}
                 sx={{
                   '& .MuiOutlinedInput-root': {
@@ -335,14 +336,14 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                 onClick={(e) => { e.stopPropagation(); handleLabelCancel(); }}
                 sx={{ color: 'text.secondary', padding: '2px', '&:hover': { backgroundColor: 'action.hover' } }}
               >
-                <CloseIcon sx={{ fontSize: 14 }} />
+                <CloseIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
               </IconButton>
             </>
           ) : (
             <>
               <Typography
                 fontWeight={600}
-                fontSize={14}
+                fontSize="0.875rem"
                 sx={{
                   flex: 1,
                   overflow: 'hidden',
@@ -378,7 +379,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                       : `Execute ${data.label || data.executableName}`
                   }
                 >
-                  <PlayArrowIcon sx={{ fontSize: 16 }} />
+                  <PlayArrowIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
                 </IconButton>
               )}
               {!readOnly && (
@@ -387,7 +388,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                   onClick={handleLabelEdit}
                   sx={{ color: 'text.secondary', padding: '2px', '&:hover': { backgroundColor: 'action.hover' } }}
                 >
-                  <EditIcon sx={{ fontSize: 14 }} />
+                  <EditIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                 </IconButton>
               )}
             </>
@@ -400,10 +401,10 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
             sx={{
               color: 'text.secondary',
               padding: '4px',
-              '&:hover': { backgroundColor: 'action.hover', color: P.error }
+              '&:hover': { backgroundColor: 'action.hover', color: P.dangerText }
             }}
           >
-            <DeleteIcon sx={{ fontSize: 16 }} />
+            <DeleteIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
           </IconButton>
         )}
       </Box>
@@ -436,7 +437,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                 sx={{ 
                   fontWeight: 600, 
                   color: P.series[1],
-                  fontSize: '0.8rem',
+                  fontSize: TYPOGRAPHY.body.size,
                   letterSpacing: '0.5px'
                 }}
               >
@@ -473,7 +474,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                         },
                       }}
                     >
-                      <Typography variant="caption" sx={{ flex: 1, fontSize: '0.75rem' }}>
+                      <Typography variant="caption" sx={{ flex: 1, fontSize: TYPOGRAPHY.caption.size }}>
                         {input.name}
                         {input.required && <span style={{ color: P.error }}>*</span>}
                       </Typography>
@@ -504,7 +505,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                           }
                           onChange={(e) => handleInputValueChange(input.name, e.target.value)}
                           onClick={(e) => e.stopPropagation()}
-                          inputProps={{ style: { fontSize: '0.7rem' } }}
+                          inputProps={{ style: { fontSize: TYPOGRAPHY.caption.size } }}
                           sx={{ width: 110 }}
                         />
                       )}
@@ -536,7 +537,7 @@ export const CampaignBlock = memo(({ data, id, selected }: NodeProps<CampaignNod
                 sx={{ 
                   fontWeight: 600, 
                   color: P.warning,
-                  fontSize: '0.8rem',
+                  fontSize: TYPOGRAPHY.body.size,
                   letterSpacing: '0.5px'
                 }}
               >

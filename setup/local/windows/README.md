@@ -26,6 +26,13 @@ The installation script will automatically install:
 
 ## Installation
 
+> **Keep every `.ps1` file ASCII-only.** Windows PowerShell 5.1 decodes a
+> BOM-less script with the ANSI code page. A UTF-8 em dash (`—`) then becomes
+> `â€”`, and its `0x94` byte is the cp1252 smart quote, which closes the
+> string early and breaks the whole file. `check_release_notes.py`-style
+> parsing on Linux/macOS (PowerShell 7, UTF-8) will not catch it. See
+> BUG-0603.
+
 ### 1. Prepare Your System
 
 1. **Run PowerShell as Administrator**
@@ -115,9 +122,9 @@ The installation creates these components:
 | Name | Type | Description | Port |
 |------|------|-------------|------|
 | vpt-host | Service (NSSM) | REST API server | 6109 |
-| vpt-monitor | Service (NSSM) | Capture monitoring | N/A |
+| vpt-monitor-img | Service (NSSM) | Capture monitoring | N/A |
 | vpt-archiver | Service (NSSM) | Hot/cold storage archiver | N/A |
-| vpt-transcript | Service (NSSM) | Audio transcription | N/A |
+| vpt-monitor-audio | Service (NSSM) | Audio transcription | N/A |
 | vpt-vnc | Service (NSSM) | VNC server | 5900 |
 | vpt-websockify | Service (NSSM) | WebSocket proxy for VNC | 6080 |
 | vpt-stream | Scheduled Task | FFmpeg desktop capture (interactive session required) | N/A |
@@ -133,8 +140,8 @@ Why is `vpt-stream` a task on Windows? `ffmpeg -f gdigrab -i desktop` must run i
 Get-Service vpt-*
 
 # Start/stop core services (stream is a Scheduled Task on Windows)
-Start-Service vpt-host, vpt-monitor, vpt-archiver, vpt-transcript, vpt-vnc, vpt-websockify
-Stop-Service  vpt-host, vpt-monitor, vpt-archiver, vpt-transcript, vpt-vnc, vpt-websockify
+Start-Service vpt-host, vpt-monitor-img, vpt-archiver, vpt-monitor-audio, vpt-vnc, vpt-websockify
+Stop-Service  vpt-host, vpt-monitor-img, vpt-archiver, vpt-monitor-audio, vpt-vnc, vpt-websockify
 
 # Restart specific service
 Restart-Service vpt-host

@@ -1,10 +1,11 @@
 /**
- * Live view of one running task: status, elapsed time, optional progress/ETA, an
- * authorized Stop, and a hand-off to the run summary once a durable result exists.
+ * Live view of one running task (TASK-127 G4): meta line, "Now: step N" with percent and chips,
+ * the live device stream with the step frame strip, the Steps panel, the log built from the step
+ * events, an authorized Stop, and a hand-off to the run summary once a durable result exists.
  * Nothing here is inferred: progress, totals and ETA only show when the producer reports them.
  */
 
-import { Alert, Box, Button, Card, CardContent, LinearProgress, Link, Typography } from '@mui/material';
+import { Alert, Box, Button, Card, CardContent, Link, Typography } from '@mui/material';
 import React, { useEffect, useRef, useState } from 'react';
 import { Link as RouterLink } from 'react-router-dom';
 
@@ -14,6 +15,14 @@ import { useLiveRun, type SystemEventSubscribe } from '../../hooks/reports/useLi
 import { useReportPermissions, useReportScope } from '../../hooks/reports/useRunManagement';
 import { REPORT_ROUTES, isTerminalStatus } from '../../types/reports';
 import { StatusChip, formatDateTime, formatDurationMs } from './status';
+import { dangerButtonSx } from '../common/PageChrome';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { AppIcon } from '../../constants/icons';
+import { TYPOGRAPHY } from '../../constants/typography';
+import { useI18n } from '../../i18n/useI18n';
+import { useTargetSelection } from '../../hooks/useTargetSelection';
+import { useLiveRunSteps } from '../../hooks/reports/useLiveRunSteps';
+import { LiveStreamCard, RunLog, RunNowPanel, StepsPanel } from '../run-live';
 
 export interface RunLivePanelProps {
   taskId: string;
@@ -22,6 +31,10 @@ export interface RunLivePanelProps {
 }
 
 export const RunLivePanel: React.FC<RunLivePanelProps> = ({ taskId, onCompleted, subscribe }) => {
+  const P = useAgentChatPalette();
+  const { t, tn } = useI18n();
+  const { allHosts, getDevicesFromHost } = useTargetSelection();
+  const [frame, setFrame] = useState<number | null>(null);
   const { data, error, stale, lastSuccessAt, refetch } = useLiveRun(taskId, { subscribe });
   const { canStop } = useReportPermissions();
   const scope = useReportScope();
@@ -54,9 +67,11 @@ export const RunLivePanel: React.FC<RunLivePanelProps> = ({ taskId, onCompleted,
       ? null
       : data.elapsed_ms + (active && lastSuccessAt !== null ? Math.max(0, clock - lastSuccessAt) : 0);
 
-  const total = data?.progress?.total;
-  const completed = data?.progress?.completed;
-  const hasProgress = typeof total === 'number' && total > 0 && typeof completed === 'number';
+  const deviceId = (data as (typeof data & { device_id?: string | null }) | null)?.device_id ?? '';
+  const live = useLiveRunSteps(taskId, data?.host_name, deviceId, active);
+  const totalSteps = live.totalSteps ?? data?.progress?.total ?? null;
+  const device = data?.host_name ? { hostName: data.host_name, deviceId } : null;
+  const startedLabel = data?.started_at ? formatDateTime(data.started_at) : null;
 
   const handleStop = async () => {
     setConfirmOpen(false);
@@ -66,8 +81,8 @@ export const RunLivePanel: React.FC<RunLivePanelProps> = ({ taskId, onCompleted,
       const response = await stopLiveRun(taskId, scope);
       setStopMessage(
         response.success
-          ? { severity: 'success', text: 'Stop requested. The status updates when the host confirms.' }
-          : { severity: 'error', text: 'The host did not confirm the stop.' },
+          ? { severity: 'success', text: t('Stop requested. The status updates when the host confirms.') }
+          : { severity: 'error', text: t('The host did not confirm the stop.') },
       );
       refetch();
     } catch (err) {
@@ -80,111 +95,130 @@ export const RunLivePanel: React.FC<RunLivePanelProps> = ({ taskId, onCompleted,
   if (!data && error) {
     return (
       <Alert severity="error" data-testid="live-error">
-        Live status unavailable: {describeError(error)}
+        {t('Live status unavailable: {error}', { error: describeError(error) })}
       </Alert>
     );
   }
 
   return (
-    <Card variant="outlined" data-testid="run-live-panel">
-      <CardContent>
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1 }}>
-          <StatusChip status={status} />
-          <Typography variant="subtitle1" sx={{ wordBreak: 'break-word' }}>
-            {data?.script_name ?? 'Run'}
+    <Box data-testid="run-live-panel" sx={{ display: 'grid', gap: 1.5, minWidth: 0 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+        <Typography sx={{ fontWeight: 600, fontSize: TYPOGRAPHY.cardTitle.size, wordBreak: 'break-word' }}>{data?.script_name ?? t('Run')}</Typography>
+        <StatusChip status={status} />
+        <Box sx={{ flex: 1 }} />
+        {data && active && canStop && data.can_stop && (
+          <Button variant="outlined" startIcon={<AppIcon name="stop" />} onClick={() => setConfirmOpen(true)} disabled={stopping} sx={dangerButtonSx(P)}>
+            {t('Stop run')}
+          </Button>
+        )}
+      </Box>
+      {data && (
+        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', color: P.textSecondary, fontSize: TYPOGRAPHY.caption.size }}>
+          {(data.host_name || data.device_name) && (
+            <span>{data.device_name ?? t('unknown device')} · {data.host_name ?? t('unknown host')}</span>
+          )}
+          {startedLabel && <span>{t('Started {time}', { time: startedLabel })}</span>}
+          <span>
+            <b>{elapsedMs === null ? t('not reported') : formatDurationMs(elapsedMs)}</b> {t('elapsed')}
+          </span>
+        </Box>
+      )}
+
+      {stale && (
+        <Alert severity="warning" data-testid="live-stale">
+          {t('Status may be out of date — last update {time}.', {
+            time: lastSuccessAt ? formatDateTime(new Date(lastSuccessAt).toISOString()) : t('never'),
+          })}
+        </Alert>
+      )}
+      {!data && !error && (
+        <Typography variant="body2" color="text.secondary">
+          {t('Waiting for the first status…')}
+        </Typography>
+      )}
+
+      {data && (
+        <>
+          <Card variant="outlined">
+            <CardContent>
+              <RunNowPanel
+                steps={live.steps}
+                totalSteps={totalSteps}
+                running={active}
+                message={live.message}
+                etaMs={data.eta_ms}
+              />
+            </CardContent>
+          </Card>
+
+          <Box sx={{ display: 'grid', gap: 1.5, gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 3fr) minmax(0, 2fr)' } }}>
+            <Card variant="outlined">
+              <CardContent>
+                <LiveStreamCard
+                  device={device}
+                  streamProps={{ allHosts, getDevicesFromHost, isActive: active }}
+                  steps={live.steps}
+                  running={active}
+                  selected={frame}
+                  onSelect={setFrame}
+                  caption={device ? `${data.device_name ?? deviceId} · ${data.host_name}` : undefined}
+                />
+              </CardContent>
+            </Card>
+            <Card variant="outlined">
+              <CardContent>
+                <Typography sx={{ fontWeight: 600, mb: 0.75 }}>
+                  {t('Steps')} <Typography component="span" variant="caption" sx={{ color: P.textSecondary }}>{tn(live.steps.length, '{count} step', '{count} steps')}</Typography>
+                </Typography>
+                <StepsPanel
+                  steps={live.steps}
+                  running={active}
+                  maxHeight={380}
+                  resetKey={taskId}
+                  selectedNumber={frame}
+                  onSelect={(step) => setFrame(step.screenshot ? step.number : null)}
+                />
+              </CardContent>
+            </Card>
+          </Box>
+
+          <RunLog steps={live.steps} fileName={`${data.script_name ?? 'run'}-${taskId.slice(0, 8)}`} />
+        </>
+      )}
+
+      {stopMessage && <Alert severity={stopMessage.severity}>{stopMessage.text}</Alert>}
+
+      {data && terminal && (
+        <Box data-testid="live-finished">
+          <Typography variant="body2" sx={{ mb: 0.5 }}>
+            {t('Run finished.')}
           </Typography>
-          {(data?.host_name || data?.device_name) && (
-            <Typography variant="body2" color="text.secondary">
-              {data?.host_name ?? 'unknown host'} / {data?.device_name ?? 'unknown device'}
-            </Typography>
+          {data.script_result_id ? (
+            <Link component={RouterLink} to={REPORT_ROUTES.summary('script', data.script_result_id)}>
+              {t('Open run summary')}
+            </Link>
+          ) : (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                {t('Waiting for the durable result…')}
+              </Typography>
+              <Button size="small" onClick={refetch}>
+                {t('Refresh')}
+              </Button>
+            </Box>
           )}
         </Box>
-
-        {stale && (
-          <Alert severity="warning" sx={{ mb: 1 }} data-testid="live-stale">
-            Status may be out of date — last update{' '}
-            {lastSuccessAt ? formatDateTime(new Date(lastSuccessAt).toISOString()) : 'never'}.
-          </Alert>
-        )}
-        {!data && !error && (
-          <Typography variant="body2" color="text.secondary">
-            Waiting for the first status…
-          </Typography>
-        )}
-
-        {data && (
-          <Box sx={{ display: 'grid', gap: 0.5 }}>
-            <Typography variant="body2">
-              Elapsed: {elapsedMs === null ? 'not reported' : formatDurationMs(elapsedMs)}
-            </Typography>
-            {hasProgress ? (
-              <Box>
-                <LinearProgress
-                  variant="determinate"
-                  value={Math.min(100, ((completed as number) / (total as number)) * 100)}
-                  aria-label="progress"
-                />
-                <Typography variant="caption" color="text.secondary">
-                  {completed} of {total}
-                </Typography>
-              </Box>
-            ) : (
-              <Typography variant="body2" color="text.secondary">
-                Progress not reported by this run
-              </Typography>
-            )}
-            {data.eta_ms !== null && data.eta_ms !== undefined && (
-              <Typography variant="body2">Estimated remaining: {formatDurationMs(data.eta_ms)}</Typography>
-            )}
-          </Box>
-        )}
-
-        {stopMessage && (
-          <Alert severity={stopMessage.severity} sx={{ mt: 1 }}>
-            {stopMessage.text}
-          </Alert>
-        )}
-
-        {data && active && canStop && data.can_stop && (
-          <Box sx={{ mt: 2 }}>
-            <Button color="error" variant="outlined" onClick={() => setConfirmOpen(true)} disabled={stopping}>
-              Stop run
-            </Button>
-          </Box>
-        )}
-
-        {data && terminal && (
-          <Box sx={{ mt: 2 }} data-testid="live-finished">
-            <Typography variant="body2" sx={{ mb: 0.5 }}>
-              Run finished.
-            </Typography>
-            {data.script_result_id ? (
-              <Link component={RouterLink} to={REPORT_ROUTES.summary('script', data.script_result_id)}>
-                Open run summary
-              </Link>
-            ) : (
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Typography variant="body2" color="text.secondary">
-                  Waiting for the durable result…
-                </Typography>
-                <Button size="small" onClick={refetch}>
-                  Refresh
-                </Button>
-              </Box>
-            )}
-          </Box>
-        )}
-      </CardContent>
+      )}
       <ConfirmDialog
         open={confirmOpen}
-        title="Stop this run?"
-        message={'Stops the script process on the host. Releasing the device is not the same as stopping.'}
-        confirmText="Stop run"
+        title={t('Stop this run?')}
+        message={t('Stops the script process on the host. Releasing the device is not the same as stopping.')}
+        confirmText={t('Stop run')}
         confirmColor="error"
         onConfirm={() => void handleStop()}
         onCancel={() => setConfirmOpen(false)}
       />
-    </Card>
+    </Box>
   );
 };
 

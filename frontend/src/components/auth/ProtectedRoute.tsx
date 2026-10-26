@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Navigate, Outlet, useLocation } from 'react-router-dom';
 import { Box, CircularProgress, Typography } from '@mui/material';
 import { useAuth } from '../../hooks/auth/useAuth';
@@ -6,6 +6,7 @@ import { usePermissions } from '../../hooks/auth/usePermissions';
 import { useProfile } from '../../hooks/auth/useProfile';
 import { Permission, Role, requiredPermissionForPath } from '../../types/auth';
 import { isAuthEnabled } from '../../lib/supabase';
+import PageSkeleton from '../common/PageSkeleton';
 
 interface ProtectedRouteProps {
   children?: React.ReactNode;
@@ -42,6 +43,11 @@ const AuthGate: React.FC<ProtectedRouteProps> = ({
   const { isPlatformAdmin } = useProfile();
   const location = useLocation();
   const [showLoading, setShowLoading] = useState(false);
+  // The skeleton is only for the FIRST resolution, i.e. the app boot. `permissionsLoading` can
+  // flip back to true on a later navigation (useRoles refetching role defaults), and a skeleton
+  // then would replace content the user is already reading. Once we have rendered real content
+  // for this mount, later waits go back to rendering nothing rather than erasing the page.
+  const awaitingFirstContent = useRef(true);
 
   useEffect(() => {
     let timer: NodeJS.Timeout;
@@ -58,11 +64,17 @@ const AuthGate: React.FC<ProtectedRouteProps> = ({
     return () => clearTimeout(timer);
   }, [isLoading]);
 
+  useEffect(() => {
+    if (!isLoading) awaitingFirstContent.current = false;
+  }, [isLoading]);
+
   // Show loading spinner while checking auth
   if (isLoading) {
-    // Return null (blank) until the delay passes, then show spinner
-    if (!showLoading) return null;
-    
+    // Hold the area with a neutral placeholder instead of nothing, so the first paint is
+    // "app frame + page-shaped placeholder" -> "app frame + content" rather than
+    // "app frame + void" -> "app frame + content".
+    if (!showLoading) return awaitingFirstContent.current ? <PageSkeleton /> : null;
+
     return (
       <Box
         sx={{

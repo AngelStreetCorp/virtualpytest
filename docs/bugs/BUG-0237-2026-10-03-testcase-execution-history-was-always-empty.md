@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low — the history list of a test case showed no runs; the runs themselves and their reports were intact |
 | Area      | `shared/src/lib/database/testcase_db.py` (`get_testcase_execution_history`), served by `/host/testcase/<id>/history` via `/server/testcase/<id>/history` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `961a0769d`                                                  |
 
 ---

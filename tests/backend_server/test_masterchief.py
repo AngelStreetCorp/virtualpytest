@@ -74,6 +74,8 @@ EXPECTED_OPS = [
     "logs.services",
     "service.status",
     "service.restart",
+    "host.disk_preview",
+    "host.disk_cleanup",
     "infra.summary",
     "rollout.explain",
     "deploy.status",
@@ -84,14 +86,14 @@ def test_registry_has_every_op_in_design_doc():
     assert [o.op for o in list_ops()] == EXPECTED_OPS
 
 
-def test_exactly_one_mutating_op_and_it_is_restart():
+def test_only_restart_and_disk_cleanup_mutate():
     mutates = [o.op for o in list_ops() if o.mutates]
-    assert mutates == ["service.restart"]
+    assert sorted(mutates) == ["host.disk_cleanup", "service.restart"]
 
 
-def test_exactly_one_platform_admin_only_op_and_it_is_restart():
+def test_only_mutating_ops_are_platform_admin_only():
     admin_only = [o.op for o in list_ops() if o.platform_admin_only]
-    assert admin_only == ["service.restart"]
+    assert sorted(admin_only) == ["host.disk_cleanup", "service.restart"]
 
 
 def test_whitelist_matches_logs_route():
@@ -105,8 +107,8 @@ def test_whitelist_matches_logs_route():
     assert set(ALLOWED_SERVICES) == {
         'vpt-server', 'vpt-server-host', 'vpt-host', 'vpt-frontend',
         'vpt-heatmap', 'vpt-discard-scripts', 'vpt-discard-incidents',
-        'vpt-stream', 'vpt-monitor', 'vpt-archiver', 'vpt-kpi',
-        'vpt-transcript', 'vpt-subtitle', 'vpt-vnc', 'vpt-websockify',
+        'vpt-stream', 'vpt-monitor-img', 'vpt-archiver', 'vpt-kpi',
+        'vpt-monitor-audio', 'vpt-monitor-subtitle', 'vpt-vnc', 'vpt-websockify',
         'vpt-emulator', 'vpt-emulator-fifo',
     }
 
@@ -283,3 +285,55 @@ def test_refuse_service_key_decorator_passes_other_roles():
         resp = probe()
         assert resp[0] == "ok"
         assert resp[1] == 200
+
+
+def test_masterchief_agent_is_selectable_in_registry():
+    """The agent picker lists registry templates: masterchief must load, be selectable and hold the propose tool."""
+    from pathlib import Path as _P
+    from backend_server.src.agent.registry.validator import validate_agent_yaml
+
+    path = _P(__file__).resolve().parents[2] / 'backend_server/src/agent/registry/templates/masterchief.yaml'
+    agent = validate_agent_yaml(path.read_text(encoding='utf-8'))
+    assert agent.metadata.id == 'masterchief'
+    assert agent.metadata.selectable is not False
+    assert 'propose_masterchief_op' in agent.skills
+
+
+def test_disk_cleanup_takes_no_path_or_age_and_is_admin_gated():
+    from backend_server.src.lib.masterchief import get_op
+    op = get_op("host.disk_cleanup")
+    assert op.mutates and op.platform_admin_only
+    assert set(op.params_schema["properties"]) == {"host", "reason"}
+    assert get_op("host.disk_preview").mutates is False
+
+
+def test_disk_cleanup_refuses_busy_host_and_sends_real_run():
+    from unittest.mock import MagicMock
+    from backend_server.src.lib.masterchief import ops
+    ctx = ops.OpContext(team_id="t", requester_user_id="u", requester_email="e", requester_role="admin", audit_id="a")
+    hm = MagicMock()
+    hm.get_host.return_value = {"host_name": "h"}
+    with patch("backend_server.src.lib.utils.server_utils.get_host_manager", return_value=hm), \
+         patch("backend_server.src.routes.server_system_routes._foreign_host_lock", return_value={"owner_user_name": "x"}), \
+         patch.object(ops, "call_host") as ch:
+        out = ops._exec_disk_cleanup({"host": "h"}, ctx)
+        assert "in use" in out.summary
+        ch.assert_not_called()
+    resp = {"success": True, "freed_bytes": 2_000_000_000, "files": 5, "disk_before": 97, "disk_after": 90, "dry_run": False}
+    with patch("backend_server.src.lib.utils.server_utils.get_host_manager", return_value=hm), \
+         patch("backend_server.src.routes.server_system_routes._foreign_host_lock", return_value=None), \
+         patch.object(ops, "call_host", return_value=(resp, 200)) as ch:
+        out = ops._exec_disk_cleanup({"host": "h", "path": "/etc"}, ctx)
+        assert ch.call_args.kwargs["data"] == {"dry_run": False}
+        assert "freed 2.00 GB" in out.summary
+
+
+def test_check_storage_error_path_returns_formatted_error():
+    """check_storage passed a string as the error category, which crashed with "'str' object has no attribute 'value'"."""
+    from unittest.mock import MagicMock
+    from backend_server.src.mcp.tools.system_ops_tools import SystemOpsTools
+
+    api = MagicMock()
+    api.get.return_value = {"success": False, "error": "host down"}
+    out = SystemOpsTools(api).check_storage({"host_name": "h"})
+    assert out["isError"] is True

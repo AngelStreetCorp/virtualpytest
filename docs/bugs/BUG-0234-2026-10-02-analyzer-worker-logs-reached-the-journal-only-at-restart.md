@@ -9,7 +9,7 @@
 | Status    | Closed                                                       |
 | Severity  | Low — no analysis lost, but Sherlock's log was hours behind or empty |
 | Area      | `backend_server/config/services/linux/vpt-discard-scripts.service` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `790e21623`                                                  |
 
 ---

@@ -1,5 +1,6 @@
 import { Box, Card, CardContent, CircularProgress, Typography } from '@mui/material';
 import React from 'react';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 /**
  * The frame every Analytics chart sits in: title, subtitle, and the loading /
@@ -55,7 +56,7 @@ export const ChartCard: React.FC<ChartCardProps> = ({
           {title}
         </Typography>
         {subtitle && (
-          <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.6875rem' }}>
+          <Typography variant="caption" color="text.secondary" sx={{ fontSize: TYPOGRAPHY.microMeta.size }}>
             {subtitle}
           </Typography>
         )}

@@ -1,3 +1,4 @@
+import { AppIcon, StatusText } from '../../../constants/icons';
 import {
   Camera as CameraIcon,
   KeyboardArrowDown as ArrowDownIcon,
@@ -21,6 +22,7 @@ import React, { useRef, useMemo } from 'react';
 import { UseVerificationEditorType } from '../../../hooks/verification/useVerificationEditor';
 import { useR2Url } from '../../../hooks/storage/useR2Url';
 import { useAgentChatPalette, AGENT_CHAT_PALETTE } from '../../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface DragArea {
   x: number;
@@ -122,12 +124,12 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
           sx={{ p: 0.25, mr: 0.5 }}
         >
           {captureCollapsed ? (
-            <ArrowRightIcon sx={{ fontSize: '1rem' }} />
+            <ArrowRightIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
           ) : (
-            <ArrowDownIcon sx={{ fontSize: '1rem' }} />
+            <ArrowDownIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
           )}
         </IconButton>
-        <Typography variant="subtitle2" sx={{ fontSize: '0.8rem', fontWeight: 600 }}>
+        <Typography variant="subtitle2" sx={{ fontSize: TYPOGRAPHY.body.size, fontWeight: 600 }}>
           Capture
         </Typography>
       </Box>
@@ -185,7 +187,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                         variant="body2"
                         sx={{
                           color: P.success,
-                          fontSize: '0.9rem',
+                          fontSize: TYPOGRAPHY.navbarItem.size,
                           fontWeight: 600,
                           textAlign: 'center',
                           textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
@@ -235,11 +237,11 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                       variant="caption"
                       sx={{
                         color: P.accentText,
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         fontWeight: 600,
                       }}
                     >
-                      📁 {selectedReferenceInfo?.name}
+                      <AppIcon name="folder" /> {selectedReferenceInfo?.name}
                     </Typography>
                   </Box>
                 </>
@@ -248,7 +250,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                   variant="body2"
                   sx={{
                     color: 'rgba(255,255,255,0.7)',
-                    fontSize: '0.65rem',
+                    fontSize: TYPOGRAPHY.microMeta.size,
                     textAlign: 'center',
                     px: 0.5,
                   }}
@@ -267,7 +269,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                 <Typography
                   variant="caption"
                   sx={{
-                    fontSize: '0.65rem',
+                    fontSize: TYPOGRAPHY.microMeta.size,
                     fontWeight: 600,
                     color: 'rgba(255,255,255,0.9)',
                     display: 'flex',
@@ -276,7 +278,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                     mb: 0.3,
                   }}
                 >
-                  ⬜ Exact Reference Area
+                  <AppIcon name="area" /> Exact Reference Area
                 </Typography>
 
                 {/* Exact Area Fields - Row 1 */}
@@ -305,13 +307,13 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                         overflow: 'hidden',
                       },
                       '& .MuiInputBase-input': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         padding: '2px 6px',
                         height: '100%',
                         boxSizing: 'border-box',
                       },
                       '& .MuiInputLabel-root': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         transform: 'translate(10px, 6px) scale(1)',
                         '&.Mui-focused, &.MuiFormLabel-filled': {
                           transform: 'translate(10px, -9px) scale(0.75)',
@@ -343,13 +345,13 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                         overflow: 'hidden',
                       },
                       '& .MuiInputBase-input': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         padding: '2px 6px',
                         height: '100%',
                         boxSizing: 'border-box',
                       },
                       '& .MuiInputLabel-root': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         transform: 'translate(10px, 6px) scale(1)',
                         '&.Mui-focused, &.MuiFormLabel-filled': {
                           transform: 'translate(10px, -9px) scale(0.75)',
@@ -381,13 +383,13 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                         overflow: 'hidden',
                       },
                       '& .MuiInputBase-input': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         padding: '2px 6px',
                         height: '100%',
                         boxSizing: 'border-box',
                       },
                       '& .MuiInputLabel-root': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         transform: 'translate(10px, 6px) scale(1)',
                         '&.Mui-focused, &.MuiFormLabel-filled': {
                           transform: 'translate(10px, -9px) scale(0.75)',
@@ -419,13 +421,13 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                         overflow: 'hidden',
                       },
                       '& .MuiInputBase-input': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         padding: '2px 6px',
                         height: '100%',
                         boxSizing: 'border-box',
                       },
                       '& .MuiInputLabel-root': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         transform: 'translate(10px, 6px) scale(1)',
                         '&.Mui-focused, &.MuiFormLabel-filled': {
                           transform: 'translate(10px, -9px) scale(0.75)',
@@ -442,7 +444,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                 <Typography
                   variant="caption"
                   sx={{
-                    fontSize: '0.65rem',
+                    fontSize: TYPOGRAPHY.microMeta.size,
                     fontWeight: 600,
                     color: AGENT_CHAT_PALETTE.gold,
                     display: 'flex',
@@ -451,7 +453,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                     mb: 0.3,
                   }}
                 >
-                  🟨 Fuzzy Search Area (hold Shift to drag)
+                  <AppIcon name="area" /> Fuzzy Search Area (hold Shift to drag)
                 </Typography>
 
                 {/* Fuzzy Area Fields - Row 2 */}
@@ -481,13 +483,13 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                         borderColor: selectedArea.fx !== undefined ? AGENT_CHAT_PALETTE.gold : undefined,
                       },
                       '& .MuiInputBase-input': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         padding: '2px 6px',
                         height: '100%',
                         boxSizing: 'border-box',
                       },
                       '& .MuiInputLabel-root': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         color: selectedArea.fx !== undefined ? AGENT_CHAT_PALETTE.gold : undefined,
                         transform: 'translate(10px, 6px) scale(1)',
                         '&.Mui-focused, &.MuiFormLabel-filled': {
@@ -520,13 +522,13 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                         overflow: 'hidden',
                       },
                       '& .MuiInputBase-input': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         padding: '2px 6px',
                         height: '100%',
                         boxSizing: 'border-box',
                       },
                       '& .MuiInputLabel-root': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         color: selectedArea.fy !== undefined ? AGENT_CHAT_PALETTE.gold : undefined,
                         transform: 'translate(10px, 6px) scale(1)',
                         '&.Mui-focused, &.MuiFormLabel-filled': {
@@ -559,13 +561,13 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                         overflow: 'hidden',
                       },
                       '& .MuiInputBase-input': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         padding: '2px 6px',
                         height: '100%',
                         boxSizing: 'border-box',
                       },
                       '& .MuiInputLabel-root': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         color: selectedArea.fwidth !== undefined ? AGENT_CHAT_PALETTE.gold : undefined,
                         transform: 'translate(10px, 6px) scale(1)',
                         '&.Mui-focused, &.MuiFormLabel-filled': {
@@ -598,13 +600,13 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                         overflow: 'hidden',
                       },
                       '& .MuiInputBase-input': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         padding: '2px 6px',
                         height: '100%',
                         boxSizing: 'border-box',
                       },
                       '& .MuiInputLabel-root': {
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         color: selectedArea.fheight !== undefined ? AGENT_CHAT_PALETTE.gold : undefined,
                         transform: 'translate(10px, 6px) scale(1)',
                         '&.Mui-focused, &.MuiFormLabel-filled': {
@@ -620,7 +622,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
             ) : (
               <Typography
                 variant="caption"
-                sx={{ fontSize: '0.7rem', color: 'rgba(255,255,255,0.8)' }}
+                sx={{ fontSize: TYPOGRAPHY.caption.size, color: 'rgba(255,255,255,0.8)' }}
               >
                 No area selected
               </Typography>
@@ -640,7 +642,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                 '& .MuiFormControlLabel-root': {
                   margin: 0,
                   '& .MuiFormControlLabel-label': {
-                    fontSize: '0.7rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 },
               }}
@@ -670,7 +672,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                   sx={{
                     margin: 0,
                     '& .MuiFormControlLabel-label': {
-                      fontSize: '0.7rem',
+                      fontSize: TYPOGRAPHY.caption.size,
                       color: 'rgba(255,255,255,0.9)',
                     },
                   }}
@@ -693,7 +695,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                   sx={{
                     margin: 0,
                     '& .MuiFormControlLabel-label': {
-                      fontSize: '0.7rem',
+                      fontSize: TYPOGRAPHY.caption.size,
                       color: 'rgba(255,255,255,0.9)',
                     },
                   }}
@@ -719,13 +721,13 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                 sx={{
                   flex: 1,
                   '& .MuiInputBase-input': {
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                   '& .MuiInputLabel-root': {
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                   '& .MuiFormHelperText-root': {
-                    fontSize: '0.65rem',
+                    fontSize: TYPOGRAPHY.microMeta.size,
                   },
                 }}
               />
@@ -735,7 +737,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                 onClick={handleAutoDetectText}
                 disabled={!selectedArea}
                 sx={{
-                  fontSize: '0.7rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   whiteSpace: 'nowrap',
                 }}
               >
@@ -760,7 +762,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                     ml: 0.25,
                     mr: 0,
                     whiteSpace: 'nowrap',
-                    '& .MuiFormControlLabel-label': { fontSize: '0.7rem' },
+                    '& .MuiFormControlLabel-label': { fontSize: TYPOGRAPHY.caption.size },
                   }}
                 />
               </Tooltip>
@@ -782,7 +784,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                 sx={{
                   flex: 1,
                   '& .MuiInputBase-input': {
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 }}
               />
@@ -792,13 +794,13 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
             {referenceType === 'image' && (
               <Button
                 size="small"
-                startIcon={<CameraIcon sx={{ fontSize: '1rem' }} />}
+                startIcon={<CameraIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />}
                 variant="contained"
                 onClick={handleCaptureReference}
                 disabled={!canCapture}
                 sx={{
                   bgcolor: P.accent,
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   '&:hover': {
                     bgcolor: P.accentHover,
                   },
@@ -819,7 +821,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
               disabled={!canSave || pendingSave}
               sx={{
                 bgcolor: saveSuccess ? P.success : pendingSave ? P.textMuted : P.success,
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 color: saveSuccess ? P.textPrimary : pendingSave ? 'rgba(255,255,255,0.7)' : P.textPrimary,
                 fontWeight: saveSuccess ? 'bold' : 'normal',
                 '&:hover': {
@@ -834,7 +836,7 @@ export const VerificationCapture: React.FC<VerificationCaptureProps> = ({
                 boxShadow: saveSuccess ? `0 0 8px ${P.success}99` : 'none',
               }}
             >
-              {saveSuccess ? '✓ Saved!' : pendingSave ? 'Saving...' : 'Save'}
+              {saveSuccess ? <StatusText ok>Saved!</StatusText> : pendingSave ? 'Saving...' : 'Save'}
             </Button>
           </Box>
         </Box>

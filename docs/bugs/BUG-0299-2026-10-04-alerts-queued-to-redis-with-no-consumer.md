@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low — log noise and a growing dead queue; no alert was lost (alerts are in the DB) |
 | Area      | `shared/src/lib/database/alerts_db.py`, `shared/src/lib/utils/redis_queue.py`, `backend_server/src/agent/core/nightwatch_handler.py`, `backend_server/scripts/discard_worker.py`, `vpt-discard-incidents` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---

@@ -1,3 +1,4 @@
+import { AppIcon } from '../../constants/icons';
 import { Box, Typography, CircularProgress } from '@mui/material';
 import React from 'react';
 
@@ -9,6 +10,8 @@ import { MonitoringAnalysis, SubtitleAnalysis, LanguageMenuAnalysis } from '../.
 import { formatTimeWithMs } from '../../utils/dateUtils';
 import { formatScreenVerdict, formatScreenDiagnosis } from '../../utils/screenVerdict';
 import { ActionHistory } from './ActionHistory';
+import { ProfileOverlay } from './ProfileOverlay';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 // Language code to name mapping
 const LANGUAGE_NAMES: Record<string, string> = {
@@ -46,6 +49,29 @@ interface MonitoringOverlayProps {
   analysisTimestamp?: string;
   isAIAnalyzing?: boolean;
   audioSupported?: boolean;
+  /** Resolves a file in the device's metadata folder to a URL (profile overlays: the "last checked" crop). */
+  metadataUrl?: (fileName: string) => string;
+  /** Fallback when the current frame JSON has no `profile` yet (host monitor_profiles). */
+  profileName?: string;
+  /** Capture-side FPS (frames written). Null = not measured yet. */
+  fpsIn?: number | null;
+  /** Playback-side FPS (decoded / received). Null = not measured yet. */
+  fpsOut?: number | null;
+  /**
+   * ffmpeg-configured capture rate for this device (BUG-0575). Parsed on the
+   * host from `-framerate N` in the live ffmpeg process cmdline and published
+   * as `host.system_stats.stream_capture_fps[device_id]`. The overlay prefers
+   * this as the "FPS: in" value because that is the rate ffmpeg was *told* to
+   * capture at, distinct from the measured value (which depends on host load).
+   */
+  fpsInConfigured?: number | null;
+  /**
+   * The picture under the overlay IS the frame the boxes were measured on (BUG-0836): the boxes must be
+   * drawn where they are, not carried forward. Set by the player that renders the analysed frame.
+   */
+  frameLocked?: boolean;
+  /** The analysed capture, drawn under the boxes in their own coordinates when frame-locked (BUG-0913). */
+  frameUrl?: string | null;
 }
 
 export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
@@ -58,6 +84,13 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
   analysisTimestamp,
   isAIAnalyzing = false,
   audioSupported = true,
+  metadataUrl,
+  profileName,
+  fpsIn = null,
+  fpsOut = null,
+  fpsInConfigured = null,
+  frameLocked,
+  frameUrl,
 }) => {
   // Use separate data sources
   const analysis = monitoringAnalysis;
@@ -65,6 +98,7 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
   const languageMenu = languageMenuAnalysis;
   // Which matcher layer answered the Screen row, and why it abstained (null on a clean
   // match / older frame that predates the diagnosis fields).
+  const screenLabel = analysis?.localize ? formatScreenVerdict(analysis.localize) : null;
   const screenDiagnosis = analysis?.localize ? formatScreenDiagnosis(analysis.localize) : null;
 
   // Format timestamp for display (ISO format -> HH:MM:SS)
@@ -91,6 +125,61 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
     if (!ms) return '0s';
     return `${(ms / 1000).toFixed(1)}s`;
   };
+
+  // The effective profile name: the JSON's `profile` field when the monitor has stamped it,
+  // else the device's configured profile (host.system_stats.monitor_profiles[device_id]). The
+  // device config is the one the operator picked in the device settings; if the monitor hasn't
+  // populated `profile` yet (cold start, first frame, monitor down), we still want the
+  // profile-specific overlay so the user can see "this is a counting_cars device" instead of a
+  // tv_app overlay showing the wrong metrics.
+  const effectiveProfile = analysis?.profile || profileName;
+
+  // Profiles other than tv_app (counting_cars, ...) have their own overlay: boxes, events and KPIs (TASK-90).
+  // We also short-circuit on the device's configured profile so the user sees the right
+  // overlay even when the JSON hasn't been populated yet (BUG-0574).
+  if (effectiveProfile && effectiveProfile !== 'tv_app') {
+    // ProfileOverlay expects an analysis object; if the monitor hasn't written one yet
+    // (the JSON comes back empty for a cold / broken monitor) we synthesise a minimal
+    // placeholder so GenericOverlay can render its title + empty-state row instead of
+    // crashing on a missing `profile` field.
+    const overlayAnalysis: MonitoringAnalysis = analysis ?? {
+      timestamp: '',
+      filename: '',
+      thumbnail: '',
+      blackscreen: false,
+      blackscreen_percentage: 0,
+      freeze: false,
+      freeze_diffs: [],
+      last_3_filenames: [],
+      last_3_thumbnails: [],
+      audio: false,
+      volume_percentage: 0,
+      mean_volume_db: -100,
+      macroblocks: false,
+      quality_score: 0,
+      has_incidents: false,
+      // ProfileOverlay uses these to render the title and a per-class count; an
+      // empty placeholder is the documented "monitor not yet producing data" state.
+      profile: effectiveProfile,
+      observations: undefined,
+      events: undefined,
+      kpis: undefined,
+      incidents: undefined,
+    };
+    return (
+      <ProfileOverlay
+        analysis={overlayAnalysis}
+        analysisTimestamp={analysisTimestamp}
+        metadataUrl={metadataUrl}
+        fpsIn={fpsIn}
+        fpsOut={fpsOut}
+        fpsInConfigured={fpsInConfigured}
+        profileName={profileName}
+        frameLocked={frameLocked}
+        frameUrl={frameUrl}
+      />
+    );
+  }
 
   // Always render overlay with empty state when no analysis
 
@@ -146,6 +235,47 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
             {formatTimeWithMs(analysisTimestamp)}
           </Typography>
         )}
+
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+          <Typography variant="body2" sx={{ color: '#ffffff', mr: 1 }}>
+            Profile:
+          </Typography>
+          <Typography variant="body2" sx={{ color: effectiveProfile ? '#ffffff' : '#888888' }}>
+            {effectiveProfile || '—'}
+          </Typography>
+        </Box>
+
+        <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
+          <Typography variant="body2" sx={{ color: '#ffffff', mr: 1 }}>
+            FPS:
+          </Typography>
+          <Typography variant="body2" sx={{ color: '#cccccc' }}>
+            in{' '}
+            <Typography
+              component="span"
+              variant="body2"
+              data-testid="monitoring-fps-in-configured"
+              sx={{ color: (fpsInConfigured ?? fpsIn) == null ? '#888888' : '#00ff00' }}
+            >
+              {(fpsInConfigured ?? fpsIn) == null ? '—' : (fpsInConfigured ?? fpsIn)}
+            </Typography>
+            {fpsInConfigured != null && fpsIn != null && fpsIn !== fpsInConfigured && (
+              <Typography
+                component="span"
+                variant="body2"
+                data-testid="monitoring-fps-in-measured"
+                sx={{ color: '#888888', ml: 0.5 }}
+              >
+                (≈ {fpsIn})
+              </Typography>
+            )}
+            {' · '}
+            out{' '}
+            <Typography component="span" variant="body2" sx={{ color: fpsOut == null ? '#888888' : '#00ff00' }}>
+              {fpsOut == null ? '—' : fpsOut}
+            </Typography>
+          </Typography>
+        </Box>
 
         {/* Blackscreen */}
         <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
@@ -270,16 +400,16 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
             The trailing dim span is the DIAGNOSIS (which matcher layer answered, and
             why it abstained) — an operator must be able to tell a confident match from a
             guess. Grey, never red: an abstain is normal behaviour, not an error. */}
-        {analysis?.localize && (
+        {screenLabel && (
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.5 }}>
             <Typography variant="body2" sx={{ color: '#ffffff', mr: 1 }}>
               Screen:
             </Typography>
             <Typography
               variant="body2"
-              sx={{ color: formatScreenVerdict(analysis.localize).color, fontWeight: 'bold' }}
+              sx={{ color: screenLabel.color, fontWeight: 'bold' }}
             >
-              {formatScreenVerdict(analysis.localize).text}
+              {screenLabel.text}
             </Typography>
             {screenDiagnosis && (
               <Typography
@@ -348,7 +478,7 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
                 sx={{
                   color: '#cccccc',
                   ml: 1,
-                  fontSize: '0.85rem',
+                  fontSize: TYPOGRAPHY.body.size,
                   fontStyle: 'italic',
                   whiteSpace: 'normal', // subtitle text may be long — allow wrapping
                 }}
@@ -384,11 +514,11 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
                       color: index === languageMenu.selected_audio ? '#00ff00' : '#cccccc',
                       fontWeight: index === languageMenu.selected_audio ? 'bold' : 'normal',
                       ml: 1,
-                      fontSize: '0.75rem',
+                      fontSize: TYPOGRAPHY.caption.size,
                     }}
                   >
                     {index}: {lang}
-                    {index === languageMenu.selected_audio && ' ✓'}
+                    {index === languageMenu.selected_audio && <AppIcon name="success" />}
                   </Typography>
                 ))}
               </Box>
@@ -408,11 +538,11 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
                       color: index === languageMenu.selected_subtitle ? '#00ff00' : '#cccccc',
                       fontWeight: index === languageMenu.selected_subtitle ? 'bold' : 'normal',
                       ml: 1,
-                      fontSize: '0.75rem',
+                      fontSize: TYPOGRAPHY.caption.size,
                     }}
                   >
                     {index}: {lang}
-                    {index === languageMenu.selected_subtitle && ' ✓'}
+                    {index === languageMenu.selected_subtitle && <AppIcon name="success" />}
                   </Typography>
                 ))}
               </Box>
@@ -421,13 +551,13 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
         )}
       </Box>
 
-      {/* Warning indicator - top right for 1-2 consecutive errors */}
+      {/* Warning / error sit under the Localize chip (top-right of the video). */}
       {consecutiveErrorCounts?.hasWarning && !consecutiveErrorCounts?.hasError && (
         <Box
           sx={{
             position: 'absolute',
-            top: 16,
-            right: 66, // 50px more from right edge to avoid online status
+            top: 44,
+            right: 6,
             zIndex: 20,
             p: 1,
             backgroundColor: 'rgba(255, 165, 0, 0.8)', // Orange
@@ -441,13 +571,12 @@ export const MonitoringOverlay: React.FC<MonitoringOverlayProps> = ({
         </Box>
       )}
 
-      {/* Error indicator - top right for 3+ consecutive errors */}
       {consecutiveErrorCounts?.hasError && (
         <Box
           sx={{
             position: 'absolute',
-            top: 16,
-            right: 66, // 50px more from right edge to avoid online status
+            top: 44,
+            right: 6,
             zIndex: 20,
             p: 1,
             backgroundColor: 'rgba(255, 68, 68, 0.8)', // Red

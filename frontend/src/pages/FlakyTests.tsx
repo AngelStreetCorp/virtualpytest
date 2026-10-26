@@ -51,7 +51,7 @@ const FlakyTests: React.FC = () => {
   return (
     <QualityPageShell
       title="Flaky tests"
-      description="Score = adjacent pass↔fail transitions ÷ (attempts − 1). Attempts are only compared within the same test, UI, environment and host/device — a difference between devices is never counted as flakiness. A score describes behaviour, not a root cause."
+      description="Score = adjacent pass/fail transitions ÷ (attempts − 1). Attempts are only compared within the same test, UI, environment and host/device — a difference between devices is never counted as flakiness. A score describes behaviour, not a root cause."
       windowDays={windowDays}
       onWindowChange={setWindowDays}
       loading={query.isLoading}
@@ -63,9 +63,13 @@ const FlakyTests: React.FC = () => {
         <EmptyState message="No test met the minimum attempts with both a pass and a failure in this window." />
       ) : (
         <TableContainer component={Paper} variant="outlined" sx={{ maxWidth: '100%', overflowX: 'auto' }}>
-          <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 940 }}>
+          {/* The first column needs its own width: the other nine already have one, so
+              without it the Test column got whatever was left — nothing at all on a
+              phone, where the table is exactly as wide as the nine fixed columns, and
+              the test name broke one letter per line (BUG-0794). */}
+          <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 1190 }}>
             <colgroup>
-              <col /><col style={{ width: 150 }} /><col style={{ width: 100 }} /><col style={{ width: 140 }} />
+              <col style={{ width: 220 }} /><col style={{ width: 150 }} /><col style={{ width: 100 }} /><col style={{ width: 140 }} />
               <col style={{ width: 70 }} /><col style={{ width: 100 }} /><col style={{ width: 80 }} />
               <col style={{ width: 100 }} /><col style={{ width: 130 }} /><col style={{ width: 100 }} />
             </colgroup>

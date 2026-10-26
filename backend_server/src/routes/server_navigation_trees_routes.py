@@ -167,7 +167,7 @@ def _fetch_tree_metrics(tree_id: str, team_id: str, variant: str, nodes: list, e
     node_ids = [n['node_id'] for n in (nodes or []) if n.get('node_id')]
     edge_ids = [e['edge_id'] for e in (edges or []) if e.get('edge_id')]
 
-    payload = build_tree_metrics_payload(team_id, node_ids, edge_ids, variant)
+    payload = build_tree_metrics_payload(team_id, node_ids, edge_ids, variant, [tree_id])
     print(f"[@metrics] Fetched pre-aggregated metrics for tree {tree_id} (variant={variant or 'base'}): "
           f"{len(payload['nodes'])} nodes, {len(payload['edges'])} edge directions")
 
@@ -1427,7 +1427,20 @@ def save_tree_data_api(tree_id):
     deleted_edge_ids = data.get('deleted_edge_ids', [])
     
     viewport = data.get('viewport')
+
+    # TASK-173: prod is only written by Publish. A save aimed at a prod tree
+    # lands on the dev tree it was published from; the caller is told so.
+    from shared.src.lib.database.userinterface_publish import resolve_dev_tree_for_prod
+    redirect = resolve_dev_tree_for_prod(tree_id, team_id)
+    if redirect and redirect.get('error'):
+        return jsonify({'success': False, 'message': redirect['error']}), 409
+    if redirect:
+        tree_id = redirect['dev_tree_id']
     result = save_tree_data(tree_id, nodes, edges, team_id, deleted_node_ids, deleted_edge_ids, viewport)
+    if redirect and result['success']:
+        result['redirected_to_dev'] = True
+        result['dev_tree_id'] = tree_id
+        result['dev_userinterface_id'] = redirect['dev_userinterface_id']
     
     if result['success']:
         # Invalidate tree cache when tree is modified

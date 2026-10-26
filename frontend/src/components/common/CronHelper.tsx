@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Select, MenuItem, FormControl, InputLabel, TextField, Typography } from '@mui/material';
 import { Info } from '@mui/icons-material';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface CronPattern {
   label: string;
@@ -111,7 +112,7 @@ export const CronHelper: React.FC<CronHelperProps> = ({
             color: 'text.secondary'
           }}
         >
-          <Info sx={{ fontSize: 12 }} />
+          <Info sx={{ fontSize: TYPOGRAPHY.caption.size }} />
           <a href="https://crontab.guru" target="_blank" rel="noopener noreferrer" style={{ color: 'inherit' }}>
             crontab.guru
           </a>

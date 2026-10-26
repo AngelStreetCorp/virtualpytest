@@ -135,6 +135,11 @@ services:
     volumes:
       - ../../test_scripts:/app/test_scripts:ro
       - ../../test_campaign:/app/test_campaign:ro
+      # Project docs/ (markdown guides, OpenAPI specs, videos.json). The MCP
+      # search-docs and video-library skills read from /app/docs. The Dockerfile
+      # also COPIES docs/ as a cold-build fallback; this bind-mount lets live
+      # edits to docs/ show up on the next container restart without a rebuild.
+      - ../../docs:/app/docs:ro
       # Integration state written at runtime (TestRail/JIRA/Slack tokens), kept across recreates
       - server-config:/var/lib/vpt_user/.config/virtualpytest
     ports:

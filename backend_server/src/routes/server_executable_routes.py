@@ -105,11 +105,20 @@ def list_executables():
     # Get testcases from database
     testcases = list_testcases(team_id)
 
-    # Batch-fetch tags for all scripts and testcases in two queries instead of N+1
+    # Batch-fetch tags for all scripts, testcases, and virtual scripts in
+    # three queries instead of N+1. (G10: virtual scripts now carry tags
+    # too — `executable_tags.executable_type` widened to include
+    # 'virtual_script' in migration 20261015a.)
     script_display_ids = [f"{script}.py" for script in available_scripts]
     script_tags_map = get_executable_tags_bulk('script', script_display_ids)
     testcase_ids = [tc['testcase_id'] for tc in testcases if tc.get('testcase_id')]
     testcase_tags_map = get_executable_tags_bulk('testcase', testcase_ids)
+    # Virtual scripts: key by the same display id we expose below (`name.py`)
+    # so the lookup is consistent. A virtual script row's `name` is the
+    # stem, so display id is `name + '.py'` — matching the script path.
+    virtual_scripts_for_tags = list_virtual_scripts(team_id)
+    vs_display_ids = [f"{vs.get('name')}.py" for vs in virtual_scripts_for_tags if vs.get('name')]
+    virtual_script_tags_map = get_executable_tags_bulk('virtual_script', vs_display_ids)
 
     # Build folder structure
     # Use a dict with folder name as key for easy lookup
@@ -248,12 +257,22 @@ def list_executables():
         if search_query and search_query not in vs_name.lower():
             continue
 
+        # G10: virtual scripts now carry tags. Look them up by display id
+        # (the same key the bulk query uses above). The display id is
+        # `{name}.py`, matching the disk-script convention so a converted
+        # root-level script that became a virtual script keeps the same
+        # tag set after migration.
+        vs_tag_rows = virtual_script_tags_map.get(display_id, [])
+        vs_tag_names = [tag['name'] for tag in vs_tag_rows]
+        if filter_tags and not any(tag in vs_tag_names for tag in filter_tags):
+            continue
+
         vs_item = {
             'type': 'script',
             'id': vs_name,
             'name': vs_name,
             'description': vs.get('description') or '',
-            'tags': [],
+            'tags': vs_tag_names,
             'target_rules': vs.get('target_rules'),
             'is_virtual': True,
             'virtual_script_id': vs.get('id'),  # dev row id (default target)
@@ -263,8 +282,6 @@ def list_executables():
             'virtual_script_env_ids': vs.get('environments') or {'dev': vs.get('id'), 'test': None, 'prod': None},
             'prod_version': vs.get('prod_version'),
         }
-        if filter_tags:  # virtual scripts carry no tags yet
-            continue
         folder_id = vs.get('folder_id') or 0
         folder_map.setdefault(folder_name, {'id': folder_id, 'name': folder_name, 'items': []})
         folder_map[folder_name]['items'].append(vs_item)

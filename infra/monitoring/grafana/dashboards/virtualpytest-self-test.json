@@ -1069,7 +1069,7 @@
       "type": "table"
     },
     {
-      "collapsed": false,
+      "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -1077,491 +1077,493 @@
         "y": 32
       },
       "id": 104,
-      "panels": [],
-      "title": "📜 Script Results",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
           },
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Last Run"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "dateTimeAsIso"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Last Result"
-            },
-            "properties": [
-              {
-                "id": "mappings",
-                "value": [
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
                   {
-                    "options": {
-                      "PASS": {
-                        "color": "green",
-                        "index": 0,
-                        "text": "✅ PASS"
-                      }
-                    },
-                    "type": "value"
-                  },
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Last Run"
+                },
+                "properties": [
                   {
-                    "options": {
-                      "FAIL": {
-                        "color": "red",
-                        "index": 1,
-                        "text": "❌ FAIL"
-                      }
-                    },
-                    "type": "value"
+                    "id": "unit",
+                    "value": "dateTimeAsIso"
                   }
                 ]
               },
               {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-text"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Last Duration"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "ms"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Pass % (window)"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-text"
-                }
-              },
-              {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "red",
-                      "value": null
-                    },
-                    {
-                      "color": "orange",
-                      "value": 50
-                    },
-                    {
-                      "color": "green",
-                      "value": 100
+                "matcher": {
+                  "id": "byName",
+                  "options": "Last Result"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "PASS": {
+                            "color": "green",
+                            "index": 0,
+                            "text": "✅ PASS"
+                          }
+                        },
+                        "type": "value"
+                      },
+                      {
+                        "options": {
+                          "FAIL": {
+                            "color": "red",
+                            "index": 1,
+                            "text": "❌ FAIL"
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
                     }
-                  ]
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Last Report"
-            },
-            "properties": [
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "markdown"
-                }
+                  }
+                ]
               },
               {
-                "id": "custom.align",
-                "value": "center"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Script"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 300
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 9,
-        "w": 24,
-        "x": 0,
-        "y": 33
-      },
-      "id": 14,
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Last Run"
-          }
-        ]
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "supabase-postgres"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "WITH scope AS (\n  SELECT script_name, success, started_at, execution_time_ms, host_name, html_report_r2_url\n  FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results\n  WHERE team_id='7fdeb4bb-3639-4ec3-959f-b54769a219ce' AND (userinterface_name = 'virtualpytest_web' OR script_name LIKE 'smoke\\_%')\n    AND (host_name IN ($host) OR host_name IS NULL)\n),\nwin AS (\n  SELECT * FROM scope WHERE $__timeFilter(started_at)\n),\nlast AS (\n  SELECT DISTINCT ON (script_name) script_name, started_at, success, execution_time_ms, host_name, html_report_r2_url\n  FROM scope ORDER BY script_name, started_at DESC\n)\nSELECT\n  l.script_name AS \"Script\",\n  l.started_at AS \"Last Run\",\n  CASE WHEN l.success THEN 'PASS' ELSE 'FAIL' END AS \"Last Result\",\n  l.execution_time_ms AS \"Last Duration\",\n  l.host_name AS \"Host\",\n  COUNT(w.script_name) AS \"Runs (window)\",\n  SUM(CASE WHEN w.success THEN 1 ELSE 0 END) AS \"Pass (window)\",\n  ROUND(SUM(CASE WHEN w.success THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(w.script_name), 0) * 100, 1) AS \"Pass % (window)\",\n  CASE WHEN l.html_report_r2_url IS NOT NULL THEN '<a href=\"' || l.html_report_r2_url || '\" target=\"_blank\">report</a>' END AS \"Last Report\"\nFROM last l\nLEFT JOIN win w USING (script_name)\nGROUP BY l.script_name, l.started_at, l.success, l.execution_time_ms, l.host_name, l.html_report_r2_url\nORDER BY l.started_at DESC",
-          "refId": "A"
-        }
-      ],
-      "title": "Scripts — last result, pass % and runs in selected window",
-      "type": "table",
-      "description": "One row per script recorded under virtualpytest_web. Last Run/Result/Report are all-time; Runs/Pass % are limited to the dashboard time range and Host filter."
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "fillOpacity": 80,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "lineWidth": 1,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          },
-          "unit": "short"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Success"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "green",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Fail"
-            },
-            "properties": [
-              {
-                "id": "color",
-                "value": {
-                  "fixedColor": "red",
-                  "mode": "fixed"
-                }
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 42
-      },
-      "id": 12,
-      "options": {
-        "barRadius": 0,
-        "barWidth": 0.7,
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "orientation": "vertical",
-        "showValue": "auto",
-        "stacking": "normal",
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "multi",
-          "sort": "none"
-        },
-        "xField": "Script Name",
-        "xTickLabelRotation": -30,
-        "xTickLabelSpacing": 0
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "supabase-postgres"
-          },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT\n  COALESCE(script_name, 'Unknown') as \"Script Name\",\n  SUM(CASE WHEN success THEN 1 ELSE 0 END) as \"Success\",\n  SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as \"Fail\"\nFROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results\nWHERE team_id='7fdeb4bb-3639-4ec3-959f-b54769a219ce'\n  AND (userinterface_name = 'virtualpytest_web' OR script_name LIKE 'smoke\\_%')\n  AND $__timeFilter(started_at)\n  AND (host_name IN ($host) OR host_name IS NULL)\nGROUP BY script_name\nORDER BY \"Fail\" DESC, \"Success\" DESC",
-          "refId": "A"
-        }
-      ],
-      "title": "Script Success / Fail",
-      "type": "barchart"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Status"
-            },
-            "properties": [
-              {
-                "id": "mappings",
-                "value": [
+                "matcher": {
+                  "id": "byName",
+                  "options": "Last Duration"
+                },
+                "properties": [
                   {
-                    "options": {
-                      "PASS": {
-                        "color": "green",
-                        "index": 0,
-                        "text": "✅ PASS"
-                      }
-                    },
-                    "type": "value"
+                    "id": "unit",
+                    "value": "ms"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Pass % (window)"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
                   },
                   {
-                    "options": {
-                      "FAIL": {
-                        "color": "red",
-                        "index": 1,
-                        "text": "❌ FAIL"
-                      }
-                    },
-                    "type": "value"
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": null
+                        },
+                        {
+                          "color": "orange",
+                          "value": 50
+                        },
+                        {
+                          "color": "green",
+                          "value": 100
+                        }
+                      ]
+                    }
                   }
                 ]
               },
               {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-text"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Duration (ms)"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "ms"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Timestamp"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "dateTimeAsIso"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "html_report_r2_url"
-            },
-            "properties": [
-              {
-                "id": "links",
-                "value": [
+                "matcher": {
+                  "id": "byName",
+                  "options": "Last Report"
+                },
+                "properties": [
                   {
-                    "targetBlank": true,
-                    "title": "show report",
-                    "url": "${__value.raw}"
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Script"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 300
                   }
                 ]
               }
             ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 10,
-        "w": 24,
-        "x": 0,
-        "y": 50
-      },
-      "id": 13,
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
+          },
+          "gridPos": {
+            "h": 9,
+            "w": 24,
+            "x": 0,
+            "y": 33
+          },
+          "id": 14,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "countRows": false,
+              "fields": "",
+              "reducer": [
+                "sum"
+              ],
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Last Run"
+              }
+            ]
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "WITH scope AS (\n  SELECT script_name, success, started_at, execution_time_ms, host_name, html_report_r2_url\n  FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results\n  WHERE team_id='7fdeb4bb-3639-4ec3-959f-b54769a219ce' AND (userinterface_name = 'virtualpytest_web' OR script_name LIKE 'smoke\\_%')\n    AND (host_name IN ($host) OR host_name IS NULL)\n),\nwin AS (\n  SELECT * FROM scope WHERE $__timeFilter(started_at)\n),\nlast AS (\n  SELECT DISTINCT ON (script_name) script_name, started_at, success, execution_time_ms, host_name, html_report_r2_url\n  FROM scope ORDER BY script_name, started_at DESC\n)\nSELECT\n  l.script_name AS \"Script\",\n  l.started_at AS \"Last Run\",\n  CASE WHEN l.success THEN 'PASS' ELSE 'FAIL' END AS \"Last Result\",\n  l.execution_time_ms AS \"Last Duration\",\n  l.host_name AS \"Host\",\n  COUNT(w.script_name) AS \"Runs (window)\",\n  SUM(CASE WHEN w.success THEN 1 ELSE 0 END) AS \"Pass (window)\",\n  ROUND(SUM(CASE WHEN w.success THEN 1 ELSE 0 END)::numeric / NULLIF(COUNT(w.script_name), 0) * 100, 1) AS \"Pass % (window)\",\n  CASE WHEN l.html_report_r2_url IS NOT NULL THEN '<a href=\"' || l.html_report_r2_url || '\" target=\"_blank\">report</a>' END AS \"Last Report\"\nFROM last l\nLEFT JOIN win w USING (script_name)\nGROUP BY l.script_name, l.started_at, l.success, l.execution_time_ms, l.host_name, l.html_report_r2_url\nORDER BY l.started_at DESC",
+              "refId": "A"
+            }
           ],
-          "show": false
+          "title": "Scripts — last result, pass % and runs in selected window",
+          "type": "table",
+          "description": "One row per script recorded under virtualpytest_web. Last Run/Result/Report are all-time; Runs/Pass % are limited to the dashboard time range and Host filter."
         },
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Timestamp"
-          }
-        ]
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
             "uid": "supabase-postgres"
           },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT script_name, userinterface_name, host_name, device_name, success, started_at, completed_at, execution_time_ms, html_report_r2_url, error_msg, metadata \nFROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results \nWHERE $__timeFilter(started_at)\n  AND (userinterface_name = 'virtualpytest_web' OR script_name LIKE 'smoke\\_%')\n  AND (host_name IN ($host) OR host_name IS NULL)\nORDER BY started_at DESC \nLIMIT 500",
-          "refId": "A"
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineWidth": 1,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Success"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "green",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Fail"
+                },
+                "properties": [
+                  {
+                    "id": "color",
+                    "value": {
+                      "fixedColor": "red",
+                      "mode": "fixed"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 42
+          },
+          "id": 12,
+          "options": {
+            "barRadius": 0,
+            "barWidth": 0.7,
+            "fullHighlight": false,
+            "groupWidth": 0.7,
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "orientation": "vertical",
+            "showValue": "auto",
+            "stacking": "normal",
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "none"
+            },
+            "xField": "Script Name",
+            "xTickLabelRotation": -30,
+            "xTickLabelSpacing": 0
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT\n  COALESCE(script_name, 'Unknown') as \"Script Name\",\n  SUM(CASE WHEN success THEN 1 ELSE 0 END) as \"Success\",\n  SUM(CASE WHEN NOT success THEN 1 ELSE 0 END) as \"Fail\"\nFROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results\nWHERE team_id='7fdeb4bb-3639-4ec3-959f-b54769a219ce'\n  AND (userinterface_name = 'virtualpytest_web' OR script_name LIKE 'smoke\\_%')\n  AND $__timeFilter(started_at)\n  AND (host_name IN ($host) OR host_name IS NULL)\nGROUP BY script_name\nORDER BY \"Fail\" DESC, \"Success\" DESC",
+              "refId": "A"
+            }
+          ],
+          "title": "Script Success / Fail",
+          "type": "barchart"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Status"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "options": {
+                          "PASS": {
+                            "color": "green",
+                            "index": 0,
+                            "text": "✅ PASS"
+                          }
+                        },
+                        "type": "value"
+                      },
+                      {
+                        "options": {
+                          "FAIL": {
+                            "color": "red",
+                            "index": 1,
+                            "text": "❌ FAIL"
+                          }
+                        },
+                        "type": "value"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Duration (ms)"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "ms"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Timestamp"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "dateTimeAsIso"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "html_report_r2_url"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": [
+                      {
+                        "targetBlank": true,
+                        "title": "show report",
+                        "url": "${__value.raw}"
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 50
+          },
+          "id": 13,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "countRows": false,
+              "fields": "",
+              "reducer": [
+                "sum"
+              ],
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Timestamp"
+              }
+            ]
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT script_name, userinterface_name, host_name, device_name, success, started_at, completed_at, execution_time_ms, html_report_r2_url, error_msg, metadata \nFROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results \nWHERE $__timeFilter(started_at)\n  AND (userinterface_name = 'virtualpytest_web' OR script_name LIKE 'smoke\\_%')\n  AND (host_name IN ($host) OR host_name IS NULL)\nORDER BY started_at DESC \nLIMIT 500",
+              "refId": "A"
+            }
+          ],
+          "title": "Script Execution Log (virtualpytest_web)",
+          "type": "table"
         }
       ],
-      "title": "Script Execution Log (virtualpytest_web)",
-      "type": "table"
+      "title": "Details",
+      "type": "row",
+      "description": "📜 Script Results"
     }
   ],
   "preload": false,

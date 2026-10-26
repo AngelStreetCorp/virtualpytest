@@ -64,6 +64,21 @@ from typing import Any, Dict, List, Optional
 # Pure helper, no NetworkX dependency, so the frontend can mirror in TS.
 
 
+def with_base_corrections(variant_fp: Dict[str, Any], base_fp: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """A variant's own fingerprint plus the operator samples / negatives stored on the base one
+    (TASK-107 goal 2). "Wrong screen?" writes the base row; the samples are live frames of the
+    node, so a variant that overrides the fingerprint must still see them. Deduped by verdict_id."""
+    base_fp = base_fp or {}
+    out = dict(variant_fp)
+    for key in ('extra', 'negatives'):
+        own = list(out.get(key) or [])
+        seen = {s.get('verdict_id') for s in own if isinstance(s, dict) and s.get('verdict_id')}
+        more = [s for s in (base_fp.get(key) or []) if isinstance(s, dict) and s.get('verdict_id') not in seen]
+        if more:
+            out[key] = own + more
+    return out
+
+
 def resolve_node_variant(
     node: Dict[str, Any],
     variant_node_overrides: Optional[Dict[str, Any]] = None,
@@ -113,8 +128,9 @@ def resolve_node_variant(
     # runtime read the variant view.
     overlay: Dict[str, Any] = {}
     if isinstance(entry.get('fingerprint'), dict):
-        out['__fingerprint'] = copy.deepcopy(entry['fingerprint'])
-        overlay['fingerprint'] = copy.deepcopy(entry['fingerprint'])
+        vfp = with_base_corrections(entry['fingerprint'], (node.get('data') or {}).get('fingerprint'))
+        out['__fingerprint'] = copy.deepcopy(vfp)
+        overlay['fingerprint'] = copy.deepcopy(vfp)
     if entry.get('screenshot'):
         overlay['screenshot'] = entry['screenshot']
         if entry.get('screenshot_timestamp') is not None:

@@ -38,7 +38,7 @@ def create_themed_html_template() -> str:
     <div class="container">
         <div class="header">
             <div class="header-left">
-                <h1>{{script_name}}</h1>
+                <h1>{{script_name}}{{project_badge}}</h1>
                 <div class="time-info">
                     {{execution_date}} | {t("header.start")} {{start_time}} | {t("header.end")} {{end_time}}{{testcase_builder_link}}
                 </div>

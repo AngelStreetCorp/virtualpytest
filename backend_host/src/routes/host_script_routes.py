@@ -5,8 +5,10 @@ import json
 from flask import Blueprint, request, jsonify
 from backend_host.src.lib.utils.route_decorators import route_exception_handler
 from  backend_host.src.lib.utils.host_utils import get_device_by_id
+from backend_host.src.lib.utils.completion_callback import post_completion_callback
 
 host_script_bp = Blueprint('host_script', __name__, url_prefix='/host')
+
 
 @host_script_bp.route('/script/execute', methods=['POST'])
 @route_exception_handler()
@@ -32,6 +34,16 @@ def _execute_script():
     from shared.src.lib.utils.build_url_utils import buildServerUrl, server_auth_headers
     callback_url = buildServerUrl('server/script/taskComplete')
     task_id = data.get('task_id')
+    # The deployment_executions row this run answers to, and the budget the caller
+    # declared for it. The host ties the process to the row (so it can answer "is this
+    # row still running?" per row) and enforces the budget as the run's hard ceiling
+    # (E50).
+    execution_id = data.get('execution_id') or None
+    timeout_seconds = data.get('timeout_seconds')
+    try:
+        timeout_seconds = float(timeout_seconds) if timeout_seconds is not None else None
+    except (TypeError, ValueError):
+        timeout_seconds = None
 
     # Optional script identity (prefix / display_name) — resolved by frontend
     # (priority 1) or server fallback (priority 2). Forwarded to the child
@@ -85,29 +97,19 @@ def _execute_script():
             # after the subprocess returns. Otherwise the server lock leaks forever.
             callback_sent = False
             try:
-                result = script_executor.execute_script(script_name, parameters, trigger=trigger, environment=environment, task_id=task_id, script_identity_override=identity_override or None, versions=versions, device_info=device_info, virtual_script_id=virtual_script_id, team_id=team_id)
+                result = script_executor.execute_script(script_name, parameters, trigger=trigger, environment=environment, task_id=task_id, script_identity_override=identity_override or None, versions=versions, device_info=device_info, virtual_script_id=virtual_script_id, team_id=team_id, timeout_seconds=timeout_seconds, execution_id=execution_id)
                 print(f"[@route:host_script:_execute_script] CALLBACK SEND: Script completed, sending callback")
 
                 # Send callback to server. Drop large fields the server never reads —
                 # report/logs are already in R2 and discoverable via script_results,
                 # so a fat stdout/stderr only risks a 413 from the proxy.
                 slim_result = {k: v for k, v in (result or {}).items() if k not in ('stdout', 'stderr')}
-                import requests
                 callback_payload = {
                     'task_id': task_id,
                     'result': slim_result,
                 }
 
-                response = requests.post(
-                    callback_url, json=callback_payload,
-                    headers=server_auth_headers(), timeout=30,
-                )
-                callback_sent = True  # reached the server; lock release happens server-side
-                if response.ok:
-                    print(f"[@route:host_script:_execute_script] Callback sent successfully (status={response.status_code})")
-                else:
-                    body_preview = (response.text or '')[:500]
-                    print(f"[@route:host_script:_execute_script] Callback FAILED: status={response.status_code} body={body_preview}")
+                callback_sent = post_completion_callback(callback_url, callback_payload)
 
             except Exception as e:
                 print(f"[@route:host_script:_execute_script] Error in async execution: {e}")
@@ -116,36 +118,17 @@ def _execute_script():
                     'task_id': task_id,
                     'error': str(e)
                 }
-                try:
-                    import requests
-                    err_response = requests.post(
-                        callback_url, json=error_payload,
-                        headers=server_auth_headers(), timeout=30,
-                    )
-                    callback_sent = True
-                    if not err_response.ok:
-                        print(f"[@route:host_script:_execute_script] Error callback FAILED: status={err_response.status_code}")
-                except Exception as cb_err:
-                    print(f"[@route:host_script:_execute_script] Error callback exception: {cb_err}")
+                callback_sent = post_completion_callback(callback_url, error_payload)
             finally:
                 # Last-resort guarantee: if neither callback above reached the server
-                # (thread killed mid-flight), send a recovery callback so the server
-                # still releases the device lock and marks the task complete.
+                # (thread killed mid-flight, or every attempt was rejected), send a
+                # recovery callback so the server still releases the device lock and
+                # marks the task complete.
                 if not callback_sent:
-                    try:
-                        import requests
-                        requests.post(
-                            callback_url,
-                            json={
-                                'task_id': task_id,
-                                'error': 'host completion callback recovered in finally — execution thread terminated abnormally',
-                            },
-                            headers=server_auth_headers(),
-                            timeout=30,
-                        )
-                        print(f"[@route:host_script:_execute_script] Recovery callback sent for task {task_id}")
-                    except Exception as recover_err:
-                        print(f"[@route:host_script:_execute_script] Recovery callback failed for task {task_id}: {recover_err}")
+                    post_completion_callback(callback_url, {
+                        'task_id': task_id,
+                        'error': 'host completion callback recovered in finally — execution thread terminated abnormally',
+                    })
 
         # Start async execution
         threading.Thread(target=execute_async, daemon=True).start()

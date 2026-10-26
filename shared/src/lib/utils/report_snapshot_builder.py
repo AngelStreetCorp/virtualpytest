@@ -25,6 +25,7 @@ import os
 import re
 import shutil
 import tempfile
+import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional, Tuple
 from urllib.parse import unquote, urlparse
@@ -357,6 +358,14 @@ def _strip_anchor(match, classifier: _Classifier) -> str:
     return match.group(0)
 
 
+# The timeline page is HTML (never copied); its picture sits next to it as timeline.jpg.
+_TIMELINE_HTML_RE = re.compile(r'(/timeline)\.html(?=[?"\'#])')
+
+
+def _timeline_link_to_image(match) -> str:
+    return _TIMELINE_HTML_RE.sub(r'\1.jpg', match.group(0))
+
+
 _SHARE_BUTTON_RE = re.compile(r'<a\b[^>]*\breport-share-btn\b[^>]*>.*?</a>', re.IGNORECASE | re.DOTALL)
 
 
@@ -371,6 +380,9 @@ def rewrite_report_html(report_html: str, classifier: _Classifier) -> Tuple[str,
 
     # The report's own Share button leads back into the platform: gone, not "not included".
     text = _SHARE_BUTTON_RE.sub('', text)
+
+    # The Timeline link opens an HTML page a snapshot cannot carry: point it at the picture instead.
+    text = _ANCHOR_RE.sub(_timeline_link_to_image, text)
 
     # 1. Links that must go entirely (platform, /host/, logs, sub-reports): keep text, drop href.
     text = _ANCHOR_RE.sub(lambda m: _strip_anchor(m, classifier), text)
@@ -428,13 +440,25 @@ def _inject_banner(page: str, banner_text: str) -> str:
     return banner + page
 
 
+HEAD_ATTEMPTS = 4
+
+
 def _head_total(cu, keys: List[str]) -> Tuple[Dict[str, int], List[str]]:
+    """Sizes of the referenced objects, and the keys that are really gone.
+
+    The storage proxy answers HEAD with a transient 403 under a burst (a build heads every asset
+    back to back), which is not "object gone": retry before calling a key missing.
+    """
     sizes: Dict[str, int] = {}
     missing: List[str] = []
     for key in keys:
-        head = cu.head_file(key)
-        if head.get('success'):
-            sizes[key] = int(head.get('content_length') or 0)
+        for attempt in range(HEAD_ATTEMPTS):
+            head = cu.head_file(key)
+            if head.get('success'):
+                sizes[key] = int(head.get('content_length') or 0)
+                break
+            if attempt < HEAD_ATTEMPTS - 1:
+                time.sleep(0.5 * (attempt + 1))
         else:
             missing.append(key)
     return sizes, missing
@@ -489,6 +513,11 @@ def build_snapshot(report_r2_path: str, snapshot_id: str, include_video: bool, b
                          f'Snapshot would be {total / (1024 * 1024):.0f} MB, the team has '
                          f'{max(quota_left_bytes, 0) / (1024 * 1024):.0f} MB of snapshot quota left; '
                          'revoke an old link first')
+        if names and len(missing) == len(names):
+            # Every referenced object "missing" is a storage fault, not 17 expired files: a
+            # snapshot with no image or video must not be published as if it were complete.
+            return _fail(snapshot_id, 'storage_error',
+                         f'None of the {len(names)} report assets could be read from storage')
         for key in missing:
             rewritten = re.sub(re.escape(f'assets/{names[key]}') + r'(?![A-Za-z0-9])', REMOVED_HREF, rewritten)
             del names[key]

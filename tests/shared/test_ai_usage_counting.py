@@ -91,9 +91,17 @@ def test_response_usage_anthropic_shape():
     usage = SimpleNamespace(input_tokens=10, output_tokens=5, cache_read_input_tokens=100,
                             cache_creation_input_tokens=20, server_tool_use=SimpleNamespace(web_search_requests=2))
     used = response_usage(SimpleNamespace(usage=usage))
-    assert (used.tokens_in, used.tokens_out, used.cache_read, used.cache_write, used.web_searches) == (10, 5, 100, 20, 2)
+    # tokens_in is the whole prompt: Anthropic's input_tokens is only the uncached part.
+    assert (used.tokens_in, used.tokens_out, used.cache_read, used.cache_write, used.web_searches) == (130, 5, 100, 20, 2)
     assert used.cost is None
-    assert response_tokens(SimpleNamespace(usage=usage)) == (10, 5)
+    assert response_tokens(SimpleNamespace(usage=usage)) == (130, 5)
+
+
+def test_fully_cached_anthropic_prompt_is_not_zero_input():
+    """MiniMax (Anthropic-shaped) reports input_tokens=0 when the whole prompt came from the cache."""
+    usage = SimpleNamespace(input_tokens=0, output_tokens=124, cache_read_input_tokens=570,
+                            cache_creation_input_tokens=4291)
+    assert response_usage(SimpleNamespace(usage=usage)).tokens_in == 4861
 
 
 def test_response_usage_openai_shape_keeps_provider_cost():
@@ -102,6 +110,8 @@ def test_response_usage_openai_shape_keeps_provider_cost():
            "completion_tokens_details": {"reasoning_tokens": 6}}
     used = response_usage(ProviderResponse(content=[], usage=_openai_usage(raw)))
     assert (used.tokens_in, used.tokens_out, used.cache_read, used.cache_write, used.reasoning) == (50, 8, 30, 4, 6)
+    assert _openai_usage(raw).input_tokens == 16  # the uncached part, as on Anthropic
+    assert openai_call_usage(raw).tokens_in == 50
     assert used.cost == pytest.approx(0.0012)
     assert openai_call_usage(raw).cost == pytest.approx(0.0012)
     assert response_usage(ProviderResponse(content=[], usage=ProviderUsage())).cost is None

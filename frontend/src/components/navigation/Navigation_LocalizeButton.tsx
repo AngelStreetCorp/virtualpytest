@@ -5,7 +5,6 @@ import {
   WarningAmber as WarnIcon,
   ExpandMore as ExpandMoreIcon,
   ExpandLess as ExpandLessIcon,
-  Check as CheckIcon,
 } from '@mui/icons-material';
 import {
   Box,
@@ -14,9 +13,7 @@ import {
   CircularProgress,
   IconButton,
   LinearProgress,
-  MenuItem,
   Popover,
-  TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
@@ -24,6 +21,9 @@ import React, { useCallback, useRef, useState } from 'react';
 
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import { buildServerUrl, openHostUrl } from '../../utils/buildUrlUtils';
+import { toggleSx } from '../common/PageChrome';
+import { TYPOGRAPHY } from '../../constants/typography';
+import { LocalizeCorrectionBanner, LocalizeCorrectionQuestion, useLocalizeCorrection } from './LocalizeCorrectionDialog';
 
 export interface LocalizeCandidate {
   node_id: string;
@@ -37,7 +37,7 @@ export interface LocalizeCandidate {
 
 /** Per-frame fields the monitor's `localize` worker writes to analysis_data (FINGERPRINT.md "Tier-2 add-ons"). */
 interface ClassifierDiagnostics {
-  motion?: { kind?: string; pct?: number };
+  motion?: { kind?: string; pct?: number; state?: string };
   freeze?: boolean;
   loaded?: string;
   overlay?: string;
@@ -48,8 +48,18 @@ interface ClassifierDiagnostics {
 /** A fingerprint as the matcher sees it (dhash, 5 regions, focus, crop, title). Copied as JSON. */
 type Fingerprint = { dhash?: string } & Record<string, unknown>;
 
+/** The host's single Localize answer (TASK-104, shared/src/lib/utils/localize_verdict.py). */
+interface LocalizeVerdict {
+  kind: 'signal' | 'live' | 'node' | 'overlay' | 'known_screen' | 'unknown';
+  node_id?: string | null;
+  label: string;
+  confidence: number;
+  evidence?: Record<string, unknown>;
+}
+
 interface LocalizeResult {
   success?: boolean;
+  verdict?: LocalizeVerdict | null;
   candidates?: LocalizeCandidate[];
   /**
    * Top-N of the FULL ranking (match_fingerprint_v5 `_preview`). Display-only:
@@ -80,6 +90,15 @@ interface LocalizeResult {
   nodes?: { node_id: string; label: string }[];
 }
 
+/** Localize needs the image monitor (owner, 2026-10-14): a device whose monitoring profile runs no
+ *  vpt-monitor-img (lite / tv_lite) gets no Localize. `monitoring_off` is the host's own list of those
+ *  devices, read from each device's profile (TASK-95); the host and MCP refuse the same devices. */
+export const LOCALIZE_OFF_TITLE = "Localize is off: this device's monitoring profile does not run the image monitor";
+export const localizeOff = (
+  host: { system_stats?: { monitoring_off?: string[] } } | null | undefined,
+  deviceId: string | null | undefined,
+): boolean => !!deviceId && (host?.system_stats?.monitoring_off ?? []).includes(deviceId);
+
 interface LocalizeButtonProps {
   hostName?: string;
   deviceId?: string | null;
@@ -101,7 +120,6 @@ interface LocalizeButtonProps {
 /** Max ranked rows in the popover — keeps its height bounded on a 60-node interface. */
 const MAX_ROWS = 5;
 /** Dropdown value for "the true screen is not in this tree". */
-const UNKNOWN = '__unknown__';
 
 /**
  * Localize: identify which navigation node the live device screen matches, by
@@ -115,8 +133,9 @@ const UNKNOWN = '__unknown__';
  *   - Step 2 (More): the captured frame, the closest match and its %, the two fingerprints to copy,
  *     and "Wrong screen?" → which screen it was, with "Unknown screen" first.
  *
- * Where a "wrong screen" answer is stored is not decided yet (TASK-88 row 12), so Save
- * copies a report to the clipboard and says so — it never claims to have stored anything.
+ * A "wrong screen" answer corrects the matcher (TASK-104 goal 11, TASK-88 row 12): the true node gets
+ * this frame's fingerprint as an extra sample, or "Unknown screen" marks it as not-this-screen on the
+ * node that claimed it. The confirmation says what changed and offers Undo.
  *
  * The popover never re-judges the verdict with its own confidence threshold: the
  * matcher already drops candidates below FP_MIN_CONFIDENCE, so `candidates.length`
@@ -141,9 +160,7 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<LocalizeResult | null>(null);
   const [asking, setAsking] = useState(false);
-  const [pick, setPick] = useState<string>(UNKNOWN);
-  const [answered, setAnswered] = useState<{ ok: boolean; text: string } | null>(null);
-
+  
   const runLocalize = useCallback(async () => {
     if (!hostName || !deviceId || !userinterfaceName) return;
     setOpen(true);
@@ -151,7 +168,6 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
     setResult(null);
     setAsking(false);
     setAnswered(null);
-    setPick(UNKNOWN);
     try {
       const resp = await fetch(buildServerUrl('/server/navigation/localize'), {
         method: 'POST',
@@ -191,6 +207,25 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
   const closest: LocalizeCandidate | null =
     (matched ? cands[0] : null) ?? result?.unconfirmed_candidate ?? result?.ranked?.[0] ?? result?.best_excluded ?? null;
   const abstainText = abstainReason(result?.reason);
+  // The host measured full-frame motion: live video. With no live node on the tree it is not a
+  // saved screen, so say so instead of "No match".
+  const liveVideo = !!result?.success && result?.verdict?.kind === 'live';
+  // Cascade steps 4-5 (TASK-104): an overlay plate (maybe with the screen under it) or a screen this
+  // device's memory knows. Not a node match, so they replace the "No match" headline.
+  const kindHeadline = !result?.success
+    ? null
+    : liveVideo
+      ? { title: LIVE_VIDEO_TITLE, body: LIVE_VIDEO_BODY }
+      : result?.verdict?.kind === 'overlay'
+        ? {
+            title: result.verdict.label,
+            body: result.verdict.node_id
+              ? 'Something is drawn over the screen; the screen under it was matched.'
+              : 'Something is drawn over the screen; the screen under it was not recognised.',
+          }
+        : result?.verdict?.kind === 'known_screen'
+          ? { title: result.verdict.label || 'Unnamed screen', body: 'Not a screen of this tree, but this device has shown it before.' }
+          : null;
 
   const scopeLabel = `${userinterfaceName ?? '—'} · ${variant ?? 'base'} variant`;
   const hasResult = !!result && !loading;
@@ -205,31 +240,21 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
   const labelOf = (id: string) =>
     rows.find((r) => r.node_id === id)?.label ?? result?.nodes?.find((n) => n.node_id === id)?.label ?? id;
 
-  const saveAnswer = async () => {
-    const report = {
-      userinterface: userinterfaceName,
-      variant: variant ?? 'base',
-      host: hostName,
-      device: deviceId,
-      frame_url: result?.frame_url ?? null,
-      matched: closest ? { node_id: closest.node_id, label: closest.label, confidence: closest.confidence } : null,
-      true_screen: pick === UNKNOWN ? 'unknown' : { node_id: pick, label: labelOf(pick) },
-      live_fingerprint: result?.live_fingerprint ?? null,
-      matched_fingerprint: result?.matched_fingerprint ?? null,
-    };
-    let copied = false;
-    try {
-      await navigator.clipboard.writeText(JSON.stringify(report, null, 2));
-      copied = true;
-    } catch {
-      copied = false;
-    }
+  // The node that claimed the frame: only a real match is a claim (a near miss claimed nothing).
+  const claimed = matched ? cands[0] : null;
+
+  const { answered, setAnswered, save, undo: undoAnswer } = useLocalizeCorrection({
+    userinterfaceName,
+    liveFingerprint: result?.live_fingerprint ?? null,
+    claimedNodeId: claimed?.node_id ?? null,
+    frameUrl: result?.frame_url ?? null,
+    hostName,
+    deviceId,
+    labelOf,
+  });
+  const saveAnswer = (pick: string) => {
     setAsking(false);
-    setAnswered(
-      copied
-        ? { ok: true, text: `${pick === UNKNOWN ? 'Unknown screen' : labelOf(pick)} — report copied` }
-        : { ok: false, text: 'The browser blocked the clipboard — the report was not copied' },
-    );
+    void save(pick);
   };
 
   const footer =
@@ -252,7 +277,7 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
               setAnswered(null);
             }}
             sx={{
-              fontSize: 11.5,
+              fontSize: TYPOGRAPHY.caption.size,
               color: P.textSecondary,
               textDecoration: 'underline',
               textUnderlineOffset: 2,
@@ -263,17 +288,17 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
             Wrong screen?
           </ButtonBase>
         ) : (
-          <Typography sx={{ fontSize: 11.5, color: P.textMuted, fontVariantNumeric: 'tabular-nums' }}>
+          <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted, fontVariantNumeric: 'tabular-nums' }}>
             {inScope} {inScope === 1 ? 'screen' : 'screens'} in scope · {excluded} excluded
           </Typography>
         )}
         {hasResult && (
           <ButtonBase
             onClick={() => setExpanded((v) => !v)}
-            sx={{ fontSize: 11.5, color: P.accentText, gap: 0.25, flexShrink: 0 }}
+            sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.accentText, gap: 0.25, flexShrink: 0 }}
           >
             {expanded ? 'Less' : 'More'}
-            {expanded ? <ExpandLessIcon sx={{ fontSize: 15 }} /> : <ExpandMoreIcon sx={{ fontSize: 15 }} />}
+            {expanded ? <ExpandLessIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} /> : <ExpandMoreIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />}
           </ButtonBase>
         )}
       </Box>
@@ -301,13 +326,13 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
               <Typography
                 noWrap
                 title={c.label}
-                sx={{ fontSize: 13, color: winner ? P.accentText : P.textPrimary, fontWeight: strong ? 600 : 400 }}
+                sx={{ fontSize: TYPOGRAPHY.body.size, color: winner ? P.accentText : P.textPrimary, fontWeight: strong ? 600 : 400 }}
               >
                 {c.label}
               </Typography>
               <Typography
                 sx={{
-                  fontSize: 12,
+                  fontSize: TYPOGRAPHY.caption.size,
                   fontVariantNumeric: 'tabular-nums',
                   color: winner ? P.accentText : strong ? P.textPrimary : P.textSecondary,
                   fontWeight: strong ? 600 : 400,
@@ -370,7 +395,7 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
                 whiteSpace: 'nowrap',
-                fontSize: 10,
+                fontSize: TYPOGRAPHY.microMeta.size,
                 fontFamily: 'monospace',
                 color: '#e6e9ec',
                 background: 'rgba(0,0,0,.55)',
@@ -401,7 +426,7 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
         >
           <Box sx={{ minWidth: 0 }}>
             {!crowned && (
-              <Typography sx={{ fontSize: 10.5, color: P.textMuted }}>
+              <Typography sx={{ fontSize: TYPOGRAPHY.microMeta.size, color: P.textMuted }}>
                 {tied
                   ? `Tie between ${cands.length} screens`
                   : !matched && closest.node_id === result?.unconfirmed_candidate?.node_id
@@ -412,14 +437,14 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
             <Typography
               noWrap
               title={closest.label}
-              sx={{ fontSize: 14.5, fontWeight: 600, color: crowned ? P.accentText : P.textPrimary }}
+              sx={{ fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600, color: crowned ? P.accentText : P.textPrimary }}
             >
               {closest.label}
             </Typography>
           </Box>
           <Typography
             sx={{
-              fontSize: 16,
+              fontSize: TYPOGRAPHY.navbarItem.size,
               fontWeight: 600,
               fontVariantNumeric: 'tabular-nums',
               color: crowned ? P.accentText : P.textSecondary,
@@ -431,14 +456,18 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
         </Box>
       )}
 
-      {!matched && abstainText && (
-        <Typography sx={{ fontSize: 11.5, color: P.textSecondary, overflowWrap: 'anywhere' }}>
+      {kindHeadline && (
+        <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, color: P.textSecondary }}>{kindHeadline.title}</Typography>
+      )}
+
+      {!matched && !kindHeadline && abstainText && (
+        <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textSecondary, overflowWrap: 'anywhere' }}>
           {abstainText}
         </Typography>
       )}
 
       {diagLine(result?.classifier_diagnostics) && (
-        <Typography sx={{ fontSize: 11.5, color: P.textSecondary }}>
+        <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textSecondary }}>
           <Box component="span" sx={{ color: P.textMuted }}>
             Screen state{' '}
           </Box>
@@ -448,7 +477,7 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
 
       {(result?.live_fingerprint || result?.matched_fingerprint) && (
         <>
-          <Typography sx={{ fontSize: 11, color: P.textSecondary, mt: 0.25 }}>Fingerprints</Typography>
+          <Typography sx={{ fontSize: TYPOGRAPHY.microMeta.size, color: P.textSecondary, mt: 0.25 }}>Fingerprints</Typography>
           <FingerprintRow who="What the camera saw" fp={result?.live_fingerprint} />
           <FingerprintRow who="What was saved" fp={result?.matched_fingerprint} />
         </>
@@ -457,50 +486,12 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
   );
 
   const question = (
-    <Box
-      sx={{
-        borderTop: `1px solid ${P.borderColor}`,
-        px: 1.75,
-        py: 1.375,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 1,
-      }}
-    >
-      <Typography sx={{ fontSize: 12, fontWeight: 600 }}>Which screen was it?</Typography>
-      <TextField
-        select
-        size="small"
-        value={pick}
-        onChange={(e) => setPick(e.target.value)}
-        SelectProps={{ MenuProps: { PaperProps: { sx: { maxHeight: 320 } } } }}
-        sx={{ '& .MuiInputBase-root': { fontSize: 12.5 } }}
-      >
-        <MenuItem value={UNKNOWN} sx={{ fontSize: 12.5 }}>
-          Unknown screen (not in this tree)
-        </MenuItem>
-        {rows
-          .filter((r) => r.node_id !== closest?.node_id)
-          .map((r) => (
-            <MenuItem key={r.node_id} value={r.node_id} sx={{ fontSize: 12.5 }}>
-              {r.label}
-            </MenuItem>
-          ))}
-        {others.map((n) => (
-          <MenuItem key={n.node_id} value={n.node_id} sx={{ fontSize: 12.5, color: P.textSecondary }}>
-            {n.label}
-          </MenuItem>
-        ))}
-      </TextField>
-      <Box sx={{ display: 'flex', gap: 1, justifyContent: 'flex-end' }}>
-        <Button size="small" onClick={() => setAsking(false)} sx={{ color: P.textSecondary }}>
-          Cancel
-        </Button>
-        <Button size="small" variant="contained" onClick={() => void saveAnswer()}>
-          Copy report
-        </Button>
-      </Box>
-    </Box>
+    <LocalizeCorrectionQuestion
+      primary={rows.filter((r) => r.node_id !== closest?.node_id)}
+      others={others}
+      onSave={saveAnswer}
+      onCancel={() => setAsking(false)}
+    />
   );
 
   return (
@@ -559,13 +550,13 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
             }}
           >
             <Box sx={{ minWidth: 0 }}>
-              <Typography sx={{ fontSize: 11, fontWeight: 600, letterSpacing: '.08em', color: P.accentText }}>
+              <Typography sx={{ fontSize: TYPOGRAPHY.microMeta.size, fontWeight: 600, letterSpacing: '.08em', color: P.accentText }}>
                 Localize
               </Typography>
               <Typography
                 title={scopeLabel}
                 sx={{
-                  fontSize: 12,
+                  fontSize: TYPOGRAPHY.caption.size,
                   color: P.textSecondary,
                   mt: 0.25,
                   overflow: 'hidden',
@@ -589,7 +580,7 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
           {loading ? (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, px: 1.75, pb: 1.75 }}>
               <CircularProgress size={16} sx={{ color: P.accent }} />
-              <Typography sx={{ fontSize: 12.5, color: P.textSecondary }}>Capturing &amp; matching…</Typography>
+              <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textSecondary }}>Capturing &amp; matching…</Typography>
             </Box>
           ) : result?.error || result?.success === false ? (
             <Notice
@@ -610,23 +601,7 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
               )}
               {detail}
               {asking && question}
-              {answered && (
-                <Box
-                  sx={{
-                    borderTop: `1px solid ${P.borderColor}`,
-                    px: 1.75,
-                    py: 1,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.75,
-                    background: `${answered.ok ? P.success : P.error}1f`,
-                    color: answered.ok ? P.success : P.error,
-                  }}
-                >
-                  {answered.ok ? <CheckIcon sx={{ fontSize: 15 }} /> : <ErrorIcon sx={{ fontSize: 15 }} />}
-                  <Typography sx={{ fontSize: 12 }}>{answered.text}</Typography>
-                </Box>
-              )}
+              {answered && <LocalizeCorrectionBanner answered={answered} onUndo={() => void undoAnswer()} />}
             </>
           ) : result?.state ? (
             <Notice
@@ -641,8 +616,8 @@ export const LocalizeButton: React.FC<LocalizeButtonProps> = ({
               <Notice
                 icon={<TargetIcon fontSize="small" />}
                 color={P.textSecondary}
-                title="No match"
-                body={abstainText ?? "No screen scored above the matcher's confidence floor."}
+                title={kindHeadline ? kindHeadline.title : 'No match'}
+                body={kindHeadline ? kindHeadline.body : (abstainText ?? "No screen scored above the matcher's confidence floor.")}
               />
               {rows.length > 0 && ranked}
             </>
@@ -684,10 +659,10 @@ const FingerprintRow: React.FC<{ who: string; fp?: Fingerprint | null }> = ({ wh
         minWidth: 0,
       }}
     >
-      <Typography sx={{ fontSize: 11.5, color: P.textSecondary, width: 118, flexShrink: 0 }}>{who}</Typography>
+      <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textSecondary, width: 118, flexShrink: 0 }}>{who}</Typography>
       <Typography
         sx={{
-          fontSize: 11,
+          fontSize: TYPOGRAPHY.microMeta.size,
           fontFamily: 'monospace',
           flex: 1,
           minWidth: 0,
@@ -708,10 +683,9 @@ const FingerprintRow: React.FC<{ who: string; fp?: Fingerprint | null }> = ({ wh
           minWidth: 0,
           px: 1,
           py: 0,
-          fontSize: 10.5,
+          fontSize: TYPOGRAPHY.microMeta.size,
           flexShrink: 0,
-          color: state === 'copied' ? P.success : P.textSecondary,
-          borderColor: state === 'copied' ? P.success : P.borderColor,
+          ...toggleSx(P, state === 'copied'),
         }}
       >
         {state === 'copied' ? 'Copied' : state === 'failed' ? 'Blocked' : 'Copy'}
@@ -719,6 +693,9 @@ const FingerprintRow: React.FC<{ who: string; fp?: Fingerprint | null }> = ({ wh
     </Box>
   );
 };
+
+const LIVE_VIDEO_TITLE = 'Live video';
+const LIVE_VIDEO_BODY = 'The screen is playing video, which is not a saved screen.';
 
 /** The matcher's abstain reason in plain words for doors 1-3; doors 4-6 keep their own sentence. */
 const abstainReason = (reason?: string): string | null => {
@@ -757,9 +734,9 @@ const Notice: React.FC<{
   <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'flex-start', px: 1.75, pb: 1.75 }}>
     <Box sx={{ color, display: 'flex', mt: '1px', flexShrink: 0 }}>{icon}</Box>
     <Box sx={{ minWidth: 0 }}>
-      <Typography sx={{ fontSize: 12.5, fontWeight: 600, color }}>{title}</Typography>
+      <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, color }}>{title}</Typography>
       {body && (
-        <Typography sx={{ fontSize: 12, color: 'text.secondary', mt: 0.25, overflowWrap: 'anywhere' }}>
+        <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: 'text.secondary', mt: 0.25, overflowWrap: 'anywhere' }}>
           {body}
         </Typography>
       )}

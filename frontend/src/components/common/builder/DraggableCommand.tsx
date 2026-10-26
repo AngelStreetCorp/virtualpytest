@@ -66,7 +66,7 @@ export const DraggableCommand: React.FC<DraggableCommandProps> = ({ command, onC
       title={command.description}
     >
       <Typography 
-        fontSize={12} 
+        fontSize="0.75rem" 
         noWrap 
         sx={{ 
           lineHeight: 1.2, 

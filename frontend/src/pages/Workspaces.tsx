@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import SettingRow from '../components/common/SettingRow';
 import {
   Box,
   Card,
@@ -18,9 +19,9 @@ import {
   DialogActions,
   TextField,
   Chip,
-  CircularProgress,
   Alert,
   Collapse,
+  CircularProgress,
   Tabs,
   Tab,
   Checkbox,
@@ -38,7 +39,7 @@ import {
   ListItemSecondaryAction,
 } from '@mui/material';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
-import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
+import { PAGE_TITLE_SX, dangerIconSx, pageSurfaceSx } from '../components/common/PageChrome';
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -63,11 +64,15 @@ import { useServerManager } from '../hooks/useServerManager';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { StyledDialog } from '../components/common/StyledDialog';
+import { TableRowsSkeleton } from '../components/common/ReportSkeleton';
 import { TargetPanel } from '../components/common/TargetPanel';
-import { ALL_WORKSPACE_LABEL } from '../components/common/WorkspaceSwitcher';
 import { ALL_NAV_ITEMS } from '../config/navItems';
 import { ALL_PERMISSIONS, Permission } from '../types/auth';
 import { buildServerUrl } from '../utils/buildUrlUtils';
+import { TYPOGRAPHY } from '../constants/typography';
+
+// "All" is no stored workspace; the header ScopePicker and this page both label it so.
+const ALL_WORKSPACE_LABEL = 'All';
 
 // ---------------------------------------------------------------------------
 // Permission grouping helpers
@@ -144,6 +149,7 @@ interface ExpandedRowProps {
 }
 
 const ExpandedRow: React.FC<ExpandedRowProps> = ({ workspace }) => {
+  const P = useAgentChatPalette();
   const { data: members = [], isLoading } = useWorkspaceMembers(workspace.id);
   const { users } = useUsers();
   const { teams } = useTeams();
@@ -209,7 +215,7 @@ const ExpandedRow: React.FC<ExpandedRowProps> = ({ workspace }) => {
                       label={m.type}
                       size="small"
                       color={m.type === 'user' ? 'primary' : 'secondary'}
-                      sx={{ height: 18, fontSize: '0.65rem' }}
+                      sx={{ height: 18, fontSize: TYPOGRAPHY.microMeta.size }}
                     />
                     <Typography variant="body2">
                       {m.type === 'user' ? (m.full_name || m.email || m.user_id) : (m.team_name || m.team_id)}
@@ -223,7 +229,7 @@ const ExpandedRow: React.FC<ExpandedRowProps> = ({ workspace }) => {
                 }
               />
               <ListItemSecondaryAction>
-                <IconButton size="small" color="error" onClick={() => handleRemove(m)}>
+                <IconButton size="small" onClick={() => handleRemove(m)} sx={dangerIconSx(P)}>
                   <RemoveIcon fontSize="small" />
                 </IconButton>
               </ListItemSecondaryAction>
@@ -322,7 +328,6 @@ const buildDefaultForm = (): WorkspaceCreatePayload => ({
   denied_permissions: [],
   device_filter: [],
   script_filter: [],
-  project_tags: [],
   hidden_pages: [],
   is_public: false,
 });
@@ -420,7 +425,6 @@ const WorkspaceDialog: React.FC<WorkspaceDialogProps> = ({ open, workspace, onCl
           denied_permissions: [...workspace.denied_permissions],
           device_filter: [...workspace.device_filter],
           script_filter: [...(workspace.script_filter ?? [])],
-          project_tags: [...workspace.project_tags],
           hidden_pages: [...workspace.hidden_pages],
           is_public: workspace.is_public ?? false,
         });
@@ -442,7 +446,6 @@ const WorkspaceDialog: React.FC<WorkspaceDialogProps> = ({ open, workspace, onCl
       denied_permissions: form.denied_permissions,
       device_filter: form.device_filter,
       script_filter: form.script_filter,
-      project_tags: form.project_tags,
       hidden_pages: form.hidden_pages,
       is_public: form.is_public,
     });
@@ -560,21 +563,11 @@ const WorkspaceDialog: React.FC<WorkspaceDialogProps> = ({ open, workspace, onCl
               multiline
               rows={3}
             />
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={!!form.is_public}
-                  onChange={(e) => setForm({ ...form, is_public: e.target.checked })}
-                />
-              }
-              label={
-                <Box>
-                  <Typography variant="body2">Public workspace</Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    When enabled, this workspace is visible to everyone
-                  </Typography>
-                </Box>
-              }
+            <SettingRow
+              title="Public workspace"
+              description="When enabled, this workspace is visible to everyone"
+              checked={!!form.is_public}
+              onChange={(on) => setForm({ ...form, is_public: on })}
             />
           </Box>
         </TabPanel>
@@ -849,7 +842,7 @@ const Workspaces: React.FC = () => {
     <Box sx={pageSurfaceSx(P)}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <WorkspacesIcon sx={{ color: P.accentText, fontSize: 28 }} />
+          <WorkspacesIcon sx={{ color: P.accentText, fontSize: TYPOGRAPHY.kpiValue.size }} />
           <Typography component="h1" sx={PAGE_TITLE_SX}>
             Workspaces
           </Typography>
@@ -870,36 +863,35 @@ const Workspaces: React.FC = () => {
         </Alert>
       )}
 
-      {isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress />
-        </Box>
-      ) : (
-        <Card>
-          <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
-            <TableContainer component={Paper} elevation={0}>
-              <Table
-                sx={{
-                  tableLayout: 'fixed', minWidth: 860, '& .MuiTableCell-root': { overflowWrap: 'anywhere' },
-                  '& .MuiTableRow-root:hover': {
-                    backgroundColor: 'transparent !important',
-                  },
-                }}
-              >
-              <colgroup><col style={{ width: 48 }} /><col style={{ width: 200 }} /><col /><col style={{ width: 120 }} /><col style={{ width: 110 }} /><col style={{ width: 100 }} /><col style={{ width: 100 }} /></colgroup>
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ width: 48 }} />
-                    <TableCell><strong>Name</strong></TableCell>
-                    <TableCell><strong>Description</strong></TableCell>
-                    <TableCell align="center"><strong>Members</strong></TableCell>
-                    <TableCell align="center"><strong>Devices</strong></TableCell>
-                    <TableCell align="center"><strong>Permissions</strong></TableCell>
+      <Card>
+        <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
+          <TableContainer component={Paper} elevation={0}>
+            <Table
+              sx={{
+                tableLayout: 'fixed', minWidth: 860, '& .MuiTableCell-root': { overflowWrap: 'anywhere' },
+                '& .MuiTableRow-root:hover': {
+                  backgroundColor: 'transparent !important',
+                },
+              }}
+            >
+            <colgroup><col style={{ width: 48 }} /><col style={{ width: 200 }} /><col /><col style={{ width: 120 }} /><col style={{ width: 110 }} /><col style={{ width: 100 }} /><col style={{ width: 100 }} /></colgroup>
+              <TableHead>
+                <TableRow>
+                  <TableCell sx={{ width: 48 }} />
+                  <TableCell><strong>Name</strong></TableCell>
+                  <TableCell><strong>Description</strong></TableCell>
+                  <TableCell align="center"><strong>Members</strong></TableCell>
+                  <TableCell align="center"><strong>Devices</strong></TableCell>
+                  <TableCell align="center"><strong>Permissions</strong></TableCell>
                     <TableCell><strong>Created</strong></TableCell>
                     <TableCell align="right"><strong>Actions</strong></TableCell>
                   </TableRow>
                 </TableHead>
                 <TableBody>
+                  {isLoading ? (
+                    <TableRowsSkeleton widths={[48, 200, null, 120, 110, 100, 100, 110]} rows={8} />
+                  ) : (
+                    <>
                   {/* Built-in "All" (no workspace): on every server, never stored, not editable. */}
                   <TableRow>
                     <TableCell sx={{ width: 48 }} />
@@ -908,7 +900,7 @@ const Workspaces: React.FC = () => {
                         <Typography variant="body1" fontWeight="medium">
                           {ALL_WORKSPACE_LABEL}
                         </Typography>
-                        <Chip label="Built-in" size="small" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
+                        <Chip label="Built-in" size="small" variant="outlined" sx={{ height: 18, fontSize: TYPOGRAPHY.microMeta.size }} />
                       </Box>
                     </TableCell>
                     <TableCell>Every device, script and page the user's role allows</TableCell>
@@ -944,7 +936,7 @@ const Workspaces: React.FC = () => {
                               {ws.name}
                             </Typography>
                             {ws.is_public && (
-                              <Chip label="Public" size="small" color="success" sx={{ height: 18, fontSize: '0.65rem' }} />
+                              <Chip label="Public" size="small" color="success" sx={{ height: 18, fontSize: TYPOGRAPHY.microMeta.size }} />
                             )}
                           </Box>
                         </TableCell>
@@ -971,9 +963,9 @@ const Workspaces: React.FC = () => {
                           </IconButton>
                           <IconButton
                             size="small"
-                            color="error"
                             onClick={() => handleDelete(ws.id)}
                             disabled={isUpdating || isDeleting}
+                            sx={dangerIconSx(P)}
                           >
                             <DeleteIcon fontSize="small" />
                           </IconButton>
@@ -992,12 +984,13 @@ const Workspaces: React.FC = () => {
                       )}
                     </React.Fragment>
                   ))}
+                    </>
+                  )}
                 </TableBody>
               </Table>
             </TableContainer>
           </CardContent>
         </Card>
-      )}
 
       <WorkspaceDialog
         open={openDialog}

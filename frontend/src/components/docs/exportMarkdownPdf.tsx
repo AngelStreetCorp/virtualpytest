@@ -53,9 +53,9 @@ const PRINT_CSS = `
  * hidden iframe, so the browser's print dialog offers "Save as PDF" without the app chrome.
  * `title` becomes the default PDF file name.
  */
-export const exportMarkdownPdf = (markdown: string, title: string): void => {
+export const exportMarkdownPdf = (markdown: string, title: string, showTechnical = false): void => {
   const body = renderToStaticMarkup(
-    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} urlTransform={toAbsoluteUrl}>
+    <ReactMarkdown remarkPlugins={[remarkGfm]} rehypePlugins={[rehypeRaw]} urlTransform={toAbsoluteUrl} components={showTechnical ? undefined : { div: ({ node, children, ...props }: any) => (node?.properties?.dataTechnical !== undefined ? null : <div {...props}>{children}</div>) }}>
       {markdown}
     </ReactMarkdown>,
   );

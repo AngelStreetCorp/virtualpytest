@@ -146,12 +146,18 @@ def client():
 
 def _stub_route(monkeypatch, *, join: Dict[str, Any], link: Dict[str, Any]) -> None:
     monkeypatch.setattr(host_drone_routes, "_join_ap", lambda *_a, **_k: join)
-    monkeypatch.setattr(host_drone_routes, "_verify_link", lambda *_a, **_k: link)
     monkeypatch.setattr(host_drone_routes.time, "sleep", lambda *_a, **_k: None)
 
     class _Controller:
-        def execute_command(self, *_a, **_k):
-            return {"success": True}
+        paired_ssid = None
+        commands: List[str] = []
+
+        def execute_command(self, command, *_a, **_k):
+            self.commands.append(command)
+            return link if command == "link" else {"success": True}
+
+        def set_paired_ssid(self, ssid):
+            self.paired_ssid = ssid
 
     monkeypatch.setattr(host_drone_routes, "get_remote_controller_by_type", lambda *_a, **_k: _Controller())
 
@@ -162,7 +168,7 @@ def test_pair_succeeds_when_the_link_verifies_even_if_the_join_failed(client, mo
     _stub_route(
         monkeypatch,
         join={"ok": False, "reason": "sudo: a password is required"},
-        link={"ok": True, "bytes": 2},
+        link={"success": True},
     )
 
     res = client.post("/host/drone/tello/pair", json={"device_id": "device5", "ssid": "TELLO-C5B142"})
@@ -171,14 +177,14 @@ def test_pair_succeeds_when_the_link_verifies_even_if_the_join_failed(client, mo
     body = res.get_json()
     assert body["success"] is True
     assert body["join"]["ok"] is False  # reported honestly, not fatal
-    assert body["link"]["ok"] is True
+    assert body["link"]["success"] is True
 
 
 def test_pair_fails_at_the_link_stage_and_carries_the_join_detail(client, monkeypatch) -> None:
     _stub_route(
         monkeypatch,
         join={"ok": True, "already_active": True},
-        link={"ok": False, "reason": "no reply from 192.168.10.1:8889 in 5.0s"},
+        link={"success": False, "error": "Tello-C5B142: timeout after 10.0s waiting for reply to 'command'"},
     )
 
     res = client.post("/host/drone/tello/pair", json={"device_id": "device5", "ssid": "TELLO-C5B142"})
@@ -186,12 +192,13 @@ def test_pair_fails_at_the_link_stage_and_carries_the_join_detail(client, monkey
     assert res.status_code == 500
     body = res.get_json()
     assert body["stage"] == "link"
+    assert "timeout" in body["error"]
     assert body["join"]["already_active"] is True
 
 
 def test_pair_rejects_an_ssid_that_is_not_a_tello(client, monkeypatch) -> None:
     """SSID validation is the second gate behind the sudoers TELLO-* pin."""
-    _stub_route(monkeypatch, join={"ok": True}, link={"ok": True, "bytes": 2})
+    _stub_route(monkeypatch, join={"ok": True}, link={"success": True})
 
     res = client.post("/host/drone/tello/pair", json={"device_id": "device5", "ssid": "HomeWifi"})
 
@@ -213,6 +220,7 @@ def test_status_returns_the_controllers_link_state(client, monkeypatch) -> None:
             return {"success": True, "linked": True, "airborne": False, "ip": "192.168.10.1"}
 
     monkeypatch.setattr(host_drone_routes, "get_remote_controller_by_type", lambda *_a, **_k: _Controller())
+    monkeypatch.setattr(host_drone_routes, "get_device_by_id", lambda *_a, **_k: None)
 
     res = client.post("/host/drone/tello/status", json={"device_id": "device5"})
 
@@ -220,6 +228,47 @@ def test_status_returns_the_controllers_link_state(client, monkeypatch) -> None:
     body = res.get_json()
     assert body["linked"] is True
     assert body["ip"] == "192.168.10.1"
+    assert body["associated"] is False  # nothing paired
+    assert body["video_live"] is False  # no device, no playlist
+
+
+def test_status_reports_the_drone_network_and_fresh_video(client, monkeypatch, tmp_path) -> None:
+    """A paired drone stays paired while the host's Wi-Fi is on it; video is live
+    only while the playlist is being written."""
+    (tmp_path / "output.m3u8").write_text("#EXTM3U")
+
+    class _Controller:
+        relinks = 0
+
+        def get_status(self) -> Dict[str, Any]:
+            return {"success": True, "linked": False, "ssid": "TELLO-C5B142"}
+
+        def link_in_background(self) -> None:
+            self.relinks += 1
+
+    controller = _Controller()
+
+    class _Device:
+        def get_capture_dir(self, _sub):
+            return str(tmp_path)
+
+    monkeypatch.setattr(host_drone_routes, "get_remote_controller_by_type", lambda *_a, **_k: controller)
+    monkeypatch.setattr(host_drone_routes, "get_device_by_id", lambda *_a, **_k: _Device())
+    monkeypatch.setattr(host_drone_routes, "_active_wifi_ssid", lambda: "TELLO-C5B142")
+
+    body = client.post("/host/drone/tello/status", json={"device_id": "device3"}).get_json()
+    assert body["associated"] is True
+    assert body["video_live"] is True
+    # On the drone's Wi-Fi without a link (vpt-host restarted): the link reopens.
+    assert controller.relinks == 1
+
+    import os as _os
+    old = (tmp_path / "output.m3u8")
+    _os.utime(old, (1, 1))
+    monkeypatch.setattr(host_drone_routes, "_active_wifi_ssid", lambda: "SFR_0A68")
+    body = client.post("/host/drone/tello/status", json={"device_id": "device3"}).get_json()
+    assert body["associated"] is False
+    assert body["video_live"] is False
 
 
 def test_status_answers_no_controller_with_200_not_404(client, monkeypatch) -> None:
@@ -237,3 +286,35 @@ def test_status_answers_no_controller_with_200_not_404(client, monkeypatch) -> N
 
 def test_status_requires_a_device_id(client) -> None:
     assert client.post("/host/drone/tello/status", json={}).status_code == 400
+
+
+def test_pair_remembers_the_drone_and_never_renames_the_device(client, monkeypatch) -> None:
+    """The slot keeps DEVICE{i}_NAME; the SSID is only remembered so the scan sticks to it."""
+    controller = None
+
+    def _capture(*_a, **_k):
+        return controller
+
+    _stub_route(monkeypatch, join={"ok": True}, link={"success": True})
+    controller = host_drone_routes.get_remote_controller_by_type()
+    monkeypatch.setattr(host_drone_routes, "get_remote_controller_by_type", _capture)
+
+    res = client.post("/host/drone/tello/pair", json={"device_id": "device3", "ssid": "TELLO-F014A0"})
+
+    assert res.status_code == 200, res.get_json()
+    assert "device_name" not in res.get_json()
+    assert controller.paired_ssid == "TELLO-F014A0"
+
+
+def test_pair_opens_the_controllers_own_link_after_pointing_it_at_the_drone(client, monkeypatch) -> None:
+    """One socket owner: the drone only answers whoever sent its first `command`, so the
+    route never talks to the drone itself; it configures the controller, then links it."""
+    _stub_route(monkeypatch, join={"ok": True}, link={"success": True})
+    controller = host_drone_routes.get_remote_controller_by_type()
+    controller.commands.clear()
+    monkeypatch.setattr(host_drone_routes, "get_remote_controller_by_type", lambda *_a, **_k: controller)
+
+    res = client.post("/host/drone/tello/pair", json={"device_id": "device3", "ssid": "TELLO-C5B142"})
+
+    assert res.status_code == 200, res.get_json()
+    assert controller.commands == ["configure", "link"]

@@ -9,7 +9,7 @@
 | Severity  | Medium — a phantom run sits in the table with no report, and can later re-run the script on the device unannounced |
 | Status    | Fixed (pending deploy)                                            |
 | Area      | `frontend/src/pages/RunTests.tsx`                                 |
-| Fixed in  | Unreleased                                                        |
+| Fixed in  | build 90145 |
 | Related   | [BUG-0118](BUG-0118-2026-09-16-api-callers-run-scripts-on-a-busy-device-instead-of-queueing.md) (server-side queue) · `5909580132` (a finished run releases its user's Take Control) |
 | Commit    | this commit                                                       |
 

@@ -223,7 +223,8 @@ class ActionExecutor:
                        failure_actions: Optional[List[Dict[str, Any]]] = None,
                        team_id: str = None,
                        context = None,
-                       userinterface_name: Optional[str] = None) -> Dict[str, Any]:
+                       userinterface_name: Optional[str] = None,
+                       capture_before_action_screenshot: bool = True) -> Dict[str, Any]:
         """
         Execute a batch of actions on the device — PURE primitive.
 
@@ -239,6 +240,11 @@ class ActionExecutor:
                 action_set contains action_type='verification' with a reference_name.
                 If omitted, references will not resolve and area-based verifications
                 fall back to the whole frame.
+            capture_before_action_screenshot: take the frame used only by the KPI report.
+                Default True (every caller keeps today's behaviour). A caller whose
+                step has no KPI anchors should pass False: on a web host the capture
+                costs a 20 s page-screenshot timeout per hop and the frame is then
+                thrown away, because only the KPI request reads it.
 
         Returns:
             Dict with success status, results, and execution statistics
@@ -298,7 +304,7 @@ class ActionExecutor:
         # Capture "before action" screenshot BEFORE executing last action (for KPI report)
         # Store separately - DON'T add to action_screenshots (which is used for validation report counting)
         before_action_screenshot = ""
-        if valid_actions:
+        if valid_actions and capture_before_action_screenshot:
             _t = _phase_t0()
             from shared.src.lib.utils.device_utils import capture_screenshot
             before_action_screenshot = capture_screenshot(self.device, context=None) or ""
@@ -496,7 +502,19 @@ class ActionExecutor:
     
     async def _execute_single_action(self, action: Dict[str, Any], execution_order: int, action_number: int, action_category: str, team_id: str = None, context = None) -> Dict[str, Any]:
         """Execute a single action and return standardized result"""
-        
+
+        # A malformed edge can carry params that are not a mapping at all: an agent wrote
+        # `"params": ""` on the `activate_semantic` action of `web-dailymotion`'s entry edge
+        # (TASK-161, 2026-10-23) and the executor raised
+        # "'str' object has no attribute 'items'", which killed the whole navigation and
+        # the smoke with it. Params that are not a mapping mean "no params" — normalize
+        # them once, here, so every consumer below sees a dict.
+        raw_action_params = action.get('params', {})
+        if not isinstance(raw_action_params, dict):
+            print(f"[@action_executor] Action '{action.get('command', '')}' has params of type "
+                  f"{type(raw_action_params).__name__}, not a mapping — treating them as empty")
+            action = {**action, 'params': {}}
+
         # Get iterator count (default to 1 if not specified)
         # Only allow iterations for non-verification actions
         action_type = action.get('action_type', 'remote')
@@ -582,8 +600,11 @@ class ActionExecutor:
         # can attach one comparison report to every iteration.
         until_checks = []
         if repeat_until:
+            # The precondition asks "is the device already there?" — it must be
+            # cheap and must never wait, so it stays a ONE-frame check
+            # (poll=False) even when the rule's legs declare a timeout.
             precondition_met, until_evidence = await self._evaluate_until_condition(
-                repeat_until, team_id=team_id, context=context
+                repeat_until, team_id=team_id, context=context, poll=False
             )
             if precondition_met:
                 print(f"[@lib:action_executor] ✅ repeat_until condition already satisfied — skipping action (0 presses)")
@@ -600,10 +621,11 @@ class ActionExecutor:
             try:
                 # Use action params directly - wait_time is already in params from database
                 raw_params = action.get('params', {})
-                
+
                 # ✅ CRITICAL: Clean params - extract actual values from typed schema objects
                 # Frontend may send params as {default: X, type: Y, required: Z} instead of just X
                 # This ensures both single-block execute and full test-case execute work identically
+                # (params that are not a mapping were normalized to {} at the top of this method)
                 params = {}
                 for key, value in raw_params.items():
                     # If value is a typed param schema object (has 'default' field), extract the default
@@ -945,21 +967,51 @@ class ActionExecutor:
                     # Stop on first failure - don't continue iterations
                     break
 
-                # ── Repeat-until: press → wait → verify ONCE → repeat ──
-                # The loop IS the retry mechanism, so each check is a single frame
-                # (timeout forced to 0 in _evaluate_until_condition) — NOT a poll of
-                # the verification's own appear/disappear window. The only delay is
-                # the action's wait_time, applied here AFTER the press and BEFORE the
-                # check, so the user controls settle time explicitly: "press the key,
-                # wait the configured time, verify once, repeat".
+                # ── Repeat-until: press → wait → verify → repeat ──
+                # The loop IS the retry mechanism, so each check asks the device
+                # whether the condition holds NOW. A leg that declares its own
+                # timeout may WAIT for it (poll=True): the image controller then
+                # polls the capture directory for a frame newer than the one the
+                # check started from, so the wait is spent on the device's own
+                # redraw. That matters on a device whose picture lags its keys
+                # (the operator's set-top box applies a key at once but redraws
+                # the focus underline 7-13 s later): a one-frame check scores
+                # the screen from BEFORE the key and the loop presses again —
+                # and overshoots. A leg without a timeout keeps the one-frame
+                # behaviour.
+                # The delay before the check is the action's wait_time (the user
+                # controls the settle time explicitly: "press the key, wait the
+                # configured time, verify, repeat"), raised to the rule's
+                # poll_wait_ms when that is the longer of the two.
+                #
+                # `pressed_at` is WHEN THE KEY WENT OUT. The check uses it to
+                # find the frame that shows the state from BEFORE the press:
+                # the frame the check is handed is a fresh screenshot, and on a
+                # busy host the screenshot itself can be taken after the device
+                # already redrew — then the check has no "before" to compare
+                # against and judges a frame that already shows the movement
+                # (or, worse, one that still shows the old state because the
+                # redraw had not landed). Measured on the operator's set-top
+                # box: the French walk read the state of the PREVIOUS press
+                # every time, so it pressed one column too far and the bar's
+                # wrap threw the target away.
+                pressed_at = iteration_start_time
                 if repeat_until:
                     settle_ms = self._resolve_wait_time(action, params)
+                    poll_wait_ms = repeat_until.get('poll_wait_ms') or 0
+                    try:
+                        poll_wait_ms = int(poll_wait_ms)
+                    except (TypeError, ValueError):
+                        poll_wait_ms = 0
+                    if poll_wait_ms > settle_ms:
+                        settle_ms = poll_wait_ms
                     if settle_ms > 0:
                         print(f"[@lib:action_executor] ↻ repeat_until: waiting {settle_ms}ms after press before verify ({iteration + 1}/{iterator_count})")
                         time.sleep(settle_ms / 1000.0)
                     verify_start = time.time()
                     condition_met, until_evidence = await self._evaluate_until_condition(
-                        repeat_until, team_id=team_id, context=context
+                        repeat_until, team_id=team_id, context=context, poll=True,
+                        pressed_at=pressed_at
                     )
                     verify_ms = int((time.time() - verify_start) * 1000)
                     # The iteration row so far only timed the press; record the
@@ -1053,7 +1105,7 @@ class ActionExecutor:
         # ✅ Write action metadata BEFORE wait so capture_monitor can read it during zapping
         from backend_host.src.lib.utils.frame_metadata_utils import write_action_to_frame_json
         try:
-            write_action_to_frame_json(self.device, action, action_completion_timestamp)
+            write_action_to_frame_json(self.device, action, action_completion_timestamp, source='executor')
         except Exception as e:
             print(f"[@lib:action_executor:_execute_single_action] ❌ write_action_to_frame_json failed: {e}")
             import traceback
@@ -1190,7 +1242,9 @@ class ActionExecutor:
             print(f"[@lib:action_executor:_resolve_node_verifications] error: {e}")
             return None
 
-    async def _evaluate_until_condition(self, repeat_until: Dict[str, Any], team_id: str = None, context = None):
+    async def _evaluate_until_condition(self, repeat_until: Dict[str, Any], team_id: str = None,
+                                        context = None, poll: bool = False,
+                                        pressed_at: float = None):
         """Evaluate a repeat_until stop condition by running its verifications.
 
         Returns a `(condition_met, evidence_result)` tuple. `condition_met` is
@@ -1203,6 +1257,22 @@ class ActionExecutor:
         frame that drove the pass/fail — None when there's nothing to report.
         Reuses the exact verification path actions already use, so references
         resolve via userinterface_name identically to a verification action.
+
+        `poll` decides how the legs are timed:
+          - False (the PRECONDITION check, before the first press): every leg is
+            scored on ONE frame. The check asks "is the device already there?",
+            so it must be cheap and must never wait.
+          - True (the check AFTER a press): a leg that declares its own
+            `timeout` may WAIT for that long. The image controller polls the
+            capture directory for a frame NEWER than the one it started from,
+            so the leg can wait for the device to actually show the effect of
+            the press. Without that, a device whose picture lags its keys is
+            read mid-flight: the box applies the key at once but redraws the
+            focus underline 7-13 s later (measured on the operator's set-top
+            box), so a one-frame check scores the screen from BEFORE the key
+            and the loop presses again — and overshoots.
+            A leg without a timeout (or with timeout=0) keeps the old
+            single-frame behaviour.
         """
         verifications = repeat_until.get('verifications') or []
         if not verifications:
@@ -1226,16 +1296,29 @@ class ActionExecutor:
         matches = []
         leg_results = []
         for v in verifications:
-            # Single-frame check: force timeout=0 so the controller inspects the
-            # CURRENT frame once instead of polling its own appear/disappear
-            # window. The repeat_until loop is the retry mechanism, and the wait
-            # between press and check is the action's wait_time (applied by the
-            # caller) — not the verification's internal timeout.
-            single_check_params = dict(v.get('params', {}) or {})
-            single_check_params['timeout'] = 0
+            leg_params = dict(v.get('params', {}) or {})
+            if poll:
+                # Keep the leg's own timeout: it is the leg's "how long may I
+                # wait for this condition" window. The controller polls the
+                # capture directory for a frame newer than the one the check
+                # started from, so the wait is spent on the device's own
+                # redraw instead of on a blind sleep. Absent timeout (or 0)
+                # keeps the single-frame behaviour.
+                leg_params.setdefault('timeout', 0)
+                if pressed_at is not None:
+                    # When the key went out. A check that has to tell "the focus
+                    # moved" needs the state from BEFORE the press as its
+                    # baseline; the frame it is handed is a fresh screenshot and
+                    # may already show the effect of the key.
+                    leg_params['pressed_at'] = pressed_at
+            else:
+                # Single-frame check: force timeout=0 so the controller inspects
+                # the CURRENT frame once instead of polling its own
+                # appear/disappear window.
+                leg_params['timeout'] = 0
             verification_config = {
                 'command': v.get('command'),
-                'params': single_check_params,
+                'params': leg_params,
                 'verification_type': v.get('verification_type', 'image'),
             }
             result = None

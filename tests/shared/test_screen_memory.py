@@ -121,6 +121,8 @@ def test_unknown_screen_is_judged_even_when_short_or_a_repeat(monkeypatch):
     assert h.decide(_alert_img(end_after_s=5), last, 0, unknown) is None  # not skipped: it teaches the memory
     # without memory the same alert is skipped as before
     assert h.decide(_alert_img(end_after_s=5), last, 0, None)[0] == "short"
+    # a screen seen once is random so far: it keeps the cost rules
+    assert h.decide(_alert_img(end_after_s=5), last, 0, _screen(verdict="unknown", source="none", seen_count=1))[0] == "short"
 
 
 def test_learning_needs_an_image_and_ignores_bad_or_human_screens(monkeypatch):
@@ -134,30 +136,12 @@ def test_learning_needs_an_image_and_ignores_bad_or_human_screens(monkeypatch):
     assert h.decide(_alert_img(end_after_s=5), {}, 0, _screen(verdict="unknown", source="human"))[0] == "short"
 
 
-def test_new_fingerprint_needs_min_seen_sightings_before_it_is_a_screen(monkeypatch):
-    monkeypatch.setenv("ALERT_SCREEN_MIN_SEEN", "3")
-    pending, key = sm.PendingScreens(), ("vpt-pi4/host", "freeze")
-    fp = sm.fingerprint_frame(_desktop(1))
-    assert pending.see(key, fp, 0) is None
-    assert pending.see(key, sm.fingerprint_frame(_desktop(1, noise=1)), 10) is None  # slightly different, same screen
-    cand = pending.see(key, fp, 20)
-    assert cand and cand["count"] == 3
-    assert pending.see(key, fp, 30) is None  # promoted candidates are removed: counting restarts for a new row
-
-
-def test_a_splash_screen_seen_once_never_becomes_a_screen(monkeypatch):
-    monkeypatch.setenv("ALERT_SCREEN_MIN_SEEN", "3")
-    pending, key = sm.PendingScreens(), ("vpt-pi4/host", "freeze")
-    for seed in (1, 2, 3, 4):  # four different screens, once each
-        assert pending.see(key, sm.fingerprint_frame(_desktop(seed)), seed) is None
-
-
-def test_stale_candidates_are_forgotten(monkeypatch):
-    monkeypatch.setenv("ALERT_SCREEN_MIN_SEEN", "2")
-    pending, key = sm.PendingScreens(), ("s", "freeze")
-    fp = sm.fingerprint_frame(_desktop(1))
-    pending.see(key, fp, 0)
-    assert pending.see(key, fp, sm.PENDING_TTL_S + 1) is None  # the first sighting expired: count restarts at 1
+def test_a_screen_is_recurring_from_keep_min_seen_sightings(monkeypatch):
+    monkeypatch.setenv("ALERT_SCREEN_KEEP_MIN_SEEN", "3")
+    assert not sm.is_recurring(None)
+    assert not sm.is_recurring({"seen_count": 2})
+    assert sm.is_recurring({"seen_count": 3})
+    assert sm.is_recurring({"seen_count": 1}, seen=3)  # the alert's own sighting number wins over a stale row
 
 
 def _sparse_desktop(seed=7, clock=0):

@@ -59,7 +59,9 @@ def _device_folders():
         folder = get_capture_folder(base)
         if folder:
             folders.append(folder)
-    return folders
+    # TASK-95: a device whose monitor profile switches AVQ off (tv_lite) has no metadata to analyse
+    from shared.src.lib.utils.monitor_profile import folders_needing_service
+    return folders_needing_service('avq', folders)
 
 
 def run_once(only_folder=None, store=True):
@@ -89,6 +91,9 @@ def run_once(only_folder=None, store=True):
 
 
 def run_forever():
+    # TASK-95: idle while no device on this host has a profile that keeps AVQ (tv_lite does not)
+    from shared.src.lib.utils.monitor_service import wait_until_needed
+    wait_until_needed('avq', 'vpt-avq')
     logger.info("AVQ monitor started: host=%s window=%ss interval=%ss",
                 HOST_NAME, WINDOW_SECONDS, INTERVAL_SECONDS)
     while True:

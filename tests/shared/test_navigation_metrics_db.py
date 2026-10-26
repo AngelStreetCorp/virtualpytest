@@ -254,7 +254,8 @@ def test_payload_shape_matches_frontend(fake):
         TEAM, ["home", "search_results"], [EDGE, "edge-search_results-to-home", "edge-never-run"], variant=None)
 
     assert set(out) == {"nodes", "edges", "variant", "global_confidence", "confidence_distribution"}
-    assert set(out["nodes"]["home"]) == {"volume", "success_rate", "avg_verification_time", "confidence"}
+    assert set(out["nodes"]["home"]) == {"volume", "success_rate", "avg_verification_time", "confidence",
+                                       "verified_frame_url", "verified_at"}
     edge = out["edges"][f"{EDGE}#{ACTION_SET}"]
     assert set(edge) == {"volume", "success_rate", "avg_action_time", "avg_kpi_ms", "kpi_volume",
                          "kpi_report_url", "confidence"}

@@ -30,6 +30,8 @@ import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { Host } from '../../../types/common/Host_Types';
 import { WebElement } from '../../../types/controller/Web_Types';
 import { PlaywrightWebOverlay } from './PlaywrightWebOverlay';
+import { neutralButtonSx, primaryButtonSx } from '../../common/PageChrome';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 
 interface PlaywrightWebTerminalProps {
@@ -786,8 +788,7 @@ export const PlaywrightWebTerminal = React.memo(function PlaywrightWebTerminal({
             onClick={handleOpenBrowser}
             disabled={isBrowserOpen || isAnyActionExecuting || isOpening}
             startIcon={isOpening ? <CircularProgress size={16} /> : <PlayIcon />}
-            color="success"
-            sx={{ flex: 1, minWidth: '80px' }}
+            sx={{ ...(isBrowserOpen ? neutralButtonSx(P) : primaryButtonSx(P)), flex: 1, minWidth: '80px' }}
           >
             {isOpening ? 'Opening...' : 'Open'}
           </Button>
@@ -803,13 +804,12 @@ export const PlaywrightWebTerminal = React.memo(function PlaywrightWebTerminal({
             {isConnecting ? 'Connecting...' : 'Connect'}
           </Button>
           <Button
-            variant={isBrowserOpen ? 'contained' : 'outlined'}
+            variant="outlined"
             size="small"
             onClick={handleCloseBrowser}
             disabled={!isBrowserOpen || isClosing || isAnyActionExecuting}
             startIcon={isClosing ? <CircularProgress size={16} /> : <StopIcon />}
-            color="error"
-            sx={{ flex: 1, minWidth: '80px' }}
+            sx={{ ...neutralButtonSx(P), flex: 1, minWidth: '80px' }}
           >
             {isClosing ? 'Closing...' : 'Close'}
           </Button>
@@ -857,7 +857,7 @@ export const PlaywrightWebTerminal = React.memo(function PlaywrightWebTerminal({
                     sx={{
                       flex: 1,
                       '& .MuiOutlinedInput-root': {
-                        fontSize: '0.875rem',
+                        fontSize: TYPOGRAPHY.body.size,
                       },
                     }}
                   />
@@ -987,7 +987,7 @@ export const PlaywrightWebTerminal = React.memo(function PlaywrightWebTerminal({
                       sx={{
                         flex: 1,
                         '& .MuiOutlinedInput-root': {
-                          fontSize: '0.875rem',
+                          fontSize: TYPOGRAPHY.body.size,
                         },
                       }}
                     />
@@ -1033,7 +1033,7 @@ export const PlaywrightWebTerminal = React.memo(function PlaywrightWebTerminal({
                         sx={{
                           flex: 1,
                           '& .MuiOutlinedInput-root': {
-                            fontSize: '0.875rem',
+                            fontSize: TYPOGRAPHY.body.size,
                           },
                         }}
                       />
@@ -1074,7 +1074,7 @@ export const PlaywrightWebTerminal = React.memo(function PlaywrightWebTerminal({
                       sx={{
                         width: '80px',
                         '& .MuiOutlinedInput-root': {
-                          fontSize: '0.875rem',
+                          fontSize: TYPOGRAPHY.body.size,
                         },
                       }}
                     />
@@ -1089,7 +1089,7 @@ export const PlaywrightWebTerminal = React.memo(function PlaywrightWebTerminal({
                       sx={{
                         width: '80px',
                         '& .MuiOutlinedInput-root': {
-                          fontSize: '0.875rem',
+                          fontSize: TYPOGRAPHY.body.size,
                         },
                       }}
                     />
@@ -1134,7 +1134,7 @@ export const PlaywrightWebTerminal = React.memo(function PlaywrightWebTerminal({
                       sx={{
                         flex: 1,
                         '& .MuiOutlinedInput-root': {
-                          fontSize: '0.875rem',
+                          fontSize: TYPOGRAPHY.body.size,
                         },
                       }}
                     />
@@ -1243,7 +1243,7 @@ export const PlaywrightWebTerminal = React.memo(function PlaywrightWebTerminal({
                                 key={element.selector}
                                 value={element.selector}
                                 sx={{
-                                  fontSize: '0.875rem',
+                                  fontSize: TYPOGRAPHY.body.size,
                                   py: 1,
                                   px: 2,
                                   whiteSpace: 'nowrap',
@@ -1288,7 +1288,7 @@ export const PlaywrightWebTerminal = React.memo(function PlaywrightWebTerminal({
                 backgroundColor: '#1e1e1e', // palette: drawn on the live page — keep dark console look
                 color: '#00ff00', // palette: drawn on the live page — keep CRT-green on dark
                 fontFamily: 'monospace',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 overflow: 'auto',
                 border: '1px solid #333', // palette: drawn on the live page — keep terminal chrome look
                 maxHeight: '200px',
@@ -1299,7 +1299,7 @@ export const PlaywrightWebTerminal = React.memo(function PlaywrightWebTerminal({
                 sx={{
                   margin: 0,
                   fontFamily: 'monospace',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   lineHeight: 1.2,
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-word',

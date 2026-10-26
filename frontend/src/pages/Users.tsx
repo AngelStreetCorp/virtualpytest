@@ -22,13 +22,12 @@ import {
   InputLabel,
   Chip,
   Avatar,
-  CircularProgress,
   Alert,
   Tabs,
   Tab,
 } from '@mui/material';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
-import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
+import { PAGE_TITLE_SX, dangerIconSx, pageSurfaceSx } from '../components/common/PageChrome';
 import {
   Edit as EditIcon,
   Delete as DeleteIcon,
@@ -40,10 +39,12 @@ import { usePermissions } from '../hooks/auth/usePermissions';
 import { useAuthContext } from '../contexts/auth/AuthContext';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { StyledDialog } from '../components/common/StyledDialog';
+import { TableRowsSkeleton } from '../components/common/ReportSkeleton';
 import { Permission, computeEffectivePermissions, permissionSource } from '../types/auth';
 import { useRoles } from '../hooks/pages/useRoles';
 import { PermissionChecklist, PermissionLegend } from '../components/auth/PermissionChecklist';
 import { DeviceScopePicker } from '../components/auth/DeviceScopePicker';
+import { TYPOGRAPHY } from '../constants/typography';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -190,7 +191,7 @@ const Users: React.FC = () => {
     <Box sx={pageSurfaceSx(P)}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <UsersIcon sx={{ color: P.accentText, fontSize: 28 }} />
+          <UsersIcon sx={{ color: P.accentText, fontSize: TYPOGRAPHY.kpiValue.size }} />
           <Typography component="h1" sx={PAGE_TITLE_SX}>
             Users Management
           </Typography>
@@ -203,36 +204,33 @@ const Users: React.FC = () => {
         </Alert>
       )}
 
-      {isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress />
-        </Box>
-      ) : (
-        <Card>
-          <CardContent>
-            <TableContainer component={Paper} elevation={0}>
-              <Table
-                sx={{
-                  tableLayout: 'fixed', minWidth: 900, '& .MuiTableCell-root': { overflowWrap: 'anywhere' },
-                  '& .MuiTableRow-root:hover': {
-                    backgroundColor: 'transparent !important',
-                  },
-                }}
-              >
-              <colgroup><col /><col style={{ width: 230 }} /><col style={{ width: 100 }} /><col style={{ width: 150 }} /><col style={{ width: 120 }} /><col style={{ width: 100 }} /><col style={{ width: 90 }} /></colgroup>
-                <TableHead>
-                  <TableRow>
-                    <TableCell><strong>User</strong></TableCell>
-                    <TableCell><strong>Email</strong></TableCell>
-                    <TableCell><strong>Role</strong></TableCell>
-                    <TableCell><strong>Teams</strong></TableCell>
-                    <TableCell><strong>Permissions</strong></TableCell>
-                    <TableCell><strong>Joined</strong></TableCell>
-                    <TableCell align="right"><strong>Actions</strong></TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {users.map((user) => (
+      <Card>
+        <CardContent>
+          <TableContainer component={Paper} elevation={0}>
+            <Table
+              sx={{
+                tableLayout: 'fixed', minWidth: 900, '& .MuiTableCell-root': { overflowWrap: 'anywhere' },
+                '& .MuiTableRow-root:hover': {
+                  backgroundColor: 'transparent !important',
+                },
+              }}
+            >
+            <colgroup><col /><col style={{ width: 230 }} /><col style={{ width: 100 }} /><col style={{ width: 150 }} /><col style={{ width: 120 }} /><col style={{ width: 100 }} /><col style={{ width: 90 }} /></colgroup>
+              <TableHead>
+                <TableRow>
+                  <TableCell><strong>User</strong></TableCell>
+                  <TableCell><strong>Email</strong></TableCell>
+                  <TableCell><strong>Role</strong></TableCell>
+                  <TableCell><strong>Teams</strong></TableCell>
+                  <TableCell><strong>Permissions</strong></TableCell>
+                  <TableCell><strong>Joined</strong></TableCell>
+                  <TableCell align="right"><strong>Actions</strong></TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {isLoading ? (
+                  <TableRowsSkeleton widths={[null, 230, 100, 150, 120, 100, 90]} rows={8} />
+                ) : users.map((user) => (
                     <TableRow key={user.id}>
                       <TableCell>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -298,10 +296,10 @@ const Users: React.FC = () => {
                         {canDeleteUsers && (
                           <IconButton
                             size="small"
-                            color="error"
                             onClick={() => handleDeleteUser(user.id)}
                             disabled={isUpdating || isDeleting || user.id === profile?.id || !belowCaller(user.role)}
                             title={user.id === profile?.id ? 'You cannot delete yourself' : 'Delete user'}
+                            sx={dangerIconSx(P)}
                           >
                             <DeleteIcon fontSize="small" />
                           </IconButton>
@@ -323,7 +321,6 @@ const Users: React.FC = () => {
             </TableContainer>
           </CardContent>
         </Card>
-      )}
 
       <StyledDialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
         <DialogTitle>

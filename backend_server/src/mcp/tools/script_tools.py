@@ -1,4 +1,4 @@
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from ..utils.api_client import MCPAPIClient
 from ..utils.mcp_formatter import MCPFormatter
 from ..utils.execution_status_constants import DONE_STATES, STATE_RUNNING
@@ -25,11 +25,26 @@ def find_unknown_flags(parameters: str, script_flags):
 
 class ScriptTools:
     """Script execution and listing tools"""
-    
+
     def __init__(self, api_client: MCPAPIClient):
         self.api = api_client
         self.formatter = MCPFormatter()
-    
+
+    @staticmethod
+    def _project_id_from_header(api_client) -> Optional[str]:
+        """Forwarded by the MCP proxy / Atlas frontend via the api_client
+        headers (TASK-65 G5). The frontend sets `X-Project-Id` from
+        localStorage's `virtualpytest:project_id` whenever the user picks a
+        project from the top-bar ProjectSelector.
+        """
+        try:
+            headers = getattr(api_client, 'headers', None) or {}
+            if isinstance(headers, dict):
+                return headers.get('X-Project-Id') or headers.get('x-project-id')
+        except Exception:
+            return None
+        return None
+
 
     
     def _filter_result_for_mcp(self, result: Dict[str, Any]) -> Dict[str, Any]:
@@ -78,6 +93,14 @@ class ScriptTools:
         team_id = params.get('team_id', get_team_id())
 
         query_params = {'team_id': team_id}
+
+        # TASK-65 G5: Scope Atlas — when the caller passes a `project_id`
+        # (or one is in the `X-Project-Id` header), forward it to
+        # /server/executable/list which already filters by tag. Same
+        # behaviour as the frontend /scripts page.
+        project_hint = params.get('project_id') or self._project_id_from_header(self.api)
+        if project_hint:
+            query_params['project_id'] = project_hint
 
         # Use /server/executable/list which includes target_rules per script
         print(f"[@MCP:list_scripts] Calling /server/executable/list (includes target_rules)")
@@ -131,7 +154,7 @@ class ScriptTools:
         to see exactly which device_ids exist. Wrong device_id will be rejected.
 
         ⚠️ DEVICE LOCKING: This tool acquires an exclusive lock on the device. If the device is already
-        locked by another execution, it will return a 'device_locked' error. Use force_unlock=true to preempt.
+        locked by another execution, it will return a 'device_locked' error. force_unlock=true only clears a stale lock or your own; it never aborts another caller's live run (device_busy).
 
         Args:
             params: {
@@ -140,7 +163,7 @@ class ScriptTools:
                 'host_name': str (REQUIRED) - Host where device is located (from get_device_info or get_compatible_hosts),
                 'device_id': str (OPTIONAL) - Device identifier (defaults to 'host' if not provided),
                 'parameters': str (OPTIONAL) - CLI parameters as string (e.g., '--param1 value1 --param2 value2'),
-                'force_unlock': bool (OPTIONAL) - If true, preempt any existing lock on the device (default false),
+                'force_unlock': bool (OPTIONAL) - If true, clear a stale/own lock on the device; another caller's live run is refused with device_busy (default false),
                 'environment': str (OPTIONAL) - 'dev'|'test'|'prod', capacity this run counts as (default 'prod')
             }
 

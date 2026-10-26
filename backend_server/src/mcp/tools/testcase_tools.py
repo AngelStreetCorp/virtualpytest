@@ -4,7 +4,7 @@ TestCase Tools - Test case operations
 Execute, save, load, and list test cases.
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from ..utils.api_client import MCPAPIClient
 from ..utils.mcp_formatter import MCPFormatter
 from ..utils.lock_ownership import caller_identity, holder, is_own_lock
@@ -17,6 +17,23 @@ from ..utils.execution_status_reader import clamp_wait_seconds, is_transient_rea
 from shared.src.lib.config.constants import APP_CONFIG, get_team_id
 
 class TestCaseTools:
+
+    @staticmethod
+    def _project_id_from_header(api_client=None) -> Optional[str]:
+        """Forwarded by the MCP proxy / Atlas frontend (TASK-65 G5)."""
+        try:
+            if api_client is None:
+                import inspect
+                frame = inspect.currentframe().f_back
+                api_client = frame.f_locals.get('self') if frame else None
+            headers = getattr(api_client, 'headers', None) or {} if api_client else {}
+            if isinstance(headers, dict):
+                return headers.get('X-Project-Id') or headers.get('x-project-id')
+        except Exception:
+            return None
+        return None
+
+
     """Test case execution and management tools"""
     
     def __init__(self, api_client: MCPAPIClient):
@@ -478,16 +495,41 @@ class TestCaseTools:
         # Call EXISTING endpoint - SAME as server_testcase_routes.py line 28
         print(f"[@MCP:save_testcase] Calling /server/testcase/save for '{testcase_name}'")
         result = self.api.post('/server/testcase/save', data=data, params=query_params)
-        
+
         # Check for errors
         if not result.get('success'):
             error_msg = result.get('error', 'Failed to save test case')
             return {"content": [{"type": "text", "text": f"❌ Save failed: {error_msg}"}], "isError": True}
-        
+
+        # TASK-65 G5: Scope Atlas — auto-tag with the current project when the
+        # caller passed a `project_id` (or one is in the `X-Project-Id` header).
+        # Tagging is best-effort; failures are warnings, not save failures.
+        project_hint = params.get('project_id') or self._project_id_from_header(self.api)
+        project = None
+        auto_tag_ok = False
+        if project_hint:
+            try:
+                from shared.src.lib.database import projects_db
+                project = projects_db.current_project_from_id(project_hint)
+                if project:
+                    auto_tag_ok = projects_db.auto_tag_with_project(
+                        'testcase', str(testcase_id), project,
+                    )
+            except Exception:
+                project = None
+
         # Success
         testcase = result.get('testcase', {})
         testcase_id = testcase.get('testcase_id', 'unknown')
-        return {"content": [{"type": "text", "text": f"✅ Test case '{testcase_name}' saved successfully (ID: {testcase_id})"}], "isError": False}
+        text = f"✅ Test case '{testcase_name}' saved successfully (ID: {testcase_id})"
+        if project and auto_tag_ok:
+            text += f"\nAuto-tagged with project '{project['name']}' (id {project['id']})."
+        return {
+            "content": [{"type": "text", "text": text}],
+            "isError": False,
+            "testcase_id": testcase_id,
+            "project_id": (project['id'] if project else None),
+        }
     
     def list_testcases(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -502,8 +544,16 @@ class TestCaseTools:
             MCP-formatted response with list of test cases
         """
         team_id = params.get('team_id', get_team_id())
-        
-        result = self.api.get('/server/testcase/list', params={'team_id': team_id})
+
+        # TASK-65 G5: forward `project_id` to the server-side filter (TASK-7
+        # work + G5 plumbing). The list endpoint applies the project's tag
+        # filter when project_id is set.
+        list_params = {'team_id': team_id}
+        project_hint = params.get('project_id') or self._project_id_from_header(self.api)
+        if project_hint:
+            list_params['project_id'] = project_hint
+
+        result = self.api.get('/server/testcase/list', params=list_params)
         
         if not result.get('success'):
             return {"content": [{"type": "text", "text": f"Error: {result.get('error')}"}], "isError": True}

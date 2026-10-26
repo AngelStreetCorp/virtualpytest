@@ -15,6 +15,7 @@ import { getZIndex } from '../../../utils/zIndexUtils';
 
 import { BashDesktopTerminal } from './BashDesktopTerminal';
 import { PyAutoGUITerminal } from './PyAutoGUITerminal';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface DesktopPanelProps {
   host: Host;
@@ -168,7 +169,7 @@ export const DesktopPanel = React.memo(function DesktopPanel({
                 }}
                 onClick={() => setPyAutoGUICollapsed(!pyAutoGUICollapsed)}
               >
-                <Typography variant="subtitle2" sx={{ fontSize: '0.8rem', fontWeight: 'bold' }}>
+                <Typography variant="subtitle2" sx={{ fontSize: TYPOGRAPHY.body.size, fontWeight: 'bold' }}>
                   PyAutoGUI Desktop
                 </Typography>
                 <IconButton size="small" sx={{ color: '#0ff' }}>
@@ -227,7 +228,7 @@ export const DesktopPanel = React.memo(function DesktopPanel({
                 }}
                 onClick={() => setBashCollapsed(!bashCollapsed)}
               >
-                <Typography variant="subtitle2" sx={{ fontSize: '0.8rem', fontWeight: 'bold' }}>
+                <Typography variant="subtitle2" sx={{ fontSize: TYPOGRAPHY.body.size, fontWeight: 'bold' }}>
                   Bash Terminal
                 </Typography>
                 <IconButton size="small" sx={{ color: '#00ff00' }}>
@@ -336,7 +337,7 @@ export const DesktopPanel = React.memo(function DesktopPanel({
           <Typography
             variant="subtitle2"
             sx={{
-              fontSize: '0.875rem',
+              fontSize: TYPOGRAPHY.body.size,
               fontWeight: 'bold',
               flex: 1,
               textAlign: 'center',

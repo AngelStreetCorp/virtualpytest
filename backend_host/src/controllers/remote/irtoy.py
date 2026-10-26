@@ -49,18 +49,40 @@ See docs/agent/devices/INFRARED.md § 2c.
 
 import json
 import os
-import select
-import termios
+import sys
 import time
-import tty
 from typing import Dict, Any, List, Optional, Tuple
 
 from ..base_controller import RemoteControllerInterface
+from .ir_keymap import missing_keymap_message
+
+# IrToy is a USB CDC-serial dongle driven through POSIX termios/tty/select — that
+# stack is Linux-only (Pi, mini-PCs, lab rigs). On Windows, host_vnc, labox-mobile
+# and any other win32 backend host still does `from controllers import *` from
+# app.py, so this module has to import cleanly even though the controller is
+# never instantiated there. Wrap the POSIX imports; fall back to a Windows baud
+# constant (Windows DCB just wants the integer 115200 — there is no
+# `termios.B115200` on win32).
+if sys.platform == "win32":
+    _IRTOY_SUPPORTED = False
+
+    class _TermiosStub:
+        B115200 = 115200
+
+    termios = _TermiosStub()  # type: ignore[assignment]
+    select = None  # type: ignore[assignment]
+    tty = None     # type: ignore[assignment]
+else:
+    _IRTOY_SUPPORTED = True
+    import select
+    import termios
+    import tty
 
 # ── IrToy wire constants (lirc plugins/irtoy.c) ───────────────────────────────
 # The dongle speaks 115200 baud. Always termios.B115200, never the literal 115200 —
 # on Linux the baud constants are octal-encoded (B115200 == 4098), so a raw integer
-# is an invalid speed and tcsetattr() fails with EINVAL.
+# is an invalid speed and tcsetattr() fails with EINVAL. On Windows the stub
+# exposes the literal integer (DCB takes that directly).
 IRTOY_BAUD = termios.B115200
 IRTOY_UNIT_US = 21.3333          # one LSB of the dongle's timing encoding
 IRTOY_LONG_TERM = 0xFFFF         # trailing 0xFF 0xFF ends the burst
@@ -101,8 +123,14 @@ class IRToyRemoteController(RemoteControllerInterface):
         Args:
             ir_serial: Serial node of the dongle — prefer the udev symlink
                 `/dev/irtoy` over `/dev/ttyACM0`, which changes on replug.
-            ir_type: Keymap profile name → ir_conf/<ir_type>.json (e.g. 'stb', 'samsung')
         """
+        if not _IRTOY_SUPPORTED:
+            raise NotImplementedError(
+                "IRToyRemoteController requires POSIX termios (Linux/macOS). "
+                f"Current platform is {sys.platform}; use IRRemoteController, "
+                "IRTransRemoteController, or a different remote backend."
+            )
+
         super().__init__("IRToy Remote", "infrared")
 
         self.ir_serial = ir_serial
@@ -142,7 +170,8 @@ class IRToyRemoteController(RemoteControllerInterface):
         try:
             ir_config_full_path = os.path.join(self.ir_config_path, self.ir_config_file)
             if not os.path.exists(ir_config_full_path):
-                print(f"Remote[{self.device_type.upper()}]: IRToy keymap not found: {ir_config_full_path}")
+                self.connect_error = missing_keymap_message(self.ir_config_path, self.ir_type)
+                print(f"Remote[{self.device_type.upper()}]: {self.connect_error}")
                 return False
 
             with open(ir_config_full_path, 'r') as f:

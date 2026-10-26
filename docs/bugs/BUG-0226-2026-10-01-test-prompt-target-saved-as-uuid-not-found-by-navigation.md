@@ -9,7 +9,7 @@
 | Status    | Fixed — deployed and verified 2026-10-01                     |
 | Severity  | High — Explore of any prompt whose target was picked on the page fails at pre-navigation |
 | Area      | `features/ai-test/frontend/components/TestPromptForm.tsx` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

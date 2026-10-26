@@ -12,7 +12,7 @@
  * inline hex colours (UI style guide §2).
  */
 
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import {
   Box,
   IconButton,
@@ -29,6 +29,8 @@ import {
 import { useTheme } from '@mui/material/styles';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import { useI18n } from '../../i18n/useI18n';
+import { toggleSx } from '../common/PageChrome';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export type FeedbackSubmitter = (
   messageId: string,
@@ -70,6 +72,7 @@ export const MessageFeedbackBar: React.FC<MessageFeedbackBarProps> = ({
   const { t } = useI18n();
   const [comment, setComment] = useState('');
   const [commentStatus, setCommentStatus] = useState<'editing' | 'sent'>('editing');
+  const commentInputRef = useRef<HTMLInputElement | null>(null);
 
   const isPositive = currentRating === 5;
   const isNegative = currentRating === 1;
@@ -82,6 +85,8 @@ export const MessageFeedbackBar: React.FC<MessageFeedbackBarProps> = ({
     submitFeedback(messageId, rating, agentId, prompt);
     setComment('');
     setCommentStatus('editing');
+    // The field is always mounted; only a thumb click moves focus into it.
+    requestAnimationFrame(() => commentInputRef.current?.focus());
   };
 
   const closeCommentField = () => {
@@ -113,17 +118,13 @@ export const MessageFeedbackBar: React.FC<MessageFeedbackBarProps> = ({
           }}
           sx={{
             p: 0.25,
-            color: isPositive ? P.success : 'text.disabled',
-            bgcolor: isPositive ? 'rgba(34, 197, 94, 0.15)' : 'transparent',
+            ...toggleSx(P, isPositive),
             borderRadius: 1,
             transition: 'all 0.2s',
-            '&:hover': {
-              color: P.success,
-              bgcolor: 'rgba(34, 197, 94, 0.1)',
-            },
+            
           }}
         >
-          <ThumbUp sx={{ fontSize: 13 }} />
+          <ThumbUp sx={{ fontSize: TYPOGRAPHY.body.size }} />
         </IconButton>
       </Tooltip>
       <Tooltip title={isNegative ? t('Remove not helpful rating') : t('Mark as not helpful')}>
@@ -139,17 +140,13 @@ export const MessageFeedbackBar: React.FC<MessageFeedbackBarProps> = ({
           }}
           sx={{
             p: 0.25,
-            color: isNegative ? P.error : 'text.disabled',
-            bgcolor: isNegative ? 'rgba(239, 68, 68, 0.15)' : 'transparent',
+            ...toggleSx(P, isNegative),
             borderRadius: 1,
             transition: 'all 0.2s',
-            '&:hover': {
-              color: P.error,
-              bgcolor: 'rgba(239, 68, 68, 0.1)',
-            },
+            
           }}
         >
-          <ThumbDown sx={{ fontSize: 13 }} />
+          <ThumbDown sx={{ fontSize: TYPOGRAPHY.body.size }} />
         </IconButton>
       </Tooltip>
     </Box>
@@ -169,7 +166,7 @@ export const MessageFeedbackBar: React.FC<MessageFeedbackBarProps> = ({
       {isSent ? (
         <Typography
           variant="caption"
-          sx={{ fontSize: '0.7rem', color: P.textMuted, fontStyle: 'italic' }}
+          sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted, fontStyle: 'italic' }}
         >
           {t('Thanks — your feedback was logged.')}
         </Typography>
@@ -191,12 +188,12 @@ export const MessageFeedbackBar: React.FC<MessageFeedbackBarProps> = ({
               }
             }}
             placeholder={isPositive ? t('What was good?') : t('What went wrong?')}
-            autoFocus
+            inputRef={commentInputRef}
             sx={{
               flex: 1,
               minWidth: 0,
               '& .MuiInputBase-input': {
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 py: 0.5,
                 px: 1,
                 color: P.textPrimary,
@@ -218,7 +215,7 @@ export const MessageFeedbackBar: React.FC<MessageFeedbackBarProps> = ({
                 sx={{ p: 0.25, color: P.accentText, '&:hover': { color: P.accent } }}
                 aria-label={t('Send')}
               >
-                <SendIcon sx={{ fontSize: 13 }} />
+                <SendIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
               </IconButton>
             </span>
           </Tooltip>
@@ -229,7 +226,7 @@ export const MessageFeedbackBar: React.FC<MessageFeedbackBarProps> = ({
               sx={{ p: 0.25, color: P.textMuted, '&:hover': { color: P.textPrimary } }}
               aria-label={t('Dismiss')}
             >
-              <CloseIcon sx={{ fontSize: 13 }} />
+              <CloseIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
             </IconButton>
           </Tooltip>
         </>

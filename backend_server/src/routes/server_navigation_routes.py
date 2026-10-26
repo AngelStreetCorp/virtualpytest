@@ -601,3 +601,65 @@ def delete_screenshot():
             'error': 'Failed to delete screenshot from R2'
         }), 500
         
+
+# =====================================================
+# LOCALIZE CORRECTIONS (TASK-104 goal 11, TASK-88 row 12)
+# =====================================================
+
+def _localize_caller() -> str:
+    return getattr(request, 'user_email', None) or getattr(request, 'user_id', None) or 'unknown'
+
+
+def _invalidate_trees(tree_ids, team_id):
+    """A correction edits stored fingerprints: drop every cached graph of those trees (server + hosts)."""
+    from backend_server.src.routes.server_navigation_trees_routes import invalidate_cached_tree
+    for tree_id in tree_ids or []:
+        invalidate_cached_tree(tree_id, team_id)
+
+
+@server_navigation_bp.route('/localize/verdict', methods=['POST'])
+def localize_verdict():
+    """"Wrong screen?" from the Localize popover: correct the matcher and audit it.
+
+    Body: {userinterface_name, live_fingerprint, wrong_node_id?, true_node_id?, frame_url?, host_name?,
+    device_id?}. A true_node_id adds the live fingerprint to that node as an extra sample; none
+    ("Unknown screen") adds it as a negative on wrong_node_id. Returns the audit row id for Undo.
+    """
+    data = request.get_json(silent=True) or {}
+    team_id = request.args.get('team_id') or get_team_id()
+    if not data.get('userinterface_name'):
+        return jsonify({'success': False, 'error': 'userinterface_name is required'}), 400
+    from shared.src.lib.database.localize_verdicts_db import record_correction
+    result = record_correction(
+        team_id, data['userinterface_name'], data.get('live_fingerprint') or {},
+        wrong_node_id=data.get('wrong_node_id'), true_node_id=data.get('true_node_id'),
+        frame_url=data.get('frame_url'), host_name=data.get('host_name'), device_id=data.get('device_id'),
+        created_by=_localize_caller())
+    if not result.get('success'):
+        return jsonify(result), 400
+    _invalidate_trees(result.get('tree_ids'), team_id)
+    print(f"[@route:server_navigation:localize_verdict] {result['action']} node={result['node_id']} id={result['id']}")
+    return jsonify(result)
+
+
+@server_navigation_bp.route('/localize/verdict/<verdict_id>/undo', methods=['POST'])
+def localize_verdict_undo(verdict_id):
+    """Undo one correction: remove the sample / negative it added and mark the audit row undone."""
+    team_id = request.args.get('team_id') or get_team_id()
+    from shared.src.lib.database.localize_verdicts_db import undo
+    result = undo(team_id, verdict_id, undone_by=_localize_caller())
+    if not result.get('success'):
+        return jsonify(result), 400
+    _invalidate_trees(result.get('tree_ids'), team_id)
+    return jsonify(result)
+
+
+@server_navigation_bp.route('/localize/coverage', methods=['GET'])
+def localize_coverage():
+    """TASK-107 goal 3: per userinterface, % of screen nodes Localize can name (fingerprint,
+    device identity), the live node, fingerprint age and active corrections.
+    Query: team_id, userinterface_name (optional)."""
+    team_id = request.args.get('team_id') or get_team_id()
+    from shared.src.lib.database.localize_coverage_db import get_coverage
+    rows = get_coverage(team_id, request.args.get('userinterface_name') or None)
+    return jsonify({'success': True, 'userinterfaces': rows})

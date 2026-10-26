@@ -51,7 +51,10 @@ STATUSES = ('open', 'in progress', 'fixed', 'closed', 'wontfix', 'duplicate')
 #   8887 — `f092aae7ee` added a BUG-0092 bullet after the tag and reworded another. The bullet
 #          has since been moved to the build that actually carries the fix; the reword stays.
 #   9151 — `307caaef6d` removed a customer system's name from an example, same reason as 8713.
-FROZEN_EXEMPT = {'8414', '8713', '8887', '9151'}
+#   9307–9369 — TASK-108 (G8) reclassified every build's entries into Features / Improvements /
+#          Internal with an `area:` segment, so Compare across them stays honest. Wording and
+#          every BUG / TASK / migration reference are unchanged; only headings and the area tag moved.
+FROZEN_EXEMPT = {'8414', '8713', '8887', '9151', '9307', '9309', '9310', '9311', '9364', '9369'}
 
 
 def meta(text: str, field: str) -> str:

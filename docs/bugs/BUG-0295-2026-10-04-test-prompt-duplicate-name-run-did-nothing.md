@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — the user saw no run and no clear reason |
 | Area      | `features/ai-test/lib/test_prompts_db.py`, `useTestPromptPage.ts` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

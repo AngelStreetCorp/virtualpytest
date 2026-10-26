@@ -15,7 +15,7 @@ export const MobileServerBar: React.FC = () => {
   return (
     <Box sx={{ px: 1, pt: 1.5, display: 'flex', alignItems: 'center', gap: 1 }}>
       <Box sx={{ flex: 1, minWidth: 0, '& .MuiFormControl-root': { width: '100%' } }}>
-        <ServerSelector size="small" minWidth={0} />
+        <ServerSelector size="small" />
       </Box>
       <Box ref={setSlot} sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0, '&:empty': { display: 'none' } }} />
     </Box>

@@ -1,3 +1,4 @@
+import { AppIcon } from '../../constants/icons';
 import React from 'react';
 import {
   Box,
@@ -12,6 +13,8 @@ import {
   Close as CancelIcon
 } from '@mui/icons-material';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { neutralButtonSx } from '../common/PageChrome';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface ValidationReadyPromptProps {
   nodesCreated: number;
@@ -64,16 +67,16 @@ export const ValidationReadyPrompt: React.FC<ValidationReadyPromptProps> = ({
 
       {/* Header */}
       <Typography variant="h6" sx={{ mb: 2, pr: 3 }}>
-        ✅ Preview
+        <AppIcon name="success" /> Preview
       </Typography>
 
       {/* Stats */}
       <Box sx={{ mb: 2, p: 1.5, bgcolor: `${P.success}0d`, borderRadius: 1 }}>
         <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-          📊 {nodesCreated} nodes created
+          <AppIcon name="report" /> {nodesCreated} nodes created
         </Typography>
         <Typography variant="body2" sx={{ fontFamily: 'monospace' }}>
-          📊 {edgesCreated} edges created
+          <AppIcon name="report" /> {edgesCreated} edges created
         </Typography>
       </Box>
 
@@ -87,7 +90,7 @@ export const ValidationReadyPrompt: React.FC<ValidationReadyPromptProps> = ({
           onClick={onStartValidation}
           sx={{
             animation: `${blink} 1.5s ease-in-out infinite`,
-            fontSize: '1rem',
+            fontSize: TYPOGRAPHY.navbarItem.size,
             fontWeight: 'bold'
           }}
         >
@@ -98,8 +101,7 @@ export const ValidationReadyPrompt: React.FC<ValidationReadyPromptProps> = ({
           variant="outlined"
           size="small"
           fullWidth
-          onClick={onCancel}
-          color="error"
+          onClick={onCancel} sx={neutralButtonSx(P)}
         >
           Cancel
         </Button>

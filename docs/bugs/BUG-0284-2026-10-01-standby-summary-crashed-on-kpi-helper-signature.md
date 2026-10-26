@@ -9,7 +9,7 @@
 | Severity  | High — every standby run that got a KPI result lost its summary, so the measured wake time never reached the report |
 | Status    | Fixed (pending deploy)                                            |
 | Area      | `test_scripts/tv/standby_measurement.py` · `shared/src/lib/executors/script_executor.py` |
-| Fixed in  | Unreleased                                                        |
+| Fixed in  | build 90145 |
 | Related   | [BUG-0204](BUG-0204-2026-10-01-standby-wake-already-awake-blamed-kpi.md), [BUG-0199](BUG-0199-2026-09-30-three-more-host-callbacks-swallow-401.md) (early-release logging) |
 | Commit    | this commit                                                       |
 

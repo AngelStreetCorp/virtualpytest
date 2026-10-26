@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | frontend rec modal + `backend_host/scripts/run_ffmpeg.sh`    |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---

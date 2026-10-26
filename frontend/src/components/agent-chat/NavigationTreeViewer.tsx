@@ -62,6 +62,7 @@ import {
 
 // Import utilities
 import { getZIndex } from '../../utils/zIndexUtils';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 // Node types for React Flow
 const nodeTypes = {
@@ -177,7 +178,7 @@ const NavigationTreeViewerContent: React.FC<NavigationTreeViewerProps> = ({
           top: 16,
           right: 16,
           height: 32,
-          fontSize: '0.7rem',
+          fontSize: TYPOGRAPHY.caption.size,
           minWidth: 100,
           whiteSpace: 'nowrap',
           px: 1.5,

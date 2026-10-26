@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | shared · ai · usage stats                                    |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `ee7dde051`                                                      |
 
 ---

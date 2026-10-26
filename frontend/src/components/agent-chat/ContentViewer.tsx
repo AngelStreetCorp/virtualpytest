@@ -44,6 +44,7 @@ import { DeviceStreamGrid } from '../common/DeviceStreaming/DeviceStreamGrid';
 
 // Hooks
 import { useHostData, useHostControl } from '../../hooks/useHostManager';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 // Content type definitions
 export type ContentType =
@@ -363,35 +364,35 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
           }}>
             {activeTab === 'navigation' ? (
               <>
-                <TreeIcon sx={{ fontSize: 64, color: 'text.disabled', opacity: 0.3 }} />
+                <TreeIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: 'text.disabled', opacity: 0.3 }} />
                 <Typography variant="body1" color="text.secondary">
                   Select an Interface to view navigation tree
                 </Typography>
               </>
             ) : activeTab === 'testcase' ? (
               <>
-                <TestCaseIcon sx={{ fontSize: 64, color: 'text.disabled', opacity: 0.3 }} />
+                <TestCaseIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: 'text.disabled', opacity: 0.3 }} />
                 <Typography variant="body1" color="text.secondary">
                   Select a Test Case to view flow
                 </Typography>
               </>
             ) : activeTab === 'campaign' ? (
               <>
-                <TestCaseIcon sx={{ fontSize: 64, color: 'text.disabled', opacity: 0.3 }} />
+                <TestCaseIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: 'text.disabled', opacity: 0.3 }} />
                 <Typography variant="body1" color="text.secondary">
                   Select a Campaign to view flow
                 </Typography>
               </>
             ) : activeTab === 'analytics' ? (
               <>
-                <ChartIcon sx={{ fontSize: 64, color: 'text.disabled', opacity: 0.3 }} />
+                <ChartIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: 'text.disabled', opacity: 0.3 }} />
                 <Typography variant="body1" color="text.secondary">
                   Ask Atlas for a chart or table
                 </Typography>
               </>
             ) : activeTab === 'device-preview' ? (
               <>
-                <StreamIcon sx={{ fontSize: 64, color: 'text.disabled', opacity: 0.3 }} />
+                <StreamIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: 'text.disabled', opacity: 0.3 }} />
                 <Typography variant="body1" color="text.secondary">
                   Device control page
                 </Typography>
@@ -401,7 +402,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
               </>
             ) : activeTab === 'heatmap' ? (
               <>
-                <TreeIcon sx={{ fontSize: 64, color: 'text.disabled', opacity: 0.3 }} />
+                <TreeIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: 'text.disabled', opacity: 0.3 }} />
                 <Typography variant="body1" color="text.secondary">
                   Heatmap monitoring
                 </Typography>
@@ -411,7 +412,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
               </>
             ) : activeTab === 'alerts' ? (
               <>
-                <ErrorIcon sx={{ fontSize: 64, color: 'text.disabled', opacity: 0.3 }} />
+                <ErrorIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: 'text.disabled', opacity: 0.3 }} />
                 <Typography variant="body1" color="text.secondary">
                   Incident monitoring
                 </Typography>
@@ -421,7 +422,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
               </>
             ) : (
               <>
-                <TreeIcon sx={{ fontSize: 64, color: 'text.disabled', opacity: 0.3 }} />
+                <TreeIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: 'text.disabled', opacity: 0.3 }} />
                 <Typography variant="body1" color="text.secondary">
                   Unknown tab
                 </Typography>
@@ -480,7 +481,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <span>Device</span>
                   <OpenInNewIcon
-                    sx={{ fontSize: 14, cursor: 'pointer' }}
+                    sx={{ fontSize: TYPOGRAPHY.body.size, cursor: 'pointer' }}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleTabRedirect('device-preview');
@@ -493,7 +494,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 py: 1,
                 px: 2,
                 textTransform: 'none',
-                fontSize: '0.85rem',
+                fontSize: TYPOGRAPHY.body.size,
                 fontWeight: activeTab === 'device-preview' ? 600 : 400,
                 color: activeTab === 'device-preview' ? 'text.primary' : 'text.secondary',
                 opacity: 1, // Always enabled - no selection required
@@ -507,7 +508,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                   <span>Userinterface</span>
                   {navigationEnabled && (
                     <OpenInNewIcon
-                      sx={{ fontSize: 14, cursor: 'pointer' }}
+                      sx={{ fontSize: TYPOGRAPHY.body.size, cursor: 'pointer' }}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleTabRedirect('navigation');
@@ -521,7 +522,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 py: 1,
                 px: 2,
                 textTransform: 'none',
-                fontSize: '0.85rem',
+                fontSize: TYPOGRAPHY.body.size,
                 fontWeight: activeTab === 'navigation' ? 600 : 400,
                 color: activeTab === 'navigation' ? 'text.primary' : 'text.secondary',
                 opacity: navigationEnabled ? 1 : 0.5,
@@ -535,7 +536,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                   <span>TestCase</span>
                   {testcaseEnabled && (
                     <OpenInNewIcon
-                      sx={{ fontSize: 14, cursor: 'pointer' }}
+                      sx={{ fontSize: TYPOGRAPHY.body.size, cursor: 'pointer' }}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleTabRedirect('testcase');
@@ -549,7 +550,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 py: 1,
                 px: 2,
                 textTransform: 'none',
-                fontSize: '0.85rem',
+                fontSize: TYPOGRAPHY.body.size,
                 fontWeight: activeTab === 'testcase' ? 600 : 400,
                 color: activeTab === 'testcase' ? 'text.primary' : 'text.secondary',
                 opacity: testcaseEnabled ? 1 : 0.5,
@@ -563,7 +564,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                   <span>Campaign</span>
                   {campaignEnabled && (
                     <OpenInNewIcon
-                      sx={{ fontSize: 14, cursor: 'pointer' }}
+                      sx={{ fontSize: TYPOGRAPHY.body.size, cursor: 'pointer' }}
                       onClick={(e) => {
                         e.stopPropagation();
                         handleTabRedirect('campaign');
@@ -577,7 +578,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 py: 1,
                 px: 2,
                 textTransform: 'none',
-                fontSize: '0.85rem',
+                fontSize: TYPOGRAPHY.body.size,
                 fontWeight: activeTab === 'campaign' ? 600 : 400,
                 color: activeTab === 'campaign' ? 'text.primary' : 'text.secondary',
                 opacity: campaignEnabled ? 1 : 0.5,
@@ -590,7 +591,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <span>Heatmap</span>
                   <OpenInNewIcon
-                    sx={{ fontSize: 14, cursor: 'pointer' }}
+                    sx={{ fontSize: TYPOGRAPHY.body.size, cursor: 'pointer' }}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleTabRedirect('heatmap');
@@ -603,7 +604,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 py: 1,
                 px: 2,
                 textTransform: 'none',
-                fontSize: '0.85rem',
+                fontSize: TYPOGRAPHY.body.size,
                 fontWeight: activeTab === 'heatmap' ? 600 : 400,
                 color: activeTab === 'heatmap' ? 'text.primary' : 'text.secondary',
                 opacity: 1, // Always enabled - no selection required
@@ -616,7 +617,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <span>Alerts</span>
                   <OpenInNewIcon
-                    sx={{ fontSize: 14, cursor: 'pointer' }}
+                    sx={{ fontSize: TYPOGRAPHY.body.size, cursor: 'pointer' }}
                     onClick={(e) => {
                       e.stopPropagation();
                       handleTabRedirect('alerts');
@@ -629,7 +630,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                 py: 1,
                 px: 2,
                 textTransform: 'none',
-                fontSize: '0.85rem',
+                fontSize: TYPOGRAPHY.body.size,
                 fontWeight: activeTab === 'alerts' ? 600 : 400,
                 color: activeTab === 'alerts' ? 'text.primary' : 'text.secondary',
                 opacity: 1, // Always enabled - no selection required
@@ -645,7 +646,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
                   py: 1,
                   px: 2,
                   textTransform: 'none',
-                  fontSize: '0.85rem',
+                  fontSize: TYPOGRAPHY.body.size,
                   fontWeight: activeTab === 'analytics' ? 600 : 400,
                   color: activeTab === 'analytics' ? 'text.primary' : 'text.secondary',
                   maxWidth: 260,
@@ -656,7 +657,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
         ) : (
           /* Simple header when showing AI-triggered content */
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 1 }}>
-            <Icon sx={{ fontSize: 20, color: PALETTE.accent }} />
+            <Icon sx={{ fontSize: TYPOGRAPHY.pageSubtitle.size, color: PALETTE.accent }} />
             <Typography variant="subtitle2" fontWeight={600}>
               {title || typeLabel}
             </Typography>
@@ -665,7 +666,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
               size="small"
               sx={{
                 height: 20,
-                fontSize: '0.7rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 bgcolor: `${P.accent}1f`,
                 color: P.accentText,
               }}
@@ -689,7 +690,7 @@ export const ContentViewer: React.FC<ContentViewerProps> = ({
             onClick={onClose}
             sx={{
               color: P.textSecondary,
-              '&:hover': { color: P.error },
+              '&:hover': { color: P.textPrimary },
             }}
           >
             <CloseIcon fontSize="small" />
@@ -721,7 +722,7 @@ const NavigationTreeContent: React.FC<{ data: ContentData | null; selectedHost: 
         gap: 2,
         p: 4,
       }}>
-        <TreeIcon sx={{ fontSize: 64, color: 'text.disabled', opacity: 0.3 }} />
+        <TreeIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: 'text.disabled', opacity: 0.3 }} />
         <Typography variant="body1" color="text.secondary">
           No user interface specified
         </Typography>
@@ -822,7 +823,7 @@ const RecPreviewContent: React.FC<{ data: ContentData | null, allHosts: any[], g
         p: 4,
         bgcolor: '#000',
       }}>
-        <StreamIcon sx={{ fontSize: 64, color: P.textMuted, opacity: 0.3 }} />
+        <StreamIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: P.textMuted, opacity: 0.3 }} />
         <Typography variant="body1" color="grey.500">
           No devices specified
         </Typography>
@@ -861,7 +862,7 @@ const DataTableContent: React.FC<{ data: ContentData | null }> = ({ data }) => {
         <table style={{
           width: '100%',
           borderCollapse: 'collapse',
-          fontSize: '0.85rem',
+          fontSize: TYPOGRAPHY.body.size,
         }}>
           <thead>
             <tr style={{
@@ -913,7 +914,7 @@ const DataTableContent: React.FC<{ data: ContentData | null }> = ({ data }) => {
       gap: 2,
       p: 4,
     }}>
-      <TableIcon sx={{ fontSize: 64, color: 'text.disabled', opacity: 0.3 }} />
+      <TableIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: 'text.disabled', opacity: 0.3 }} />
       <Typography variant="body1" color="text.secondary">
         Data Table Viewer
       </Typography>
@@ -933,7 +934,7 @@ const ExecutionLogContent: React.FC<{ data: ContentData | null }> = ({ data }) =
       <Box sx={{
         p: 1,
         fontFamily: 'monospace',
-        fontSize: '0.75rem',
+        fontSize: TYPOGRAPHY.caption.size,
         overflow: 'auto',
         bgcolor: P.background,
       }}>
@@ -1002,7 +1003,7 @@ const ExecutionLogContent: React.FC<{ data: ContentData | null }> = ({ data }) =
       gap: 2,
       p: 4,
     }}>
-      <TableIcon sx={{ fontSize: 64, color: 'text.disabled', opacity: 0.3 }} />
+      <TableIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: 'text.disabled', opacity: 0.3 }} />
       <Typography variant="body1" color="text.secondary">
         Execution Log
       </Typography>

@@ -35,6 +35,9 @@ import type { AiTabContext } from '../AiRoutingSettings';
 
 import { TEAM_ID, aiApi, errorMessage, numOrNull, strOrNull, type PricePayload } from './api';
 import type { AiPrice, BudgetResponse, UnpricedEndpoint } from './types';
+import { dangerButtonSx } from '../../common/PageChrome';
+import { fmtCost } from '../../aiUsage/format';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 interface PriceForm {
   endpoint: string;
@@ -70,6 +73,7 @@ const SOURCE_LABEL: Record<NonNullable<AiPrice['source']>, string> = {
 const fmt = (n: number | null) => (n == null ? '—' : String(n));
 
 export const PricesTab: React.FC<{ ctx: AiTabContext }> = ({ ctx }) => {
+  const P = useAgentChatPalette();
   const { config, notify, fail } = ctx;
   const admin = config.is_platform_admin;
   const { dialogState, confirm, handleConfirm, handleCancel } = useConfirmDialog();
@@ -211,8 +215,8 @@ export const PricesTab: React.FC<{ ctx: AiTabContext }> = ({ ctx }) => {
         <Typography variant="body2" sx={{ flex: 1 }}>
           <strong>Monthly budget of this team:</strong>{' '}
           {b
-            ? `$${b.limit} (${b.mode === 'block' ? 'blocks AI calls once used up' : 'warning only'}), spent $${b.spent} this month, forecast $${b.forecast}`
-            : `none set${budget ? ` · spent $${budget.spent} this month, forecast $${budget.forecast}` : ''}`}
+            ? `${fmtCost(b.limit) ?? '—'} (${b.mode === 'block' ? 'blocks AI calls once used up' : 'warning only'}), spent ${fmtCost(b.spent) ?? '—'} this month, forecast ${fmtCost(b.forecast) ?? '—'}`
+            : `none set${budget ? ` · spent ${fmtCost(budget.spent) ?? '—'} this month, forecast ${fmtCost(budget.forecast) ?? '—'}` : ''}`}
           {!admin && ' · only the platform super admin can change it'}
         </Typography>
         {admin && (
@@ -221,7 +225,7 @@ export const PricesTab: React.FC<{ ctx: AiTabContext }> = ({ ctx }) => {
           </Button>
         )}
         {admin && b && (
-          <Button size="small" color="error" onClick={removeBudget}>
+          <Button size="small" onClick={removeBudget} sx={dangerButtonSx(P)}>
             Remove
           </Button>
         )}

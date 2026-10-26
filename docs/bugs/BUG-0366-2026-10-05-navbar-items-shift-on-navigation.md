@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low — visual flash, uneven spacing                           |
 | Area      | `frontend/src/components/common/Navigation_*.tsx`            |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

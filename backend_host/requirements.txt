@@ -35,10 +35,16 @@ supabase>=2.0.0
 
 # Data validation and serialization
 pydantic>=2.0.0
+pyyaml>=6.0                     # monitor profile manifests (TASK-90)
 typing-extensions>=4.0.0
 
 # Machine Learning for AI preprocessing
 scikit-learn>=1.3.0  # TF-IDF semantic filtering, context reduction
+# Optimal assignment for the monitor trackers (BUG-0909): scipy's linear_sum_assignment replaces a
+# pure-Python Hungarian solver that spent ~0.2 s per analysis on the egg line. Already pulled in by
+# scikit-learn; declared because the code imports it directly (the pure-Python solver stays as the
+# fallback when it is missing).
+scipy>=1.10.0
 
 # File system operations
 watchdog>=3.0.0
@@ -108,3 +114,19 @@ defusedxml>=0.7.1
 # talk to it without it, and the import error would only surface on the first
 # call. Declared here so the venv has it before a test run or a first call.
 pyserial>=3.5
+
+# BUG-0597: vpt-windows host_vnc desktop audio HLS pipeline.
+# soundcard (WASAPI loopback of the *default speaker*) is the primary capture
+# path: it follows whatever output endpoint the session uses (Realtek analog or
+# digital, HDMI, USB headset) and needs the interactive session. sounddevice /
+# PortAudio remains as the Stereo Mix fallback -- it can open "Mixage stéréo"
+# from session 0, but that input only loops the Realtek analog mix and records
+# silence when the default output is digital or USB (BUG-0604).
+# - backend_host/scripts/capture_audio_stereo_mix.py reads raw PCM
+# - run_audio_stereo_mix.ps1 pipes it to ffmpeg as `-f s16le -i -`
+sounddevice>=0.4.6; platform_system == "Windows"
+soundcard>=0.4.3; platform_system == "Windows"
+
+# Samsung Tizen TV network remote (samsung_tizen controller) — websocket remote API
+samsungtvws>=2.6.0
+websocket-client>=1.5.0

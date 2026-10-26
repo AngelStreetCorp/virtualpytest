@@ -19,10 +19,11 @@ import shutil
 import tempfile
 import zipfile
 import uuid
+from backend_server.src.lib.platform_update import frontend_ssh
 from backend_server.src.lib.utils.response_cache import get_cached_response, set_cached_response
 from backend_server.src.lib.utils.server_utils import get_host_manager, get_server_system_stats
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
-from backend_server.src.lib.auth_middleware import require_permission, require_user_auth
+from backend_server.src.lib.auth_middleware import require_permission, require_role, require_user_auth
 from backend_server.src.routes.server_system_socket_routes import emit_system_update
 from shared.src.lib.config.constants import CACHE_CONFIG
 from shared.src.lib.database.system_metrics_db import store_system_metrics, get_latest_system_metrics
@@ -39,6 +40,14 @@ _PING_EMIT_MIN_INTERVAL_SECONDS = 5.0
 _STALE_LOCK_CHECK_INTERVAL_SECONDS = 60.0   # check at most once per minute per host
 _STALE_LOCK_GRACE_PERIOD_SECONDS = 120.0    # lock must be >2 min old before probing
 _last_stale_lock_check_by_host = {}
+# A deployment_executions row can stay in 'running' for ever when the run died before it
+# could write its verdict (BUG-0759). The host reads those rows to decide which of its
+# devices are busy, so one stuck row keeps a whole host busy: the Run page padlocks the
+# target and the Device page polls a running.log that does not exist (BUG-0780).
+# The host knows the truth — /host/system/device/<id>/is_busy reports the jobs it is
+# actually running — so the sweep below asks it and closes the rows it says are idle.
+# Two hours of grace: a run that really is still going must never be closed.
+_STALE_DEPLOYMENT_EXECUTION_GRACE_SECONDS = 2 * 3600.0
 SERVER_UPDATE_LOCK_FILE = '/tmp/vpt_server_update_core.lock'
 SERVER_DEPLOY_STATE_FILE = '/var/tmp/virtualpytest_server_deploy_state.json'
 SERVER_BACKUP_ROOT = '/var/tmp/virtualpytest_backups'
@@ -46,7 +55,6 @@ SOURCE_UPLOAD_ROOT = '/var/tmp/vpt_source_uploads'
 DEFAULT_STORAGE_SOURCE_PATH = '/mnt/shared/code/virtualpytest'
 DEFAULT_GIT_SOURCE_ORGANIZATION = 'AngelStreetCorp'
 BACKUP_META_FILENAME = '.vpt-backup-meta.json'
-DEFAULT_FRONTEND_DEPLOY_HOST = '192.168.0.105'
 DEFAULT_FRONTEND_DEPLOY_USER = 'jndoye'
 FRONTEND_DEPLOY_STATE_CACHE_TTL_SECONDS = 30
 _frontend_deploy_state_cache = {
@@ -385,8 +393,9 @@ def _resolve_storage_path(requested_path: Optional[str]) -> str:
 
 def _frontend_remote_config() -> dict[str, str]:
     return {
-        'host': (os.getenv('FRONTEND_DEPLOY_HOST') or DEFAULT_FRONTEND_DEPLOY_HOST).strip(),
-        'user': (os.getenv('FRONTEND_DEPLOY_SSH_USER') or DEFAULT_FRONTEND_DEPLOY_USER).strip(),
+        # FRONTEND_DEPLOY_HOST: host/IP = separate VM; local/none/unset = no SSH target ('' here)
+        'host': frontend_ssh.config()['host'],
+        'user': (frontend_ssh.config()['user'] or DEFAULT_FRONTEND_DEPLOY_USER).strip(),
         'password': (os.getenv('FRONTEND_DEPLOY_SSH_PASSWORD') or '').strip(),
         'target_dir': (os.getenv('FRONTEND_DEPLOY_TARGET_DIR') or '/opt/virtualpytest').strip(),
         'backup_root': (os.getenv('FRONTEND_DEPLOY_BACKUP_ROOT') or SERVER_BACKUP_ROOT).strip(),
@@ -397,7 +406,7 @@ def _frontend_remote_config() -> dict[str, str]:
 def _run_frontend_remote(command: str, timeout: int = 1800) -> subprocess.CompletedProcess:
     config = _frontend_remote_config()
     if not config['host'] or not config['user']:
-        raise RuntimeError('Frontend remote deploy host/user are not configured')
+        raise RuntimeError('Frontend remote deploy needs FRONTEND_DEPLOY_HOST set to the frontend VM address (and FRONTEND_DEPLOY_SSH_USER)')
     if not config['password']:
         raise RuntimeError('FRONTEND_DEPLOY_SSH_PASSWORD is required for frontend remote deploy')
     sshpass = shutil.which('sshpass')
@@ -1422,9 +1431,17 @@ def register_host():
             'video_stream_path': device.get('video_stream_path'),
             'video_capture_path': device.get('video_capture_path'),
             'video': device.get('video'),
+            # host_vnc desktop audio playlist (BUG-0597 / BUG-0605): must survive
+            # ingestion, otherwise the server-side getStreamUrl shortcut cannot
+            # return audio_stream_url to the dashboard.
+            'audio_stream_path': device.get('audio_stream_path'),
             'preferred_userinterface': device.get('preferred_userinterface'),
             'preferred_variant': device.get('preferred_variant'),
             'device_farm_provider': device.get('device_farm_provider'),
+            # What this device can actually deliver (whep / cloud_farm / …): gates the
+            # WEB transport on first paint (BUG-0833). Absent on a host whose backend
+            # predates this — the UI then keeps today's behaviour instead of dropping WEB.
+            'stream_protocol': device.get('stream_protocol'),
             'device_capabilities': device_capabilities,
             'device_verification_types': device_verification_types,
             'device_action_types': device_action_types
@@ -1579,6 +1596,9 @@ def get_db_backup_status() -> dict:
         'filename': data.get('filename'),
         'size': data.get('size'),
         'age_hours': round(age_hours, 1) if age_hours is not None else None,
+        'reported_at': data.get('reported_at'),
+        'timestamp_iso': data.get('timestamp_iso'),
+        'nfs_copy': data.get('nfs_copy'),
     }
 
 
@@ -1705,6 +1725,20 @@ def getAllHosts():
                         'hardware_encode': host_info.get('system_stats', {}).get('hardware_encode', False),
                         # 24h review buffer on (ARCHIVE_VIDEO): gates the Last 24h button.
                         'archive_video': host_info.get('system_stats', {}).get('archive_video', True),
+                        # Whether this host runs MediaMTX: gates the WEB (WebRTC) transport
+                        # on first paint, the same way hardware_encode gates HD+ (BUG-0833).
+                        # Absent on a host whose backend predates this — the UI then keeps
+                        # today's behaviour rather than dropping the button.
+                        'webrtc': host_info.get('system_stats', {}).get('webrtc', None),
+                        # {device_id: monitoring profile} (TASK-90): the Rec/Dashboard Profile filter
+                        # and the tile badge read it on first paint, no second fetch.
+                        'monitor_profiles': host_info.get('system_stats', {}).get('monitor_profiles') or {},
+                        # device ids whose profile runs no monitor (tv_lite): the stream modal
+                        # shows "Monitoring off" from this (TASK-90 e2e row e).
+                        'monitoring_off': host_info.get('system_stats', {}).get('monitoring_off') or [],
+                        # device ids whose profile draws its own overlay (eggs, cars): the stream modal
+                        # opens with monitoring on for them.
+                        'monitor_overlay_on': host_info.get('system_stats', {}).get('monitor_overlay_on') or [],
                     } if host_info.get('system_stats') else {},
                     'devices': []
                 }
@@ -1718,9 +1752,14 @@ def getAllHosts():
                         'device_capabilities': device.get('device_capabilities'),
                         'video_stream_path': device.get('video_stream_path'),
                         'video_capture_path': device.get('video_capture_path'),
+                        'audio_stream_path': device.get('audio_stream_path'),
                         'preferred_userinterface': device.get('preferred_userinterface'),
                         'preferred_variant': device.get('preferred_variant'),
                         'device_farm_provider': device.get('device_farm_provider'),
+                        # What this device can actually deliver (whep / cloud_farm / …): gates the
+                        # WEB transport on first paint (BUG-0833). Absent on a host whose backend
+                        # predates this — the UI then keeps today's behaviour instead of dropping WEB.
+                        'stream_protocol': device.get('stream_protocol'),
                         'has_running_deployment': device.get('has_running_deployment', False),
                     })
                 valid_hosts.append(lightweight_host)
@@ -1761,12 +1800,17 @@ def getAllHosts():
                         'video_stream_path': device.get('video_stream_path'),
                         'video_capture_path': device.get('video_capture_path'),
                         'video_fps': device.get('video_fps'),
+                        'audio_stream_path': device.get('audio_stream_path'),
                         'preferred_userinterface': device.get('preferred_userinterface'),
                         'preferred_variant': device.get('preferred_variant'),
                         'has_running_deployment': device.get('has_running_deployment', False),
                         'ir_type': device.get('ir_type'),
                         'remote_profiles': device.get('remote_profiles') or [],
                         'device_farm_provider': device.get('device_farm_provider'),
+                        # What this device can actually deliver (whep / cloud_farm / …): gates the
+                        # WEB transport on first paint (BUG-0833). Absent on a host whose backend
+                        # predates this — the UI then keeps today's behaviour instead of dropping WEB.
+                        'stream_protocol': device.get('stream_protocol'),
                     })
                 valid_hosts.append(dashboard_host)
             else:
@@ -1883,6 +1927,136 @@ def getDeviceActions():
     }), 200
 
 
+def _host_device_is_busy(host_data: dict, device_id: str, execution_id: Optional[str] = None) -> bool | None:
+    """Ask the host whether it is really running something on that device.
+
+    With `execution_id` the host answers the per-row question: "is THIS execution still
+    running?". The device-level answer cannot answer it - a live run on the device says
+    nothing about a dead row on the same device, and using it is what let one runaway run
+    shield every dead row of the host (E50).
+
+    None = the host did not answer (never close a row on a guess).
+    """
+    from shared.src.lib.utils.build_url_utils import call_host
+
+    query_params = {'execution_id': execution_id} if execution_id else None
+    try:
+        resp_data, status_code = call_host(
+            host_data,
+            f'/host/system/device/{device_id}/is_busy',
+            method='GET',
+            query_params=query_params,
+            timeout=10,
+        )
+    except Exception as exc:
+        print(f"⚠️ [STALE_DEPLOYMENT] is_busy check failed for {device_id}: {exc}")
+        return None
+    if status_code != 200:
+        print(f"⚠️ [STALE_DEPLOYMENT] is_busy check failed for {device_id}: HTTP {status_code}")
+        return None
+    # A body without a usable `busy` is no proof of idle: treat it as busy.
+    busy = resp_data.get('busy') if isinstance(resp_data, dict) else None
+    if not isinstance(busy, bool):
+        print(f"⚠️ [STALE_DEPLOYMENT] is_busy answer for {device_id} has no 'busy' flag")
+        return True
+    if execution_id:
+        # The host answered a question it does not know: a host that predates the
+        # per-row probe ignores the execution_id and answers about the DEVICE. Such an
+        # answer says nothing about this row, and its "not busy" would close a live run
+        # after the grace period (the host's own answer is conservative - busy whenever
+        # a run is live - but the server must not depend on that). The host that answers
+        # per row echoes the id back; an old host does not.
+        if isinstance(resp_data, dict) and resp_data.get('execution_id') != execution_id:
+            print(f"⚠️ [STALE_DEPLOYMENT] host {device_id} does not answer the per-row question "
+                  f"(old build): keeping the row {execution_id}")
+            return True
+    return busy
+
+
+def _reap_stale_running_deployments_for_host(host_name: str, host_data: dict):
+    """Close the deployment_executions rows of this host that are stuck in 'running'.
+
+    A row stays in 'running' when the run died before it could write its verdict. The
+    host reads those rows to decide which devices are busy, so the host keeps reporting
+    "busy" for a device where nothing runs — the Run page padlocks the target and the
+    Device page polls a running.log that will never appear (BUG-0780).
+
+    The row is only closed when the host itself says the run behind IT is gone, and only
+    after a long grace period, so a run that really is going is never touched. The
+    question is per row: a live run on the same device must not shield a dead row on that
+    device (E50).
+
+    No team_id filter on purpose: deployment_executions has no team_id column (only deployments
+    does), and this is system maintenance keyed on the host that is probed, run from a background
+    ping thread with no request or team context. Rows are matched by their own id and status.
+    """
+    from shared.src.lib.utils.supabase_utils import get_supabase_client
+
+    try:
+        supabase = get_supabase_client()
+        rows = (
+            supabase.table('deployment_executions')
+            .select('id, started_at, scheduled_at, deployments!inner(host_name, device_id)')
+            .eq('deployments.host_name', host_name)
+            .eq('status', 'running')
+            .execute()
+        )
+    except Exception as exc:
+        print(f"⚠️ [STALE_DEPLOYMENT] query failed for {host_name}: {exc}")
+        return
+
+    data = getattr(rows, 'data', None) or []
+    if not data:
+        return
+
+    now = datetime.now(timezone.utc)
+    busy_cache: dict = {}
+
+    for row in data:
+        deployment = row.get('deployments') or {}
+        device_id = deployment.get('device_id')
+        if not device_id:
+            continue
+
+        started_at = row.get('started_at') or row.get('scheduled_at')
+        if not started_at:
+            continue
+        try:
+            started = datetime.fromisoformat(str(started_at).replace('Z', '+00:00'))
+        except Exception:
+            continue
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+        age_s = (now - started).total_seconds()
+        if age_s < _STALE_DEPLOYMENT_EXECUTION_GRACE_SECONDS:
+            continue
+
+        # Per ROW, not per device: the host is asked about the run behind this row. A
+        # live run on the same device says nothing about this row, and treating it as if
+        # it did is what let one runaway run shield every dead row of the host (E50).
+        if row['id'] not in busy_cache:
+            busy_cache[row['id']] = _host_device_is_busy(
+                host_data, device_id, execution_id=str(row['id']))
+        if busy_cache[row['id']] is not False:
+            continue  # alive, or the host did not answer: leave the row alone
+
+        try:
+            supabase.table('deployment_executions').update({
+                'status': 'failed',
+                'success': False,
+                'completed_at': now.isoformat(),
+                'error_message': (
+                    'Host reported no running job for this execution: it was '
+                    'stuck in running and has been closed (stale execution reaped).'
+                ),
+            }).eq('id', row['id']).eq('status', 'running').execute()  # a run that just finished is never overwritten
+        except Exception as exc:
+            print(f"⚠️ [STALE_DEPLOYMENT] could not close {row['id']}: {exc}")
+            continue
+        print(f"🧹 [STALE_DEPLOYMENT] Closed stuck execution {row['id']} on "
+              f"{host_name}:{device_id} (age {int(age_s / 60)}min, host idle)")
+
+
 def _check_stale_locks_for_host(host_name: str, host_data: dict):
     """Liveness probe: for each script/campaign-locked device on this host,
     ask the host if the job is still running. Release stale locks.
@@ -1945,6 +2119,13 @@ def _check_stale_locks_for_host(host_name: str, host_data: dict):
 
         except Exception as exc:
             print(f"⚠️ [STALE_LOCK] Error probing {device_key}: {exc}")
+
+    # The same probe answers the other half: a deployment_executions row stuck in
+    # 'running' keeps the host reporting that device as busy (BUG-0780).
+    try:
+        _reap_stale_running_deployments_for_host(host_name, host_data)
+    except Exception as exc:
+        print(f"⚠️ [STALE_DEPLOYMENT] sweep failed for {host_name}: {exc}")
 
 
 @server_system_bp.route('/ping', methods=['POST'])
@@ -2161,6 +2342,50 @@ def control_host_service_proxy():
         host_data, '/host/system/controlService', method='POST',
         data={'service': service, 'action': action}, timeout=60,
     )
+    if status_code == 200:
+        return jsonify(response_data), 200
+    return jsonify({'success': False, 'error': f'Host returned status {status_code}'}), status_code
+
+
+def _foreign_host_lock(host_name: str):
+    """A lock on any device of this host held by someone other than the caller (same personal user or session), else None."""
+    from backend_server.src.lib.utils.lock_utils import _shared_user_ids, get_all_locked_devices
+    caller = getattr(request, 'user_id', None)
+    if str(caller) in _shared_user_ids():
+        caller = None  # the built-in/API-key user is not one person
+    for key, lock in (get_all_locked_devices() or {}).items():
+        if (lock.get('host_name') or str(key).split(':')[0]) != host_name:
+            continue
+        if caller and lock.get('owner_user_id') == caller:
+            continue
+        return lock
+    return None
+
+
+@server_system_bp.route('/hostDiskCleanup', methods=['POST'])
+@require_user_auth
+@require_role('admin')
+@handle_route_exceptions('server_system:hostDiskCleanup')
+def host_disk_cleanup_proxy():
+    """Delete expired capture files on one host of the caller's team ("Fix now" on a disk problem). dry_run defaults to true;
+    a real run is refused with 409 while another user or agent holds a device of the host."""
+    from shared.src.lib.utils.app_utils import get_team_id
+    data = request.get_json() or {}
+    host_name = data.get('host_name')
+    if not host_name:
+        return jsonify({'success': False, 'error': 'host_name is required'}), 400
+    dry_run = data.get('dry_run', True) is not False
+    team_id = get_team_id()
+    host_data = get_host_manager().get_host(host_name)
+    if not host_data or (host_data.get('team_id') and host_data.get('team_id') != team_id):
+        return jsonify({'success': False, 'error': f'Host {host_name} not found'}), 404
+    if not dry_run:
+        lock = _foreign_host_lock(host_name)
+        if lock:
+            owner = lock.get('owner_user_name') or lock.get('owner_user_id') or 'another user'
+            return jsonify({'success': False, 'error': f'{host_name} is in use by {owner}', 'errorType': 'host_busy'}), 409
+    from shared.src.lib.utils.build_url_utils import call_host
+    response_data, status_code = call_host(host_data, '/host/system/diskCleanup', method='POST', data={'dry_run': dry_run}, timeout=300)
     if status_code == 200:
         return jsonify(response_data), 200
     return jsonify({'success': False, 'error': f'Host returned status {status_code}'}), status_code

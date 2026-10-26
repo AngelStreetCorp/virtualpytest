@@ -703,6 +703,449 @@ class ImageVerificationController:
             return None
         return img[y:y2, x:x2]
 
+    NAV_UNDERLINE_MIN_W = 25        # px
+    NAV_UNDERLINE_MAX_W = 0.20       # fraction of the width
+    NAV_UNDERLINE_MIN_H = 2          # px
+    NAV_UNDERLINE_MAX_H = 12         # px
+
+    def _nav_underline_signature(self, img) -> Optional[Dict[str, Any]]:
+        """Which tab of a menu bar carries the focus underline? (or None)
+
+        The operator's app flips the underline's COLOUR with the background: red
+        under a dark hero, white under a bright one. Measured on stb4, the same
+        Home tab is red (BGR 20,20,230) under a dark poster and white
+        (255,255,250) under the Supergirl poster — and a red-only accent mask
+        misses it completely on the bright screen, which is why a red underline
+        crop scored 0.000 there. The mask here takes the saturated accent AND
+        the near-white.
+
+        The candidate that yields a tab index wins: a red poster inside the band
+        yields no index (its strip above is not a tab bar), the underline yields
+        the index of its own tab.
+
+        Returns {'kind': 'nav', 'x': ..., 'tab_index': ..., 'tab_count': ...} or None.
+        """
+        if img is None:
+            return None
+        h, w = img.shape[:2]
+        hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+        red = ((hsv[:, :, 0] <= 8) | (hsv[:, :, 0] >= 170)) & (hsv[:, :, 1] >= 90) & (hsv[:, :, 2] >= 100)
+        white = (hsv[:, :, 2] >= 200) & (hsv[:, :, 1] <= 60)
+        accent = (red | white).astype(np.uint8) * 255
+        nb0, nb1 = int(0.08 * h), int(0.21 * h)
+        band = cv2.morphologyEx(accent[nb0:nb1, :], cv2.MORPH_CLOSE,
+                                cv2.getStructuringElement(cv2.MORPH_RECT, (9, 3)))
+        cnts, _ = cv2.findContours(band, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        candidates = []
+        for c in cnts:
+            x, y, bw, bh = cv2.boundingRect(c)
+            if (bw < self.NAV_UNDERLINE_MIN_W or bw > self.NAV_UNDERLINE_MAX_W * w
+                    or bh < self.NAV_UNDERLINE_MIN_H or bh > self.NAV_UNDERLINE_MAX_H
+                    or bw / max(bh, 1) < 6):
+                continue
+            ay = nb0 + y + bh / 2.0
+            vscore = 1.0 / (1.0 + abs(ay - 0.12 * h))
+            score = cv2.contourArea(c) + 5000 * vscore + bw
+            candidates.append((score, round((x + bw / 2) / w, 3), ay))
+        candidates.sort(reverse=True)
+        for _score, x_frac, ay in candidates:
+            idx, count = self.helpers._nav_tab_index(img, ay, x_frac)
+            if idx is not None:
+                return {'kind': 'nav', 'x': x_frac, 'tab_index': idx, 'tab_count': count,
+                        'underline_y': round(ay, 1)}
+        return None
+
+    @staticmethod
+    def _nav_focus_index(idx, count, direction: str = 'left'):
+        """The focused tab's index in the bar, counted from the left or from the right.
+
+        The bar's label blocks are read with a gap threshold, and two neighbouring
+        labels that sit close together are read as ONE block. That merge depends on
+        the language (the French Settings column bar reads 5 blocks on one frame and
+        6 on the next) and it always eats into the bar from the left, so the number
+        of blocks to the RIGHT of the focused one is the stable count.
+        """
+        try:
+            idx = int(idx)
+            count = int(count or 0)
+        except (TypeError, ValueError):
+            return idx
+        if direction == 'right' and count > 0:
+            return count - 1 - idx
+        return idx
+
+    def _nav_right_index(self, img, sig):
+        """How many bar blocks sit to the RIGHT of the focus, on the focus's own row.
+
+        The shared detector reads the whole strip above the underline, and on the
+        Settings page that strip also holds the page header — the user name and
+        its icon at the top right. The header is not a column, and it sits to the
+        right of every column, so "count from the right" was one too high in
+        French: the rightmost column read as 1 instead of 0, the walk pressed one
+        time too many and the bar's wrap put it on the leftmost column — the
+        profile picker (measured on the operator's set-top box).
+
+        The blocks are therefore read from the row just above the underline, which
+        holds the column labels only. Returns None when the focus cannot be
+        placed on that row, so the caller can fall back to the shared count.
+        """
+        if img is None or not sig:
+            return None
+        underline_y = sig.get('underline_y')
+        underline_x = sig.get('x')
+        if underline_y is None or underline_x is None:
+            return None
+        idx, count = self.helpers._nav_tab_index(img, underline_y, underline_x,
+                                                  strip_top=0.050, strip_bottom=0.005)
+        if idx is None or not count:
+            return None
+        return int(count) - 1 - int(idx)
+
+    @staticmethod
+    def _nav_focus_moved(sig, floor_x, floor_index, sig_index):
+        """Did the focus leave the place it was on the floor frame?
+
+        The underline's **x** is the physical position of the focus and is the
+        reliable signal: the bar's block COUNT changes from frame to frame (the
+        platform merges neighbouring labels, and it does so in a language and
+        frame dependent way — measured: the French Settings bar reads 5, 6 or 7
+        blocks for its six columns), so the INDEX of the focused block can change
+        without the focus moving, and can stay the same when it did. Two
+        neighbouring columns are 0.06-0.14 of the width apart, far above the
+        0.006 the same column jitters by.
+
+        Without an underline on one of the frames there is no x to compare, and
+        the index is the only signal left.
+        """
+        x = (sig or {}).get('x')
+        if x is not None and floor_x is not None:
+            return abs(float(x) - float(floor_x)) > 0.02
+        return sig_index(sig) != floor_index
+
+    def _nav_pre_press_baseline(self, source_path, pressed_at):
+        """The frame that shows the state from BEFORE the key went out.
+
+        The frame a check is handed is a fresh screenshot, and on a busy host the
+        screenshot itself can be taken after the device already redrew — then the
+        check has no "before" to compare against and cannot tell a movement from
+        a still picture. `pressed_at` (when the key went out) says where to look:
+        the newest capture that was written before that moment is the state the
+        device was in when the key left.
+
+        Returns (path, x) or (None, None) when the capture directory holds no
+        frame from before the press.
+        """
+        if not pressed_at or not source_path:
+            return None, None
+        hot_dir = self._derive_hot_captures_dir(source_path)
+        if not hot_dir or not os.path.isdir(hot_dir):
+            return None, None
+        best = None
+        try:
+            with os.scandir(hot_dir) as entries:
+                for entry in entries:
+                    name = entry.name
+                    if not name.startswith('capture_') or not name.endswith('.jpg'):
+                        continue
+                    if 'thumbnail' in name:
+                        continue
+                    try:
+                        mtime = entry.stat().st_mtime
+                    except OSError:
+                        continue
+                    if mtime >= pressed_at:
+                        continue
+                    if best is None or mtime > best[0]:
+                        best = (mtime, entry.path)
+        except OSError:
+            return None, None
+        if best is None:
+            return None, None
+        img = cv2_io.imread(best[1], cv2.IMREAD_COLOR)
+        if img is None:
+            return None, None
+        sig = self._nav_underline_signature(img)
+        if not sig:
+            return None, None
+        return best[1], sig.get('x')
+
+    def waitForNavTabIndex(self, expected_index=None, expected_count=None, timeout: float = 3.0,
+                           source_path: str = None, direction: str = 'left',
+                           wait_for_redraw: bool = False,
+                           pressed_at: float = None) -> Tuple[bool, str, dict]:
+        """Is the FOCUSED tab of the menu bar the expected one? Language-free.
+
+        The focus underline's pixel position moves with the UI language — a longer
+        label pushes every tab behind it sideways (measured on the operator's
+        set-top box: French moved TV Shop by +0.037 of the width and widened
+        "Aufnahmen" to "Enregistrements", 0.098 -> 0.135) — so an image reference
+        of that underline only matches in the language it was captured in. Its
+        INDEX in the bar does not move: the tab order and the tab count are the same
+        in every language (measured: German and French agree on 9 of 9 stops).
+
+        `ImageHelpers._focus_signature` reads the underline and counts the label
+        blocks above it, which is the same signal Localize matches a nav screen on
+        (focus.tab_index). This is the set-top-box equivalent of the web tree's
+        "URL with the language segment dropped" — see LANGUAGE_FREE_TREES.md.
+
+        Args:
+            expected_index: 0-based index of the focused tab (required).
+            expected_count: number of tabs in the bar (optional). The live count may
+                differ by FP_TAB_COUNT_SLACK (an old frame merges or splits one icon).
+            timeout: seconds to keep polling for a matching frame.
+            source_path: the frame the verification started from.
+            wait_for_redraw: judge the frame that shows the effect of the key, not
+                the first frame that happens to match. A walk ("press RIGHT until
+                the focused column reads index N") spends most of its steps on a
+                frame that does NOT match — it is walking towards the target — so
+                "poll until something matches" burns the whole window on every
+                step. With this flag the check waits for the focus to MOVE (the
+                picture caught up with the key) and judges THAT frame, which costs
+                the device's own redraw and no more. Opt-in: the default stays
+                "poll until a frame matches".
+            direction: 'left' (default) counts the tabs from the left of the bar,
+                'right' counts them from the right. The right-hand count is the one
+                that survives a language that merges two neighbouring labels: a
+                merge on the LEFT of the focused tab changes the total count but
+                not the number of tabs to the right of it (measured on the
+                operator's set-top box: the French Settings column bar reads 5
+                blocks on one frame and 6 on the next, because 'Profils' and
+                'Accessibilite' are close enough to be read as one block).
+        """
+        if expected_index is None:
+            return False, "waitForNavTabIndex: params.tab_index is required", {}
+        try:
+            expected_index = int(expected_index)
+        except (TypeError, ValueError):
+            return False, f"waitForNavTabIndex: bad tab_index {expected_index!r}", {}
+        expected_count = None if expected_count is None else int(expected_count)
+        direction = (direction or 'left').strip().lower()
+        if direction not in ('left', 'right'):
+            return False, f"waitForNavTabIndex: bad direction {direction!r}", {}
+        if timeout > 30:
+            timeout = 30
+
+        helpers = self.helpers
+        processed = set()
+        last_sig = None
+        deadline = time.time() + max(0.0, float(timeout))
+
+        # Only frames newer than the one the verification started from may decide it:
+        # the old frame shows the screen BEFORE the action that should have moved the
+        # focus.
+        floor_mtime = None
+        if source_path:
+            try:
+                floor_mtime = os.path.getmtime(source_path)
+            except OSError:
+                floor_mtime = None
+
+        def check_frame(path):
+            """Score one frame; returns (ok, signature)."""
+            nonlocal last_sig
+            img = cv2_io.imread(path, cv2.IMREAD_COLOR)
+            if img is None:
+                return False, None
+            sig = self._nav_underline_signature(img)
+            last_sig = sig
+            if not sig:
+                return False, None
+            idx = sig.get('tab_index')
+            if idx is None:
+                return False, sig
+            count = sig.get('tab_count')
+            if direction == 'right':
+                # Count from the right on the focus's OWN row: the shared count
+                # includes the page header (the user name and its icon at the
+                # top right of the Settings page), which sits to the right of
+                # every column and made the count one too high.
+                right = self._nav_right_index(img, sig)
+                idx = right if right is not None else self._nav_focus_index(idx, count, direction)
+            else:
+                idx = self._nav_focus_index(idx, count, direction)
+            count_ok = (expected_count is None or count is None
+                        or abs(int(count) - expected_count) <= helpers.FP_TAB_COUNT_SLACK)
+            if int(idx) == expected_index and count_ok:
+                return True, sig
+            return False, sig
+
+        def result(ok, sig):
+            return {
+                'focus_signature': sig,
+                'expected_index': expected_index,
+                'expected_count': expected_count,
+                'direction': direction,
+                'matching_result': 1.0 if ok else 0.0,
+            }
+
+        def sig_index(sig):
+            """The focused tab's index in the bar, counted the way we were asked."""
+            if not sig or sig.get('tab_index') is None:
+                return None
+            return self._nav_focus_index(sig.get('tab_index'), sig.get('tab_count'), direction)
+
+        # timeout=0 means "score exactly the frame I am given": the verification
+        # executor runs the legs of a node against one shared frame window and
+        # feeds each leg frame by frame (timeout=0 per leg, the leg's own timeout
+        # is the eligibility window). Polling the capture directory here would
+        # double that work and slow every leg down — the hot directory holds a
+        # thousand frames and scanning it costs about a second.
+        if timeout <= 0:
+            if not source_path:
+                return False, "waitForNavTabIndex: no frame to check", {}
+            ok, sig = check_frame(source_path)
+            if ok:
+                return True, (f"nav tab {sig_index(sig)}/{sig.get('tab_count')} focused "
+                              f"(expected {expected_index}"
+                              + (f"/{expected_count}" if expected_count is not None else "") + ")"), result(True, sig)
+            seen = 'no nav underline found'
+            if sig:
+                if sig.get('tab_index') is not None:
+                    seen = f"nav tab {sig_index(sig)}/{sig.get('tab_count')} focused"
+                elif sig.get('kind') == 'nav':
+                    seen = 'nav underline found but no tab index on this frame'
+                else:
+                    seen = 'no nav underline on this frame'
+            return False, (f"{seen} (expected {expected_index}"
+                           + (f"/{expected_count}" if expected_count is not None else "") + ")"), result(False, sig)
+
+        # The focus of the frame we were given: with `wait_for_redraw` this is the
+        # state BEFORE the key, and a focus somewhere else means the device caught
+        # up with the input.
+        #
+        # The movement is judged by the underline's X POSITION, not by its index.
+        # The index is read from the bar's label blocks, and the platform's block
+        # counter merges (or splits) neighbouring labels depending on the frame —
+        # measured on the operator's set-top box, the French Settings bar reads 5,
+        # 6 or 7 blocks for its six columns, frame to frame. An index therefore
+        # changes when the focus did not move (and can stay the same when it did),
+        # and a walk that waits for the index to change burns its whole window on
+        # every step. The underline's x is the physical place of the focus: it
+        # does not move when the block count flips, and two neighbouring columns
+        # are 0.06-0.14 of the width apart, far above the 0.006 jitter the same
+        # column shows.
+        floor_index = None
+        floor_x = None
+        newest = None
+        if wait_for_redraw and source_path:
+            # The baseline is the state from BEFORE the key. `pressed_at` says
+            # when the key went out, so the newest capture written before that
+            # moment is the state the device was in — the frame the check is
+            # handed is a fresh screenshot and may already show the effect of
+            # the key (on a busy host the screenshot itself takes longer than the
+            # device's redraw).
+            baseline_path, baseline_x = self._nav_pre_press_baseline(source_path, pressed_at)
+            if baseline_path:
+                _, floor_sig = check_frame(baseline_path)
+                floor_index = sig_index(floor_sig)
+                floor_x = baseline_x
+                floor_mtime = os.path.getmtime(baseline_path)
+            else:
+                _, floor_sig = check_frame(source_path)
+                floor_index = sig_index(floor_sig)
+                floor_x = (floor_sig or {}).get('x')
+        elif source_path:
+            _, floor_sig = check_frame(source_path)
+            floor_index = sig_index(floor_sig)
+            floor_x = (floor_sig or {}).get('x')
+
+        while True:
+            candidates = []
+            if source_path:
+                try:
+                    candidates.append((os.path.getmtime(source_path), source_path))
+                except OSError:
+                    candidates.append((0.0, source_path))
+            hot_dir = self._derive_hot_captures_dir(source_path) if source_path else None
+            if hot_dir and os.path.isdir(hot_dir):
+                try:
+                    with os.scandir(hot_dir) as entries:
+                        for entry in entries:
+                            name = entry.name
+                            if not name.startswith('capture_') or not name.endswith('.jpg'):
+                                continue
+                            if 'thumbnail' in name:
+                                continue
+                            if entry.path in processed:
+                                continue
+                            try:
+                                mtime = entry.stat().st_mtime
+                            except OSError:
+                                continue
+                            if floor_mtime is not None and mtime <= floor_mtime:
+                                continue
+                            processed.add(entry.path)
+                            candidates.append((mtime, entry.path))
+                except OSError:
+                    pass
+
+            # Judge the frames in TIME ORDER. The capture stream lags the screen
+            # (the round-trip on a busy host adds seconds), so the frame written
+            # LAST is the one that shows the effect of the key. A directory scan
+            # hands the files back in no particular order, and reading them in
+            # that order let an OLD frame answer the check — the walk then read
+            # the state from before its own key and pressed one step too far.
+            candidates.sort(key=lambda c: (c[0], c[1]))
+
+            for _mtime, path in candidates:
+                ok, sig = check_frame(path)
+                if wait_for_redraw:
+                    # Judge the frame that shows the effect of the key: the focus
+                    # MOVED. The frame we were given is the state before the key
+                    # (the picture lags the input), so a focus somewhere else on
+                    # the bar means the device caught up.
+                    #
+                    # A frame with NO underline (live TV, a transition, a blank
+                    # picture) carries no focus at all: it is not a movement, and
+                    # asking it for a tab count used to crash the whole check.
+                    if sig and self._nav_focus_moved(sig, floor_x, floor_index, sig_index):
+                        return ok, (f"nav tab {sig_index(sig)}/{sig.get('tab_count')} focused "
+                                    f"(expected {expected_index}"
+                                    + (f"/{expected_count}" if expected_count is not None else "") + ")"), result(ok, sig)
+                    if sig is not None:
+                        # Only a frame that carries a focus says anything about
+                        # the focus: a frame without an underline (live TV, a
+                        # transition) would otherwise overwrite the verdict with
+                        # "nothing to see".
+                        newest = (ok, sig)
+                    continue
+                if ok:
+                    return True, (f"nav tab {sig_index(sig)}/{sig.get('tab_count')} focused "
+                                  f"(expected {expected_index}"
+                                  + (f"/{expected_count}" if expected_count is not None else "") + ")"), result(True, sig)
+
+            if time.time() >= deadline:
+                break
+            time.sleep(0.05)
+
+        if wait_for_redraw and newest is not None:
+            # The focus never moved on screen within the window: judge the newest
+            # frame we saw, so the caller still gets the device's current state
+            # (and not a crash).
+            ok, sig = newest
+            if not sig:
+                return False, (f"no nav underline found (expected {expected_index}"
+                               + (f"/{expected_count}" if expected_count is not None else "") + ")"), result(False, sig)
+            return ok, (f"nav tab {sig_index(sig)}/{sig.get('tab_count')} focused "
+                        f"(expected {expected_index}"
+                        + (f"/{expected_count}" if expected_count is not None else "") + ")"), result(ok, sig)
+
+        seen = 'no nav underline found'
+        if last_sig:
+            if last_sig.get('tab_index') is not None:
+                seen = f"nav tab {sig_index(last_sig)}/{last_sig.get('tab_count')} focused"
+            elif last_sig.get('kind') == 'nav':
+                seen = 'nav underline found but no tab index on this frame'
+            else:
+                seen = 'no nav underline on this frame'
+        return False, (f"{seen} (expected {expected_index}"
+                       + (f"/{expected_count}" if expected_count is not None else "") + ")"), {
+            'focus_signature': last_sig,
+            'expected_index': expected_index,
+            'expected_count': expected_count,
+            'matching_result': 0.0,
+        }
+
     def waitForIconToAppear(self, icon: str, timeout: float = 1.0, threshold: float = None,
                             area: dict = None, image_list: List[str] = None,
                             verification_index: int = 0) -> Tuple[bool, str, dict]:
@@ -1326,6 +1769,36 @@ class ImageVerificationController:
                     'details': details,
                 }
 
+            # Nav-bar tab check (command='waitForNavTabIndex'): WHICH tab of the menu bar
+            # carries the focus underline. No reference image needed — the underline's
+            # PIXEL position moves with the UI language (a longer label pushes every tab
+            # behind it sideways: French +0.036 of the width on the operator's set-top
+            # box), but its INDEX in the bar does not: the tab order and the tab count
+            # are the same in every language. This is the set-top-box equivalent of the
+            # web tree's "URL with the language segment dropped" (LANGUAGE_FREE_TREES.md).
+            if command == 'waitForNavTabIndex':
+                expected_index = params.get('tab_index')
+                expected_count = params.get('tab_count')
+                nav_timeout = float(params.get('timeout', 3000)) / 1000.0
+                success, message, details = self.waitForNavTabIndex(
+                    expected_index=expected_index,
+                    expected_count=expected_count,
+                    timeout=nav_timeout,
+                    source_path=source_path,
+                    direction=params.get('direction') or 'left',
+                    wait_for_redraw=bool(params.get('wait_for_redraw')),
+                    pressed_at=params.get('pressed_at'),
+                )
+                return {
+                    'success': success,
+                    'message': message,
+                    'screenshot_path': source_path,
+                    'matching_result': details.get('matching_result', 0.0),
+                    'user_threshold': 1.0,
+                    'image_filter': 'none',
+                    'details': details,
+                }
+
             # KPI fingerprint fallback (command='match_fingerprint'): a node with no hand-authored
             # verification is recognized by its stored fingerprint. Take the best (closest) region
             # dHash distance between the live frame and the node's stored fingerprint - within
@@ -1556,6 +2029,39 @@ class ImageVerificationController:
                         required=False,
                         default=None,
                         description="Screen area to search in"
+                    )
+                },
+                "verification_type": "image"
+            },
+            {
+                "command": "waitForNavTabIndex",
+                "label": "Wait for Menu Tab to Be Focused",
+                "description": "Wait for a specific tab of the menu bar to carry the focus underline, by its INDEX in the bar (0-based, left to right). Language-free: the underline's pixel position moves with the UI language, its index does not. No reference image needed.",
+                "params": {
+                    "tab_index": create_param(
+                        ParamType.NUMBER,
+                        required=True,
+                        default=0,
+                        description="0-based index of the expected focused tab in the menu bar"
+                    ),
+                    "tab_count": create_param(
+                        ParamType.NUMBER,
+                        required=False,
+                        default=None,
+                        description="Number of tabs in the bar (the live count may differ by one)"
+                    ),
+                    "direction": create_param(
+                        ParamType.ENUM,
+                        required=False,
+                        default="left",
+                        description="Count the tabs from the left of the bar or from the right. Count from the right when the bar merges two neighbouring labels in some languages: a merge on the left changes the total count but not the number of tabs to the right of the focused one.",
+                        choices=["left", "right"]
+                    ),
+                    "timeout": create_param(
+                        ParamType.NUMBER,
+                        required=False,
+                        default=3000,
+                        description="Maximum time to wait (ms)"
                     )
                 },
                 "verification_type": "image"

@@ -53,6 +53,8 @@ import {
   type RunStatusCounts,
 } from '../types/reports';
 import { ARCHIVE_HINT } from './RunGroups';
+import { neutralButtonSx } from '../components/common/PageChrome';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 
 /** Group verdict from its latest-attempt rollup; never more confident than the counts. */
 export const deriveGroupStatus = (counts: RunStatusCounts): RunStatus => {
@@ -105,6 +107,7 @@ const MODE_TEXT: Record<RerunMode, string> = {
 };
 
 const RunGroupDetail: React.FC = () => {
+  const P = useAgentChatPalette();
   const { groupId = '' } = useParams<{ groupId: string }>();
   const report = useGroupReport(groupId);
   const { canEdit, canRerun } = useReportPermissions();
@@ -186,9 +189,9 @@ const RunGroupDetail: React.FC = () => {
                       <Button
                         size="small"
                         variant="outlined"
-                        color="warning"
                         onClick={() => setConfirmMode('failures')}
                         disabled={groupRerun.running || data.counts.failed === 0}
+                        sx={neutralButtonSx(P)}
                       >
                         Rerun failures
                       </Button>

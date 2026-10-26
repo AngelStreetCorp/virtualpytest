@@ -480,3 +480,67 @@ def list_publishes(dev_ui_id: str, team_id: str, limit: int = 20) -> List[Dict]:
     except Exception as e:
         print(f"[@db:userinterface_publish:list_publishes] Error: {e}")
         return []
+
+
+# =====================================================
+# EDITING A PROD VIEW LANDS ON DEV (TASK-173)
+# =====================================================
+
+def resolve_dev_tree_for_prod(tree_id: str, team_id: str) -> Optional[Dict]:
+    """If `tree_id` belongs to a prod userinterface, return its dev counterpart.
+
+    Prod is only ever written by Publish, so an editor save aimed at a prod tree
+    is redirected to the dev tree it was published from (node/edge text ids are
+    identical in both). Returns None when the tree is not a prod tree, else
+    {dev_tree_id, dev_userinterface_id, prod_userinterface_id} or {error}.
+    """
+    supabase = get_supabase()
+    rows = supabase.table('navigation_trees')\
+        .select('id,userinterface_id,published_from_tree_id')\
+        .eq('id', tree_id).eq('team_id', team_id).limit(1).execute().data
+    if not rows:
+        return None
+    tree = rows[0]
+    ui_rows = supabase.table('userinterfaces')\
+        .select('id,mode,dev_userinterface_id')\
+        .eq('id', tree['userinterface_id']).eq('team_id', team_id).limit(1).execute().data
+    if not ui_rows or ui_rows[0].get('mode') != 'prod':
+        return None
+    if not tree.get('published_from_tree_id') or not ui_rows[0].get('dev_userinterface_id'):
+        return {'error': 'Prod tree has no dev source — publish again from dev'}
+    return {
+        'dev_tree_id': tree['published_from_tree_id'],
+        'dev_userinterface_id': ui_rows[0]['dev_userinterface_id'],
+        'prod_userinterface_id': ui_rows[0]['id'],
+    }
+
+
+def get_draft_status(dev_ui_id: str, team_id: str) -> Dict:
+    """Does dev hold changes newer than the last publish?
+
+    {has_prod, draft, published_version}. `draft` compares the newest dev
+    node/edge updated_at with the prod row's updated_at (stamped by Publish).
+    """
+    supabase = get_supabase()
+    prod = supabase.table('userinterfaces').select('id,updated_at,published_version')\
+        .eq('dev_userinterface_id', dev_ui_id).eq('mode', 'prod')\
+        .eq('team_id', team_id).limit(1).execute().data
+    if not prod:
+        return {'has_prod': False, 'draft': False, 'published_version': None}
+    trees = supabase.table('navigation_trees').select('id')\
+        .eq('userinterface_id', dev_ui_id).eq('team_id', team_id).execute().data or []
+    tree_ids = [t['id'] for t in trees]
+    newest = None
+    for table in ('navigation_nodes', 'navigation_edges'):
+        if not tree_ids:
+            break
+        rows = supabase.table(table).select('updated_at').eq('team_id', team_id)\
+            .in_('tree_id', tree_ids).order('updated_at', desc=True).limit(1).execute().data
+        if rows and rows[0].get('updated_at') and (newest is None or rows[0]['updated_at'] > newest):
+            newest = rows[0]['updated_at']
+    published_at = prod[0].get('updated_at')
+    return {
+        'has_prod': True,
+        'draft': bool(newest and published_at and newest > published_at),
+        'published_version': prod[0].get('published_version'),
+    }

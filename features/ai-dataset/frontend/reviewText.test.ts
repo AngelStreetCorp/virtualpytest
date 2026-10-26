@@ -29,7 +29,7 @@ const sample = (over: Partial<TrainingSample>): TrainingSample => ({
   id: 's1', family: 'screen-id', object_key: 'k', device_model: 'm', userinterface: 'ui', node_id: null,
   focus_label: null, prompt: null, model_answer: null, ground_truth: null, proposed_label: null, guess_source: 'run',
   label_source: 'run', is_failure: false, label_conflict: false, split: 'train', eval_version: null, source_ref: null,
-  created_at: '2026-09-30T00:00:00Z', image_url: null, triage: null, ...over,
+  created_at: '2026-09-30T00:00:00Z', image_path: null, triage: null, ...over,
 });
 
 describe('withShow: the Set follows the Show view', () => {

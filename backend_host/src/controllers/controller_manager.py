@@ -10,6 +10,7 @@ import threading
 from typing import Dict, List, Any, Optional
 from shared.src.lib.models.host import Host
 from shared.src.lib.models.device import Device
+from shared.src.lib.config.device_capabilities import model_spelling_note, parse_device_model
 from backend_host.src.controllers.controller_config_factory import create_controller_configs_from_device_info
 from backend_host.src.controllers import CONTROLLER_REGISTRY
 from backend_host.src.controllers.controller_registry import (
@@ -139,6 +140,13 @@ def create_host_from_environment(device_ids: List[str] = None, host_ip: str = No
             'web_browser_path': web_browser_path,  # Browser path for VNC viewer
             'host_ip': host_ip,  # Add host IP for web controller
             'host_port': host_port,  # Add host port for web controller
+            # Audio (host-wide). The vpt-windows-audio Scheduled Task writes its
+            # HLS to /stream/host_audio/.. (Linux uses /stream/_audio/..). Mirrors
+            # BUG-0596's DEVICE{N} pattern for per-device capture, scoped to the
+            # whole host for now since the Win10/11 audio pipeline is one
+            # per-machine capture (Linux muxed audio is per-device but noVNC on
+            # Windows has no per-device video to mux with).
+            'audio_stream_path': os.getenv('HOST_VNC_AUDIO_STREAM_PATH'),
             # Same optional defaults as DEVICE{N}_USERINTERFACE/VARIANT: the Device page shows the
             # Localize button only when the device has a preferred userinterface (BUG-0419).
             'preferred_userinterface': os.getenv('HOST_USERINTERFACE') or None,
@@ -181,29 +189,58 @@ def _get_devices_config_from_environment() -> List[Dict[str, Any]]:
     """
     devices_config = []
     
-    # Look for DEVICE1 .. DEVICE30 (cap shared with run_ffmpeg.sh / generate_env.sh)
-    for i in range(1, 31):
+    # Look for DEVICE1 .. DEVICE<MAX_DEVICES> (default 99; same knob as run_ffmpeg.sh)
+    for i in range(1, int(os.getenv("MAX_DEVICES", "99")) + 1):
         device_name = os.getenv(f'DEVICE{i}_NAME')
         
         if device_name:
 
             # Extract all environment variables for this device.
             # DEVICE{i}_MODEL may be a bare model ('stb', 'android_tv') OR carry a
-            # platform suffix after the first dash ('stb-example-v2'). The broad
-            # model is everything before the first dash; the platform tag is the
-            # rest. Bare values yield platform=None and identical pre-variant
+            # platform suffix after the first dash ('stb-example-v2'). parse_device_model
+            # does both halves of that in one place: it splits the suffix AND resolves how
+            # the model is spelled, so `androidtv`, `andoridtv` and `appletv` build the
+            # same device as the canonical name instead of a device with no controllers at
+            # all (BUG-0749). A bare value yields platform=None and identical pre-variant
             # behaviour. Reuses the existing .env field — no new keys.
             raw_model = os.getenv(f'DEVICE{i}_MODEL', 'unknown')
-            device_model, _sep, device_platform = raw_model.partition('-')
-            device_platform = device_platform or None
+            device_model, device_platform = parse_device_model(raw_model)
             video = os.getenv(f'DEVICE{i}_VIDEO')
             video_capture_path = os.getenv(f'DEVICE{i}_VIDEO_CAPTURE_PATH')
+
+            # Per-device audio stream path -- only meaningful for host_vnc devices
+            # where the video path is the noVNC iframe (no built-in audio). When
+            # set, the dashboard plays an <audio> element bound to this HLS
+            # playlist next to the VNC iframe. The audio source itself is owned
+            # by the run_*_audio.* + capture_* scripts (vpt-windows-audio on
+            # Windows, run_ffmpeg.sh's pulse `-i default` muxing on Linux).
+            audio_stream_path = os.getenv(f'DEVICE{i}_HOST_VNC_AUDIO_STREAM_PATH')
+
+            # Explicit DEVICE{i}_HOST_VNC_STREAM_PATH for the vpt-windows class of
+            # host: some devices (like DEVICE1=Host_Windows) keep the noVNC URL in
+            # this key instead of the generic DEVICE{N}_VIDEO_STREAM_PATH because
+            # the host_vnc controller renders the iframe directly, not an HLS
+            # segment. We honour both keys so vpt-windows doesn't need a
+            # dummy DEVICE{N}_VIDEO_STREAM_PATH anymore; the older key wins
+            # (generic video stream) when both are present -- the dashboard sees
+            # the proper HLS path and the controller is correctly typed.
+            host_vnc_stream_path = os.getenv(f'DEVICE{i}_HOST_VNC_STREAM_PATH')
             
             # Explicit DEVICE{i}_VIDEO_STREAM_PATH, else derived from the capture folder the
             # way every host .env spells it (/var/www/html/stream/capture2 -> /host/stream/capture2;
             # the frontend prefixes the host URL). The old fallback referenced an undefined
             # `host_name` and crashed registration for any device without the explicit key (BUG-0096).
             video_stream_path = os.getenv(f'DEVICE{i}_VIDEO_STREAM_PATH')
+            # vpt-windows devices (DEVICE1=Host_Windows) keep the noVNC URL under
+            # DEVICE{N}_HOST_VNC_STREAM_PATH instead -- honour that too so the
+            # dashboard tile shows the vnc_lite iframe via /host/<name>/vnc_lite.html.
+            # Without this fallback device1 (a host_vnc model) hits the validation
+            # in buildStreamUrl and returns "VNC device device1 has no
+            # video_stream_path configured" even though DEVICE1_HOST_VNC_STREAM_PATH
+            # is set in .env.
+            if not video_stream_path and host_vnc_stream_path:
+                video_stream_path = host_vnc_stream_path
+                print(f"[@controller_manager] host_vnc stream path for device{i}: {video_stream_path}")
             if not video_stream_path and video_capture_path:
                 video_stream_path = f"/host/stream/{os.path.basename(video_capture_path.rstrip('/'))}"
                 print(f"[@controller_manager] Derived stream path for device{i}: {video_stream_path}")
@@ -213,6 +250,9 @@ def _get_devices_config_from_environment() -> List[Dict[str, Any]]:
             # USB ADB serial (phone farm / USB hub). Shared with run_ffmpeg.sh for
             # scrcpy capture; when set the Android controllers target it instead of ip:port.
             adb_serial = os.getenv(f'DEVICE{i}_ADB_SERIAL')
+            if adb_serial and device_ip:
+                print(f"[@controller_manager] ⚠️ device{i}: DEVICE{i}_ADB_SERIAL and DEVICE{i}_IP are both set; "
+                      f"adb uses the USB serial {adb_serial}, not {device_ip}. Remove one if that is not what you want.")
             ir_path = os.getenv(f'DEVICE{i}_IR_PATH')
             ir_type = os.getenv(f'DEVICE{i}_IR_TYPE')
             # Networked IRTrans box (UDP). When IR_IP is set the device uses the
@@ -275,6 +315,12 @@ def _get_devices_config_from_environment() -> List[Dict[str, Any]]:
                 preferred_variant = None if _trimmed.lower() in ('', 'base') else _trimmed
             
             # Show only configured devices
+            # A model spelled differently from the canonical name is reported, never
+            # silently corrected: a bare `fire_tv` is the one case where the operator may
+            # have meant the other Fire TV platform (BUG-0749).
+            spelling = model_spelling_note(raw_model, device_model)
+            if spelling:
+                print(f"[@controller_manager] DEVICE{i}_MODEL: {spelling}")
             print(f"[@controller_manager] Found device{i}: {device_name} ({device_model})")
             
             device_config = {
@@ -290,6 +336,9 @@ def _get_devices_config_from_environment() -> List[Dict[str, Any]]:
                 'youtube_url': os.getenv(f'DEVICE{i}_YOUTUBE_URL'),
                 'video_stream_path': video_stream_path,
                 'video_capture_path': video_capture_path,
+                # host_vnc-only: parallel audio HLS (Mixage stereo / Stereo Mix on
+                # Win10/11, pulse monitor on Linux). See BUG-0596.
+                'audio_stream_path': audio_stream_path,
                 # Device IP/Port (used by both Android ADB and Appium - mutually exclusive)
                 'device_ip': device_ip,
                 'device_port': device_port,
@@ -313,6 +362,32 @@ def _get_devices_config_from_environment() -> List[Dict[str, Any]]:
                 'tello_ip': os.getenv(f'DEVICE{i}_TELLO_IP'),
                 'tello_state_port': os.getenv(f'DEVICE{i}_TELLO_STATE_PORT'),
                 'tello_video_port': os.getenv(f'DEVICE{i}_TELLO_VIDEO_PORT'),
+                # The host address the drone's own radio reaches us from, used as the source for
+                # every socket to that drone. With two dongles on one host both Tello APs are
+                # 192.168.10.1, so this is what tells the two links apart: set it (192.168.10.2 /
+                # 192.168.10.4, see scripts/drone/tello_prio.sh) and the matching `ip rule from`
+                # pins the traffic to one radio. Empty keeps the 0.0.0.0 wildcard of the
+                # single-drone setup.
+                'tello_local_ip': os.getenv(f'DEVICE{i}_TELLO_LOCAL_IP'),
+                # The port the drone's SDK answers on, and the port the client binds
+                # locally for that conversation. Both default to 8889, which is right
+                # for a lab drone on its own radio. A drone reached through a phone
+                # (TASK-160) lives behind the host's drone bridge on 127.0.0.1, so it
+                # needs its own pair of numbers - one per bridged drone, or the
+                # clients would fight over the same local port.
+                'tello_cmd_port': os.getenv(f'DEVICE{i}_TELLO_CMD_PORT'),
+                'tello_local_cmd_port': os.getenv(f'DEVICE{i}_TELLO_LOCAL_CMD_PORT'),
+                # Which phone carries this drone (the phone_agent slot) and the label
+                # the owner gave the drone in the phone app. Empty = a lab drone.
+                'tello_bridge': os.getenv(f'DEVICE{i}_TELLO_BRIDGE'),
+                'tello_bridge_phone': os.getenv(f'DEVICE{i}_TELLO_BRIDGE_PHONE'),
+                'tello_bridge_drone': os.getenv(f'DEVICE{i}_TELLO_BRIDGE_DRONE'),
+                # Samsung Tizen TV network remote (samsungtvws over ws/8002). TIZEN_IP
+                # presence selects the samsung_tizen remote on a `tizen` device.
+                'tizen_ip': os.getenv(f'DEVICE{i}_TIZEN_IP'),
+                'tizen_port': os.getenv(f'DEVICE{i}_TIZEN_PORT'),
+                'tizen_token': os.getenv(f'DEVICE{i}_TIZEN_TOKEN'),
+                'tizen_token_file': os.getenv(f'DEVICE{i}_TIZEN_TOKEN_FILE'),
                 'power_device': power_device,
                 # Power configuration
                 'power_name': power_name,
@@ -390,6 +465,9 @@ def _create_controller_instance(controller_type: str, implementation: str, param
                 return AndroidMobileRemoteController(**params)
             elif implementation == 'android_tv':
                 return AndroidTVRemoteController(**params)
+            elif implementation == 'samsung_tizen':
+                from .remote.samsung_tizen import SamsungTizenRemoteController
+                return SamsungTizenRemoteController(**params)
             elif implementation == 'appium':
                 return AppiumRemoteController(**params)
             elif implementation == 'ir_remote':
@@ -539,6 +617,7 @@ def _create_device_with_controllers(device_config: Dict[str, Any], host: 'Host')
         device_config.get('device_platform'),  # parsed from DEVICE{i}_MODEL suffix
         device_config.get('preferred_userinterface'),
         device_config.get('preferred_variant'),
+        device_config.get('audio_stream_path'),  # host_vnc-only (BUG-0596)
     )
     
     # Create controllers using the factory (returns dict now)

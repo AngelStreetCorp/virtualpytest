@@ -14,6 +14,49 @@ def get_supabase():
     """Get the Supabase client instance."""
     return get_supabase_client()
 
+def get_discarded_incident_keys(window_minutes: int = 3) -> set:
+    """(host_name, device_id, incident_type) of alerts judged noise (discard=true) that are
+    open now or closed within the last `window_minutes`. The heatmap must not show these."""
+    try:
+        now = datetime.now(timezone.utc)
+        since = (now - timedelta(minutes=window_minutes)).isoformat()
+        rows = (get_supabase().table('alerts')
+                .select('host_name,device_id,incident_type,end_time')
+                .eq('discard', True)
+                .lte('start_time', now.isoformat())
+                .or_(f'end_time.is.null,end_time.gte.{since}')
+                .execute().data or [])
+        return {(r.get('host_name'), str(r.get('device_id')), r.get('incident_type')) for r in rows}
+    except Exception as e:
+        print(f"[@db:heatmap:get_discarded_incident_keys] Error: {str(e)}")
+        return set()
+
+
+# An alert is created only after several consecutive bad frames, so its start_time trails the first
+# red frame of the incident. Frames up to this long before start_time still belong to the alert.
+ALERT_LEAD_MINUTES = 5
+
+
+def get_discarded_incidents_at(at: datetime) -> List[Dict]:
+    """Alerts judged noise (discard=true) that cover the instant `at`: start - lead <= at <= end (or still open).
+    The alerts table has no team column, so the rows are addressed by host/device/type;
+    the heatmap page only matches them against its own devices."""
+    try:
+        # 'Z' form: a '+00:00' offset inside a PostgREST or() filter loses its '+' in the URL
+        stamp = at.astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        latest_start = (at + timedelta(minutes=ALERT_LEAD_MINUTES)).astimezone(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
+        rows = (get_supabase().table('alerts')
+                .select('host_name,device_id,incident_type,start_time,end_time')
+                .eq('discard', True)
+                .lte('start_time', latest_start)
+                .or_(f'end_time.is.null,end_time.gte.{stamp}')
+                .execute().data or [])
+        return [{**r, 'device_id': str(r.get('device_id'))} for r in rows]
+    except Exception as e:
+        print(f"[@db:heatmap:get_discarded_incidents_at] Error: {str(e)}")
+        raise
+
+
 def get_heatmap_incidents(
     team_id: str,
     timeframe_minutes: int = 1

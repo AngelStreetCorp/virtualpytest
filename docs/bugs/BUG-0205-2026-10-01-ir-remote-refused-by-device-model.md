@@ -9,7 +9,7 @@
 | Severity  | Medium — the device could not be driven from the panel at all     |
 | Status    | Fixed (pending deploy)                                            |
 | Area      | `shared/src/lib/config/device_capabilities.py`, remote panels     |
-| Fixed in  | Unreleased                                                        |
+| Fixed in  | build 90145 |
 | Commit    | `d47966813` `0c54bff88`                                           |
 
 ---
@@ -51,3 +51,19 @@ so an Apple TV with no learned remote was skipped even once the model accepted i
 native remote is created (`android_tv` → `android_tv`, `apple_tv` → none); with `ir_ip` +
 `ir_type` it adds `irtrans_remote`; with `ir_path` + `ir_type` it adds `ir_remote`.
 `tsc --noEmit` clean. Not yet tried against a physical IRTrans box.
+
+## Client patch
+
+| Field | Value |
+|-------|-------|
+| Patch  | **patch-2** — `patch/patch_host_2_irtrans-any-device.sh` |
+| Why    | A client install that predates the fix reports no remote at all for a non-`stb` device, and the fix has been on `main` for weeks. The patch puts it on one box without a full update. |
+| Apply  | `bash patch-2.sh --check` → exit 10 means it is needed, 0 means already applied. Then `sudo bash patch-2.sh` (add `--no-restart` to restart later, `--no-raw-codes` for the capability fix alone). |
+| Undo   | `sudo bash patch-2.sh --rollback` — restores each `<file>.patch-2.bak`. |
+| Verify | `journalctl -u vpt-host -n 100 --no-pager \| grep -i irtrans`, then the device shows an IR panel in Take Control. |
+| Log    | `/var/log/vpt-patches.log` |
+
+The script embeds the four fixed files byte-for-byte rather than carrying a diff: a client of
+unknown vintage will not apply an upstream diff (the pre-fix map differs too much), and whole
+files always do. `--check` compares byte-for-byte, so a re-run is a true no-op. The next
+normal update to the client supersedes the patch.

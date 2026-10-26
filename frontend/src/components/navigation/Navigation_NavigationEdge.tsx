@@ -5,6 +5,7 @@ import { useMetrics } from '../../hooks/navigation/useMetrics';
 import { useValidationColors } from '../../hooks/validation';
 import { UINavigationEdge as UINavigationEdgeType } from '../../types/pages/Navigation_Types';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export const NavigationEdgeComponent: React.FC<EdgeProps<UINavigationEdgeType['data']>> = (
   props,
@@ -191,7 +192,7 @@ export const NavigationEdgeComponent: React.FC<EdgeProps<UINavigationEdgeType['d
               transform: `translate(-50%, -50%) translate(${(pathSourceX + pathTargetX) / 2}px, ${(pathSourceY + pathTargetY) / 2}px)`,
               backgroundColor: P.series[1],
               color: '#fff',
-              fontSize: '10px',
+              fontSize: TYPOGRAPHY.microMeta.size,
               fontWeight: 'bold',
               padding: '2px 6px',
               borderRadius: '4px',

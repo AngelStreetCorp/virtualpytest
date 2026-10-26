@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium (DOM report is the primary way to inspect captured screens) |
 | Area      | frontend Interface page · `apiClient` vs `buildServerUrl`   |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---

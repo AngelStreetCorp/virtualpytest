@@ -1,0 +1,498 @@
+[
+ {
+  "group": "what-is",
+  "lang": "en",
+  "question": "What is VirtualPyTest?",
+  "aliases": [
+   "What is VirtualPyTest for",
+   "Tell me about VirtualPyTest",
+   "Describe VirtualPyTest",
+   "How does VirtualPyTest work",
+   "Explain VirtualPyTest",
+   "What does VirtualPyTest do",
+   "Overview of VirtualPyTest",
+   "What can I do with VirtualPyTest",
+   "What is this"
+  ],
+  "short": "VirtualPyTest tests and monitors any device with a screen (phones, TVs, set-top boxes, web browsers, anything with an HDMI output). You write a test once and run it on every platform.",
+  "long": "VirtualPyTest tests and monitors any device with a screen: phones, TVs, set-top boxes, web browsers and anything with an HDMI output. You write a test once and run it on every platform. AI also watches the screens 24/7 and flags black screens, freezes and lost audio. The test says what to check, a navigation tree says how to get to each screen on each device, and AI looks at the screen itself instead of fragile selectors, so tests keep working after a redesign. The software is free and open source under AGPL v3 and you host it yourself; the hardware is a Raspberry Pi 5 host with HDMI capture cards.",
+  "sources": [
+   "faq/README.md"
+  ],
+  "replaces_faq_heading": "What is VirtualPyTest?"
+ },
+ {
+  "group": "what-is",
+  "lang": "fr",
+  "question": "Qu'est-ce que VirtualPyTest ?",
+  "aliases": [
+   "VirtualPyTest c'est quoi",
+   "À quoi sert VirtualPyTest",
+   "Comment fonctionne VirtualPyTest",
+   "Présentez VirtualPyTest",
+   "Que fait VirtualPyTest",
+   "Parle-moi de VirtualPyTest",
+   "Expliquez VirtualPyTest"
+  ],
+  "short": "VirtualPyTest teste et surveille tout appareil doté d'un écran (téléphones, TV, décodeurs, navigateurs web, tout ce qui a une sortie HDMI). On écrit un test une fois et on l'exécute sur toutes les plateformes.",
+  "long": "VirtualPyTest teste et surveille tout appareil doté d'un écran : téléphones, TV, décodeurs, navigateurs web et tout ce qui a une sortie HDMI. On écrit un test une fois et on l'exécute sur toutes les plateformes. L'IA surveille aussi les écrans 24h/24 et signale les écrans noirs, les images figées et les pertes de son. Le test dit quoi vérifier, un arbre de navigation dit comment atteindre chaque écran sur chaque appareil, et l'IA regarde l'écran lui-même plutôt que des sélecteurs fragiles : les tests continuent de fonctionner après une refonte de l'application. Le logiciel est gratuit et open source sous licence AGPL v3 et vous l'hébergez vous-même ; le matériel est un hôte Raspberry Pi 5 avec des cartes de capture HDMI.",
+  "sources": [
+   "faq/README.md"
+  ]
+ },
+ {
+  "group": "devices",
+  "lang": "en",
+  "question": "Which devices are supported?",
+  "aliases": [
+   "What devices are supported",
+   "What devices does it support",
+   "Supported devices",
+   "What can I test with it",
+   "Which platforms are supported",
+   "Does it support Android TV",
+   "Does it support set-top boxes",
+   "Does it work with TVs and phones"
+  ],
+  "short": "Almost any device that can be controlled remotely: Android and iOS phones and tablets, Android TV, Apple TV, Fire TV, Samsung and LG smart TVs, set-top boxes (IR or network control), web browsers, desktop apps and anything with an HDMI output.",
+  "long": "Almost any device that can be controlled remotely. Mobile: Android phones and tablets, iOS (iPhone, iPad). TV and streaming: Android TV, Apple TV, Fire TV, Smart TVs (Samsung, LG). Set-top boxes: any box with IR or network control. Web: any browser (Chrome, Firefox, Safari, Edge). Desktop: Windows, macOS and Linux applications. HDMI devices: any device with an HDMI output and a way to control it. Control methods include ADB (Android), Appium (iOS and Android), IR blasters (set-top boxes, TVs), network APIs (smart TVs) and browser automation (web).",
+  "sources": [
+   "faq/README.md"
+  ],
+  "replaces_faq_heading": "What devices are supported?"
+ },
+ {
+  "group": "devices",
+  "lang": "fr",
+  "question": "Quels appareils sont pris en charge ?",
+  "aliases": [
+   "Quels appareils sont supportés",
+   "Quels appareils supporte-t-il",
+   "Appareils compatibles",
+   "Que puis-je tester avec",
+   "Quelles plateformes sont prises en charge",
+   "Est-ce compatible Android TV",
+   "Est-ce compatible avec les décodeurs",
+   "Fonctionne-t-il avec les TV et les téléphones",
+   "Quels appareils sont pris en charge"
+  ],
+  "short": "Presque tout appareil pilotable à distance : téléphones et tablettes Android et iOS, Android TV, Apple TV, Fire TV, TV Samsung et LG, décodeurs (commande IR ou réseau), navigateurs web, applications de bureau et tout ce qui a une sortie HDMI.",
+  "long": "Presque tout appareil pilotable à distance. Mobile : téléphones et tablettes Android, iOS (iPhone, iPad). TV et streaming : Android TV, Apple TV, Fire TV, TV connectées (Samsung, LG). Décodeurs : tout décodeur commandé en IR ou par le réseau. Web : tout navigateur (Chrome, Firefox, Safari, Edge). Bureau : applications Windows, macOS et Linux. Appareils HDMI : tout appareil avec une sortie HDMI et un moyen de le commander. Les modes de commande incluent ADB (Android), Appium (iOS et Android), émetteurs IR (décodeurs, TV), API réseau (TV connectées) et automatisation de navigateur (web).",
+  "sources": [
+   "faq/README.md"
+  ]
+ },
+ {
+  "group": "pricing",
+  "lang": "en",
+  "question": "How is it priced?",
+  "aliases": [
+   "How much does it cost",
+   "What does VirtualPyTest cost",
+   "Is it really free",
+   "Is it free",
+   "Is VirtualPyTest free",
+   "Pricing",
+   "What is the price",
+   "Is it open source",
+   "What is the license",
+   "What will 24/7 monitoring cost per month",
+   "Are there licence fees"
+  ],
+  "short": "The software is free and open source (AGPL v3) and you host it yourself, with no licence, per-device or usage fees. Hardware is a one-time cost: about €420 for one device, about €480 for up to four devices on one host.",
+  "long": "The software costs €0: it is free and open source under the GNU AGPL v3 and you host it yourself, with no paid tiers, licence fees, per-device fees or usage limits. If you distribute a modified version or offer it as a service, you publish your changes under the same licence. Hardware is a one-time cost: about €420 for one device (Raspberry Pi 5 host plus HDMI capture card), about €480 for up to four devices on the same host, and about €7 for each extra capture card. Your only running cost is electricity, plus storage if you keep recordings longer than the default 24 hours (roughly 7.5 GB per device per day).",
+  "sources": [
+   "faq/README.md",
+   "get-started/hardware.md"
+  ],
+  "replaces_faq_heading": [
+   "Is it really free?",
+   "What will 24/7 monitoring on all our devices cost per month, with no surprises?"
+  ]
+ },
+ {
+  "group": "pricing",
+  "lang": "fr",
+  "question": "Quel est le prix ?",
+  "aliases": [
+   "Combien ça coûte",
+   "Combien coûte VirtualPyTest",
+   "C'est gratuit",
+   "Est-ce vraiment gratuit",
+   "VirtualPyTest est-il gratuit",
+   "Tarifs",
+   "Quel est le tarif",
+   "Est-ce open source",
+   "Quelle est la licence",
+   "Combien coûte la surveillance 24h/24 par mois",
+   "Y a-t-il des frais de licence",
+   "Quels sont les tarifs",
+   "Quels sont les prix"
+  ],
+  "short": "Le logiciel est gratuit et open source (AGPL v3) et vous l'hébergez vous-même, sans frais de licence, par appareil ou d'usage. Le matériel est un coût unique : environ 420 € pour un appareil, environ 480 € pour jusqu'à quatre appareils sur un hôte.",
+  "long": "Le logiciel coûte 0 € : il est gratuit et open source sous licence GNU AGPL v3 et vous l'hébergez vous-même, sans offre payante, sans frais de licence, sans frais par appareil et sans limite d'usage. Si vous distribuez une version modifiée ou la proposez en service, vous publiez vos modifications sous la même licence. Le matériel est un coût unique : environ 420 € pour un appareil (hôte Raspberry Pi 5 plus carte de capture HDMI), environ 480 € pour jusqu'à quatre appareils sur le même hôte, et environ 7 € par carte de capture supplémentaire. Votre seul coût récurrent est l'électricité, plus le stockage si vous gardez les enregistrements plus de 24 heures (environ 7,5 Go par appareil et par jour).",
+  "sources": [
+   "faq/README.md",
+   "get-started/hardware.md"
+  ]
+ },
+ {
+  "group": "ir-remotes",
+  "lang": "en",
+  "question": "Does it work with IR remotes?",
+  "aliases": [
+   "IR remotes",
+   "Does it support infrared remotes",
+   "Can it control a set-top box with an infrared remote",
+   "Does it support IR",
+   "Can it send IR commands",
+   "Infrared remote control",
+   "How does IR control work",
+   "What is the IR remote for",
+   "Can I use my TV remote",
+   "Does it work with infrared remotes"
+  ],
+  "short": "Yes. A USB infrared transmitter next to the device replays the remote's learned waveform, so set-top boxes and TVs with an IR remote can be controlled without knowing the IR protocol.",
+  "long": "Yes. A USB infrared transmitter (lirc-compatible, such as a USB IR Toy or FLIRC, roughly €15-30) placed in front of a set-top box or TV sends the key presses. VirtualPyTest replays the waveform learned from the real remote, so no IR protocol has to be known or encoded. Key maps exist for set-top boxes, Samsung TVs, Apple TV and Fire TV, and the codes of any other remote can be learned and added. A networked IR box (IRTrans) is supported too, and several devices can share one box. The same test then runs on that device like on any other.",
+  "sources": [
+   "agent/devices/INFRARED.md",
+   "get-started/hardware.md"
+  ]
+ },
+ {
+  "group": "ir-remotes",
+  "lang": "fr",
+  "question": "Est-ce que ça fonctionne avec les télécommandes infrarouges ?",
+  "aliases": [
+   "Télécommandes IR",
+   "Supporte-t-il les télécommandes infrarouges",
+   "Peut-il piloter un décodeur avec une télécommande infrarouge",
+   "Prend-il en charge l'infrarouge",
+   "Peut-il envoyer des commandes IR",
+   "Commande infrarouge",
+   "Comment fonctionne le contrôle IR",
+   "Puis-je utiliser la télécommande de ma TV",
+   "Fonctionne-t-il avec les télécommandes infrarouges",
+   "Est-ce compatible avec les télécommandes IR",
+   "Compatible avec les télécommandes IR"
+  ],
+  "short": "Oui. Un émetteur infrarouge USB placé devant l'appareil rejoue le signal appris de la télécommande : on pilote ainsi décodeurs et TV à télécommande IR sans connaître le protocole IR.",
+  "long": "Oui. Un émetteur infrarouge USB (compatible lirc, par exemple USB IR Toy ou FLIRC, environ 15 à 30 €) placé devant un décodeur ou une TV envoie les touches. VirtualPyTest rejoue le signal appris sur la vraie télécommande, donc aucun protocole IR n'a besoin d'être connu ni encodé. Des tables de touches existent pour les décodeurs, les TV Samsung, Apple TV et Fire TV, et les codes de toute autre télécommande peuvent être appris et ajoutés. Un boîtier IR réseau (IRTrans) est aussi pris en charge, et plusieurs appareils peuvent partager un boîtier. Le même test s'exécute ensuite sur cet appareil comme sur n'importe quel autre.",
+  "sources": [
+   "agent/devices/INFRARED.md",
+   "get-started/hardware.md"
+  ]
+ },
+ {
+  "group": "fixnet",
+  "lang": "en",
+  "question": "What is Fixnet?",
+  "aliases": [
+   "How is Fixnet working",
+   "How does Fixnet work",
+   "Fixnet",
+   "What is Fixnet for",
+   "What does Fixnet do",
+   "Tell me about Fixnet",
+   "Explain Fixnet",
+   "How does the Fixnet test work",
+   "Can VirtualPyTest test phone lines",
+   "Can it test telephone calls"
+  ],
+  "short": "Fixnet tests telephone lines: a small PC with four USB voice modems, each acting as a phone on a line to a voice gateway. A test script places a call from one modem to another and checks that it rings, is answered and connects.",
+  "long": "Fixnet is how VirtualPyTest tests telephone lines. A small PC holds four USB voice modems. Each modem plugs into one phone line (RJ11) that goes to a port of a voice gateway, and the modem acts as the telephone: it takes the line, hears the dial tone, dials, and sees RING when someone calls that line. Four modems are four independent lines, so four calls can run at once, and each modem shows up as a device like a phone or a set-top box. The fixnet_call test script places a call from one modem to another through the gateways, checks that the called modem rings, makes it pick up, and checks that the call connects. The report has one step per phase (open, prepare, dial, ring, hang up). Monitoring uses an audio-only profile, since a telephone has no picture. Not covered yet: digits (DTMF) during a call and voice audio.",
+  "sources": [
+   "agent/devices/FIXNET_FX_MODEMS.md"
+  ]
+ },
+ {
+  "group": "fixnet",
+  "lang": "fr",
+  "question": "Qu'est-ce que Fixnet ?",
+  "aliases": [
+   "Comment fonctionne Fixnet",
+   "Comment marche Fixnet",
+   "Fixnet",
+   "À quoi sert Fixnet",
+   "Que fait Fixnet",
+   "Parle-moi de Fixnet",
+   "Expliquez Fixnet",
+   "Comment fonctionne le test Fixnet",
+   "VirtualPyTest peut-il tester des lignes téléphoniques",
+   "Peut-il tester des appels téléphoniques",
+   "C'est quoi Fixnet"
+  ],
+  "short": "Fixnet teste des lignes téléphoniques : un petit PC avec quatre modems vocaux USB, chacun jouant le rôle d'un téléphone sur une ligne vers une passerelle vocale. Un script place un appel d'un modem à un autre et vérifie qu'il sonne, est décroché et se connecte.",
+  "long": "Fixnet est la façon dont VirtualPyTest teste les lignes téléphoniques. Un petit PC porte quatre modems vocaux USB. Chaque modem est branché sur une ligne téléphonique (RJ11) reliée à un port d'une passerelle vocale, et le modem joue le rôle du téléphone : il prend la ligne, entend la tonalité, compose le numéro et voit RING quand quelqu'un appelle cette ligne. Quatre modems font quatre lignes indépendantes, donc quatre appels peuvent se dérouler en même temps, et chaque modem apparaît comme un appareil, comme un téléphone ou un décodeur. Le script de test fixnet_call place un appel d'un modem à un autre à travers les passerelles, vérifie que le modem appelé sonne, le fait décrocher, puis vérifie que l'appel se connecte. Le rapport contient une étape par phase (ouverture, préparation, numérotation, sonnerie, raccrochage). La surveillance utilise un profil audio seul, car un téléphone n'a pas d'image. Pas encore couvert : les chiffres (DTMF) pendant un appel et l'audio de la voix.",
+  "sources": [
+   "agent/devices/FIXNET_FX_MODEMS.md"
+  ]
+ },
+ {
+  "group": "getting-started",
+  "lang": "en",
+  "question": "How do I get started?",
+  "aliases": [
+   "What are the prerequisites",
+   "What do I need to get started",
+   "How do I install VirtualPyTest",
+   "How do I try VirtualPyTest",
+   "What hardware do I need",
+   "What do I need to run it"
+  ],
+  "short": "The quickest start is Docker: you need Docker and Docker Compose, and no device for a first look. The installer shows the web address when the platform is ready.",
+  "long": "The quickest start is Docker. You need Docker and Docker Compose, and no device for a first look; the installer shows the web address when the platform is ready. Each device type then needs its own access: Android needs ADB (USB or WiFi), iOS needs a Mac with Xcode and Appium, set-top boxes and TVs need an IR blaster or a network API, HDMI capture needs a USB capture card, and web needs Chrome or Firefox. For monitoring, the hardware is a Raspberry Pi 5 host with HDMI capture cards.",
+  "sources": [
+   "faq/README.md",
+   "get-started/README.md"
+  ],
+  "replaces_faq_heading": "What are the prerequisites?"
+ },
+ {
+  "group": "getting-started",
+  "lang": "fr",
+  "question": "Comment démarrer ?",
+  "aliases": [
+   "Quels sont les prérequis",
+   "De quoi ai-je besoin pour démarrer",
+   "Comment installer VirtualPyTest",
+   "Comment essayer VirtualPyTest",
+   "De quel matériel ai-je besoin",
+   "Que me faut-il pour l'utiliser"
+  ],
+  "short": "Le plus rapide est Docker : il faut Docker et Docker Compose, et aucun appareil pour un premier aperçu. L'installateur affiche l'adresse web quand la plateforme est prête.",
+  "long": "Le plus rapide est Docker. Il faut Docker et Docker Compose, et aucun appareil pour un premier aperçu ; l'installateur affiche l'adresse web quand la plateforme est prête. Chaque type d'appareil demande ensuite son propre accès : Android demande ADB (USB ou WiFi), iOS demande un Mac avec Xcode et Appium, les décodeurs et TV demandent un émetteur IR ou une API réseau, la capture HDMI demande une carte de capture USB, et le web demande Chrome ou Firefox. Pour la surveillance, le matériel est un hôte Raspberry Pi 5 avec des cartes de capture HDMI.",
+  "sources": [
+   "faq/README.md",
+   "get-started/README.md"
+  ]
+ },
+ {
+  "group": "navigation-tree",
+  "lang": "en",
+  "question": "What are navigation trees?",
+  "aliases": [
+   "What is a navigation tree",
+   "Explain navigation trees",
+   "How does navigation work",
+   "How does VirtualPyTest find its way between screens"
+  ],
+  "short": "A navigation tree is a map of the screens of an app or device and the actions between them. The pathfinder finds the route between any two screens.",
+  "long": "A navigation tree is a map of the screens of an app or device and the actions that lead from one to the next. The pathfinder uses it to find the route between any two screens. Each edge stores the way forward and the way back: the actions to go from A to B, and the actions to go from B to A. For example, from home you press OK to reach settings, and BACK returns to home.",
+  "sources": [
+   "faq/README.md"
+  ],
+  "replaces_faq_heading": "What is a navigation tree?"
+ },
+ {
+  "group": "navigation-tree",
+  "lang": "fr",
+  "question": "Que sont les arbres de navigation ?",
+  "aliases": [
+   "Qu'est-ce qu'un arbre de navigation",
+   "Expliquez les arbres de navigation",
+   "Comment fonctionne la navigation",
+   "Comment VirtualPyTest trouve son chemin entre les écrans"
+  ],
+  "short": "Un arbre de navigation est une carte des écrans d'une application ou d'un appareil et des actions entre eux. Le calcul d'itinéraire trouve le chemin entre deux écrans quelconques.",
+  "long": "Un arbre de navigation est une carte des écrans d'une application ou d'un appareil et des actions qui mènent de l'un à l'autre. Le calcul d'itinéraire l'utilise pour trouver le chemin entre deux écrans quelconques. Chaque lien enregistre l'aller et le retour : les actions pour aller de A à B, et celles pour aller de B à A. Par exemple, depuis l'accueil on appuie sur OK pour atteindre les réglages, et RETOUR revient à l'accueil.",
+  "sources": [
+   "faq/README.md"
+  ]
+ },
+ {
+  "group": "pricing",
+  "lang": "es",
+  "question": "¿Cuánto cuesta?",
+  "aliases": [
+   "¿Cuáles son los precios?",
+   "¿Es gratis?",
+   "¿Es de código abierto?",
+   "Precios"
+  ],
+  "short": "El software es gratuito y de código abierto (AGPL v3) y lo alojas tú mismo, sin tarifas de licencia, por dispositivo ni de uso. El hardware es un coste único: unos 420 € para un dispositivo y unos 480 € para hasta cuatro dispositivos en el mismo host.",
+  "long": "El software cuesta 0 €: es gratuito y de código abierto bajo la licencia GNU AGPL v3 y lo alojas tú mismo, sin planes de pago, tarifas de licencia, tarifas por dispositivo ni límites de uso. Si distribuyes una versión modificada o la ofreces como servicio, debes publicar tus cambios bajo la misma licencia. El hardware es un coste único: unos 420 € para un dispositivo (host Raspberry Pi 5 más tarjeta de captura HDMI), unos 480 € para hasta cuatro dispositivos en el mismo host y unos 7 € por cada tarjeta de captura adicional. Tu único coste recurrente es la electricidad, más el almacenamiento si conservas las grabaciones más de 24 horas (unos 7,5 GB por dispositivo y día).",
+  "sources": [
+   "faq/README.md",
+   "get-started/hardware.md"
+  ]
+ },
+ {
+  "group": "devices",
+  "lang": "es",
+  "question": "¿Qué dispositivos son compatibles?",
+  "aliases": [
+   "¿Qué dispositivos se admiten?",
+   "Dispositivos compatibles",
+   "¿Qué plataformas se admiten?"
+  ],
+  "short": "Casi cualquier dispositivo que pueda controlarse a distancia: teléfonos y tabletas Android e iOS, Android TV, Apple TV, Fire TV, televisores Samsung y LG, decodificadores (control IR o por red), navegadores web, aplicaciones de escritorio y cualquier cosa con salida HDMI.",
+  "long": "Casi cualquier dispositivo que pueda controlarse a distancia. Móvil: teléfonos y tabletas Android, iOS (iPhone, iPad). TV y streaming: Android TV, Apple TV, Fire TV, Smart TV (Samsung, LG). Decodificadores: cualquier equipo con control IR o por red. Web: cualquier navegador (Chrome, Firefox, Safari, Edge). Escritorio: aplicaciones de Windows, macOS y Linux. Dispositivos HDMI: cualquier equipo con salida HDMI y forma de controlarlo. Los métodos de control incluyen ADB (Android), Appium (iOS y Android), emisores IR (decodificadores, TV), API de red (Smart TV) y automatización de navegador (web).",
+  "sources": [
+   "faq/README.md"
+  ]
+ },
+ {
+  "group": "ir-remotes",
+  "lang": "es",
+  "question": "¿Funciona con mandos IR?",
+  "aliases": [
+   "¿Funciona con mandos a distancia infrarrojos?",
+   "¿Admite infrarrojos?",
+   "Mandos IR"
+  ],
+  "short": "Sí. Un emisor de infrarrojos USB situado frente al dispositivo reproduce la señal aprendida del mando, así que se pueden controlar decodificadores y TV con mando IR sin conocer el protocolo.",
+  "long": "Sí. Un emisor de infrarrojos USB (compatible con lirc, como USB IR Toy o FLIRC, de unos 15 a 30 €) colocado frente a un decodificador o una TV envía las pulsaciones. VirtualPyTest reproduce la señal aprendida del mando real, así que no hace falta conocer ni codificar ningún protocolo IR. Hay tablas de teclas para decodificadores, TV Samsung, Apple TV y Fire TV, y se pueden aprender y añadir los códigos de cualquier otro mando. También se admite una caja IR de red (IRTrans), y varios dispositivos pueden compartir una caja.",
+  "sources": [
+   "agent/devices/INFRARED.md",
+   "get-started/hardware.md"
+  ]
+ },
+ {
+  "group": "pricing",
+  "lang": "de",
+  "question": "Wie ist der Preis?",
+  "aliases": [
+   "Was kostet es?",
+   "Was kostet VirtualPyTest",
+   "Ist es kostenlos?",
+   "Ist es Open Source?",
+   "Preise"
+  ],
+  "short": "Die Software ist kostenlos und Open Source (AGPL v3) und wird von Ihnen selbst gehostet, ohne Lizenz-, Geräte- oder Nutzungsgebühren. Die Hardware ist eine einmalige Ausgabe: etwa 420 € für ein Gerät, etwa 480 € für bis zu vier Geräte an einem Host.",
+  "long": "Die Software kostet 0 €: Sie ist kostenlos und Open Source unter der GNU AGPL v3, Sie hosten sie selbst, ohne Bezahltarife, Lizenzgebühren, Gebühren pro Gerät oder Nutzungslimits. Wer eine geänderte Version weitergibt oder als Dienst anbietet, veröffentlicht die Änderungen unter derselben Lizenz. Die Hardware ist eine einmalige Ausgabe: etwa 420 € für ein Gerät (Raspberry-Pi-5-Host plus HDMI-Capture-Karte), etwa 480 € für bis zu vier Geräte am selben Host und etwa 7 € für jede weitere Capture-Karte. Laufende Kosten sind nur Strom und Speicher, wenn Aufnahmen länger als die üblichen 24 Stunden aufbewahrt werden (etwa 7,5 GB pro Gerät und Tag).",
+  "sources": [
+   "faq/README.md",
+   "get-started/hardware.md"
+  ]
+ },
+ {
+  "group": "devices",
+  "lang": "de",
+  "question": "Welche Geräte werden unterstützt?",
+  "aliases": [
+   "Welche Geräte unterstützt es",
+   "Unterstützte Geräte",
+   "Welche Plattformen werden unterstützt?"
+  ],
+  "short": "Fast jedes Gerät, das sich aus der Ferne steuern lässt: Android- und iOS-Smartphones und -Tablets, Android TV, Apple TV, Fire TV, Samsung- und LG-Fernseher, Set-Top-Boxen (IR- oder Netzwerksteuerung), Webbrowser, Desktop-Apps und alles mit HDMI-Ausgang.",
+  "long": "Fast jedes Gerät, das sich aus der Ferne steuern lässt. Mobil: Android-Smartphones und -Tablets, iOS (iPhone, iPad). TV und Streaming: Android TV, Apple TV, Fire TV, Smart-TVs (Samsung, LG). Set-Top-Boxen: jede Box mit IR- oder Netzwerksteuerung. Web: jeder Browser (Chrome, Firefox, Safari, Edge). Desktop: Windows-, macOS- und Linux-Anwendungen. HDMI-Geräte: jedes Gerät mit HDMI-Ausgang und einer Steuerungsmöglichkeit. Steuerungsarten sind ADB (Android), Appium (iOS und Android), IR-Sender (Set-Top-Boxen, TVs), Netzwerk-APIs (Smart-TVs) und Browser-Automatisierung (Web).",
+  "sources": [
+   "faq/README.md"
+  ]
+ },
+ {
+  "group": "ir-remotes",
+  "lang": "de",
+  "question": "Funktioniert es mit IR-Fernbedienungen?",
+  "aliases": [
+   "Unterstützt es Infrarot-Fernbedienungen?",
+   "Unterstützt es IR?",
+   "IR-Fernbedienungen"
+  ],
+  "short": "Ja. Ein USB-Infrarotsender vor dem Gerät spielt das gelernte Signal der Fernbedienung ab, so lassen sich Set-Top-Boxen und TVs mit IR-Fernbedienung steuern, ohne das IR-Protokoll zu kennen.",
+  "long": "Ja. Ein USB-Infrarotsender (lirc-kompatibel, etwa USB IR Toy oder FLIRC, ungefähr 15 bis 30 €) vor einer Set-Top-Box oder einem TV sendet die Tastendrücke. VirtualPyTest spielt das an der echten Fernbedienung gelernte Signal ab, daher muss kein IR-Protokoll bekannt sein oder kodiert werden. Tastentabellen gibt es für Set-Top-Boxen, Samsung-TVs, Apple TV und Fire TV, und die Codes jeder anderen Fernbedienung lassen sich lernen und hinzufügen. Auch eine Netzwerk-IR-Box (IRTrans) wird unterstützt, und mehrere Geräte können sich eine Box teilen.",
+  "sources": [
+   "agent/devices/INFRARED.md",
+   "get-started/hardware.md"
+  ]
+ },
+ {
+  "group": "pricing",
+  "lang": "zh",
+  "question": "它的定价如何？",
+  "aliases": [
+   "多少钱",
+   "价格是多少",
+   "是免费的吗",
+   "是开源的吗",
+   "费用"
+  ],
+  "short": "软件免费且开源（AGPL v3），由您自行托管，没有许可证费、按设备收费或使用限制。硬件为一次性成本：一台设备约 420 欧元，同一主机上最多四台设备约 480 欧元。",
+  "long": "软件价格为 0 欧元：它基于 GNU AGPL v3 免费开源，由您自行托管，没有付费套餐、许可证费、按设备收费或使用限制。如果您分发修改版本或将其作为服务提供，需要以相同许可证公开您的修改。硬件为一次性成本：一台设备（Raspberry Pi 5 主机加 HDMI 采集卡）约 420 欧元，同一主机上最多四台设备约 480 欧元，每增加一块采集卡约 7 欧元。持续成本只有电费，以及录像保存超过默认 24 小时后的存储费用（每台设备每天约 7.5 GB）。",
+  "sources": [
+   "faq/README.md",
+   "get-started/hardware.md"
+  ]
+ },
+ {
+  "group": "devices",
+  "lang": "zh",
+  "question": "支持哪些设备？",
+  "aliases": [
+   "支持什么设备",
+   "支持的设备",
+   "支持哪些平台"
+  ],
+  "short": "几乎所有可远程控制的设备：Android 和 iOS 手机与平板、Android TV、Apple TV、Fire TV、三星和 LG 智能电视、机顶盒（红外或网络控制）、网页浏览器、桌面应用，以及任何带 HDMI 输出的设备。",
+  "long": "几乎所有可以远程控制的设备。移动设备：Android 手机和平板、iOS（iPhone、iPad）。电视与流媒体：Android TV、Apple TV、Fire TV、智能电视（三星、LG）。机顶盒：任何支持红外或网络控制的机顶盒。网页：任何浏览器（Chrome、Firefox、Safari、Edge）。桌面：Windows、macOS 和 Linux 应用。HDMI 设备：任何带 HDMI 输出且可被控制的设备。控制方式包括 ADB（Android）、Appium（iOS 和 Android）、红外发射器（机顶盒、电视）、网络 API（智能电视）和浏览器自动化（网页）。",
+  "sources": [
+   "faq/README.md"
+  ]
+ },
+ {
+  "group": "ir-remotes",
+  "lang": "zh",
+  "question": "它可以与红外遥控器一起使用吗？",
+  "aliases": [
+   "支持红外遥控吗",
+   "支持红外吗",
+   "红外遥控器"
+  ],
+  "short": "可以。放在设备前的 USB 红外发射器会重放遥控器的学习信号，因此无需了解红外协议，就能控制使用红外遥控器的机顶盒和电视。",
+  "long": "可以。放在机顶盒或电视前的 USB 红外发射器（兼容 lirc，例如 USB IR Toy 或 FLIRC，约 15 至 30 欧元）负责发送按键。VirtualPyTest 重放从真实遥控器学习到的波形，因此不需要了解或编码任何红外协议。机顶盒、三星电视、Apple TV 和 Fire TV 都有按键表，其他遥控器的编码也可以学习并添加。同样支持网络红外盒（IRTrans），多台设备可以共用一个盒子。",
+  "sources": [
+   "agent/devices/INFRARED.md",
+   "get-started/hardware.md"
+  ]
+ },
+ {
+  "group": "pricing",
+  "lang": "hi",
+  "question": "इसकी कीमत कैसी है?",
+  "aliases": [
+   "कितना खर्च आता है",
+   "कीमत क्या है",
+   "क्या यह मुफ्त है",
+   "क्या यह ओपन सोर्स है",
+   "मूल्य"
+  ],
+  "short": "सॉफ़्टवेयर मुफ़्त और ओपन सोर्स (AGPL v3) है और आप इसे खुद होस्ट करते हैं, बिना लाइसेंस, प्रति-डिवाइस या उपयोग शुल्क के। हार्डवेयर एक बार का खर्च है: एक डिवाइस के लिए लगभग 420 €, एक होस्ट पर चार डिवाइस तक के लिए लगभग 480 €।",
+  "long": "सॉफ़्टवेयर की कीमत 0 € है: यह GNU AGPL v3 के तहत मुफ़्त और ओपन सोर्स है और आप इसे खुद होस्ट करते हैं, बिना किसी सशुल्क योजना, लाइसेंस शुल्क, प्रति-डिवाइस शुल्क या उपयोग सीमा के। यदि आप संशोधित संस्करण वितरित करते हैं या उसे सेवा के रूप में देते हैं, तो अपने बदलाव उसी लाइसेंस के तहत प्रकाशित करने होंगे। हार्डवेयर एक बार का खर्च है: एक डिवाइस (Raspberry Pi 5 होस्ट और HDMI कैप्चर कार्ड) के लिए लगभग 420 €, एक ही होस्ट पर चार डिवाइस तक के लिए लगभग 480 €, और हर अतिरिक्त कैप्चर कार्ड के लिए लगभग 7 €। आपका एकमात्र आवर्ती खर्च बिजली है, और यदि आप रिकॉर्डिंग डिफ़ॉल्ट 24 घंटे से अधिक रखते हैं तो स्टोरेज (प्रति डिवाइस प्रतिदिन लगभग 7.5 GB)।",
+  "sources": [
+   "faq/README.md",
+   "get-started/hardware.md"
+  ]
+ },
+ {
+  "group": "devices",
+  "lang": "hi",
+  "question": "कौन से उपकरण समर्थित हैं?",
+  "aliases": [
+   "कौन से डिवाइस समर्थित हैं",
+   "समर्थित उपकरण",
+   "कौन से प्लेटफ़ॉर्म समर्थित हैं"
+  ],
+  "short": "लगभग हर वह डिवाइस जिसे दूर से नियंत्रित किया जा सके: Android और iOS फ़ोन व टैबलेट, Android TV, Apple TV, Fire TV, Samsung और LG स्मार्ट टीवी, सेट-टॉप बॉक्स (IR या नेटवर्क नियंत्रण), वेब ब्राउज़र, डेस्कटॉप ऐप और HDMI आउटपुट वाला कोई भी डिवाइस।",
+  "long": "लगभग हर वह डिवाइस जिसे दूर से नियंत्रित किया जा सके। मोबाइल: Android फ़ोन और टैबलेट, iOS (iPhone, iPad)। टीवी और स्ट्रीमिंग: Android TV, Apple TV, Fire TV, स्मार्ट टीवी (Samsung, LG)। सेट-टॉप बॉक्स: IR या नेटवर्क नियंत्रण वाला कोई भी बॉक्स। वेब: कोई भी ब्राउज़र (Chrome, Firefox, Safari, Edge)। डेस्कटॉप: Windows, macOS और Linux ऐप। HDMI डिवाइस: HDMI आउटपुट वाला और नियंत्रित किया जा सकने वाला कोई भी डिवाइस। नियंत्रण के तरीकों में ADB (Android), Appium (iOS और Android), IR ब्लास्टर (सेट-टॉप बॉक्स, टीवी), नेटवर्क API (स्मार्ट टीवी) और ब्राउज़र ऑटोमेशन (वेब) शामिल हैं।",
+  "sources": [
+   "faq/README.md"
+  ]
+ },
+ {
+  "group": "ir-remotes",
+  "lang": "hi",
+  "question": "क्या यह आईआर रिमोट के साथ काम करता है?",
+  "aliases": [
+   "क्या यह इन्फ्रारेड रिमोट के साथ काम करता है",
+   "क्या यह IR को सपोर्ट करता है",
+   "आईआर रिमोट"
+  ],
+  "short": "हाँ। डिवाइस के सामने रखा USB इन्फ्रारेड ट्रांसमीटर रिमोट का सीखा हुआ सिग्नल दोहराता है, इसलिए IR प्रोटोकॉल जाने बिना IR रिमोट वाले सेट-टॉप बॉक्स और टीवी नियंत्रित किए जा सकते हैं।",
+  "long": "हाँ। सेट-टॉप बॉक्स या टीवी के सामने रखा USB इन्फ्रारेड ट्रांसमीटर (lirc-संगत, जैसे USB IR Toy या FLIRC, लगभग 15 से 30 €) कुंजी दबाने के सिग्नल भेजता है। VirtualPyTest असली रिमोट से सीखे गए सिग्नल को दोहराता है, इसलिए किसी IR प्रोटोकॉल को जानने या एनकोड करने की ज़रूरत नहीं। सेट-टॉप बॉक्स, Samsung टीवी, Apple TV और Fire TV के लिए की-मैप मौजूद हैं, और किसी भी अन्य रिमोट के कोड सीखकर जोड़े जा सकते हैं। नेटवर्क IR बॉक्स (IRTrans) भी समर्थित है, और कई डिवाइस एक बॉक्स साझा कर सकते हैं।",
+  "sources": [
+   "agent/devices/INFRARED.md",
+   "get-started/hardware.md"
+  ]
+ }
+]

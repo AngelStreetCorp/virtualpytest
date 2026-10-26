@@ -9,7 +9,7 @@ export const stbRemoteConfig = {
     button_scale_factor: 4,
     global_offset: { x: 0, y: 0 },
     text_style: {
-      fontSize: '32px',
+      fontSize: '32px', // ui-ok: no-literal-font-size - remote overlay text scales with the screenshot (remoteScale)
       fontWeight: 'bold',
       color: 'white',
       textShadow: '2px 2px 4px rgba(0,0,0,0.9)',
@@ -36,7 +36,7 @@ export const stbRemoteConfig = {
     showScreenshotInExpanded: true,
     header: {
       height: '40px',
-      fontSize: '0.875rem',
+      fontSize: '0.875rem', // ui-ok: no-literal-font-size - layout data, read by the remote/AV panel renderer
       fontWeight: 'bold',
       iconSize: 'small',
       padding: '8px',

@@ -138,6 +138,7 @@ def track_generation(
     user_id: Optional[str] = None,
     duration_ms: Optional[int] = None,
     routing: Optional[dict] = None,
+    trace_name: Optional[str] = None,
 ) -> Optional[str]:
     """
     Track an LLM generation call using Langfuse v2 SDK.
@@ -212,13 +213,14 @@ def track_generation(
         # Langfuse v2 SDK - create trace then add generation
         ctx = get_deployment_context()
         trace = langfuse.trace(
-            name=f"{agent_name} Call",
+            name=trace_name or f"{agent_name} Call",
             session_id=session_id,
             user_id=user_id,
             input=last_user_text,
             output=output_text,
             metadata={"agent": agent_name, **ctx},
-            tags=[ctx["branch"], ctx["server"]],
+            tags=[t for t in (ctx["branch"], ctx["server"],
+                              f"usage:{routing['usage']}" if (routing or {}).get("usage") else None) if t],
             release=ctx["release"],
         )
 

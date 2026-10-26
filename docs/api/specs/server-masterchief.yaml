@@ -212,6 +212,8 @@ components:
             - logs.services
             - service.status
             - service.restart
+            - host.disk_preview
+            - host.disk_cleanup
             - infra.summary
             - rollout.explain
             - deploy.status

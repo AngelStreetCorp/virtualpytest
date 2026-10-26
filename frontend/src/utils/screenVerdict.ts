@@ -51,7 +51,12 @@ export interface ScreenVerdict {
   overlay?: 'none' | 'popup' | 'tooltip' | 'keyboard' | 'notification' | 'unknown' | null;
   playback?: 'playing' | 'paused' | 'stopped' | 'not_applicable' | 'unknown' | null;
   error?: 'none' | 'visible' | 'unknown' | null;
+  /** Localize v3 verdict kind (TASK-104) — the same answer the Localize button and MCP give. */
+  kind?: LocalizeKind | null;
+  verdict?: { kind: LocalizeKind; label: string; node_id?: string | null; confidence?: number; evidence?: { named?: boolean; state?: string } | null } | null;
 }
+
+export type LocalizeKind = 'signal' | 'live' | 'node' | 'overlay' | 'known_screen' | 'app' | 'unknown';
 
 // Confident (green) iff conf >= this AND a single candidate remains — mirrors
 // avq_analyze.POS_CONF_GREEN so the backend timeline and the live label agree.
@@ -128,13 +133,35 @@ function _tier2Badges(v: ScreenVerdict): ScreenLabel[] {
   return badges;
 }
 
-export function formatScreenVerdict(v?: ScreenVerdict | null): ScreenLabel {
-  if (!v) return { text: '—', color: GREY }; // no data (Localize disabled / frame not loaded)
+/**
+ * A known_screen the backend could not name: evidence.named === false, no label, or (hosts that predate the flag,
+ * BUG-0663) the generic "Known screen (unknown, seen Nx)" text.
+ */
+export function isUnnamedKnownScreen(v?: { label?: string | null; evidence?: { named?: boolean } | null } | null): boolean {
+  return !v || !v.label || v.evidence?.named === false || /^Known screen \(unknown\b/i.test(v.label);
+}
+
+/** The registry's placeholder name `unknown_49` reads "Unnamed screen 49" (TASK-159); any other label is unchanged. */
+export function screenDisplayName(label: string): string {
+  const m = /^unknown_(\d+)$/.exec(label);
+  return m ? `Unnamed screen ${m[1]}` : label;
+}
+
+/** Returns null when Localize named nothing worth showing (owner 2026-10-19: unknown = show nothing). */
+export function formatScreenVerdict(v?: ScreenVerdict | null): ScreenLabel | null {
+  if (!v) return null; // no data (Localize disabled / frame not loaded)
   // Tier-2 priority arms first — the first one that fires owns the primary text,
   // and the rest (if any) drop into `badges`. State stays at the very top because
   // it is a capture-side reality, not a Tier-2 inference.
   const e = _t2(v.error);
   if (e) return { text: `Error: ${e}`, color: T2_ERROR, badges: _tier2Badges(v) };
+  // Localize v3 kinds that are not a node match read as the verdict's own label, exactly as the
+  // Localize button and the MCP tool name them ("Live video", "Popup over home", "Known screen …").
+  if (v.verdict && (v.kind === 'live' || v.kind === 'overlay' || v.kind === 'known_screen' || v.kind === 'app')) {
+    if (v.kind === 'known_screen' && isUnnamedKnownScreen(v.verdict)) return null;
+    const color = v.kind === 'overlay' ? T2_OVERLAY : v.kind === 'live' ? T2_PLAYBACK : T2_LOADED; // app and known_screen read dim
+    return { text: screenDisplayName(v.verdict.label), color, badges: _tier2Badges(v) };
+  }
   const o = _t2Overlay(v.overlay);
   if (o) return { text: `Overlay: ${o}`, color: T2_OVERLAY, badges: _tier2Badges(v) };
   const p = _t2Playback(v.playback);
@@ -142,7 +169,7 @@ export function formatScreenVerdict(v?: ScreenVerdict | null): ScreenLabel {
   const l = _t2Loaded(v.loaded);
   if (l) return { text: l, color: T2_LOADED, badges: _tier2Badges(v) };
   if (v.state) return { text: v.state_label || v.state, color: STATE_COLOR }; // No Signal / Black Screen
-  if (!v.node) return { text: 'unknown screen', color: GREY }; // ran, matched no node (e.g. full-screen promo)
+  if (!v.node) return null; // ran, matched no node (e.g. full-screen promo): show nothing
   const pct = Math.round((v.confidence ?? 0) * 100);
   const remaining = v.total ? v.total - (v.excluded ?? 0) : 0;
   // On a gate_skip frame the matcher did NOT measure this frame: confidence is 0
@@ -174,6 +201,7 @@ const ABSTAIN_DOOR_LABELS: Record<string, string> = {
   '4': 'title picked no screen',
   '5': 'closest nodes too far apart',
   '6': 'nearest match too weak',
+  '7': 'marked as not this screen',
   unknown: 'no recognizable screen',
 };
 

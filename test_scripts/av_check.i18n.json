@@ -1,0 +1,182 @@
+{
+  "🎯 [AV_CHECK] EXECUTION SUMMARY": {
+    "fr": "🎯 [AV_CHECK] RÉSUMÉ DE L'EXÉCUTION",
+    "de": "🎯 [AV_CHECK] AUSFÜHRUNGSZUSAMMENFASSUNG"
+  },
+  "📱 Device: {name} ({model})": {
+    "fr": "📱 Appareil : {name} ({model})",
+    "de": "📱 Gerät: {name} ({model})"
+  },
+  "📱 Device: Setup failed - no device selected": {
+    "fr": "📱 Appareil : Échec de la configuration - aucun appareil sélectionné",
+    "de": "📱 Gerät: Einrichtung fehlgeschlagen - kein Gerät ausgewählt"
+  },
+  "🖥️ Host: {name}": {
+    "fr": "🖥️ Hôte : {name}",
+    "de": "🖥️ Host: {name}"
+  },
+  "🖥️ Host: Setup failed - no host available": {
+    "fr": "🖥️ Hôte : Échec de la configuration - aucun hôte disponible",
+    "de": "🖥️ Host: Einrichtung fehlgeschlagen - kein Host verfügbar"
+  },
+  "📋 Interface: {name}": {
+    "fr": "📋 Interface : {name}",
+    "de": "📋 Oberfläche: {name}"
+  },
+  "🎭 Variant: {name}": {
+    "fr": "🎭 Variante : {name}",
+    "de": "🎭 Variante: {name}"
+  },
+  "🗺️ Target: {name}": {
+    "fr": "🗺️ Cible : {name}",
+    "de": "🗺️ Ziel: {name}"
+  },
+  "🧭 Navigation: {label}": {
+    "fr": "🧭 Navigation : {label}",
+    "de": "🧭 Navigation: {label}"
+  },
+  "⏱️ Watched: {seconds}s ({sampled} sampled seconds)": {
+    "fr": "⏱️ Observation : {seconds}s ({sampled} secondes échantillonnées)",
+    "de": "⏱️ Beobachtet: {seconds}s ({sampled} abgetastete Sekunden)"
+  },
+  "📺 Video: {label}": {
+    "fr": "📺 Vidéo : {label}",
+    "de": "📺 Video: {label}"
+  },
+  "🔊 Audio: {label}": {
+    "fr": "🔊 Audio : {label}",
+    "de": "🔊 Audio: {label}"
+  },
+  "🔇 Silence windows: {label}": {
+    "fr": "🔇 Fenêtres de silence : {label}",
+    "de": "🔇 Stillefenster: {label}"
+  },
+  "🖼️ Freeze/black windows: {label}": {
+    "fr": "🖼️ Fenêtres gelimage/noir : {label}",
+    "de": "🖼️ Freeze-/Schwarz-Fenster: {label}"
+  },
+  "📈 Motion present: {pct}": {
+    "fr": "📈 Mouvement présent : {pct}",
+    "de": "📈 Bewegung vorhanden: {pct}"
+  },
+  "📸 Screenshots: {count} captured": {
+    "fr": "📸 Captures d'écran : {count} prises",
+    "de": "📸 Screenshots: {count} aufgenommen"
+  },
+  "🎯 Result: SUCCESS": {
+    "fr": "🎯 Résultat : SUCCÈS",
+    "de": "🎯 Ergebnis: ERFOLGREICH"
+  },
+  "🎯 Result: FAILED": {
+    "fr": "🎯 Résultat : ÉCHEC",
+    "de": "🎯 Ergebnis: FEHLGESCHLAGEN"
+  },
+  "❌ Error: {message}": {
+    "fr": "❌ Erreur : {message}",
+    "de": "❌ Fehler: {message}"
+  },
+  "🎚️ AUDIO LEVEL PER SECOND": {
+    "fr": "🎚️ NIVEAU SONORE PAR SECONDE",
+    "de": "🎚️ TONPEGEL PRO SEKUNDE"
+  },
+  "AV check on {name}: video {video}, audio {audio}": {
+    "fr": "Contrôle AV sur {name} : vidéo {video}, audio {audio}",
+    "de": "AV-Prüfung auf {name}: Video {video}, Audio {audio}"
+  },
+  "video: no motion detected": {
+    "fr": "vidéo : aucun mouvement détecté",
+    "de": "Video: keine Bewegung erkannt"
+  },
+  "video: no signal from the device": {
+    "fr": "vidéo : aucun signal de l'appareil",
+    "de": "Video: kein Signal vom Gerät"
+  },
+  "Navigation skipped: {reason}": {
+    "fr": "Navigation ignorée : {reason}",
+    "de": "Navigation übersprungen: {reason}"
+  },
+  "video: freeze/black window longer than {max}s": {
+    "fr": "vidéo : fenêtre gelimage/noir plus longue que {max}s",
+    "de": "Video: Freeze-/Schwarz-Fenster länger als {max}s"
+  },
+  "audio: present for less than {min}% of the window": {
+    "fr": "audio : présent pendant moins de {min}% de la fenêtre",
+    "de": "Audio: weniger als {min}% des Zeitfensters vorhanden"
+  },
+  "AV check failed": {
+    "fr": "Échec du contrôle AV",
+    "de": "AV-Prüfung fehlgeschlagen"
+  },
+  "Navigation tree loading failed: {error}": {
+    "fr": "Échec du chargement de l'arbre de navigation : {error}",
+    "de": "Laden des Navigationsbaums fehlgeschlagen: {error}"
+  },
+  "Navigation failed": {
+    "fr": "Échec de la navigation",
+    "de": "Navigation fehlgeschlagen"
+  },
+  "🔈 Sound: {label}": {
+    "fr": "🔈 Son : {label}",
+    "de": "🔈 Ton: {label}"
+  },
+  "🔉 Volume: {label}": {
+    "fr": "🔉 Volume : {label}",
+    "de": "🔉 Lautstärke: {label}"
+  },
+  "the player was muted and was unmuted before the check": {
+    "fr": "le lecteur était en sourdine et a été remis en son avant le contrôle",
+    "de": "der Player war stummgeschaltet und wurde vor der Prüfung wieder eingeschaltet"
+  },
+  "the device is muted": {
+    "fr": "l'appareil est en sourdine",
+    "de": "das Gerät ist stummgeschaltet"
+  },
+  "the device is not muted": {
+    "fr": "l'appareil n'est pas en sourdine",
+    "de": "das Gerät ist nicht stummgeschaltet"
+  },
+  "this device does not report a mute state": {
+    "fr": "cet appareil n'indique pas son état de sourdine",
+    "de": "dieses Gerät meldet keinen Stummschaltzustand"
+  },
+  "raised to the maximum ({presses} x VOLUME_UP)": {
+    "fr": "monté au maximum ({presses} x VOLUME_UP)",
+    "de": "auf Maximum erhöht ({presses} x VOLUME_UP)"
+  },
+  "Second": {
+    "fr": "Seconde",
+    "de": "Sekunde"
+  },
+  "Level": {
+    "fr": "Niveau",
+    "de": "Pegel"
+  },
+  "Sound": {
+    "fr": "Son",
+    "de": "Ton"
+  },
+  "audio present": {
+    "fr": "audio présent",
+    "de": "Audio vorhanden"
+  },
+  "silent": {
+    "fr": "silencieux",
+    "de": "still"
+  },
+  "unknown": {
+    "fr": "inconnu",
+    "de": "unbekannt"
+  },
+  "audio: the device is muted": {
+    "fr": "audio : l'appareil est en sourdine",
+    "de": "Audio: das Gerät ist stummgeschaltet"
+  },
+  "audio: present for less than {min}% of the window (the device is not muted)": {
+    "fr": "audio : présent pendant moins de {min}% de la fenêtre (l'appareil n'est pas en sourdine)",
+    "de": "Audio: weniger als {min}% des Zeitfensters vorhanden (das Gerät ist nicht stummgeschaltet)"
+  },
+  "audio: present for less than {min}% of the window (the volume was raised to the maximum, the mute state is unknown)": {
+    "fr": "audio : présent pendant moins de {min}% de la fenêtre (le volume a été monté au maximum, l'état de sourdine est inconnu)",
+    "de": "Audio: weniger als {min}% des Zeitfensters vorhanden (die Lautstärke wurde auf Maximum erhöht, der Stummschaltzustand ist unbekannt)"
+  }
+}

@@ -5,7 +5,11 @@
 # (src/config/constants.ts) prefers that. This is what makes the image publishable —
 # one build serves any PUBLIC_HOST. Passing them at build time still works and is what
 # the native (non-container) install does.
-FROM node:22-alpine AS builder
+# Pinned to the first 22.x build carrying the CVE-2026-111497 fix (HTTP2Shell —
+# out-of-bounds write in the Brotli decoder Node vendors in node:zlib). The fix
+# is a cherry-pick, not a version bump, so `node:22-alpine` cannot be trusted
+# to mean "patched" and the patch level is pinned on purpose.
+FROM node:22.23.4-alpine AS builder
 
 ARG VITE_SERVER_URL=http://localhost:5109
 ARG VITE_GRAFANA_URL=http://localhost:3000
@@ -47,7 +51,9 @@ RUN chmod +x scripts/*.sh && mkdir -p public/docs
 RUN npm run build
 
 # Runtime stage — static files served by `serve` on 5073 (SPA fallback)
-FROM node:22-alpine
+# Same pinned Node as the builder: 22.23.4 is the first 22.x carrying the
+# CVE-2026-111497 fix (HTTP2Shell).
+FROM node:22.23.4-alpine
 
 # node:22-alpine already owns uid 1000 (user `node`); let adduser pick the uid
 RUN adduser -D vpt_user && npm install -g serve@14

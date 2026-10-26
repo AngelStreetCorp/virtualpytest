@@ -1,0 +1,31 @@
+[Unit]
+Description=VirtualPyTest auto-classify unknowns
+# Runs once a night; the .timer unit triggers it.  This unit only runs
+# the job itself; it does NOT loop.
+
+[Service]
+Type=oneshot
+# Run as the vpt_user so the path to the venv and the repo are the
+# same as everything else on the host.  The Team ID is read from the
+# env var so the operator does not have to edit the unit when working
+# across teams; default to the vpt_user's stored env if unset.
+User=vpt_user
+Group=vpt_user
+Environment=VIRTUALPYTEST_REPO=/opt/virtualpytest
+Environment=PYTHONPATH=/opt/virtualpytest
+Environment=VIRTUALPYTEST_TEAM_ID=
+ExecStart=/opt/virtualpytest/venv/bin/python3 \
+    /opt/virtualpytest/backend_server/scripts/auto_classify_unknowns.py \
+    --apply
+WorkingDirectory=/opt/virtualpytest
+# 10 min hard cap.  The picker limits to 100 candidates per cycle, and
+# each candidate is one vision.dom call, so a healthy run completes in
+# under 60 s.  The cap is generous: a noisy network or a slow LLM
+# response can stretch a cycle, and we want the next timer tick to be
+# free to start.
+TimeoutStartSec=600
+# Cgroup cleanup: the scheduler is one-shot, nothing to leave behind.
+RemainAfterExit=no
+
+[Install]
+WantedBy=multi-user.target

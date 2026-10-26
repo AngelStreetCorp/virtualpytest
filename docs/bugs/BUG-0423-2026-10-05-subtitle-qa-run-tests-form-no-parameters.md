@@ -9,7 +9,7 @@
 | Status    | Fixed                                                        |
 | Severity  | Low                                                          |
 | Area      | test_scripts / Run Tests parameter form                      |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | b3360ce34                                                    |
 
 ---

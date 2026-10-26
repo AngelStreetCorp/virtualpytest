@@ -110,15 +110,38 @@ and the three BUG-0089 shapes — executor early return, empty callback, malform
 callback. Pure unit tests, no server (`tests/backend_server/` skips without a
 reachable deployment).
 
-## Still open — a judgment call, not a defect
+## The skip stays — the legibility gap is now closed (2026-10-24)
 
 `resolve_virtual_script_libs` skips a `_script_libs` entry it cannot fetch with only a
 `print`. The run does NOT pass: the script hits `ImportError` and is recorded as a
-failure. The cost is diagnosability — a clear "library 'x' not found" becomes a
-confusing traceback. Making it raise would be a better error, but the skip is
-documented and deliberate ("missing libraries are skipped, not fatal — keeping
-resolution best-effort"), so flipping it could break a script that declares an
-optional library. Needs a product decision, not a patch.
+failure. The cost was diagnosability — a clear "library 'x' not found" became a
+confusing traceback, and a script that imported the library inside its body got a bare
+`ModuleNotFoundError: No module named 'x'` with no hint at all.
+
+The judgment call was made on 2026-10-24: **keep the skip** (flipping it could break a
+script that declares an optional library) and **make the failure legible**. Nothing about
+the verdict changed: a run whose script needs a library the platform could not fetch
+still FAILS, exactly as it did before. Only the message changed.
+
+That legibility work is done, in `shared/src/lib/executors/script_executor.py`:
+
+- `resolve_virtual_script_libs` takes a `missing` list and records the names it skipped
+  (`:115`, `:150`);
+- `describe_missing_library` / `missing_library_error_message` turn the child's output
+  into one message naming the libraries the platform could not find (`:172`, `:194`);
+- the names travel to the child in `VPT_MISSING_SCRIPT_LIBS` (`:165`, `:1755`), so the
+  in-body import path can name them too (`:3628`);
+- the startup-crash error names the library instead of blaming the author's file
+  (`:1443`), and the row's `error_msg` says it as well.
+
+The skip itself is deliberate and **stays**: a library the platform cannot fetch is
+still skipped, never fatal, and the line that records the skip is still printed. What
+changed is the message an author reads when their script trips on one of them — and a
+failure that is not about a skipped library keeps its own message, so a skip is never
+blamed for an unrelated failure.
+
+Tests: `tests/shared/test_missing_library_legibility.py` (the resolver still skips, the
+messages name the library, and an unrelated failure is not blamed on it).
 
 ## Follow-up 2026-09-15 — the warning over-reported
 

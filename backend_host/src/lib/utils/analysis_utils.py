@@ -45,6 +45,11 @@ def load_recent_analysis_data(device_id: str, timeframe_minutes: int = 5, max_co
                 'device_id': device_id
             }
         
+        from shared.src.lib.utils.monitor_profile import MONITORING_OFF_MESSAGE, monitoring_off
+        if monitoring_off(device_folder):   # tv_lite (TASK-95): no frame JSONs exist; say so instead of inventing placeholders
+            return {'success': False, 'error': MONITORING_OFF_MESSAGE, 'monitoring_off': True,
+                    'analysis_data': [], 'total': 0}
+
         capture_folder = get_capture_storage_path(device_folder, 'captures')
         metadata_folder = get_capture_storage_path(device_folder, 'metadata')
         
@@ -177,6 +182,11 @@ def load_recent_analysis_data_from_path(capture_path: str, timeframe_minutes: in
         # Extract device folder name from capture path
         device_folder = os.path.basename(capture_path)  # e.g., 'capture1'
         
+        from shared.src.lib.utils.monitor_profile import MONITORING_OFF_MESSAGE, monitoring_off
+        if monitoring_off(device_folder):   # tv_lite (TASK-95): no frame JSONs exist; say so instead of inventing placeholders
+            return {'success': False, 'error': MONITORING_OFF_MESSAGE, 'monitoring_off': True,
+                    'analysis_data': [], 'total': 0}
+
         capture_folder = get_capture_storage_path(device_folder, 'captures')
         metadata_folder = get_capture_storage_path(device_folder, 'metadata')
         

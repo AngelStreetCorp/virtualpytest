@@ -20,6 +20,9 @@ import ExecutionHistoryTable, {
 } from './ExecutionHistoryTable';
 import type { RerunPayload } from '../../types/common/Rerun_Types';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { dangerIconSx } from './PageChrome';
+import { LiveRunStatusCell } from './LiveRunDialog';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface ExecutionHistorySectionProps {
   title: string;
@@ -28,7 +31,9 @@ interface ExecutionHistorySectionProps {
   onOpenUrl: (url: string) => void;
   onRerun?: (payload: RerunPayload) => void;
   onAbort?: (row: ExecutionHistoryRow) => void;
+  liveRun?: React.ComponentProps<typeof ExecutionHistoryTable>['liveRun'];
   scriptColumnLabel?: string;
+  richColumns?: boolean;
   isCompact?: boolean;
   isTablet?: boolean;
   collapsible?: boolean;
@@ -51,7 +56,9 @@ const ExecutionHistorySection: React.FC<ExecutionHistorySectionProps> = ({
   onOpenUrl,
   onRerun,
   onAbort,
+  liveRun,
   scriptColumnLabel,
+  richColumns,
   isCompact = false,
   isTablet = false,
   collapsible = false,
@@ -66,7 +73,7 @@ const ExecutionHistorySection: React.FC<ExecutionHistorySectionProps> = ({
   tableSx,
 }) => {
   const P = useAgentChatPalette();
-  const titleSx = { fontSize: '1rem', fontWeight: 600 };
+  const titleSx = { fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600 };
   const content = rows.length === 0 ? (
     <Box
       sx={{
@@ -91,7 +98,11 @@ const ExecutionHistorySection: React.FC<ExecutionHistorySectionProps> = ({
                 {row.scriptLabel}
               </Typography>
               <Box sx={{ mt: 0.75, display: 'flex', gap: 0.5, flexWrap: 'wrap', alignItems: 'center' }}>
-                {getExecutionHistoryStatusChip(row)}
+                {liveRun && row.status === 'running' && row.liveKey ? (
+                  <LiveRunStatusCell row={row} progress={liveRun.getProgress(row)} onOpen={liveRun.onOpen}>
+                    {getExecutionHistoryStatusChip(row)}
+                  </LiveRunStatusCell>
+                ) : getExecutionHistoryStatusChip(row)}
                 {row.reportUrl ? (
                   <Chip
                     label="Report"
@@ -115,7 +126,7 @@ const ExecutionHistorySection: React.FC<ExecutionHistorySectionProps> = ({
                 ) : null}
                 {row.status === 'running' && row.abortPayload && onAbort ? (
                   <Tooltip title="Abort execution">
-                    <IconButton size="small" color="error" aria-label="Abort execution" onClick={() => onAbort(row)}>
+                    <IconButton size="small" aria-label="Abort execution" onClick={() => onAbort(row)} sx={dangerIconSx(P)}>
                       <AbortIcon fontSize="small" />
                     </IconButton>
                   </Tooltip>
@@ -141,7 +152,9 @@ const ExecutionHistorySection: React.FC<ExecutionHistorySectionProps> = ({
       onOpenUrl={onOpenUrl}
       onRerun={onRerun}
       onAbort={onAbort}
+      liveRun={liveRun}
       scriptColumnLabel={scriptColumnLabel}
+      richColumns={richColumns}
       headerCellSx={headerCellSx}
       bodyCellSx={bodyCellSx}
       renderHeaderExtra={renderHeaderExtra}

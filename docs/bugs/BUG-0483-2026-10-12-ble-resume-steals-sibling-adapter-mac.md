@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Critical                                                     |
 | Area      | backend_host (BLE remote: `resume.sh`, `hid_remote.py`)       |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---

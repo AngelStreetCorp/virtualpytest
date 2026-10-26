@@ -4,6 +4,8 @@ import {
   Route as RouteIcon,
   Error as ErrorIcon,
   CallSplit as CallSplitIcon,
+  ExpandLess as ExpandLessIcon,
+  ExpandMore as ExpandMoreIcon,
 } from '@mui/icons-material';
 import {
   Box,
@@ -26,13 +28,18 @@ import React, { useEffect, useMemo, useState } from 'react';
 
 import { useDeviceData } from '../../contexts/device/DeviceDataContext';
 import { useNavigation } from '../../contexts/navigation/NavigationContext';
+import { openHostUrl } from '../../utils/buildUrlUtils';
 import { useNode } from '../../hooks/navigation/useNode';
 import { useValidationColors } from '../../hooks/validation/useValidationColors';
 import type { EdgeMetricData, NodeMetricData } from '../../types/navigation/Metrics_Types';
 import { UINavigationNode } from '../../types/pages/Navigation_Types';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { useI18n } from '../../i18n/useI18n';
+import { AppIcon } from '../../constants/icons';
+import { primaryButtonSx } from '../common/PageChrome';
 import type { VerificationMode } from '../../utils/navigationExecutionUtils';
 import { getZIndex } from '../../utils/zIndexUtils';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 const VERIFICATION_MODE_LS_KEY = 'navigation.verificationMode';
 
@@ -111,7 +118,7 @@ const ActionSubList: React.FC<{ label?: string; actions: any[]; emptyText?: stri
                 display: 'flex',
                 alignItems: 'baseline',
                 fontFamily: 'monospace',
-                fontSize: '0.8rem',
+                fontSize: TYPOGRAPHY.body.size,
                 color: 'text.secondary',
                 mb: 0,
               }}
@@ -132,13 +139,13 @@ const ActionSubList: React.FC<{ label?: string; actions: any[]; emptyText?: stri
               </Box>
               <Box
                 component="span"
-                sx={{ flex: '0 0 7ch', color: 'text.disabled', fontSize: '0.72rem' }}
+                sx={{ flex: '0 0 7ch', color: 'text.disabled', fontSize: TYPOGRAPHY.caption.size }}
               >
                 {meta.iter}
               </Box>
               <Box
                 component="span"
-                sx={{ flex: '1 1 auto', color: 'text.disabled', fontSize: '0.72rem' }}
+                sx={{ flex: '1 1 auto', color: 'text.disabled', fontSize: TYPOGRAPHY.caption.size }}
               >
                 {meta.wait}
               </Box>
@@ -148,7 +155,7 @@ const ActionSubList: React.FC<{ label?: string; actions: any[]; emptyText?: stri
       ) : (
         <Typography
           variant="body2"
-          sx={{ fontSize: '0.8rem', color: 'text.secondary', fontStyle: 'italic' }}
+          sx={{ fontSize: TYPOGRAPHY.body.size, color: 'text.secondary', fontStyle: 'italic' }}
         >
           {emptyText}
         </Typography>
@@ -187,9 +194,62 @@ interface NodeGotoPanelProps {
    * subtree rather than the currently-displayed tree.
    */
   onGotoArrived?: (navigationPath: any[] | undefined, finalNodeId: string) => void;
+  /** Rendered inside another panel (Take Control overlay): no own frame, title, close or fixed size. */
+  embedded?: boolean;
+  /** Embedded only: rendered left of the Run button on the same row (the host's node picker). */
+  leading?: React.ReactNode;
 }
 
+// One step line in the compact view; click to reveal its actions.
+const CompactStep: React.FC<{ index: number; step: any }> = ({ index, step }) => {
+  const P = useAgentChatPalette();
+  const { t, tn } = useI18n();
+  const [open, setOpen] = useState(false);
+  const actions: any[] = step.actions ?? [];
+  return (
+    <Box sx={{ minWidth: 0 }}>
+      <Box
+        component="button"
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          width: '100%',
+          minWidth: 0,
+          background: 'none',
+          border: 0,
+          p: 0,
+          cursor: actions.length ? 'pointer' : 'default',
+          textAlign: 'left',
+          color: P.textSecondary,
+          fontSize: TYPOGRAPHY.caption.size,
+        }}
+      >
+        {open ? <ExpandLessIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} /> : <ExpandMoreIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />}
+        <Box component="span" sx={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          {index + 1}. {step.from_node_label || t('Start')} → {step.to_node_label || t('Target')} ·{' '}
+          {tn(actions.length, '{count} action', '{count} actions')}
+        </Box>
+      </Box>
+      {open &&
+        actions.map((action, i) => (
+          <Typography
+            key={i}
+            variant="caption"
+            noWrap
+            sx={{ display: 'block', ml: 2.5, fontFamily: 'monospace', fontSize: TYPOGRAPHY.caption.size, color: P.textMuted }}
+          >
+            {getActionDisplayText(action)}
+          </Typography>
+        ))}
+    </Box>
+  );
+};
+
 export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
+  embedded = false,
+  leading,
   selectedNode,
   nodes,
   treeId,
@@ -204,10 +264,15 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
   onGotoArrived,
 }) => {
   const P = useAgentChatPalette();
+  const { t, tn } = useI18n();
+  const [showSteps, setShowSteps] = useState(false);
   // Verification mode for this goto. Persisted to localStorage so the user's
   // choice sticks across sessions; the dropdown next to the Goto button lets
   // them flip it before clicking.
-  const [verificationMode, setVerificationMode] = useState<VerificationMode>(loadVerificationModeFromStorage);
+  // Embedded (Take Control) has no Verify control: it always verifies the destination only.
+  const [verificationMode, setVerificationMode] = useState<VerificationMode>(
+    embedded ? 'end' : loadVerificationModeFromStorage,
+  );
   const handleVerificationModeChange = (next: VerificationMode) => {
     setVerificationMode(next);
     try {
@@ -336,6 +401,248 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
     // Don't include nodeHook.navigationError or nodeHook.executionMessage in deps to prevent clearing them
   ]);
 
+  const verifyControl = (
+    <FormControl size="small" sx={{ minWidth: 110 }}>
+      <InputLabel
+        id="goto-verify-label"
+        sx={{ fontSize: TYPOGRAPHY.caption.size }}
+      >
+        Verify
+      </InputLabel>
+      <Select
+        labelId="goto-verify-label"
+        label="Verify"
+        value={verificationMode}
+        onChange={(e) => handleVerificationModeChange(e.target.value as VerificationMode)}
+        disabled={nodeHook.isExecuting}
+        sx={{
+          fontSize: TYPOGRAPHY.caption.size,
+          '& .MuiSelect-select': { py: 0.5 },
+        }}
+        title="When to run verify_node during the goto. End: only the destination. Each: every step. Auto: skip steps where confidence ≥ 0.7."
+      >
+        <MenuItem value="end" sx={{ fontSize: TYPOGRAPHY.caption.size }}>End only</MenuItem>
+        <MenuItem value="each" sx={{ fontSize: TYPOGRAPHY.caption.size }}>Each step</MenuItem>
+        <MenuItem value="auto" sx={{ fontSize: TYPOGRAPHY.caption.size }}>Auto</MenuItem>
+      </Select>
+    </FormControl>
+  );
+
+  const statusDisplay = (
+    <>
+        {nodeHook.isExecuting && (
+          <Box sx={{ mt: 1 }}>
+            <LinearProgress />
+          </Box>
+        )}
+
+        {/* Status Display */}
+        {nodeHook.navigationError && (
+          <Alert
+            severity="error"
+            variant={embedded ? 'outlined' : 'standard'}
+            icon={<ErrorIcon fontSize={embedded ? 'inherit' : undefined} />}
+            sx={
+              embedded
+                ? { mt: 0.5, py: 0, px: 1, fontSize: TYPOGRAPHY.caption.size, alignItems: 'center', wordBreak: 'break-word', '& .MuiAlert-icon': { fontSize: TYPOGRAPHY.navbarItem.size, py: 0.75, mr: 0.75 }, '& .MuiAlert-message': { py: 0.75, minWidth: 0, overflow: 'hidden' } }
+                : { mt: 0.5, fontSize: TYPOGRAPHY.body.size, color: 'error.main', backgroundColor: 'error.light', '& .MuiAlert-icon': { color: 'error.main' } }
+            }
+          >
+            <Typography variant="body2" sx={{ fontSize: embedded ? '0.75rem' : undefined, fontWeight: 'bold', mb: 0.5, color: embedded ? 'text.primary' : 'error.main', wordBreak: 'break-word' }}>
+              {nodeHook.navigationError}
+            </Typography>
+            {/* Failure reports. For a conditional step we surface the expected
+                target branch AND every sibling that was also checked, so the
+                user sees why each possible landing failed — not just one. */}
+            {nodeHook.verificationReports && nodeHook.verificationReports.length > 0 ? (
+              <Box sx={{ mt: 1 }}>
+                {nodeHook.verificationReports
+                  .filter((r) => r.debug_report_url)
+                  .map((r, i) => (
+                    <Typography key={i} variant={embedded ? 'caption' : 'body2'} sx={{ mt: 0.25, display: 'block', fontSize: embedded ? '0.7rem' : undefined }}> // ui-ok: no-literal-font-size - rem, follows the Size picker; icon-adjacent label
+                      <a
+                        href={r.debug_report_url}
+                        onClick={(e) => {
+                          e.preventDefault();
+                          void openHostUrl(r.debug_report_url as string);
+                        }}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        style={{ color: P.accentText, textDecoration: 'underline', fontWeight: 'bold' }}
+                      >
+                        <AppIcon name="search" /> View {r.kind === 'sibling' ? 'sibling' : 'target'} report
+                        {r.label ? ` — ${r.label}` : ''}
+                      </a>
+                    </Typography>
+                  ))}
+              </Box>
+            ) : (
+              nodeHook.debugReportUrl && (
+                <Typography variant={embedded ? 'caption' : 'body2'} sx={{ mt: 1, display: 'block', fontSize: embedded ? '0.7rem' : undefined }}> // ui-ok: no-literal-font-size - rem, follows the Size picker; icon-adjacent label
+                  <a
+                    href={nodeHook.debugReportUrl}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      void openHostUrl(nodeHook.debugReportUrl as string);
+                    }}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{ color: P.accentText, textDecoration: 'underline', fontWeight: 'bold' }}
+                  >
+                    <AppIcon name="search" /> View Debug Report
+                  </a>
+                </Typography>
+              )
+            )}
+          </Alert>
+        )}
+        {!nodeHook.navigationError && nodeHook.executionMessage && (
+          // Passed-but-arrived-on-a-conditional-sibling is shown as a warning
+          // (still a success, but the device is NOT on the requested node) so
+          // the user notices the divergence; a clean success stays green.
+          // While the run is still going the message is progress, never success:
+          // neutral info look with the running icon (UI_STYLE: running is never green).
+          <Alert
+            severity={nodeHook.isExecuting ? 'info' : nodeHook.arrivedOnSibling ? 'warning' : 'success'}
+            icon={nodeHook.isExecuting ? <AppIcon name="running" /> : undefined}
+            variant={embedded ? 'outlined' : 'standard'}
+            sx={
+              embedded
+                ? { mt: 0.5, py: 0, px: 1, fontSize: TYPOGRAPHY.caption.size, wordBreak: 'break-word', '& .MuiAlert-icon': { fontSize: TYPOGRAPHY.navbarItem.size, py: 0.75, mr: 0.75 }, '& .MuiAlert-message': { py: 0.75, minWidth: 0 } }
+                : { mt: 0.5, fontSize: TYPOGRAPHY.body.size }
+            }
+          >
+            <Typography variant="body2" sx={{ fontSize: embedded ? '0.75rem' : undefined, fontWeight: 'bold', mb: 0.5, wordBreak: 'break-word' }}>
+              {nodeHook.executionMessage}
+            </Typography>
+            {nodeHook.arrivedOnSibling && (
+              <Typography variant="body2" sx={{ fontSize: embedded ? '0.7rem' : undefined }}> // ui-ok: no-literal-font-size - rem, follows the Size picker; icon-adjacent label
+                Conditional edge resolved to sibling{' '}
+                <strong>{nodeHook.arrivedOnSibling.node_label}</strong> instead of{' '}
+                <strong>{nodeHook.arrivedOnSibling.requested_node_label}</strong>.
+              </Typography>
+            )}
+          </Alert>
+        )}
+    </>
+  );
+
+  if (embedded) {
+    const steps = (nodeHook.navigationTransitions ?? []).filter((tr: any) => !tr?.is_virtual) as any[];
+    const pathLabels: string[] = steps.length
+      ? [steps[0].from_node_label || t('Start'), steps[steps.length - 1].to_node_label || t('Target')]
+      : [selectedNode.data.label];
+    const etaKnown = eta.total > 0 && eta.measured === eta.total;
+    const atDestination = currentNodeId === selectedNode.id;
+    // A finished run (ok or failed) must leave Run enabled for an immediate re-run.
+    const hasResult = Boolean(nodeHook.navigationError || nodeHook.executionMessage);
+    const runDisabled =
+      nodeHook.isExecuting ||
+      nodeHook.isLoadingPreview ||
+      (atDestination && !hasResult) ||
+      steps.length === 0;
+    const summary = nodeHook.isLoadingPreview
+      ? t('Loading navigation steps...')
+      : steps.length === 0
+        ? atDestination
+          ? t('Already at destination')
+          : t('No navigation path available')
+        : '';
+    return (
+      <Box
+        sx={{ width: '100%', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 0.5 }}
+        onClick={(e) => e.stopPropagation()}
+      >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+          <Box sx={{ flex: '1 1 0', minWidth: 0, '& .MuiFormControl-root': { width: '100%' } }}>{leading}</Box>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={
+              nodeHook.isExecuting ? <CircularProgress size={14} color="inherit" /> : <PlayArrowIcon />
+            }
+            onClick={() => {
+              resetNavigationEdgeColors();
+              nodeHook.executeNavigation(selectedNode);
+            }}
+            disabled={runDisabled}
+            sx={{
+              ...(primaryButtonSx(P) as object),
+              alignSelf: 'stretch',
+              fontSize: TYPOGRAPHY.caption.size,
+              py: 0,
+              minWidth: 0,
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {nodeHook.isExecuting ? t('Executing...') : t('Run')}
+          </Button>
+        </Box>
+
+        <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 1, minWidth: 0 }}>
+          <Typography
+            variant="caption"
+            sx={{ color: P.textMuted, fontSize: TYPOGRAPHY.caption.size, flex: '1 1 0', minWidth: 0, wordBreak: 'break-word' }}
+          >
+            {summary || pathLabels.join(' → ')}
+            {conditionalInfo.hasConditional && (
+              <Tooltip
+                title={
+                  conditionalInfo.siblingLabels.length > 0
+                    ? t('Conditional path — could also land on: {nodes}', {
+                        nodes: conditionalInfo.siblingLabels.join(', '),
+                      })
+                    : t('Conditional path — the route shown is one of several possibilities')
+                }
+              >
+                <CallSplitIcon
+                  sx={{ fontSize: TYPOGRAPHY.navbarItem.size, color: 'warning.main', ml: 0.5, verticalAlign: 'middle' }}
+                />
+              </Tooltip>
+            )}
+          </Typography>
+          {steps.length > 0 && (
+            <Box sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}>
+              <Typography
+                component="button"
+                type="button"
+                variant="caption"
+                onClick={() => setShowSteps((v) => !v)}
+                sx={{
+                  background: 'none',
+                  border: 0,
+                  p: 0,
+                  cursor: 'pointer',
+                  color: P.accentText,
+                  fontSize: TYPOGRAPHY.caption.size,
+                  textDecoration: 'underline',
+                }}
+              >
+                {showSteps
+                  ? t('Hide steps')
+                  : tn(steps.length, 'Show steps ({count})', 'Show steps ({count})')}
+              </Typography>
+              {etaKnown && (
+                <Typography
+                  component="span"
+                  variant="caption"
+                  sx={{ color: P.textMuted, fontSize: TYPOGRAPHY.caption.size, ml: 0.75 }}
+                >
+                  · {t('ETA {seconds} s', { seconds: (eta.ms / 1000).toFixed(1) })}
+                </Typography>
+              )}
+            </Box>
+          )}
+        </Box>
+
+        {statusDisplay}
+
+        {showSteps && steps.map((tr, i) => <CompactStep key={i} index={i} step={tr} />)}
+      </Box>
+    );
+  }
+
   return (
     <Paper
       sx={{
@@ -353,7 +660,6 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
       }}
       onClick={(e) => e.stopPropagation()}
     >
-      {/* Header - Fixed at top */}
       <Box
         sx={{
           display: 'flex',
@@ -366,35 +672,12 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <RouteIcon color="primary" />
-          <Typography variant="h6" sx={{ margin: 0, fontSize: '1.1rem' }}>
+          <Typography variant="h6" sx={{ margin: 0, fontSize: TYPOGRAPHY.cardTitle.size }}>
             Go To Node
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <FormControl size="small" sx={{ minWidth: 110 }}>
-            <InputLabel
-              id="goto-verify-label"
-              sx={{ fontSize: '0.75rem' }}
-            >
-              Verify
-            </InputLabel>
-            <Select
-              labelId="goto-verify-label"
-              label="Verify"
-              value={verificationMode}
-              onChange={(e) => handleVerificationModeChange(e.target.value as VerificationMode)}
-              disabled={nodeHook.isExecuting}
-              sx={{
-                fontSize: '0.75rem',
-                '& .MuiSelect-select': { py: 0.5 },
-              }}
-              title="When to run verify_node during the goto. End: only the destination. Each: every step. Auto: skip steps where confidence ≥ 0.7."
-            >
-              <MenuItem value="end" sx={{ fontSize: '0.75rem' }}>End only</MenuItem>
-              <MenuItem value="each" sx={{ fontSize: '0.75rem' }}>Each step</MenuItem>
-              <MenuItem value="auto" sx={{ fontSize: '0.75rem' }}>Auto</MenuItem>
-            </Select>
-          </FormControl>
+          {verifyControl}
           <IconButton
             size="small"
             onClick={(e) => {
@@ -412,6 +695,7 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
       <Box
         sx={{
           flex: 1,
+          minWidth: 0,
           overflowY: 'auto',
           p: 1,
           pt: 1,
@@ -436,11 +720,11 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
           <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
             Target: {selectedNode.data.label}
           </Typography>
-          <Chip label={selectedNode.type} size="small" sx={{ fontSize: '0.75rem' }} />
+          <Chip label={selectedNode.type} size="small" sx={{ fontSize: TYPOGRAPHY.caption.size }} />
         </Box>
 
         <Box
-          sx={{ display: 'flex', gap: 2, mb: 0.5, fontSize: '0.875rem', color: 'text.secondary' }}
+          sx={{ display: 'flex', gap: 2, mb: 0.5, fontSize: TYPOGRAPHY.body.size, color: 'text.secondary' }}
         >
           <Typography variant="body2">
             <strong>Depth:</strong> {selectedNode.data.depth || 0}
@@ -483,12 +767,14 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
                 }
               >
                 <Chip
-                  icon={<CallSplitIcon sx={{ fontSize: '0.85rem !important' }} />}
+                  // ui-ok: no-literal-font-size — `!important` overrides MUI's Chip icon size;
+                  // the label is on TYPOGRAPHY.microMeta.size one line below.
+                  icon={<CallSplitIcon sx={{ fontSize: '0.85rem !important' }} />} // ui-ok: no-literal-font-size - rem, follows the Size picker; icon-adjacent label
                   label="alt paths"
                   size="small"
                   color="warning"
                   variant="outlined"
-                  sx={{ height: 20, fontSize: '0.65rem', '& .MuiChip-label': { px: 0.5 } }}
+                  sx={{ height: 20, fontSize: TYPOGRAPHY.microMeta.size, '& .MuiChip-label': { px: 0.5 } }}
                 />
               </Tooltip>
             )}
@@ -496,7 +782,7 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
           <Typography
             variant="caption"
             sx={{
-              fontSize: '0.7rem',
+              fontSize: TYPOGRAPHY.caption.size,
               fontWeight: 'bold',
               color: P.textMuted,
               padding: '2px 6px',
@@ -558,7 +844,7 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.5 }}>
                         <Typography
                           variant="subtitle2"
-                          sx={{ fontWeight: 'bold', fontSize: '0.875rem' }}
+                          sx={{ fontWeight: 'bold', fontSize: TYPOGRAPHY.body.size }}
                         >
                           {index + 1}.{' '}
                           {transitionData.from_node_label || 'Start'} →{' '}
@@ -574,7 +860,7 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
                             }
                           >
                             <CallSplitIcon
-                              sx={{ fontSize: '0.9rem', color: 'warning.main' }}
+                              sx={{ fontSize: TYPOGRAPHY.navbarItem.size, color: 'warning.main' }}
                             />
                           </Tooltip>
                         )}
@@ -596,7 +882,7 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
                               variant="outlined"
                               sx={{
                                 height: 18,
-                                fontSize: '0.6rem',
+                                fontSize: TYPOGRAPHY.microMeta.size,
                                 color: P.textSecondary,
                                 borderColor: P.borderColor,
                                 '& .MuiChip-label': { px: 0.5 }
@@ -672,7 +958,7 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
                     >
                       <Typography
                         variant="subtitle2"
-                        sx={{ fontWeight: 'bold', mb: 0, fontSize: '0.875rem' }}
+                        sx={{ fontWeight: 'bold', mb: 0, fontSize: TYPOGRAPHY.body.size }}
                       >
                         {index + 1}. {verification.command || 'Unnamed Verification'}
                         {value && (
@@ -728,104 +1014,23 @@ export const NodeGotoPanel: React.FC<NodeGotoPanelProps> = ({
           disabled={
             nodeHook.isExecuting ||
             nodeHook.isLoadingPreview ||
-            currentNodeId === selectedNode.id || // Disable if already at destination
+            (currentNodeId === selectedNode.id && !(nodeHook.navigationError || nodeHook.executionMessage)) ||
             !nodeHook.navigationTransitions ||
-            nodeHook.navigationTransitions.length === 0 ||
-            nodeHook.navigationError !== null
+            nodeHook.navigationTransitions.length === 0
             // ✅ REMOVED: Don't check for empty actions - conditional edges may have empty default actions
             // The backend pathfinding ensures only valid paths are returned
           }
           fullWidth
-          sx={{ fontSize: '0.875rem' }}
+          sx={{ fontSize: TYPOGRAPHY.body.size }}
         >
           {nodeHook.isExecuting
             ? 'Executing...'
-            : currentNodeId === selectedNode.id
+            : currentNodeId === selectedNode.id && !(nodeHook.navigationError || nodeHook.executionMessage)
               ? 'Already at destination'
               : 'Run'}
         </Button>
 
-        {nodeHook.isExecuting && (
-          <Box sx={{ mt: 1 }}>
-            <LinearProgress />
-          </Box>
-        )}
-
-        {/* Status Display */}
-        {nodeHook.navigationError && (
-          <Alert
-            severity="error"
-            icon={<ErrorIcon />}
-            sx={{
-              mt: 0.5,
-              fontSize: '0.875rem',
-              color: 'error.main',
-              backgroundColor: 'error.light',
-              '& .MuiAlert-icon': {
-                color: 'error.main',
-              },
-            }}
-          >
-            <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.5, color: 'error.main' }}>
-              {nodeHook.navigationError}
-            </Typography>
-            {/* Failure reports. For a conditional step we surface the expected
-                target branch AND every sibling that was also checked, so the
-                user sees why each possible landing failed — not just one. */}
-            {nodeHook.verificationReports && nodeHook.verificationReports.length > 0 ? (
-              <Box sx={{ mt: 1 }}>
-                {nodeHook.verificationReports
-                  .filter((r) => r.debug_report_url)
-                  .map((r, i) => (
-                    <Typography key={i} variant="body2" sx={{ mt: 0.25 }}>
-                      <a
-                        href={r.debug_report_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        style={{ color: P.accentText, textDecoration: 'underline', fontWeight: 'bold' }}
-                      >
-                        🔍 View {r.kind === 'sibling' ? 'sibling' : 'target'} report
-                        {r.label ? ` — ${r.label}` : ''}
-                      </a>
-                    </Typography>
-                  ))}
-              </Box>
-            ) : (
-              nodeHook.debugReportUrl && (
-                <Typography variant="body2" sx={{ mt: 1 }}>
-                  <a
-                    href={nodeHook.debugReportUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    style={{ color: P.accentText, textDecoration: 'underline', fontWeight: 'bold' }}
-                  >
-                    🔍 View Debug Report
-                  </a>
-                </Typography>
-              )
-            )}
-          </Alert>
-        )}
-        {!nodeHook.navigationError && nodeHook.executionMessage && (
-          // Passed-but-arrived-on-a-conditional-sibling is shown as a warning
-          // (still a success, but the device is NOT on the requested node) so
-          // the user notices the divergence; a clean success stays green.
-          <Alert
-            severity={nodeHook.arrivedOnSibling ? 'warning' : 'success'}
-            sx={{ mt: 0.5, fontSize: '0.875rem' }}
-          >
-            <Typography variant="body2" sx={{ fontWeight: 'bold', mb: 0.5 }}>
-              {nodeHook.executionMessage}
-            </Typography>
-            {nodeHook.arrivedOnSibling && (
-              <Typography variant="body2">
-                Conditional edge resolved to sibling{' '}
-                <strong>{nodeHook.arrivedOnSibling.node_label}</strong> instead of{' '}
-                <strong>{nodeHook.arrivedOnSibling.requested_node_label}</strong>.
-              </Typography>
-            )}
-          </Alert>
-        )}
+        {statusDisplay}
       </Box>
     </Paper>
   );

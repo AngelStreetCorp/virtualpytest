@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — a built tree silently lacked its verifications      |
 | Area      | `backend_server/src/mcp/tools/tree_tools.py`, `backend_server/src/mcp/utils/api_client.py` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `e3d7e6b63`                                                  |
 
 ---

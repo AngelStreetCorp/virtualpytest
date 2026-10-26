@@ -632,6 +632,18 @@ export const useUserInterface = () => {
    * Publish a dev user interface to prod (create or in-place-update its prod
    * snapshot). Clears the module caches so the prod row appears immediately.
    */
+  /** Does dev hold changes newer than the last publish? (TASK-173) */
+  const getDraftStatus = useMemo(
+    () =>
+      async (devInterfaceId: string): Promise<boolean> => {
+        const result = await api.get(
+          buildServerUrl(`/server/userinterface/${devInterfaceId}/draft-status`),
+        );
+        return !!(result.success && result.draft);
+      },
+    [],
+  );
+
   const publishUserInterface = useMemo(
     () =>
       async (userInterface: UserInterface): Promise<{
@@ -800,6 +812,7 @@ export const useUserInterface = () => {
     deleteUserInterface,
     duplicateUserInterface,
     publishUserInterface,
+    getDraftStatus,
     exportUserInterface,
     importUserInterface,
     createEmptyNavigationConfig,

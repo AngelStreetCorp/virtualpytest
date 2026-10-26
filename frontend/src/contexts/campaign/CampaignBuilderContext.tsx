@@ -25,6 +25,7 @@ import { testcaseScriptConfigToBlockIO } from '../../utils/testcase/scriptInputU
 import { addEdge, Connection, applyNodeChanges, applyEdgeChanges, NodeChange, EdgeChange } from 'reactflow';
 import { useExecutionState } from '../../hooks/testcase/useExecutionState';
 import { useUserSession } from '../../hooks/useUserSession';
+import { useHostScopedUrl } from '../../hooks/allServer/useRowServerUrl';
 import { DEFAULT_TERMINAL_POSITIONS } from '../../constants/builderDefaults';
 
 interface CampaignBuilderContextValue {
@@ -133,6 +134,7 @@ const createInitialGraph = (): CampaignGraph => ({
 
 export const CampaignBuilderProvider: React.FC<CampaignBuilderProviderProps> = ({ children }) => {
   const { userId } = useUserSession();
+  const hostScopedUrl = useHostScopedUrl();
   const [state, setState] = useState<CampaignBuilderState>({
     graph: createInitialGraph(),
   });
@@ -759,7 +761,7 @@ export const CampaignBuilderProvider: React.FC<CampaignBuilderProviderProps> = (
 
     try {
       // Execute campaign using the same API as useCampaign hook
-      const response = await fetch(buildServerUrl('/server/campaigns/execute'), {
+      const response = await fetch(hostScopedUrl(hostName, '/server/campaigns/execute'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -837,7 +839,7 @@ export const CampaignBuilderProvider: React.FC<CampaignBuilderProviderProps> = (
         error: error instanceof Error ? error.message : 'Failed to start campaign execution',
       });
     }
-  }, [state, nodes, unifiedExecution]);
+  }, [state, nodes, unifiedExecution, hostScopedUrl]);
 
   // Execute individual block
   const executeBlock = useCallback(async (blockId: string, hostName: string, deviceId: string, userinterfaceName: string) => {
@@ -886,7 +888,7 @@ export const CampaignBuilderProvider: React.FC<CampaignBuilderProviderProps> = (
         // Use the actual testcase graph data
         const testCaseGraph = testcase.graph_json;
 
-        const response = await fetch(buildServerUrl('/server/testcase/execute'), {
+        const response = await fetch(hostScopedUrl(hostName, '/server/testcase/execute'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -935,7 +937,7 @@ export const CampaignBuilderProvider: React.FC<CampaignBuilderProviderProps> = (
 
         const scriptNameForRequest = blockToExecute.data.executableName || blockToExecute.data.label;
         const scriptIdentity = getScriptIdentity(scriptNameForRequest);
-        const response = await fetch(buildServerUrl('/server/script/execute'), {
+        const response = await fetch(hostScopedUrl(hostName, '/server/script/execute'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -991,7 +993,7 @@ export const CampaignBuilderProvider: React.FC<CampaignBuilderProviderProps> = (
 
       throw error; // Re-throw for CampaignBlock to handle
     }
-  }, [nodes, unifiedExecution, userId]);
+  }, [nodes, unifiedExecution, userId, hostScopedUrl]);
 
   // Computed execution state
   const isExecuting = unifiedExecution.state.isExecuting;

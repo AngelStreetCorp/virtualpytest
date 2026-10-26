@@ -12,6 +12,7 @@ import { useTestCaseBuilder } from '../../../contexts/testcase/TestCaseBuilderCo
 import { BlockExecutionState } from '../../../hooks/testcase/useExecutionState';
 import { OutputDisplay } from './OutputDisplay';
 import { buildServerUrl } from '../../../utils/buildUrlUtils';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 /**
  * ApiCallBlock - Compact block for API calls
@@ -119,11 +120,11 @@ export const ApiCallBlock: React.FC<NodeProps & {
           }
           
           setAnimateHandle('success');
-          showSuccess(`✓ ${method} ${path_preview} → ${apiResult.statusCode} (${duration}ms)`);
+          showSuccess(`${method} ${path_preview} → ${apiResult.statusCode} (${duration}ms)`);
           setTimeout(() => setAnimateHandle(null), 2000);
         } else {
           setAnimateHandle('failure');
-          showError(`✗ ${method} ${path_preview}\n${apiResult.error || 'Request failed'}`);
+          showError(`${method} ${path_preview}\n${apiResult.error || 'Request failed'}`);
           setTimeout(() => setAnimateHandle(null), 2000);
         }
       } else {
@@ -133,7 +134,7 @@ export const ApiCallBlock: React.FC<NodeProps & {
       const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
       setAnimateHandle('failure');
-      showError(`✗ API call failed (${duration}ms)\n${errorMessage}`);
+      showError(`API call failed (${duration}ms)\n${errorMessage}`);
       setTimeout(() => setAnimateHandle(null), 2000);
     } finally {
       setIsExecuting(false);
@@ -238,7 +239,7 @@ export const ApiCallBlock: React.FC<NodeProps & {
             justifyContent: 'center',
             color: 'white',
             fontWeight: 'bold',
-            fontSize: 16,
+            fontSize: TYPOGRAPHY.navbarItem.size,
             cursor: 'pointer',
             boxShadow: isActive ? `0 0 20px ${handleColor}` : 'none',
             transition: 'all 0.3s ease',
@@ -274,7 +275,7 @@ export const ApiCallBlock: React.FC<NodeProps & {
         border: selected ? `3px solid ${P.accent}` : '2px solid #06b6d4', // cyan for API blocks
         ...getExecutionStyling(),
         borderRadius: 2,
-        background: P.surface,
+        background: P.surfaceSolid,
         boxShadow: 2,
         cursor: 'pointer',
         opacity: dragging ? 0.5 : 1,
@@ -299,7 +300,7 @@ export const ApiCallBlock: React.FC<NodeProps & {
             borderRadius: 1,
             px: 1,
             py: 0.5,
-            fontSize: 18,
+            fontSize: TYPOGRAPHY.cardTitle.size,
             fontWeight: 'bold',
             fontFamily: 'monospace',
           }}
@@ -320,11 +321,11 @@ export const ApiCallBlock: React.FC<NodeProps & {
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
-          <PublicIcon sx={{ color: 'white', fontSize: 20 }} />
+          <PublicIcon sx={{ color: 'white', fontSize: TYPOGRAPHY.pageSubtitle.size }} />
           <Typography 
             color="white" 
             fontWeight="bold" 
-            fontSize={16}
+            fontSize="1rem"
             sx={{ 
               flex: 1,
               overflow: 'hidden',
@@ -382,14 +383,14 @@ export const ApiCallBlock: React.FC<NodeProps & {
                 color={getMethodColor(method)}
                 sx={{ 
                   fontFamily: 'monospace', 
-                  fontSize: '0.7rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   fontWeight: 600,
                   minWidth: 50,
                   height: 22
                 }}
               />
               <Typography 
-                fontSize={13} 
+                fontSize="0.8125rem" 
                 fontFamily="monospace"
                 sx={{ 
                   overflow: 'hidden',
@@ -408,7 +409,7 @@ export const ApiCallBlock: React.FC<NodeProps & {
                 label={environmentName}
                 size="small"
                 variant="outlined"
-                sx={{ fontSize: '0.65rem', height: 20, mb: 1 }}
+                sx={{ fontSize: TYPOGRAPHY.microMeta.size, height: 20, mb: 1 }}
               />
             )}
             
@@ -422,7 +423,7 @@ export const ApiCallBlock: React.FC<NodeProps & {
             />
           </>
         ) : (
-          <Typography fontSize={12} color="text.secondary">
+          <Typography fontSize="0.75rem" color="text.secondary">
             Click edit icon to configure API call
           </Typography>
         )}

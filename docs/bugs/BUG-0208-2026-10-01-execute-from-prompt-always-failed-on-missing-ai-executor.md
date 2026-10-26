@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — an API route that never worked; no current UI calls it |
 | Area      | `backend_host/src/routes/host_testcase_routes.py` · `backend_server/src/routes/server_testcase_routes.py` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

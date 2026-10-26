@@ -2,55 +2,70 @@
 
 ## Overview
 
-The Slack integration allows you to sync AI Agent conversations from VirtualPyTest to your Slack workspace. Each conversation becomes a separate thread in a designated Slack channel, allowing your team to follow along with agent activities in real-time.
+This copies your AI agent conversations into a Slack channel, one thread per conversation. It is one way only: nothing comes back from Slack.
 
-## Features
+<div data-technical>
 
-- ✅ **One-way sync** (VirtualPyTest → Slack)
-- ✅ **Thread per conversation** (organized and searchable)
-- ✅ **Agent nicknames** displayed in messages
-- ✅ **Clean message format** (no tool calls/thinking by default)
-- ✅ **No changes to AgentChat UI** (silent background sync)
+AgentChat is unchanged; the copy runs in the background. One thread per conversation, agent names in each message. Tool calls and the agent's thinking are left out by default.
 
-## Prerequisites
+</div>
 
-⚠️ **Important**: You must create a Slack app to get authentication credentials. There is no way to integrate without this step (similar to how JIRA requires an API token).
+<div data-technical>
+
+- One thread per conversation, so threads are easy to find and search.
+- Agent names appear in each message.
+- Short messages: tool calls and the agent's thinking are left out by default.
+
+</div>
+
+## Before you start
+
+You need a Slack app first. Slack only lets you in with a credential you create there.
 
 ## Setup Steps
 
-### 1. Create Slack App
+### 1. Create a Slack app
 
-1. Go to [https://api.slack.com/apps](https://api.slack.com/apps)
-2. Click **"Create New App"** → **"From scratch"**
-3. Name your app: `VirtualPyTest AI` (or any name)
-4. Select your workspace
-5. Click **"Create App"**
+1. Go to [https://api.slack.com/apps](https://api.slack.com/apps) and click **"Create New App"**, then **"From scratch"**.
+2. Name it `VirtualPyTest AI` and choose your workspace.
 
-### 2. Configure Bot Permissions
+<div data-technical>
 
-1. In your app settings, click **"OAuth & Permissions"** in the left sidebar
-   - ⚠️ **Common mistake**: Don't use "Basic Information" - that shows App ID/Client ID which are NOT what we need!
-2. Scroll down to **"Scopes"** section
-3. Under **"Bot Token Scopes"**, click **"Add an OAuth Scope"** and add:
-   - `chat:write` - Post messages to channels
-   - `channels:read` - View channel list
-   - `channels:history` - Read channel history (optional)
+Use the "From scratch" option. Any name works.
 
-### 3. Install App to Workspace
+</div>
 
-1. After adding scopes, scroll back to the top of **"OAuth & Permissions"** page
-2. Click **"Install to Workspace"** button
-3. Review permissions and click **"Allow"**
-4. You'll be redirected back to the OAuth & Permissions page
+### 2. Set the bot permissions
 
-### 4. Copy Bot Token
+1. Open **"OAuth & Permissions"** in the left sidebar. Do not use "Basic Information".
+2. Under **"Bot Token Scopes"**, add the three permissions below.
 
-1. On the **"OAuth & Permissions"** page, look for **"OAuth Tokens for Your Workspace"** section at the top
-2. Copy the **Bot User OAuth Token** (starts with `xoxb-...`)
-   - ⚠️ **This is what you need** - NOT the App ID or Client Secret!
-   - ⚠️ Keep this token secret!
+<div data-technical>
 
-**What you're looking for:**
+- `chat:write`: post messages to channels
+- `channels:read`: see the channel list
+- `channels:history`: read channel history (optional)
+
+</div>
+
+### 3. Install the app to your workspace
+
+Click **"Install to Workspace"** at the top of the page, then **"Allow"**.
+
+### 4. Copy the bot token
+
+Copy the **Bot User OAuth Token** under **"OAuth Tokens for Your Workspace"**. It starts with `xoxb-`. Keep it secret. The App ID and Client ID are not the token.
+
+<div data-technical>
+
+Do not copy the App ID, Client ID or Client Secret from "Basic Information". Use the token from "Bot User OAuth Token" only; other tokens will not work.
+
+</div>
+
+<div data-technical>
+
+You will see a section like this on the page:
+
 ```
 OAuth Tokens for Your Workspace
 
@@ -59,48 +74,57 @@ xoxb-YOUR-BOT-TOKEN-WILL-BE-HERE
 [Show] [Copy]
 ```
 
-**What NOT to use:**
-- ❌ App ID (found in "Basic Information")
-- ❌ Client ID (found in "Basic Information")
-- ❌ Client Secret (found in "Basic Information")
-- ✅ Bot User OAuth Token (found in "OAuth & Permissions")
+</div>
 
-### 5. Create/Select Channel
+### 5. Create or choose a channel
 
-1. In Slack, create a new channel: `#virtualpytest-ai`
-2. Open channel details (click channel name)
-3. Scroll down and copy the **Channel ID** (e.g., `C1234567890`)
-   - Look for "Channel ID" in the "About" section
+Create a channel, for example `#virtualpytest-ai`. Open its details and copy the **Channel ID** from the "About" section.
 
-### 6. Invite Bot to Channel
+<div data-technical>
 
-In your Slack channel, type:
+Channel ID format: `C1234567890`. Channel name example: `#virtualpytest-ai`.
+
+</div>
+
+### 6. Invite the bot to the channel
+
+In the channel, type this so the bot can post:
+
+<div data-technical>
+
 ```
 /invite @VirtualPyTest AI
 ```
 
-### 7. Configure in VirtualPyTest
+</div>
 
-1. Navigate to **Plugins → Slack** in VirtualPyTest UI
-2. Enter your **Bot Token** (the `xoxb-...` token from step 4)
-3. Enter your **Channel ID** (from step 5)
-4. Click **"Test Connection"** to verify credentials
-5. Toggle **"Enable Integration"** to ON
-6. Click **"Save Configuration"**
-   - This creates `~/.config/virtualpytest/slack_config.json` (outside the project tree)
-7. Click **"Send Test Message"** to verify it works
+### 7. Set it up in VirtualPyTest
 
-**Authentication Flow:**
+1. Open **Plugins → Slack** in VirtualPyTest.
+2. Paste the bot token and the Channel ID.
+3. Click **"Test Connection"**, turn **"Enable Integration"** on, then click **"Save Configuration"**.
+4. Click **"Send Test Message"** to check it works.
+
+The settings are saved on the server, so a deploy does not erase them.
+
+<div data-technical>
+
+No environment variables are needed for Slack. The Enable Integration toggle appears after you save the credentials.
+
+</div>
+
+<div data-technical>
+
+Saving creates `~/.config/virtualpytest/slack_config.json`, outside the project tree.
+
+The token goes from Slack, into VirtualPyTest, and then to the server, which uses it for every Slack call:
+
 ```
 You create Slack app → Get bot token → Paste in VirtualPyTest UI
 → Saved to slack_config.json → Backend uses token for API calls
 ```
 
-This is the same pattern as JIRA integration - credentials stored in JSON config file.
-
-## Configuration Storage
-
-Configuration is stored in `slack_config.json` under `~/.config/virtualpytest/` of the user the server runs as (`vpt_user`), or `$VPT_CONFIG_DIR`:
+This is the same pattern as the JIRA integration: credentials are stored in a JSON config file. The file is `slack_config.json` under `~/.config/virtualpytest/` of the user the server runs as (`vpt_user`), or in `$VPT_CONFIG_DIR`:
 
 ```json
 {
@@ -112,45 +136,40 @@ Configuration is stored in `slack_config.json` under `~/.config/virtualpytest/` 
 }
 ```
 
-- ✅ File lives **outside the project tree** (like `jira_instances.json`), so deploys cannot wipe it
-- ✅ Created automatically when you save configuration through UI
-- ✅ No environment variables needed
-- ❌ **Never commit this file** - contains sensitive credentials
+It is created automatically when you save the configuration in the UI. The file is kept outside the project folder, like `jira_instances.json`. Add it to `.gitignore`. It holds your credentials and must never be committed to git.
+
+</div>
 
 ## Configuration Options
 
-### Basic Settings
+| Setting | What it does |
+|---------|--------------|
+| **Bot Token** | The Slack bot's password (starts with `xoxb-`) |
+| **Channel ID** | The channel where messages are posted |
+| **Enable Integration** | Turns the copying on or off |
 
-| Setting | Description | Where to Get It |
-|---------|-------------|-----------------|
-| **Bot Token** | Slack bot OAuth token | OAuth & Permissions page (starts with `xoxb-`) |
-| **Channel ID** | Slack channel where messages post | Channel details in Slack (e.g., `C1234567890`) |
-| **Enable Integration** | Toggle to enable/disable sync | Toggle in UI after saving credentials |
+<div data-technical>
 
-### Advanced Settings (Recommended: Keep disabled)
+Advanced settings, keep these off:
 
-| Setting | Description | Recommended |
-|---------|-------------|-------------|
-| **Sync Tool Calls** | Include technical tool execution details | ❌ Disabled (too verbose) |
-| **Sync Thinking** | Include AI reasoning/thinking process | ❌ Disabled (too verbose) |
+| Setting | What it does | Recommended |
+|---------|--------------|-------------|
+| **Sync Tool Calls** | Adds the technical tool details | Off (too long) |
+| **Sync Thinking** | Adds the agent's reasoning | Off (too long) |
 
-## What Gets Synced?
+</div>
 
-### ✅ Synced to Slack:
-- User questions
-- Agent responses (final text only)
-- Agent nicknames (Atlas, Sherlock, Scout, etc.)
-- Conversation titles
+## What Gets Synced
 
-### ❌ Not Synced (keeps Slack clean):
-- Tool calls and technical details
-- AI thinking/reasoning process
-- Error messages (kept internal)
-- Token/timing metrics
+**Copied:** user questions, final agent answers, agent names and conversation titles.
+
+**Not copied:** tool calls, the agent's thinking, errors, and token and timing numbers.
 
 ## Message Format
 
-Conversations appear in Slack like this:
+Each conversation starts one thread. Its layout is in the technical details.
+
+<div data-technical>
 
 ```
 🤖 New AI Conversation: "Automate web app testing"
@@ -168,61 +187,81 @@ Conversation ID: abc12345... • 2025-01-15 14:30
   Atlas: ✅ Created 3 test cases covering login functionality
 ```
 
+</div>
+
 ## Troubleshooting
 
 ### "I don't see a Bot Token"
-**Problem**: You're looking at "Basic Information" which shows App ID/Client ID/Client Secret.
 
-**Solution**: 
-1. Go to **"OAuth & Permissions"** in the left sidebar
-2. Add Bot Token Scopes if you haven't already
-3. Click "Install to Workspace"
-4. Look for "OAuth Tokens for Your Workspace" section at the top
-5. Copy the token that starts with `xoxb-`
+You are probably on "Basic Information". Open **"OAuth & Permissions"** instead.
 
 ### "Channel not found"
-- Verify the Channel ID is correct (should be like `C1234567890`)
-- Check that it's a public channel or bot has been invited
-- Copy Channel ID from Slack channel details, not channel name
+
+- Copy the Channel ID from the channel details, not the channel name.
+
+<div data-technical>
+
+The channel must be public, or the bot must have been invited to it.
+
+</div>
 
 ### "Bot not in channel"
-- Invite the bot: `/invite @YourBotName` in the Slack channel
-- Bot must be a member of the channel to post messages
+
+Invite the bot with `/invite @YourBotName`. It must be a member before it can post.
 
 ### "Authentication failed" or "invalid_auth"
-- Verify the bot token starts with `xoxb-` (not App ID or Client Secret)
-- Check token hasn't been revoked in Slack app settings
-- Regenerate token if needed: OAuth & Permissions → Regenerate Token
+
+- The token must start with `xoxb-`. Create a new one under OAuth & Permissions if needed.
+
+<div data-technical>
+
+If the token was revoked, click Regenerate Token under OAuth & Permissions. An App ID or Client Secret will not work.
+
+</div>
+
+<div data-technical>
+
+Error codes: `invalid_auth` and `not_authed`.
+
+</div>
 
 ### "not_authed" error
-- Make sure you copied the entire token (they can be long)
-- No extra spaces before/after the token
-- Token should be from "Bot User OAuth Token", not other tokens
 
-### No messages appearing in Slack
-- Check "Enable Integration" is toggled ON in VirtualPyTest UI
-- Verify configuration is saved (check status shows "Configured")
-- Send a test message first to verify connection works
-- Start a conversation in AgentChat to trigger sync
-- Check backend logs: `journalctl -u backend_server -f | grep slack`
+- Copy the whole token, with no spaces around it.
 
-### Config file doesn't exist
-- The file `slack_config.json` is created when you save configuration through UI
-- If it doesn't exist, you haven't saved credentials yet
-- Go to Plugins → Slack and configure
+### No messages appear in Slack
 
-## Why Do We Need Credentials?
+- Check that "Enable Integration" is on and the status says "Configured".
+- Start a conversation in AgentChat to trigger a copy.
 
-**Q: Can we integrate without API tokens?**
+<div data-technical>
 
-**A: No.** Slack requires OAuth-based authentication. There is no way to:
-- ❌ Use email/password (Slack doesn't support this)
-- ❌ Use personal tokens (not how Slack API works)
-- ❌ Connect without credentials
+Check the backend logs:
 
-This is Slack's security model - same as how JIRA requires an API token.
+```bash
+journalctl -u backend_server -f | grep slack
+```
 
-**Comparison with JIRA:**
+</div>
+
+### The configuration file does not exist
+
+Go to **Plugins → Slack** and save your credentials.
+
+## Why do we need credentials?
+
+Slack only allows access with credentials you create in your Slack app first. The same is true for JIRA.
+
+<div data-technical>
+
+Email and password do not work with Slack, and personal tokens are not how the Slack API works. Without credentials, nothing connects.
+
+</div>
+
+<div data-technical>
+
+Comparison of the two configs:
+
 ```json
 // JIRA config (you created API token in Atlassian)
 {
@@ -237,56 +276,32 @@ This is Slack's security model - same as how JIRA requires an API token.
 }
 ```
 
-Both require you to create credentials in the third-party platform first.
+This is Slack's security model, the same as the JIRA API token.
 
-## Files Created
-
-```
-backend_server/
-├── config/integrations/
-│   └── slack_config.json.example  # Example template
-├── src/
-│   ├── integrations/
-│   │   ├── __init__.py
-│   │   └── slack_sync.py          # Sync service
-│   └── routes/
-│       └── server_integrations_routes.py  # API routes (extended)
-
-frontend/
-└── src/pages/
-    └── SlackIntegration.tsx       # UI configuration page
-```
-
-## API Endpoints
-
-All endpoints are at `/server/integrations/slack/`:
-
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| GET | `/config` | Get current configuration |
-| POST | `/config` | Update configuration |
-| POST | `/test` | Test connection |
-| GET | `/status` | Get sync status & stats |
-| POST | `/send-test` | Send test message to channel |
-
-## Future Enhancements (Phase 2)
-
-- 🔄 **Bi-directional sync** (Slack → AI responses)
-- 💬 **Slash commands** (`/ai ask "..."`)
-- 👥 **Team collaboration** (mentions, approvals)
-- 📊 **Report sharing** directly to threads
-- 🔔 **Custom notifications** (test failures, alerts)
+</div>
 
 ## Security Notes
 
-- ✅ Bot token stored server-side only (never exposed to frontend)
-- ✅ Config file excluded from git (add to .gitignore)
-- ✅ Permissions follow principle of least privilege
-- ✅ API endpoints protected by authentication
+- The bot token stays on the server and is never shown in the web page.
+- Keep the config file private. The API endpoints require sign-in.
+
+<div data-technical>
+
+Permissions are the three scopes listed in step 2.
+
+</div>
 
 ## Testing the Integration
 
-### Test with curl:
+Use **"Send Test Message"**. A message should appear in your channel.
+
+<div data-technical>
+
+If the third call works, a test message appears in your Slack channel.
+
+</div>
+
+<div data-technical>
 
 ```bash
 # 1. Check status
@@ -301,13 +316,15 @@ curl -X POST http://localhost:5109/server/integrations/slack/send-test \
   -H "Content-Type: application/json"
 ```
 
-If step 3 succeeds, you should see a message in your Slack channel!
+</div>
 
-### Connect to AgentChat (Manual - Phase 1)
+## Connecting to AgentChat
 
-Currently, the sync service is created but **not yet connected to AgentChat websocket events**.
+AgentChat is not yet connected to the copy. The technical details show the manual hook.
 
-To connect it, add this to `backend_server/src/routes/server_agent_routes.py`:
+<div data-technical>
+
+To connect it by hand, add this to `backend_server/src/routes/server_agent_routes.py`:
 
 ```python
 # At the top, after other imports
@@ -326,13 +343,60 @@ if SLACK_HOOK_AVAILABLE and event.type in ['message', 'result']:
     on_agent_message_websocket(session_id, event.agent, event.content, event.type)
 ```
 
-This will be automated in Phase 2.
+</div>
+
+## Future Enhancements
+
+Planned: two-way sync, slash commands, team features, report sharing and custom alerts.
+
+<div data-technical>
+
+Slash commands, for example `/ai ask "..."`, and team features such as mentions and approvals.
+
+</div>
 
 ## Support
 
-For issues or questions:
-1. Check backend logs: `journalctl -u backend_server | grep slack`
-2. Review Slack app settings at [https://api.slack.com/apps](https://api.slack.com/apps)
-3. Test connection in VirtualPyTest UI
-4. Use curl commands above to test API endpoints
+If something goes wrong, check your Slack app at [https://api.slack.com/apps](https://api.slack.com/apps) and test the connection in VirtualPyTest.
 
+<div data-technical>
+
+Use the curl commands above to test the API endpoints. Log search:
+
+```bash
+journalctl -u backend_server | grep slack
+```
+
+</div>
+
+<div data-technical>
+
+**Files created**
+
+```
+backend_server/
+├── config/integrations/
+│   └── slack_config.json.example  # Example template
+├── src/
+│   ├── integrations/
+│   │   ├── __init__.py
+│   │   └── slack_sync.py          # Sync service
+│   └── routes/
+│       └── server_integrations_routes.py  # API routes (extended)
+
+frontend/
+└── src/pages/
+    └── SlackIntegration.tsx       # UI configuration page
+```
+
+**API endpoints.** All are at `/server/integrations/slack/`:
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | `/config` | Get current configuration |
+| POST | `/config` | Update configuration |
+| POST | `/test` | Test connection |
+| GET | `/status` | Get sync status & stats |
+| POST | `/send-test` | Send test message to channel |
+
+</div>

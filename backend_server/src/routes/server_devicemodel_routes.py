@@ -18,7 +18,7 @@ from shared.src.lib.database.device_models_db import (
     check_device_model_name_exists
 )
 
-from shared.src.lib.config.device_capabilities import DEVICE_CONTROLLER_MAP
+from shared.src.lib.config.device_capabilities import DEVICE_CONTROLLER_MAP, normalize_device_model
 from shared.src.lib.utils.app_utils import check_supabase
 from shared.src.lib.config.constants import CACHE_CONFIG
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
@@ -45,13 +45,33 @@ def _unsupported_model_error(name):
     A host reads DEVICE{i}_MODEL and looks it up in DEVICE_CONTROLLER_MAP; a name that is
     not there gets no controllers at all, so a row with it could be picked for a
     userinterface but never driven.
+
+    The name is resolved the same way a host resolves DEVICE{i}_MODEL, so an alternative
+    spelling (`appletv`, `firetv_vega`) is accepted here rather than refused by a rule the
+    host does not have. Still nothing else is: `samsung_tv` is not a typo, it is a device
+    type this project has no controllers for (BUG-0749).
     """
-    if name in DEVICE_CONTROLLER_MAP:
+    if normalize_device_model(name) in DEVICE_CONTROLLER_MAP:
         return None
     return jsonify({
         'error': f"'{name}' is not a model a host can run. "
                  f"Supported: {', '.join(sorted(DEVICE_CONTROLLER_MAP))}"
     }), 400
+
+
+def _canonical_model_data(model_data):
+    """The submitted row with its name stored in the canonical spelling.
+
+    Rows are matched by name against userinterface `models[]` and resolved to a family
+    (BUG-0144), both of which compare against the canonical names — so a row stored as
+    `appletv` is invisible to both. Storing the canonical name also means `android_tv` and
+    `androidtv` cannot become two rows for one device model.
+    """
+    submitted = model_data.get('name')
+    canonical = normalize_device_model(submitted)
+    if isinstance(model_data, dict) and canonical != submitted:
+        model_data = {**model_data, 'name': canonical}
+    return model_data
 
 # =====================================================
 # DEVICE MODELS ENDPOINTS
@@ -101,6 +121,10 @@ def create_device_model_endpoint():
     unsupported = _unsupported_model_error(model_data['name'])
     if unsupported:
         return unsupported
+    # Store the canonical spelling, and check for a duplicate against THAT name, so
+    # `androidtv` cannot be added as a second row for a model already stored as
+    # `android_tv`.
+    model_data = _canonical_model_data(model_data)
     if check_device_model_name_exists(model_data['name'], team_id):
         return jsonify({'error': 'A device model with this name already exists'}), 400
     created_model = create_device_model(model_data, team_id)
@@ -141,6 +165,9 @@ def update_device_model_endpoint(model_id):
         unsupported = _unsupported_model_error(model_data['name'])
         if unsupported:
             return unsupported
+    # A row submitted under an alternative spelling is stored canonically, so an old
+    # `appletv` row heals to `apple_tv` the next time it is edited (BUG-0749).
+    model_data = _canonical_model_data(model_data)
     if check_device_model_name_exists(model_data['name'], team_id, model_id):
         return jsonify({'error': 'A device model with this name already exists'}), 400
     updated_model = update_device_model(model_id, model_data, team_id)

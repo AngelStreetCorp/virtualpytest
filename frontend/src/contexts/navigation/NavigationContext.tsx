@@ -1165,6 +1165,8 @@ export const NavigationProvider: React.FC<NavigationProviderProps> = ({ children
                 verifications: nodeForm.verifications || [],
                 verification_pass_condition: nodeForm.verification_pass_condition || 'all', // ✅ FIX: Include verification pass condition from form
                 use_fingerprint_for_verification: nodeForm.use_fingerprint_for_verification === true, // Fingerprint-verify toggle
+                // Live node toggle (TASK-104); a form opened without it keeps the stored flag.
+                live: (nodeForm.live ?? (selectedNode.data as any)?.live) === true,
                 priority: nodeForm.priority || 'p3', // ✅ Also include priority to be consistent
                 // Per-variant model: hidden_in_base flag flows through from form to data.
                 hidden_in_base: nodeForm.hidden_in_base === true,
@@ -1399,7 +1401,7 @@ export const NavigationProvider: React.FC<NavigationProviderProps> = ({ children
                     navigationConfig?.invalidateAllTreeCache();
                   } catch (edgeErr) {
                     console.warn(
-                      `[@NavigationContext:saveNode] ⚠️ Failed to batch-sync ${normalizedEdges.length} connected edge label(s) (non-critical):`,
+                      `[@NavigationContext:saveNode] Failed to batch-sync ${normalizedEdges.length} connected edge label(s) (non-critical):`,
                       edgeErr,
                     );
                   }
@@ -1948,7 +1950,11 @@ export const NavigationProvider: React.FC<NavigationProviderProps> = ({ children
 
                     // Capture viewport and save
           const viewport = reactFlowInstance?.getViewport();
-          await navigationConfig?.saveTreeData(treeId, normalizedNodes, normalizedEdges, deletedNodeIds, deletedEdgeIds, viewport);
+          const saveResult = await navigationConfig?.saveTreeData(treeId, normalizedNodes, normalizedEdges, deletedNodeIds, deletedEdgeIds, viewport);
+          // Editing the prod view saves to dev (TASK-173): tell the page, which moves to the draft.
+          if (saveResult?.redirected_to_dev) {
+            window.dispatchEvent(new CustomEvent('vpt:prod-edit-saved-to-dev'));
+          }
            
           // CRITICAL: Invalidate frontend localStorage cache so refresh loads latest data
           navigationConfig?.invalidateAllTreeCache();

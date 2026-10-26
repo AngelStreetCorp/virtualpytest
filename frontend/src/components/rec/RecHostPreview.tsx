@@ -1,41 +1,46 @@
-import { Error as ErrorIcon, Lock as LockIcon, LocalOffer as TagIcon } from '@mui/icons-material';
+import { Error as ErrorIcon } from '@mui/icons-material';
 import { buildLatestSnapshotUrl, withVncCacheBust } from '../../utils/buildUrlUtils';
 import { useHostSession } from '../../hooks/useHostSession';
-import { Card, Typography, Box, Chip, CircularProgress, Checkbox, Tooltip, IconButton } from '@mui/material';
+import { Card, Typography, Box, Chip, CircularProgress, Checkbox } from '@mui/material';
 import React, { useState, useCallback, useMemo, useEffect, useLayoutEffect, useRef, memo } from 'react';
 import { createPortal } from 'react-dom';
-import { useNavigate } from 'react-router-dom';
 
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
-import { featureDeviceLinks, featurePreviewAction } from '../../config/features';
+import { featurePreviewAction } from '../../config/features';
 
 import { DEFAULT_DEVICE_RESOLUTION } from '../../config/deviceResolutions';
 import { isMobileModel } from '../../config/layoutConfig';
 import { useStream } from '../../hooks/controller';
+import VncAudioTrack from '../controller/av/VncAudioTrack';
 import { useVncPassword } from '../../hooks/controller/useVncPassword';
 import { useDeviceScriptLabel } from '../../hooks/rec/useDeviceScriptLabel';
 import { useDeviceLockLabel } from '../../hooks/rec/useDeviceLockLabel';
 import {
   useDroneWifiStatus,
   isDroneDevice,
+  droneHeadline,
   droneHintLine,
   DRONE_WIFI_HEADLINE,
   DRONE_WIFI_HINT,
 } from '../../hooks/rec/useDroneWifiStatus';
 import { useLatestSnapshot } from '../../hooks/rec/useLatestSnapshot';
-import { useHostControl } from '../../hooks/useHostManager';
 import { useToast } from '../../hooks/useToast';
 import { Host, Device } from '../../types/common/Host_Types';
-import { calculateVncScaling, vncScaledSize } from '../../utils/vncUtils';
-import { getLockTimingLines } from '../../utils/recUtils';
+import { withVncViewportScale } from '../../utils/vncUtils';
 import { HLSVideoPlayer } from '../common/HLSVideoPlayer';
 import { LiveStreamSwitch } from '../common/LiveStream/LiveStreamSwitch';
 import type { LiveStreamTransport, WhepStatus } from '../../types/controller/WebRTC_Types';
-import { DeviceInfoTooltipIcon } from '../common/DeviceInfoTooltipIcon';
-import LocalizeButton from '../navigation/Navigation_LocalizeButton';
+import { DeviceInfoNameTooltip } from '../common/DeviceInfoTooltipIcon';
 import { DeviceFarmBadge } from './DeviceFarmBadge';
-import { DeviceStatusChip } from './DeviceStatusChip';
+import { DeviceLockBadge, lockBadgeShows } from './DeviceLockBadge';
+import { DroneTelemetryOverlay } from './DroneBatteryBadge';
+import { LocalizeVideoBadge } from './LocalizeVideoBadge';
 import { RunningScriptNameBadge } from './RunningScriptNameBadge';
+import { MonitorProfileBadge } from './MonitorProfileBadge';
+import { getDeviceMonitorProfile, deviceTooltipName } from '../../hooks/useDeviceFilters';
+import { DeviceFavoriteStar } from '../common/DeviceFavoriteStar';
+import { DeviceMaintenanceBadge } from '../common/DeviceMaintenanceBadge';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 // Memoized HLS player declared outside the component to retain identity across renders
 const MemoizedHLSPlayer = memo(HLSVideoPlayer, (prevProps, nextProps) => {
@@ -72,7 +77,7 @@ interface RecHostPreviewProps {
   persistentStreamOnReady?: () => void;
   persistentStreamTransport?: LiveStreamTransport;
   persistentStreamReconnectKey?: string;
-  persistentStreamOnWebRTCFailed?: () => void;
+  persistentStreamOnWebRTCFailed?: (reason: string) => void;
   persistentStreamOnWebRTCStatusChange?: (status: WhepStatus) => void;
   /**
    * Group control: the slot of this device's cell in the group modal. While set, the
@@ -93,6 +98,13 @@ interface RecHostPreviewProps {
    * 9:16 box and cover crops the black sides away, like the Take Control panel does.
    */
   fillMobileFrame?: boolean;
+  /**
+   * "One full" layout: stretch the card to fill the grid cell (no 16:9 dead space).
+   * The inner content uses flex:1 to fill the stretched card rather than aspectRatio.
+   */
+  isPartial?: boolean;
+  /** Show the short profile badge in the tile header next to the name (the page turns it off above 5 columns, where it would crowd the title). */
+  showProfileBadge?: boolean;
 }
 
 export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
@@ -102,9 +114,15 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
   isEditMode = false,
   isSelected = false,
   onSelectionChange,
-  deviceFlags = [], // Default to empty array
-  activeFlagFilters,
-  onFlagClick,
+  // The flag chip / Localize / AVQ / lock / status toolbar entries were removed
+  // from the header (BUG-0552) but the props stay on the interface — Rec.tsx's
+  // memo comparator still references them, and a future use of the same
+  // `deviceFlags` data on a Settings / Monitor overlay is plausible. Marking
+  // them as ignored at this site keeps the call site and the comparator in
+  // sync without leaving dead UI in the header.
+  deviceFlags: _deviceFlags = [],
+  activeFlagFilters: _activeFlagFilters,
+  onFlagClick: _onFlagClick,
   onOpenModal,
   isAnyModalOpen,
   isSelectedForModal,
@@ -120,11 +138,11 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
   groupStreamTarget = null,
   snapshotMode = false,
   fillMobileFrame = false,
+  isPartial = false,
+  showProfileBadge = false,
 }) => {
   const P = useAgentChatPalette();
-  const navigate = useNavigate();
   // States
-  const [error] = useState<string | null>(null);
   const [isStreamActive, setIsStreamActive] = useState(true);
   // Hover = live (TASK-48): in snapshot mode, onMouseEnter arms a 400 ms timer
   // that flips this to true; the live branch renders for as long as the cursor
@@ -136,20 +154,13 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
   // isStreamActive=false (HLS pauses, VNC iframe unmounts).
   const [isVisible, setIsVisible] = useState(true);
   const manualControlLabel = useDeviceLockLabel(host, device);
-  const { getDeviceLockInfo } = useHostControl();
   const deviceId = device?.device_id || 'device1';
-  const lockInfo = getDeviceLockInfo(host, deviceId);
 
   const {
     scriptLabel: deploymentScriptLabel,
     hasNamedScript: hasNamedDeployment,
     scriptOwnerName,
   } = useDeviceScriptLabel(host, device);
-  const hasManualControl = Boolean(manualControlLabel);
-
-  // Start-time + live duration for the lock tooltip — a multi-hour duration makes
-  // a stale/zombie script lock obvious at a glance.
-  const lockTiming = useMemo(() => getLockTimingLines(lockInfo), [lockInfo]);
 
   const isMobile = useMemo(
     () => isMobileModel(device?.device_model),
@@ -170,15 +181,27 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
   // Only polls while this preview is mounted (i.e. the device is selected), so
   // browsing /device-control never joins a drone AP behind the user's back.
   const droneWifi = useDroneWifiStatus(host, device, isDrone);
+  // A drone's player mounts only once it is paired AND the host writes fresh video.
+  const droneVideoReady = droneWifi.state === 'connected' && droneWifi.videoLive;
 
   // Use stream hook for all devices (VNC gets VNC URL, others get HLS URL)
-  const { streamUrl, urlError: streamError } = useStream({
+  const {
+    streamUrl,
+    audioStreamUrl,
+    urlError: streamError,
+    isLoadingUrl: isStreamUrlLoading,
+  } = useStream({
     host,
     device_id: device?.device_id || 'device1',
   });
 
   // Only a host with HOST_VNC_AUTOCONNECT=true returns a password; others stay URL-clean.
   const { vncPasswordReady, withVncPassword } = useVncPassword(isVncDevice ? host : null);
+
+  // The card's terminal error state. It replaces an `error` useState that had no
+  // setter, so it was permanently null and the branch guarding it below could never
+  // render — every non-player state fell through to "Loading stream..." instead.
+  const previewError = streamError;
 
   // BUG-0107 step 2: the proxy's auth_request gate rejects the iframe's navigation to
   // /host/<name>/vnc_lite.html without this cookie. Must be set BEFORE the iframe is
@@ -209,41 +232,6 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
     snapshotUrl,
     showSnapshotImage && isVisible,
   );
-
-  // BUG-0436: the VNC preview used a hardcoded 300×150 box, so the "One full" layout (and any
-  // other large layout) left a tiny 255×150 iframe centred in a huge card. Measure the actual
-  // stream area (the Box the VNC branch renders into) and scale the iframe to fill it while
-  // preserving the remote desktop's 1440×847 aspect ratio. Until ResizeObserver fires the
-  // 300×150 fallback keeps the first paint from collapsing to 0×0.
-  const vncStreamAreaRef = useRef<HTMLDivElement | null>(null);
-  const [vncStreamAreaSize, setVncStreamAreaSize] = useState<{ width: number; height: number } | null>(null);
-  useLayoutEffect(() => {
-    if (!isVncDevice) return undefined;
-    const el = vncStreamAreaRef.current;
-    if (!el || typeof ResizeObserver === 'undefined') return undefined;
-    const update = () => {
-      const { width, height } = el.getBoundingClientRect();
-      setVncStreamAreaSize((prev) =>
-        prev && prev.width === width && prev.height === height ? prev : { width, height },
-      );
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(el);
-    return () => ro.disconnect();
-  }, [isVncDevice]);
-  const vncTargetSize = useMemo(
-    () => vncStreamAreaSize ?? { width: 300, height: 150 },
-    [vncStreamAreaSize],
-  );
-  const previewVncScaling = useMemo(
-    () => calculateVncScaling(vncTargetSize),
-    [vncTargetSize],
-  );
-  // The size that scaling actually paints. The wrapper below takes it so the render can be
-  // centred in the card, which the iframe itself cannot be — its box is the whole remote
-  // desktop. Now driven by the measured stream area, not a hardcoded 300×150.
-  const previewVncSize = useMemo(() => vncScaledSize(vncTargetSize), [vncTargetSize]);
 
   const isInGroup = Boolean(groupStreamTarget);
   // Playing in a modal (single stream or group): keep streaming while the page tiles pause.
@@ -279,21 +267,6 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
   });
   const previewStreamSlotRef = useRef<HTMLDivElement | null>(null);
 
-  useLayoutEffect(() => {
-    if (!isVncDevice || typeof ResizeObserver === 'undefined') return undefined;
-    const update = () => {
-      const { width, height } = persistentStreamRoot.getBoundingClientRect();
-      if (!width || !height) return;
-      setVncStreamAreaSize((prev) =>
-        prev && prev.width === width && prev.height === height ? prev : { width, height },
-      );
-    };
-    update();
-    const ro = new ResizeObserver(update);
-    ro.observe(persistentStreamRoot);
-    return () => ro.disconnect();
-  }, [isVncDevice, persistentStreamRoot]);
-
   // Ref to the outer Card — observer target. IntersectionObserver needs a
   // DOM node; refs are stable across renders so we don't churn observers.
   const cardRef = useRef<HTMLDivElement | null>(null);
@@ -323,6 +296,8 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
   // detached and every preview tile stuck on a black <video> that hls.js never composits.
   // BUG-0470: same for showSnapshotImage — in snapshot mode the slot only appears when hover
   // swaps the tile to live, so without it the hover player played into a detached root (black).
+  // droneVideoReady: same again for a drone — its slot only appears once the drone is paired
+  // and its video is live, long after streamUrl resolved; the video played off-screen (black).
   useLayoutEffect(() => {
     const target = isSelectedForModal && persistentStreamTarget
       ? persistentStreamTarget
@@ -330,7 +305,7 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
     if (target && persistentStreamRoot.parentElement !== target) {
       target.appendChild(persistentStreamRoot);
     }
-  }, [isSelectedForModal, persistentStreamRoot, persistentStreamTarget, groupStreamTarget, streamUrl, showSnapshotImage]);
+  }, [isSelectedForModal, persistentStreamRoot, persistentStreamTarget, groupStreamTarget, streamUrl, showSnapshotImage, droneVideoReady]);
 
   useEffect(() => () => persistentStreamRoot.remove(), [persistentStreamRoot]);
 
@@ -462,25 +437,96 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
     cancelHoverLive,
   ]);
 
-  // Clean display values - special handling for VNC devices
+  // Clean display values - special handling for VNC devices. RECENTLY
+  // the preview tile dropped the host suffix (TASK-116): the tile was already
+  // cramped once the title row only has room for one identifier, and the host
+  // is one click away (open the stream modal, the rec page header, or hover
+  // the device for the tooltip). The modal title still keeps the " - host"
+  // format in RecStreamModalHeader so the wider surface stays unambiguous.
   const displayName = device
     ? device.device_model === 'host_vnc'
       ? host.host_name // For VNC devices, show just the host name
-      : `${device.device_name} - ${host.host_name}`
+      : device.device_name
     : host.host_name;
+
+  // The tile label dropped the host suffix (TASK-116 above), but the host is
+  // still part of the device's identity — the hover tooltip puts it back so the
+  // operator can tell two same-named devices on different hosts apart without
+  // opening the stream modal. VNC devices already show only the host, so they
+  // get no suffix.
+  const tooltipName = deviceTooltipName(
+    host,
+    device,
+    device && device.device_model !== 'host_vnc' ? `${displayName} - ${host.host_name}` : displayName,
+  );
 
   const isPausingForModal = Boolean(isAnyModalOpen);
   const pauseMessage = isPlayingInModal ? 'Playing in modal' : 'Preview paused';
   // Who is on the device (manual lock owner, else whoever launched the run) —
   // shown next to the script name, not instead of it.
   const lockOwnerLabel = manualControlLabel || scriptOwnerName;
-  const scriptNameBadge =
-    hasNamedDeployment || lockOwnerLabel ? (
-      <RunningScriptNameBadge
-        scriptName={hasNamedDeployment ? (deploymentScriptLabel as string) : null}
-        ownerName={lockOwnerLabel}
-        maxChars={30}
-      />
+  // The blue lock names the OPERATOR only, so a run whose lock carries no owner name
+  // leaves that corner empty rather than repeating the script name from the right one.
+  const lockBadgeShown = lockBadgeShows(lockOwnerLabel);
+  // Bottom-right is the SCRIPT only. It used to print the owner too, and once
+  // DeviceLockBadge took the operator name to bottom-left the same words showed up in
+  // both corners — verified live on a manual-control tile, where the name appeared once
+  // in the blue lock and again in this black pill. One corner, one fact: WHO is on the
+  // device (left, blue lock), WHAT is running (right, here).
+  const scriptNameBadge = hasNamedDeployment ? (
+    <RunningScriptNameBadge
+      scriptName={deploymentScriptLabel as string}
+      maxChars={30}
+      // Two absolutely-positioned badges on one tile only stay apart if they each keep
+      // to their own share. RunningScriptNameBadge defaults to 85% of the width, which
+      // on a narrow tile ran its black pill over the lock at bottom-left and hid it —
+      // verified live on host-clone-2, where both badges printed the same script name
+      // and the right one covered the left.
+      sx={lockBadgeShown ? { maxWidth: '52%' } : undefined}
+    />
+  ) : null;
+
+  // Bottom-left badges, as ONE row (owner 2026-10-22).
+  //
+  // Both facts belong to the DEVICE, not to the stream, so they render outside the
+  // snapshot/live ternary below — the same reason DroneTelemetryOverlay sits above it.
+  // Inside the ternary each one was only reachable from one branch, which is exactly how a
+  // lock indicator ends up invisible on half the tiles that are locked.
+  //
+  // They also share one row rather than each being absolutely positioned on the same
+  // corner: a farm device that was locked rendered two badges on top of each other, and
+  // which one won depended on nothing the operator could see.
+  const farmProvider = device?.device_farm_provider;
+  const bottomLeftBadges =
+    lockBadgeShown || farmProvider ? (
+      <Box
+        sx={{
+          position: 'absolute',
+          left: 8,
+          bottom: 8,
+          zIndex: 3,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.5,
+          // Matches the share the script badge above was trimmed to, so the two corners
+          // cannot meet in the middle however long the operator's name is.
+          maxWidth: '46%',
+          // Only the badges themselves take the pointer; the gaps between them must not
+          // steal the click that opens the device.
+          pointerEvents: 'none',
+        }}
+      >
+        <DeviceLockBadge
+          ownerName={lockOwnerLabel}
+          scriptLockActive={hasNamedDeployment}
+          maxChars={22}
+          sx={{ position: 'relative', left: 'auto', bottom: 'auto', zIndex: 'auto', maxWidth: '100%', pointerEvents: 'auto' }}
+        />
+        <DeviceFarmBadge
+          provider={farmProvider}
+          sx={{ position: 'relative', left: 'auto', bottom: 'auto', zIndex: 'auto', pointerEvents: 'auto' }}
+        />
+      </Box>
     ) : null;
 
   return (
@@ -489,7 +535,15 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
       onMouseEnter={handleTileMouseEnter}
       onMouseLeave={handleTileMouseLeave}
       sx={{
-        height: 180,
+        // TASK-116: the stream content area drives its own 16:9 (or 9:16 for
+        // a phone) aspect ratio below, so the Card no longer needs a fixed
+        // height. Letting the Card size to its header + 16:9 stream area means
+        // a 16:9 stream fills the content area end-to-end with no horizontal
+        // letterboxing, which the old `height: 180` produced because the
+        // header strip pushed the content area wider than 16:9. The row above
+        // (Rec.tsx Grid item) used to override `height: 100%` here to defeat
+        // BUG-0452; that override is removed in Rec.tsx because the Card now
+        // drives the row height itself.
         display: 'flex',
         flexDirection: 'column',
         position: 'relative',
@@ -523,181 +577,81 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
           }}
         >
           {/* Device name — must stay fully readable. The full name is always
-              available on hover; tags are collapsed (below) so they never
-              squeeze it. */}
-          <Tooltip title={displayName} arrow placement="top">
-            <Typography variant="subtitle2" noWrap sx={{ flex: 1, mr: 0.5, minWidth: 0 }}>
-              {displayName}
-            </Typography>
-          </Tooltip>
+              available on hover. Toolbar was slimmed down (BUG-0552) to make
+              room: the device flags chip, the lock indicator, the Localize
+              button, the AVQ feature link and the status dot are gone, leaving
+              only the name and the favorite star (plus the edit-mode checkbox
+              when relevant). The full lock / script state still appears in the
+              running-script badge in the card body. */}
+          <Box sx={{ flex: 1, mr: 0.5, minWidth: 0, display: 'flex', alignItems: 'center' }}>
+            <DeviceInfoNameTooltip
+              name={tooltipName}
+              info={device?.device_info}
+              gatewayInfo={device?.gateway_info}
+            >
+              <Typography variant="subtitle2" noWrap sx={{ minWidth: 0 }}>
+                {displayName}
+              </Typography>
+            </DeviceInfoNameTooltip>
+            <DeviceMaintenanceBadge hostName={host.host_name} deviceId={device?.device_id} />
+          </Box>
 
-          {/* Device flags. One tag → show it as a chip. Two or more → collapse
-              into a single compact "tags" badge whose tooltip lists them all,
-              so the device name is never cropped by a row of chips. */}
-          {deviceFlags.length === 1 && (() => {
-            const flag = deviceFlags[0];
-            const isActive = activeFlagFilters?.includes(flag) ?? false;
-            return (
-              <Chip
-                label={flag}
-                size="small"
-                variant={isActive ? 'filled' : 'outlined'}
-                color={isActive ? 'primary' : 'default'}
-                clickable={!!onFlagClick}
-                onClick={onFlagClick ? (e) => { e.stopPropagation(); onFlagClick(flag); } : undefined}
-                sx={{ fontSize: '0.65rem', height: 18, maxWidth: 80, flexShrink: 0 }}
-              />
-            );
-          })()}
-          {deviceFlags.length > 1 && (
-            <Tooltip
-              arrow
-              placement="top"
-              title={
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, py: 0.25, maxWidth: 220 }}>
-                  {deviceFlags.map((flag) => {
-                    const isActive = activeFlagFilters?.includes(flag) ?? false;
-                    return (
-                      <Chip
-                        key={flag}
-                        label={flag}
-                        size="small"
-                        variant={isActive ? 'filled' : 'outlined'}
-                        color={isActive ? 'primary' : 'default'}
-                        clickable={!!onFlagClick}
-                        onClick={onFlagClick ? (e) => { e.stopPropagation(); onFlagClick(flag); } : undefined}
-                        sx={{ fontSize: '0.65rem', height: 18 }}
-                      />
-                    );
-                  })}
-                </Box>
-              }
-            >
-              <Chip
-                icon={<TagIcon sx={{ fontSize: '0.75rem !important', ml: '4px' }} />}
-                label={deviceFlags.length}
-                size="small"
-                variant={deviceFlags.some((f) => activeFlagFilters?.includes(f)) ? 'filled' : 'outlined'}
-                color={deviceFlags.some((f) => activeFlagFilters?.includes(f)) ? 'primary' : 'default'}
-                sx={{ fontSize: '0.65rem', height: 18, flexShrink: 0, '& .MuiChip-label': { px: 0.5 } }}
-              />
-            </Tooltip>
-          )}
-          
-          {/* Deployment running or manual control indicator */}
-          {(hasNamedDeployment || hasManualControl || lockOwnerLabel) && (
-            <Tooltip
-              arrow
-              placement="top"
-              title={
-                <Box sx={{ py: 0.25 }}>
-                  {lockOwnerLabel && (
-                    <Typography variant="caption" sx={{ display: 'block', fontWeight: 'bold' }}>
-                      {hasManualControl
-                        ? `Controlled by: ${lockOwnerLabel}`
-                        : `Run by: ${lockOwnerLabel}`}
-                    </Typography>
-                  )}
-                  {hasNamedDeployment && (
-                    <Typography variant="caption" sx={{ display: 'block', fontWeight: 'bold' }}>
-                      Script: {deploymentScriptLabel}
-                    </Typography>
-                  )}
-                  {lockTiming && (
-                    <>
-                      <Typography variant="caption" sx={{ display: 'block' }}>
-                        Started: {lockTiming.startedAt}
-                      </Typography>
-                      <Typography variant="caption" sx={{ display: 'block' }}>
-                        Duration: {lockTiming.duration}
-                      </Typography>
-                    </>
-                  )}
-                </Box>
-              }
-            >
-              <LockIcon
-                sx={{
-                  fontSize: '0.9rem',
-                  color: hasManualControl ? P.accentText : P.warning,
-                  ml: 0.5,
-                }}
-              />
-            </Tooltip>
-          )}
-          
-          {/* Selection checkbox in edit mode - positioned before status chip */}
+          {/* Profile tag, right-aligned just left of the favourite star */}
+          {showProfileBadge && device && <MonitorProfileBadge profile={getDeviceMonitorProfile(host, device)} services={host.system_stats?.monitor_profile_services?.[getDeviceMonitorProfile(host, device)]} />}
+
+          {/* Selection checkbox in edit mode - positioned next to the favorite star */}
           {isEditMode && (
             <Checkbox
               size="small"
               checked={isSelected}
               onChange={(e) => onSelectionChange?.(e.target.checked)}
-              sx={{ 
+              sx={{
                 p: 0.5,
                 '& .MuiSvgIcon-root': {
-                  fontSize: '1rem'
+                  fontSize: TYPOGRAPHY.navbarItem.size
                 }
               }}
             />
           )}
-          
-          {/* Device info — last metadata on hover; click opens the editor */}
-          <DeviceInfoTooltipIcon
-            info={device?.device_info}
-            gatewayInfo={device?.gateway_info}
-            deviceName={device?.device_name}
-            hostName={host.host_name}
-          />
 
-          {/* Localize Button - identify which navigation node the live screen is.
-              Preview is always live, so no disabled/live-mode gating needed.
-              Only shown when a preferred userinterface is configured. */}
-          {device?.preferred_userinterface && (
-            <LocalizeButton
-              hostName={host.host_name}
-              deviceId={device.device_id}
-              userinterfaceName={device.preferred_userinterface}
-              variant={device.preferred_variant ?? null}
-              width={260}
-              expandedWidth={340}
-              sx={{
-                p: 0.25,
-                '& .MuiSvgIcon-root': { fontSize: '1rem' },
-              }}
-            />
-          )}
-
-          {/* Optional-feature per-device pages (docs/technical/FEATURES.md) */}
-          {device &&
-            featureDeviceLinks().map((link) => (
-              <Tooltip key={link.label} title={link.label}>
-                <IconButton
-                  size="small"
-                  sx={{ p: 0.25, color: P.textSecondary, '&:hover': { color: P.accentText } }}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    navigate(link.path(host.host_name, device.device_id));
-                  }}
-                >
-                  {link.icon}
-                </IconButton>
-              </Tooltip>
-            ))}
-
-          <DeviceStatusChip host={host} isRunning={hasNamedDeployment} />
+          {/* Favorite star, top-right of the tile (TASK-99) */}
+          {device && <DeviceFavoriteStar hostName={host.host_name} deviceId={device.device_id} />}
         </Box>
       )}
 
-      {/* Content area - Stream preview or Runner badge */}
-      <Box sx={{ flex: 1, position: 'relative', minHeight: 0, overflow: 'hidden' }}>
-        <Box
-          sx={{
-            height: '100%',
-            position: 'relative',
-            overflow: 'hidden',
-            backgroundColor: 'black',
-          }}
-        >
+      {/* Content area - Stream preview or Runner badge. The aspectRatio
+          below is what kills the black side-bars (TASK-116): the previous
+          version was `flex: 1` which filled the post-header remainder of a
+          fixed-height Card, leaving a content area wider than 16:9 and
+          letterboxing every stream. Forcing the area to 16:9 (or 9:16 for a
+          phone in fillMobileFrame / group slot) means the stream, the snapshot
+          img and the VNC iframe each size to fill the box end-to-end, and the
+          Card grows in height to make room — the row above no longer needs
+          `height: 100%` overrides to keep the tile inside its grid item. */}
+      <Box
+        sx={{
+          width: '100%',
+          // "One full": stretch to fill the card (no 16:9 dead space below video).
+          // All other layouts use fixed aspectRatio so the card sizes to the content.
+          ...(isPartial
+            ? { flex: 1, minHeight: 0 }
+            : { aspectRatio: (isMobile && (fillMobileFrame || isInGroup)) ? '9 / 16' : '16 / 9' }),
+          position: 'relative',
+          overflow: 'hidden',
+          backgroundColor: 'black',
+        }}
+      >
+              {/* Drone battery + temperature, top-right on the video */}
+              {isDrone && <DroneTelemetryOverlay host={host} device={device} status={droneWifi} />}
+              {/* Monitor's Localize verdict, top-right on the video (tv_app profile, TASK-115) */}
+              {!isDrone && <LocalizeVideoBadge host={host} device={device} />}
+              {/* Blue lock + who holds the device, bottom-left. OUTSIDE the snapshot/live
+                  ternary below, for the same reason the drone wifi overlay is: a lock is a
+                  property of the device and must not depend on which branch the tile happens
+                  to be in (a snapshot-mode tile took the snapshot branch, so a lock indicator
+                  inside the ternary would have been missing on exactly the grids that are
+                  too big to stream live). */}
+              {bottomLeftBadges}
               {/* Drone wifi state. A Tello is its own access point and only
                   broadcasts while powered on, and only streams while flying, so
                   "no picture" here has three very different causes. This names
@@ -709,7 +663,7 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                   was true, and a drone never takes that path (snapshotMode is
                   off for a small grid, and a landed Tello has no snapshot), so
                   the tile stayed black with no explanation at all. */}
-              {isDrone && droneWifi.state !== 'connected' && (
+              {isDrone && !droneVideoReady && (
                 <Box
                   sx={{
                     position: 'absolute',
@@ -724,6 +678,9 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                     // Above the click-to-open overlay that follows this block,
                     // otherwise the Scan chip is swallowed by it.
                     zIndex: 3,
+                    // Lets the text below hide itself when the tile is too small
+                    // to fit it (container queries read this box's size).
+                    containerType: 'size',
                   }}
                 >
                   <Box
@@ -732,11 +689,11 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                       flexDirection: 'column',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      gap: 0.5,
+                      gap: 0.25,
                       width: '100%',
                       height: '100%',
                       px: 1.5,
-                      py: 1,
+                      py: 0.5,
                       // The Tello is white, so a bare card surface would swallow
                       // it in light mode. hoverBg is a warm grey in light and a
                       // raised grey in dark, which separates it in both. It also
@@ -756,47 +713,78 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                       alt=""
                       sx={{
                         maxWidth: 118,
-                        height: 'auto',
+                        // Shrinks to the room the two text lines leave, so a short preview
+                        // never crops the headline or the Scan row (the column is centred).
+                        minHeight: 0,
+                        flex: '0 1 auto',
+                        maxHeight: 'calc(100% - 48px)',
+                        width: 'auto',
+                        objectFit: 'contain',
                         // Dim it a little so the text below stays the loudest
                         // thing in the tile.
                         opacity: 0.9,
                         filter: 'saturate(0.85)',
                       }}
                     />
-                    <Typography variant="body2" align="center" sx={{ color: P.textPrimary, fontWeight: 600 }}>
-                      {DRONE_WIFI_HEADLINE[droneWifi.state]}
+                    {/* Headline and action row are one line each, whatever the card
+                        width: a wrapping line changed the tile's height on every
+                        state change, which read as flashing. */}
+                    {/* Hidden when the tile has no room for it: only the drone
+                        image and the Rescan/Scan chip remain. */}
+                    <Typography
+                      variant="body2"
+                      align="center"
+                      noWrap
+                      sx={{
+                        color: P.textPrimary,
+                        fontWeight: 600,
+                        maxWidth: '100%',
+                        flexShrink: 0,
+                        '@container (max-width: 240px) or (max-height: 150px)': { display: 'none' },
+                      }}
+                    >
+                      {droneHeadline(droneWifi.state, droneWifi.droneName, device?.device_name)}
                     </Typography>
                     {/* Hint and action share a row: the preview area is ~110px
                         tall, and stacking the chip under the hint pushed it past
                         the bottom edge where it was clipped. */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 1 }}>
+                    <Box sx={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', justifyContent: 'center', gap: 1, whiteSpace: 'nowrap', maxWidth: '100%', minHeight: 24, flexShrink: 0 }}>
                       {/* droneHintLine owns the "never show a stale error" rule
                           and is unit-tested; keep the logic there, not here. */}
                       {(() => {
-                        const hint = droneHintLine(
-                          droneWifi.state,
-                          droneWifi.busy,
-                          droneWifi.ssid,
-                          droneWifi.signal
-                        );
+                        const hint = droneHintLine(droneWifi.state, droneWifi.busy);
                         if (!hint) return null;
                         return (
-                          <Typography variant="caption" sx={{ color: P.textMuted }}>
+                          <Typography
+                            variant="caption"
+                            noWrap
+                            sx={{
+                              color: P.textMuted,
+                              minWidth: 0,
+                              '@container (max-width: 240px) or (max-height: 150px)': { display: 'none' },
+                            }}
+                          >
                             {hint}
                           </Typography>
                         );
                       })()}
-                      {/* Countdown to the next automatic scan. Hidden while busy:
-                          the chip already reads "Scanning…", and two indicators
-                          saying the same thing is the duplication again. */}
-                      {!droneWifi.busy && (
-                        <Typography variant="caption" sx={{ color: P.textMuted, fontVariantNumeric: 'tabular-nums' }}>
-                          {`${droneWifi.secondsToNextScan}s`}
-                        </Typography>
-                      )}
-                      {droneWifi.state === 'connecting' && <CircularProgress size={14} sx={{ color: P.accent }} />}
+                      {/* One indicator: the spinner sits inside the chip, after the word.
+                          No chip while "Starting video…": the drone is paired, there is
+                          nothing to scan for. The row keeps its height (minHeight). */}
+                      {droneWifi.state !== 'connected' && (
                       <Chip
-                        label={droneWifi.busy ? 'Scanning…' : 'Scan'}
+                        label={
+                          droneWifi.busy ? (
+                            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                              Scanning
+                              <CircularProgress size={11} thickness={5} sx={{ color: 'inherit' }} />
+                            </Box>
+                          ) : droneWifi.state === 'error' ? (
+                            'Rescan'
+                          ) : (
+                            'Scan'
+                          )
+                        }
                         size="small"
                         onClick={(event) => {
                           // The whole card is the click-to-open target, so a plain
@@ -807,11 +795,13 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                         }}
                         sx={{
                           pointerEvents: 'auto',
+                          flexShrink: 0,
                           cursor: droneWifi.busy ? 'default' : 'pointer',
                           color: P.accentText,
                           borderColor: P.accent,
                         }}
                       />
+                      )}
                     </Box>
                   </Box>
                 </Box>
@@ -895,7 +885,6 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                 </Box>
               )}
               {scriptNameBadge}
-              <DeviceFarmBadge provider={device?.device_farm_provider} />
               {/* Click overlay to open full modal — same handler as the live branch */}
               <Box
                 onClick={handleOpenStreamModal}
@@ -914,23 +903,21 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                 }}
               />
             </Box>
-          ) : streamUrl ? (
+          ) : streamUrl && !(isDrone && !droneVideoReady) ? (
+            /* A drone's stream mounts only once it is paired AND the host writes
+               fresh segments: before that the live playlist is missing (or a stale
+               one is served) and the player sits on a black tile or its own
+               "Stream connection issues" overlay over the drone placeholder. */
             isVncDevice ? (
               <Box
-                ref={vncStreamAreaRef}
                 sx={{
                   position: 'relative',
                   width: '100%',
                   height: '100%',
                   backgroundColor: 'black',
                   overflow: 'hidden',
-                  // NOTE (BUG-0473): the flex centring below no longer reaches the VNC
-                  // render. The wrapper is rendered through a portal into
-                  // `persistentStreamRoot` and re-parented into `previewStreamSlotRef`,
-                  // which is `position: absolute` — so the wrapper is NOT a flex item of
-                  // this Box any more, and it lands flush top-left. It now centres itself
-                  // (see the wrapper below). The properties are kept because the pause
-                  // overlay is still an in-flow flex child and relies on them.
+                  // The pause overlay is an in-flow flex child; the VNC iframe
+                  // fills the portal root and noVNC fits the framebuffer itself.
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
@@ -941,35 +928,23 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                 {createPortal(isStreamActive && vncSessionReady && vncPasswordReady ? (
                   <Box
                     sx={{
-                      width: previewVncSize.width,
-                      height: previewVncSize.height,
-                      flexShrink: 0,
-                      overflow: 'hidden',
-                      // BUG-0473: this wrapper is portal-rendered into `persistentStreamRoot`
-                      // and re-parented into the absolutely-positioned `previewStreamSlotRef`,
-                      // so the stream area's flex centring (BUG-0104) no longer applies to it
-                      // and the desktop rendered flush top-left with dead space beside it.
-                      // Centre it here instead. `persistentStreamRoot` is `position: relative`,
-                      // so these offsets are relative to the render box — which also means the
-                      // render stays centred when the root is moved into the modal slot.
-                      // The wrapper itself is the fixed painted size, never the 1440x847 iframe
-                      // box, so this cannot reintroduce BUG-0104.
                       position: 'absolute',
-                      top: '50%',
-                      left: '50%',
-                      transform: 'translate(-50%, -50%)',
+                      inset: 0,
+                      overflow: 'hidden',
                     }}
                   >
                     <iframe
-                      src={withVncCacheBust(withVncPassword(streamUrl))}
+                      src={withVncViewportScale(withVncCacheBust(withVncPassword(streamUrl)))}
                       style={{
                         border: 'none',
                         backgroundColor: '#000',
                         pointerEvents: persistentStreamInteractive ? 'auto' : 'none',
-                        ...previewVncScaling, // Preview card target size (memoized)
+                        width: '100%',
+                        height: '100%',
                       }}
                       title="VNC Desktop Preview"
                     />
+                    {audioStreamUrl && isPlayingInModal ? <VncAudioTrack audioStreamUrl={audioStreamUrl} /> : null}
                   </Box>
                 ) : null, persistentStreamRoot)}
                 {/* Pause overlay when modal is open */}
@@ -994,7 +969,6 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                   </Box>
                 )}
                 {scriptNameBadge}
-                <DeviceFarmBadge provider={device?.device_farm_provider} />
                 {/* Click overlay to open full modal */}
                 <Box
                   onClick={handleOpenStreamModal}
@@ -1067,7 +1041,6 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                   </Box>
                 )}
                 {scriptNameBadge}
-                <DeviceFarmBadge provider={device?.device_farm_provider} />
                 {/* Click overlay to open full modal */}
                 <Box
                   onClick={handleOpenStreamModal}
@@ -1087,11 +1060,18 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                 />
               </Box>
             )
-          ) : isDrone ? null : error ? (
-            /* A drone renders the wifi overlay above, which is the only status
-               a drone should show: "Loading stream…" on top of "Checking…" is
-               two answers to one question, and the generic one is always wrong
-               for a device that only streams once it is paired and flying. */
+          ) : isDrone ? null : previewError ? (
+            /* The request for this device's stream URL failed or timed out.
+               (A drone never reaches this branch — it renders the wifi overlay
+               above, which is the only status a drone should show: "Loading
+               stream…" on top of "Checking…" is two answers to one question,
+               and the generic one is always wrong for a device that only streams
+               once it is paired and flying.)
+               Until this branch existed the card ignored `streamError` entirely
+               and fell through to "Loading stream..." below — so a host that
+               could not be reached produced a transient toast and then a card
+               that spun forever, which is the same trap as the HLS manifest 404:
+               a terminal state dressed as progress. */
             <Box
               sx={{
                 height: '100%',
@@ -1099,15 +1079,19 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                 flexDirection: 'column',
                 alignItems: 'center',
                 justifyContent: 'center',
+                gap: 1,
                 color: 'error.main',
+                px: 2,
               }}
             >
-              <ErrorIcon sx={{ mb: 1 }} />
+              <ErrorIcon sx={{ fontSize: TYPOGRAPHY.caption.size }} />
               <Typography variant="caption" align="center">
-                {error}
+                {previewError}
               </Typography>
             </Box>
-          ) : (
+          ) : isStreamUrlLoading || !streamUrl ? (
+            /* Still resolving. Bounded by useStream's 15 s deadline: past that the
+               request lands in `previewError` above and this branch is left behind. */
             <Box
               sx={{
                 height: '100%',
@@ -1123,8 +1107,23 @@ export const RecHostPreview: React.FC<RecHostPreviewProps> = ({
                 Loading stream...
               </Typography>
             </Box>
+          ) : (
+            /* Resolved, no error, and still nothing to play — say so instead of
+               claiming to be busy. */
+            <Box
+              sx={{
+                height: '100%',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: 'text.secondary',
+              }}
+            >
+              <Typography variant="caption" align="center">
+                No stream available
+              </Typography>
+            </Box>
           )}
-        </Box>
       </Box>
 
       {/* Stream Modal */}

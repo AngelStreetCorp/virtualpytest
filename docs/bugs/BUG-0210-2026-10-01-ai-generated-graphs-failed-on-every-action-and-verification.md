@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High — a generated graph passes only when it is navigation-only; Test Prompt's Run graph adds verifications for every acceptance criterion |
 | Area      | `backend_host/src/services/ai/ai_builder.py` (graph generation, usage `text.plan`) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

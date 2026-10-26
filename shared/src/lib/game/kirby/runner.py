@@ -355,7 +355,7 @@ def kpi_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def summary(data: Dict[str, Any], success: bool, error: str = "") -> str:
     return "\n".join([
-        "Super Kirby Clash (TASK-51)",
+        "Super Kirby Clash",
         f"Fight: {data.get('fight_s', 0)} s, {data.get('frames', 0)} frames, "
         f"end_reason={data.get('end_reason', '')}",
         f"Kirby HP: {data.get('kirby_hp_end')}, teammate HP: {data.get('mate_hp_end')}",

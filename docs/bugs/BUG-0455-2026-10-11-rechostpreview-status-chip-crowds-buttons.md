@@ -9,7 +9,7 @@
 | Status    | Fixed                                                                                  |
 | Severity  | Low                                                                                    |
 | Area      | frontend — `frontend/src/components/rec/DeviceStatusChip.tsx`                          |
-| Fixed in  | Unreleased                                                                             |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                                                    |
 
 ---

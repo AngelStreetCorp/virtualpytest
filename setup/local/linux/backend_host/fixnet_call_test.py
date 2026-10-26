@@ -32,6 +32,7 @@ import time
 
 MODEM_VID = "0572"   # Conexant Systems (Rockwell)
 MODEM_PID = "1349"   # CX9300x family
+COUNTRY_CODE = os.environ.get("FIXNET_GCI", "A6")   # T.35: A6 = Switzerland
 BAUD = 115200
 
 GREEN, RED, YELLOW, CYAN, OFF = "\033[32m", "\033[31m", "\033[33m", "\033[36m", "\033[0m"
@@ -122,6 +123,10 @@ class AT:
         self.s = serial.Serial(port, BAUD, timeout=0.2, write_timeout=2)
         time.sleep(0.3)
         self._drain()
+        # The modem boots on the US line profile (B5), which makes it call a
+        # Swiss FXS loop a digital line ("DIGITAL LINE DETECTED") and refuse
+        # it. Set the country on every open; it does not survive ATZ.
+        self.try_cmd(f"AT+GCI={COUNTRY_CODE}")
 
     def close(self):
         try:
@@ -225,9 +230,14 @@ def selftest(port):
                           ("VLS reads back", "AT+VLS?"),
                           ("VSM codecs", "AT+VSM=?"),
                           ("VNH hangup", "AT+VNH?")):
-            ok, detail = at.try_cmd(cmd)
             if name == "VLS reads back":
+                # a fresh modem reports line 0 (none selected); select line 1
+                # first, as place_call() does, then check it stuck
+                sel_ok, sel_detail = at.try_cmd("AT+VLS=1")
+                ok, detail = at.try_cmd(cmd) if sel_ok else (False, sel_detail)
                 ok = ok and detail.strip() == "1"
+            else:
+                ok, detail = at.try_cmd(cmd)
             if name == "VSM codecs":
                 detail = f"{len([l for l in detail.splitlines() if l.strip()])} codec line(s)"
             rows.append((name, ok, detail.replace("\n", " ")[:56]))
@@ -262,24 +272,26 @@ DIAL_OUTCOMES = r"^(CONNECT|NO CARRIER|BUSY|NO ANSWER|NO DIALTONE)"
 
 
 def place_call(port, number, hold=2.0):
+    """Dial in plain data mode (ATX4 checks dial tone), the path proven on the
+    rack. Voice-mode ATDT..; answers OK without saying whether anything
+    happened. The far end proves the call: run `ring` there. A call nobody
+    answers stays "ringing" until `hold` seconds are up, then we hang up."""
     log = []
     with AT(port, 3.0) as at:
+        log.append(("reset", *at.try_cmd("ATZ")))
+        log.append(("country", *at.try_cmd(f"AT+GCI={COUNTRY_CODE}")))
+        log.append(("dial tone check", *at.try_cmd("ATX4")))
         at.s.reset_input_buffer()
-        log.append(("voice mode", *at.try_cmd("AT+FCLASS=8")))
-        log.append(("line select", *at.try_cmd("AT+VLS=1")))
-        ok, detail = at.try_cmd("ATA", 30)
-        log.append(("off-hook (ATA)", ok, detail))
-        if not ok:
-            return False, log, []
-        line, seen = at.dial(number, 30)
-        connected = bool(line) and line.startswith("CONNECT")
-        log.append((f"dial {number}", connected, line or "no outcome line"))
-        if not connected:
-            return False, log, seen
-        time.sleep(hold)
-        ok, detail = at.try_cmd("AT+VNH=1")
-        log.append(("hang up (VNH)", ok, detail))
-        return True, log, seen
+        at.s.write(f"ATDT{number}\r\n".encode())
+        at.s.flush()
+        line, seen = at.wait_for(DIAL_OUTCOMES, max(hold, 3.0) + 8.0)
+        bad = bool(line) and re.match(r"^(NO CARRIER|BUSY|NO ANSWER|NO DIALTONE)", line)
+        ringing = line is None             # nothing refused it: far end is ringing
+        ok = not bad
+        log.append((f"dial {number}", ok,
+                    "ringing (no answer yet)" if ringing else line))
+        log.append(("hang up", *at.try_cmd("ATH")))
+        return ok, log, seen
 
 
 def wait_ring(port, timeout):
@@ -359,9 +371,9 @@ def main():
             for s in seen[-8:]:
                 print(f"    < {s}")
             if connected:
-                print(f"  {GREEN}CONNECT — the FXS path works{OFF}")
+                print(f"  {GREEN}dialled — check the other terminal for RING on the called line{OFF}")
             else:
-                print(f"  {RED}no CONNECT{OFF}")
+                print(f"  {RED}dial refused{OFF}")
                 print("      The loop closed (it dialled), so check the far end, SIP")
                 print("      registration, and relay insertion loss through the switch.")
                 rc = 1

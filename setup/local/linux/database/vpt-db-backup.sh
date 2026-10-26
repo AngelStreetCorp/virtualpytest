@@ -26,6 +26,14 @@ BACKEND_URL="${VPT_BACKEND_URL:-http://localhost:5109}"
 # so the status POST is rejected with 401 without it. Set VPT_API_KEY in
 # /etc/cron.d/vpt-db-backup (the installer does this) or in the environment.
 API_KEY="${VPT_API_KEY:-}"
+# Started by the VM agent (db-backup action) the script has no cron environment: read the two
+# settings from the cron file the installer wrote (plain KEY=value lines, never sourced).
+CRON_FILE="/etc/cron.d/vpt-db-backup"
+cron_value() { sed -n "s/^$1=//p" "$CRON_FILE" 2>/dev/null | head -n1 | tr -d '\r"'"'"; }
+if [ -r "$CRON_FILE" ]; then
+  [ -n "$API_KEY" ] || API_KEY="$(cron_value VPT_API_KEY)"
+  [ -n "${VPT_BACKEND_URL:-}" ] || { v="$(cron_value VPT_BACKEND_URL)"; [ -z "$v" ] || BACKEND_URL="$v"; }
+fi
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 FILENAME="vpt_postgres_${TIMESTAMP}.dump"
 

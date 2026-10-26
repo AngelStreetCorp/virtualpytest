@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                          |
 | Area      | backend / AI usage                                |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `feat/ai-usage-review-r1`                                    |
 
 ---

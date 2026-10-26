@@ -15,7 +15,7 @@
  * Example .env:
  *   VITE_NAV_HIDDEN=/integrations/jira,/integrations/slack
  *   VITE_NAV_DISABLED=/langfuse-dashboard
- *   VITE_NAV_COMING_SOON=/configuration/cicd-reports,/configuration/code-deployment
+ *   VITE_NAV_COMING_SOON=/configuration/cicd-reports,/configuration/platform-update
  */
 
 import { getEnv } from './constants';

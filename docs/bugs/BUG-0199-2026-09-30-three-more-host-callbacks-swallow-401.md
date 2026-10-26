@@ -9,7 +9,7 @@
 | Severity  | Medium — silent loss of script progress, early device release and deployment status |
 | Status    | Fixed (pending deploy)                                                     |
 | Area      | `shared/src/lib/executors/script_executor.py` · `backend_host/src/services/deployment_scheduler.py` |
-| Fixed in  | Unreleased                                                                 |
+| Fixed in  | build 90145 |
 | Related   | [BUG-0151](BUG-0151-2026-09-21-host-execution-events-rejected-401-since-server-lockdown.md) (same defect, one caller), `be7dfa7c95` (the lockdown) |
 | Commit    | this commit                                                                |
 

@@ -33,6 +33,13 @@ export interface AgentEvent {
     output_tokens: number;
     cache_read_tokens?: number;
     cache_creation_tokens?: number;
+    /** TASK-175: the server handed the turn to this agent (Atlas → Forge). */
+    handoff_to?: string;
+    handoff_name?: string;
+    /** TASK-175: another agent is the better one for this ask (a button beside the answer). */
+    suggest_agent?: string;
+    suggest_name?: string;
+    match_source?: string;
   };
   // Background task fields (from dry-run events)
   task_id?: string;
@@ -79,6 +86,25 @@ export interface Message {
   agent?: string;
   timestamp: string;
   events?: AgentEvent[];
+  // Wall-clock timing for the agent turn that produced this message.
+  // - `answer_elapsed_ms` is the total time from user send to terminal event
+  //   (session_ended / complete / user-stopped), regardless of how many chunks
+  //   streamed in. Includes first-token latency and any silence gaps.
+  // - `thinking_elapsed_ms` is the wall-clock span from the first thinking
+  //   event of the turn to the last thinking event (or to terminal if thinking
+  //   was still streaming). Captures how long the model spent reasoning before
+  //   it produced the answer — independent of token counts.
+  // - `thinking_chunks` is the per-chunk arrival timestamp (ms since
+  //   `turn_started_at`) plus the chunk length — useful for replaying the
+  //   reasoning timeline and finding pauses the model inserted on purpose.
+  timing?: {
+    turn_started_at?: number;
+    first_thinking_started_at?: number;
+    last_thinking_at?: number;
+    answer_elapsed_ms?: number;
+    thinking_elapsed_ms?: number;
+    thinking_chunks?: Array<{ at_ms: number; length: number }>;
+  };
 }
 
 export interface Conversation {
@@ -145,13 +171,6 @@ export const useAgentChat = () => {
   const { activeWorkspace } = useWorkspaceContext();
   const { selectedServer, serverHostsData } = useServerManager();
 
-  // Socket lifecycle only. This used to sit in the hook body, so it fired on every render of
-  // AgentChatProvider (App.tsx) instead of on every socket transition — one console line per
-  // render across the whole app. Dependencies mirror the logged values.
-  const socketConnected = socket?.connected;
-  useEffect(() => {
-    console.log('[useAgentChat] Socket state:', { socket: !!socket, isConnected, socketConnected });
-  }, [socket, isConnected, socketConnected]);
 
   const clearDeviceControlPanel = useCallback(() => {
     const active = activeDeviceControlRef.current;
@@ -161,29 +180,13 @@ export const useAgentChat = () => {
     activeDeviceControlRef.current = null;
   }, []);
   
-  // Debug: Log active conversation details
   useEffect(() => {
     if (activeConversationId) {
       // isProcessing reflects the ACTIVE conversation only — other threads may
       // be processing in parallel on their own sessions.
       setIsProcessing(pendingConvsRef.current.has(activeConversationId));
-      console.log(`[useAgentChat] Active conversation changed: ${activeConversationId}`);
-      console.log(`[useAgentChat] Conversation found:`, activeConversation ? 'YES' : 'NO');
-      console.log(`[useAgentChat] Messages count:`, messages.length);
-      if (messages.length > 0) {
-        console.log(`[useAgentChat] Messages summary:`, messages.map(m => `${m.role}: ${m.content?.slice(0, 50)}...`));
-        console.log(`[useAgentChat] Full message details:`, messages.map(m => ({
-          id: m.id,
-          role: m.role,
-          agent: m.agent,
-          contentLength: m.content?.length || 0,
-          fullContent: m.content,
-          eventsCount: m.events?.length || 0,
-          events: m.events
-        })));
-      }
     }
-  }, [activeConversationId, activeConversation, messages]);
+  }, [activeConversationId]);
   
   // Session & UI state
   const [status, setStatus] = useState<Status>('checking');
@@ -193,6 +196,8 @@ export const useAgentChat = () => {
   const [pendingConversationId, setPendingConversationId] = useState<string | null>(null); // Which conversation is awaiting response
   const [currentEvents, setCurrentEvents] = useState<AgentEvent[]>([]);
   const [error, setError] = useState<string | null>(null);
+  // TASK-175: the last server-side hand-off (agent id + when), for the page to follow.
+  const [agentHandoff, setAgentHandoff] = useState<{ agentId: string; at: number } | null>(null);
   // Message of the latest agent 'error' event (a failed tool call is recoverable: the agent
   // carries on). It is shown immediately, then cleared once the turn recovers (see handleAgentEvent).
   const recoverableErrorRef = useRef<string | null>(null);
@@ -214,6 +219,26 @@ export const useAgentChat = () => {
   // Ack watchdog: one transparent reconnect+resend when no event arrives in 4s
   const ackRetryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const ackRetriedRef = useRef<boolean>(false);
+  // Wall-clock timing for the active turn (the one that flipped isProcessing=true).
+  // - `turnStartedAt` is the epoch ms the send_message was emitted; the UI ticks
+  //   `now - turnStartedAt` to show the live "answer elapsed" counter.
+  // - `firstThinkingStartedAt` is captured on the first 'thinking' event of the
+  //   turn (null until then); it gates the "reasoning elapsed" counter.
+  // - `lastThinkingAt` is the wall-clock ms of the last thinking chunk — lets
+  //   us freeze the reasoning timer the moment reasoning stops streaming, even
+  //   if the model keeps producing tool calls or the answer for a while.
+  // - `thinkingChunks` is an in-memory rolling buffer of {at_ms, length} for
+  //   every thinking chunk, persisted on the final Message so feedback and
+  //   copyMessage can carry it.
+  const turnStartedAtRef = useRef<number | null>(null);
+  const firstThinkingStartedAtRef = useRef<number | null>(null);
+  const lastThinkingAtRef = useRef<number | null>(null);
+  const thinkingChunksRef = useRef<Array<{ at_ms: number; length: number }>>([]);
+  // Mirror of the above as React state so the live-tick header / Reasoning
+  // accordion can read them; we tick `now` on a 250ms interval to re-render.
+  const [turnStartedAt, setTurnStartedAt] = useState<number | null>(null);
+  const [firstThinkingStartedAt, setFirstThinkingStartedAt] = useState<number | null>(null);
+  const [lastThinkingAt, setLastThinkingAt] = useState<number | null>(null);
   // Per-conversation sessions: each chat thread gets its own backend session so
   // parallel conversations don't collide on one shared session/room. Events are
   // routed back via their session_id (stamped by the backend).
@@ -277,7 +302,7 @@ export const useAgentChat = () => {
         if (!restoredTasks[agentId]) return;
         
         // Parse title to extract info (format: "🌙 host-device - type" or "🌙 title")
-        const titleWithoutEmoji = convo.title.replace(/^🌙\s*/, '');
+        const titleWithoutEmoji = convo.title.replace(/^\u{1F319}\s*/u, '');
         const titleParts = titleWithoutEmoji.split(' - ');
         const title = titleParts[0] || 'Unknown';
         const subtitle = titleParts[1];
@@ -393,6 +418,16 @@ export const useAgentChat = () => {
       clearTimeout(processingTimeoutRef.current);
       processingTimeoutRef.current = null;
     }
+    // Drop live timers — the abandoned turn never gets persisted as a
+    // Message, so its timing data is gone and the UI must not keep showing
+    // a clock for it.
+    turnStartedAtRef.current = null;
+    setTurnStartedAt(null);
+    firstThinkingStartedAtRef.current = null;
+    setFirstThinkingStartedAt(null);
+    lastThinkingAtRef.current = null;
+    setLastThinkingAt(null);
+    thinkingChunksRef.current = [];
   }, []);
 
   const createNewConversation = useCallback(() => {
@@ -886,12 +921,7 @@ export const useAgentChat = () => {
 
   // Set up socket event listeners when socket becomes available
   useEffect(() => {
-    if (!socket) {
-      console.log('[useAgentChat] No socket available, skipping listener setup');
-      return;
-    }
-
-    console.log('[useAgentChat] Setting up socket event listeners for session:', session?.id);
+    if (!socket) return;
 
     // Room membership (shared session, background_tasks, every per-conversation
     // session) is owned by SocketContext, which re-joins them all on each connect.
@@ -1089,8 +1119,37 @@ export const useAgentChat = () => {
           agent: agentName,
           timestamp: new Date().toISOString(),
           events: uniqueEventsToSave,
+          // Wall-clock timing captured at finalize. Lives on the message so it
+          // survives page refresh (conversations are localStorage-persisted)
+          // and is shipped with copyMessage + feedback POSTs.
+          // - `answer_elapsed_ms` = Date.now() - turnStartedAt at finalize.
+          //   If turnStartedAt is null (e.g. background-only path), we fall
+          //   back to the message timestamp so we never log `undefined`.
+          // - `thinking_elapsed_ms` = lastThinkingAt - firstThinkingStartedAt
+          //   when at least one thinking chunk arrived; `null` otherwise.
+          // - `thinking_chunks` is the rolling buffer (already relative to
+          //   turn start) the accumulator built up live.
+          timing: (() => {
+            const nowMs = Date.now();
+            const turnStart = turnStartedAtRef.current;
+            const firstThinking = firstThinkingStartedAtRef.current;
+            const lastThinking = lastThinkingAtRef.current;
+            return {
+              turn_started_at: turnStart ?? undefined,
+              first_thinking_started_at: firstThinking ?? undefined,
+              last_thinking_at: lastThinking ?? undefined,
+              answer_elapsed_ms: turnStart != null ? Math.max(0, nowMs - turnStart) : undefined,
+              thinking_elapsed_ms:
+                firstThinking != null && lastThinking != null
+                  ? Math.max(0, lastThinking - firstThinking)
+                  : undefined,
+              thinking_chunks: thinkingChunksRef.current.length > 0
+                ? [...thinkingChunksRef.current]
+                : undefined,
+            };
+          })(),
         };
-        
+
         const targetConvoId = eventConvId ?? pendingConversationIdRef.current;
         if (targetConvoId) {
           setConversations(prev => prev.map(c => {
@@ -1104,6 +1163,20 @@ export const useAgentChat = () => {
             };
           }));
         }
+
+        // Console-log the timing so the dev console / browser log capture picks
+        // it up automatically; this is the "data is gold" path the user asked
+        // for — every successful turn leaves a structured timing row in the
+        // session log without needing a server round-trip.
+        console.log('[useAgentChat] ⏱ Turn timing', {
+          conversation: targetConvoId,
+          messageId: newMessage.id,
+          answer_elapsed_ms: newMessage.timing?.answer_elapsed_ms,
+          thinking_elapsed_ms: newMessage.timing?.thinking_elapsed_ms,
+          thinking_chunks: newMessage.timing?.thinking_chunks?.length ?? 0,
+        first_thinking_started_at: newMessage.timing?.first_thinking_started_at,
+          last_thinking_at: newMessage.timing?.last_thinking_at,
+        });
       };
       
       // Debug: Log every event received
@@ -1169,6 +1242,12 @@ export const useAgentChat = () => {
         console.log(`[useAgentChat] Event NOT handled as background (agent: ${event.agent})`);
       }
       
+      // TASK-175: the server handed this turn to another agent (script work goes to Forge): the page
+      // switches its agent so the follow-ups go there too.
+      if (event.type === 'agent_delegated' && event.metrics?.handoff_to) {
+        setAgentHandoff({ agentId: event.metrics.handoff_to, at: Date.now() });
+      }
+
       // Track mode
       if (event.type === 'mode_detected') {
         setSession(prev => prev ? { ...prev, mode: event.content.split(': ')[1] } : null);
@@ -1186,6 +1265,33 @@ export const useAgentChat = () => {
 
       // Accumulate events for current agent
       if (event.type !== 'session_ended' && event.type !== 'complete') {
+        // Capture wall-clock timing for the reasoning stream before we push the
+        // event into currentEvents, so the live "Reasoning" timer in the header
+        // and the live "answer elapsed" counter are both reading consistent
+        // timestamps on every render.
+        // - First thinking chunk of the turn stamps `firstThinkingStartedAt`
+        //   (used as the reasoning timer origin) and seeds `lastThinkingAt`.
+        // - Every subsequent thinking chunk refreshes `lastThinkingAt` and
+        //   appends to `thinkingChunks` so we can replay the model rhythm.
+        // The accumulator block below then sees the same event; nothing else
+        // needs to know about timing.
+        if (event.type === 'thinking') {
+          const nowMs = Date.now();
+          const tsFromStart = turnStartedAtRef.current != null
+            ? Math.max(0, nowMs - turnStartedAtRef.current)
+            : 0;
+          if (firstThinkingStartedAtRef.current == null) {
+            firstThinkingStartedAtRef.current = nowMs;
+            setFirstThinkingStartedAt(nowMs);
+          }
+          lastThinkingAtRef.current = nowMs;
+          setLastThinkingAt(nowMs);
+          thinkingChunksRef.current = [
+            ...thinkingChunksRef.current,
+            { at_ms: tsFromStart, length: (event.content || '').length },
+          ];
+        }
+
         setCurrentEvents(prev => {
           const eventKey = getEventDedupKey(event);
           if (prev.some(existing => getEventDedupKey(existing) === eventKey)) {
@@ -1511,6 +1617,13 @@ export const useAgentChat = () => {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const sendMessageRef = useRef<((m?: string) => Promise<void>) | null>(null);
 
+  // Voice audio path (TASK-140 Q5): a command a speech model already picked rides on the next send, once;
+  // Atlas's quick step checks it and runs it in this session instead of asking its own model.
+  const quickHintRef = useRef<{ tool: string; args: Record<string, unknown> } | null>(null);
+  const setQuickHint = useCallback((hint: { tool: string; args: Record<string, unknown> } | null) => {
+    quickHintRef.current = hint;
+  }, []);
+
   const sendMessage = useCallback(async (directMessage?: string) => {
     // Guard against being wired directly to onClick/onKeyDown — React would pass
     // a SyntheticEvent as the first arg, which socket.io's hasBinary would
@@ -1680,6 +1793,17 @@ export const useAgentChat = () => {
     // turn's and the answer is never finalized (stuck "..." indicator).
     if (convSessionId) endedSessionsRef.current.delete(convSessionId);
     firstEventReceivedRef.current = false; // Reset for new round-trip
+    // Wall-clock timer for this turn. Captured AFTER the setIsProcessing(true)
+    // so the very first frame the UI renders already has a non-null value.
+    // Resets on every send (parallels firstEventReceivedRef).
+    const turnStart = Date.now();
+    turnStartedAtRef.current = turnStart;
+    setTurnStartedAt(turnStart);
+    firstThinkingStartedAtRef.current = null;
+    setFirstThinkingStartedAt(null);
+    lastThinkingAtRef.current = null;
+    setLastThinkingAt(null);
+    thinkingChunksRef.current = [];
 
     // Tight first-answer timeout: if the agent emits NOTHING within 30s
     // (no thinking/tool_call/tool_result/message at all), assume the
@@ -1724,7 +1848,14 @@ export const useAgentChat = () => {
       grafana_base_url: getEnv('VITE_GRAFANA_URL'),
       available_devices: (allowAutoNavigationRef as any).availableDevices || [],
       available_userinterfaces: (allowAutoNavigationRef as any).availableUserinterfaces || [],
+      // Atlas model picker: pin this session to a single profile from the chain (primary
+      // or any fallback). Empty string = clear the pin and let the chain run normally.
+      pinned_profile_id: pinnedProfileIdRef.current || '',
+      // Atlas Companion: the page it shows right now ("Companion: Test Reports — host=…").
+      companion: companionRef.current,
+      ...(quickHintRef.current ? { quick_hint: quickHintRef.current } : {}),
     };
+    quickHintRef.current = null;
 
     // Emit on this conversation's session (falls back to the shared session)
     const sent = sharedEmitSendMessage(messageToSend, agentIdRef.current || 'assistant', sendContext, convSessionId);
@@ -1780,6 +1911,18 @@ export const useAgentChat = () => {
     agentIdRef.current = agentId;
   }, []);
 
+  // Atlas model picker: pin the next turn to a single profile from the model's chain
+  // (primary or any fallback). Empty string = clear the pin (use the default chain).
+  // Server-side: backend_server/src/agent/core/manager.py:_resolution honours this.
+  const pinnedProfileIdRef = useRef<string>('');
+  const companionRef = useRef<string>('');
+  const setCompanionContext = useCallback((text: string) => {
+    companionRef.current = text;
+  }, []);
+  const setPinnedProfileId = useCallback((profileId: string) => {
+    pinnedProfileIdRef.current = profileId || '';
+  }, []);
+
   // Navigation context refs (set by parent component)
   const allowAutoNavigationRef = useRef<boolean>(false);
   const currentPageRef = useRef<string>('/');
@@ -1806,37 +1949,60 @@ export const useAgentChat = () => {
 
   const stopGeneration = useCallback(() => {
     if (!session?.id) return;
-    
+
     // Clear timeout failsafe
     if (processingTimeoutRef.current) {
       clearTimeout(processingTimeoutRef.current);
       processingTimeoutRef.current = null;
     }
-    
+
     socket?.emit('stop_generation', { session_id: session.id });
-    
+
     const targetConvoId = pendingConversationIdRef.current;
-    
+
+    // Capture timing snapshot at the moment of the stop so the partial message
+    // also carries the elapsed values — without this, a user-cancelled turn
+    // would leave the persisted message with no timing at all.
+    const stopTimingSnapshot = (() => {
+      const nowMs = Date.now();
+      const turnStart = turnStartedAtRef.current;
+      const firstThinking = firstThinkingStartedAtRef.current;
+      const lastThinking = lastThinkingAtRef.current;
+      return {
+        turn_started_at: turnStart ?? undefined,
+        first_thinking_started_at: firstThinking ?? undefined,
+        last_thinking_at: lastThinking ?? undefined,
+        answer_elapsed_ms: turnStart != null ? Math.max(0, nowMs - turnStart) : undefined,
+        thinking_elapsed_ms:
+          firstThinking != null && lastThinking != null
+            ? Math.max(0, lastThinking - firstThinking)
+            : undefined,
+        thinking_chunks: thinkingChunksRef.current.length > 0
+          ? [...thinkingChunksRef.current]
+          : undefined,
+      };
+    })();
+
     // Save current events as a partial message before clearing
     setCurrentEvents(prevEvents => {
       if (targetConvoId && prevEvents.length > 0) {
         const uniquePrevEvents = dedupeEvents(prevEvents);
         // Build partial message from accumulated events
-        const messageResultEvents = uniquePrevEvents.filter(e => 
+        const messageResultEvents = uniquePrevEvents.filter(e =>
           e.type === 'message' || e.type === 'result'
         );
         const toolCallEvents = uniquePrevEvents.filter(e => e.type === 'tool_call');
-        
+
         // Only save if we have meaningful content
         if (messageResultEvents.length > 0 || toolCallEvents.length > 0) {
           const accumulatedContent = messageResultEvents
             .map(e => e.content)
             .filter(Boolean)
             .join('\n\n');
-          
+
           // Get the active agent name from events or session
           const agentName = uniquePrevEvents.find(e => e.agent)?.agent || session?.active_agent || 'Agent';
-          
+
           const partialMessage: Message = {
             id: `${Date.now()}-partial`,
             role: 'agent',
@@ -1844,6 +2010,7 @@ export const useAgentChat = () => {
             agent: agentName,
             timestamp: new Date().toISOString(),
             events: uniquePrevEvents,
+            timing: stopTimingSnapshot,
           };
           
           setConversations(prev => prev.map(c => {
@@ -1854,7 +2021,7 @@ export const useAgentChat = () => {
                 id: `${Date.now()}-stop`,
                 role: 'agent' as const,
                 agent: 'System',
-                content: '🛑 Generation stopped by user.',
+                content: 'Generation stopped by user.',
                 timestamp: new Date().toISOString(),
               }],
               updatedAt: new Date().toISOString(),
@@ -1870,7 +2037,7 @@ export const useAgentChat = () => {
                 id: `${Date.now()}-stop`,
                 role: 'agent' as const,
                 agent: 'System',
-                content: '🛑 Generation stopped by user.',
+                content: 'Generation stopped by user.',
                 timestamp: new Date().toISOString(),
               }],
               updatedAt: new Date().toISOString(),
@@ -1887,7 +2054,7 @@ export const useAgentChat = () => {
               id: `${Date.now()}-stop`,
               role: 'agent' as const,
               agent: 'System',
-              content: '🛑 Generation stopped by user.',
+              content: 'Generation stopped by user.',
               timestamp: new Date().toISOString(),
             }],
             updatedAt: new Date().toISOString(),
@@ -1897,12 +2064,28 @@ export const useAgentChat = () => {
       
       return []; // Clear events after saving
     });
-    
+
     setIsProcessing(false);
-    
+
     // Clear pending conversation
     pendingConversationIdRef.current = null;
     setPendingConversationId(null);
+    // Drop the live counters so the next send starts from a clean slate. The
+    // captured snapshot lives on the persisted partial message above, so no
+    // information is lost; we only stop the UI from showing a stale clock.
+    turnStartedAtRef.current = null;
+    setTurnStartedAt(null);
+    firstThinkingStartedAtRef.current = null;
+    setFirstThinkingStartedAt(null);
+    lastThinkingAtRef.current = null;
+    setLastThinkingAt(null);
+    thinkingChunksRef.current = [];
+    console.log('[useAgentChat] ⏱ Turn timing (user-stopped)', {
+      conversation: targetConvoId,
+      answer_elapsed_ms: stopTimingSnapshot.answer_elapsed_ms,
+      thinking_elapsed_ms: stopTimingSnapshot.thinking_elapsed_ms,
+      thinking_chunks: stopTimingSnapshot.thinking_chunks?.length ?? 0,
+    });
   }, [session?.id, session?.active_agent]);
 
   const clearHistory = useCallback(() => {
@@ -1937,6 +2120,15 @@ export const useAgentChat = () => {
     setPendingConversationId(null);
     setIsProcessing(false);
     setCurrentEvents([]);
+    // Reset live timers too — clearing all chats should not leave a stale
+    // "answer elapsed" clock on the empty state.
+    turnStartedAtRef.current = null;
+    setTurnStartedAt(null);
+    firstThinkingStartedAtRef.current = null;
+    setFirstThinkingStartedAt(null);
+    lastThinkingAtRef.current = null;
+    setLastThinkingAt(null);
+    thinkingChunksRef.current = [];
   }, [clearBackendSession, clearDeviceControlPanel]);
   
   const clearBackgroundHistory = useCallback((agentId: string) => {
@@ -2026,6 +2218,7 @@ export const useAgentChat = () => {
     // State
     status,
     session,
+    agentHandoff,
     messages,
     input,
     isProcessing,
@@ -2037,7 +2230,18 @@ export const useAgentChat = () => {
     activeProvider,
     activeModel,
     activeEndpoint,
-    
+
+    // Live turn timing (ms epoch). `turnStartedAt` is captured when the user
+    // sends and stays non-null until the turn is finalized (session_ended,
+    // user-stop, error). `firstThinkingStartedAt` / `lastThinkingAt` flip on
+    // the first / most-recent thinking event of the turn and stay non-null
+    // until the next send. UI ticks `Date.now() - turnStartedAt` at ~4Hz to
+    // render the live counter; `firstThinkingStartedAt` is the origin for
+    // the Reasoning accordion's elapsed counter.
+    turnStartedAt,
+    firstThinkingStartedAt,
+    lastThinkingAt,
+
     // Conversations
     conversations,
     activeConversationId,
@@ -2053,11 +2257,14 @@ export const useAgentChat = () => {
     setApiKeyInput,
     setError,
     sendMessage,
+    setQuickHint,
     saveApiKey,
     handleApproval,
     stopGeneration,
     clearHistory,
     setAgentId,
+    setPinnedProfileId,
+    setCompanionContext,
     setNavigationContext,
     
     // Conversation Actions

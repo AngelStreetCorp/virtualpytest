@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                      |
 | Severity  | Medium (host_vnc previews unusable in the "One full", "Focus + below/right" and any single-tile layout) |
 | Area      | `frontend/src/components/rec/RecHostPreview.tsx`                            |
-| Fixed in  | Unreleased                                                                  |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                                         |
 
 ---

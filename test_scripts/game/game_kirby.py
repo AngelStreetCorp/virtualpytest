@@ -13,6 +13,7 @@ fight loop so the next fight can start.
 
 import os
 import sys
+import time
 
 current_dir = os.path.dirname(os.path.abspath(__file__))
 project_root = os.path.abspath(os.path.join(current_dir, "..", ".."))
@@ -21,6 +22,7 @@ if project_root not in sys.path:
 
 from shared.src.lib.executors.script_decorators import script, get_args, get_context, get_device
 from shared.src.lib.game.kirby.menus import MenuDriver
+from shared.src.lib.game.ai_usage import AiUsage
 from shared.src.lib.game.kirby.runner import KPI_FIELDS, KirbyRunner, VptIO, summary
 
 _script_args = [
@@ -45,18 +47,19 @@ def main():
     context = get_context()
     device = get_device()
     io = VptIO(device, context)
-    choose = None if args.chooser == "fixed" else _build_jev_chooser(context)
+    ai_usage = AiUsage("game_kirby")
+    choose = None if args.chooser == "fixed" else _build_jev_chooser(context, ai_usage)
     outcome_writer = _outcome_writer(context.team_id) if args.chooser == "jev" else None
 
     metadata, success, error_message, last = play_fights(
         io, context, fights_n=int(args.fights), start=args.start, max_duration=int(args.max_duration),
         chooser_name=args.chooser, choose=choose, outcome_writer=outcome_writer)
 
-    context.metadata = metadata
+    context.metadata = {**metadata, "ai_usage": ai_usage.metadata()}
     context.overall_success = success
     context.error_message = error_message
     context.execution_summary = summary(last or {"chooser": args.chooser, "end_reason": ""},
-                                        success, error_message)
+                                        success, error_message) + "\n" + ai_usage.summary()
     return success
 
 
@@ -134,7 +137,7 @@ def _outcome_writer(team_id):
     return fn
 
 
-def _build_jev_chooser(context):
+def _build_jev_chooser(context, ai_usage):
     """Wire Jev (decisions.choose) with the same contract as ``game_pokemon.py``."""
     from shared.src.lib.ai import decisions, router
     team_id = context.team_id
@@ -142,8 +145,10 @@ def _build_jev_chooser(context):
     refs = {"game": "kirby", "script_result_id": getattr(context, "script_result_id", None) or "kirby"}
 
     def choose(state, options, instructions):
+        t0 = time.time()
         out = decisions.choose(resolution, state=state, options=options, instructions=instructions,
                                log=True, refs=dict(refs))
+        ai_usage.record("tactic", out, int((time.time() - t0) * 1000))
         if not out.get("success"):
             return {}
         return {

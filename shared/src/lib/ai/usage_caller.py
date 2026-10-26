@@ -6,7 +6,10 @@ Derived from fields the call log already has (usage key, origin, script name, ho
 - ``agent:<id>``      a call made by an agent (Atlas, Sherlock, Forge, Nightwatch…), read from the usage key
 - ``script:<name>``   a script run (the script's display name)
 - ``process:<name>``  a service that makes calls on its own (``vpt-discard-incidents``, ``vpt-monitor``)
-- ``other:<origin>``  everything else, named by its origin (web app, external API, public Ask, settings test…)
+- ``job:<name>``      a background job, named by what it does (the usage's label: "Fleet health report")
+- ``eval:<name>``     a model test, named by the feature under test (the page says "Model test · <name>")
+- ``other:<origin>``  everything else, named by its origin (web app, public Ask, settings test…); ``other:api`` is
+                      a service-key client that named nobody: the page calls it "Unknown API client"
 
 The page turns the key into words; process and script names are shown as they are.
 """
@@ -43,6 +46,28 @@ def agent_of(usage_key: str) -> Optional[str]:
     return None
 
 
+def feature_label(usage_key: str) -> str:
+    """Human name of a usage key, also for a dynamic agent (``agent.<id>``) the catalogue does not list.
+
+    A pinned (scoring) call carries the label ``eval:<usage key>``; the prefix is dropped so the
+    page names the feature under test, not the label of the call.
+    """
+    if usage_key.startswith('eval:'):
+        usage_key = usage_key[len('eval:'):]
+    if usage_key in usages.USAGES:
+        return usages.short_label(usage_key)
+    agent = agent_of(usage_key)
+    if agent:
+        return AGENT_NAMES.get(agent, agent.replace("_", " ").capitalize())
+    return usage_key or "?"
+
+
+def category_label(category: str) -> Optional[str]:
+    """Name of a ``usage:<key>`` category (a usage with no named category); None for a named one, which
+    the page translates itself."""
+    return feature_label(category[len("usage:"):]) if category.startswith("usage:") else None
+
+
 def caller_of(row: dict) -> str:
     """Caller key of a call row or rollup row (see module doc)."""
     usage_key = row.get("usage_key") or ""
@@ -50,6 +75,8 @@ def caller_of(row: dict) -> str:
     agent = agent_of(usage_key)
     if agent:
         return f"agent:{agent}"
+    if origin == "eval":
+        return f"eval:{feature_label(usage_key)}"
     if origin == "script" or row.get("script_name"):
         name = row.get("script_name")
         return f"script:{name}" if name else "other:script"
@@ -58,5 +85,5 @@ def caller_of(row: dict) -> str:
     if origin == "monitoring":
         return "process:vpt-monitor"
     if origin == "background":
-        return "other:background"
+        return f"job:{feature_label(usage_key)}"
     return f"other:{origin or 'unknown'}"

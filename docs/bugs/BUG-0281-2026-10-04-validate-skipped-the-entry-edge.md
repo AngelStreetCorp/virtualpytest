@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — Validate never tested the entry edge and never reported success |
 | Area      | `test_scripts/validation.py`, `backend_host/src/services/navigation/navigation_pathfinding.py` (`_create_validation_step`) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

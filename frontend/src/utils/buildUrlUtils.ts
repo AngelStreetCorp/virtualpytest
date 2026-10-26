@@ -18,6 +18,7 @@
  */
 
 import { getEnv, APP_CONFIG, SERVER_CONFIG, STORAGE_KEYS } from '../config/constants';
+import { ALL_SERVERS_SENTINEL, isAllServersSentinel } from '../lib/allServer/scope';
 
 // =====================================================
 // SERVER URL BUILDING (Frontend to Backend Server)
@@ -82,9 +83,21 @@ export const withVncCacheBust = (url: string): string =>
   `${url}${url.includes('?') ? '&' : '?'}_vpt=${VNC_SESSION_TAG}`;
 
 export const getServerBaseUrl = (): string => {
-  // Use localStorage selection or fall back to configured URL
+  // Use localStorage selection or fall back to configured URL. The
+  // ALL_SERVERS_SENTINEL value ('__all__') is a valid localStorage
+  // value (BUG-0568 pins the rehydration contract) but it is NOT a
+  // URL — passing it to `normalizeServerUrl` would either fall through
+  // to its default-URL branch silently or build a request to a
+  // literal '__all__' host (manifests as 404 on
+  // /__all__/server/agent/sessions in the network tab). The system
+  // socket (ServerManagerProvider) already special-cases the sentinel;
+  // this is the same fix at the buildServerUrl layer, so the rest of
+  // the SPA's fetches don't regress.
   try {
     const selectedServer = localStorage.getItem(STORAGE_KEYS.SELECTED_SERVER);
+    if (selectedServer === ALL_SERVERS_SENTINEL) {
+      return normalizeServerUrl(SERVER_CONFIG.DEFAULT_URL);
+    }
     return normalizeServerUrl(selectedServer || SERVER_CONFIG.DEFAULT_URL);
   } catch {
     return normalizeServerUrl(SERVER_CONFIG.DEFAULT_URL);
@@ -171,6 +184,31 @@ export const ensureHostSession = async (url: string): Promise<boolean> => {
 };
 
 /**
+ * One mint per host, not one per image: the host-session cookie is scoped to /host/<name>/,
+ * so a page that shows twenty frames of one host needs one POST, not twenty (BUG-0779).
+ *
+ * A successful mint is reused for REUSE_MS. The cookie itself lives ten minutes, and a page
+ * left open refreshes it through `useHostSession(url, true)`; a failed mint is never cached,
+ * so the next caller tries again.
+ */
+const HOST_SESSION_REUSE_MS = 4 * 60 * 1000;
+const hostSessionMints = new Map<string, { at: number; promise: Promise<boolean> }>();
+
+export const ensureHostSessionOnce = async (url: string): Promise<boolean> => {
+  const match = GATED_HOST_PATH_RE.exec(url);
+  if (!match) return true;
+  const hostName = match[1];
+  const now = Date.now();
+  const cached = hostSessionMints.get(hostName);
+  if (cached && now - cached.at < HOST_SESSION_REUSE_MS) return cached.promise;
+  const promise = ensureHostSession(url);
+  hostSessionMints.set(hostName, { at: now, promise });
+  const ok = await promise;
+  if (!ok) hostSessionMints.delete(hostName);
+  return ok;
+};
+
+/**
  * window.open() for a host URL (a capture opened in a new tab): a top-level navigation is not
  * an <img>, so installHostImageSession never sees its 401 — mint the cookie before opening.
  * The mint takes well under the browser's 5 s user-activation window, so the tab still opens.
@@ -179,7 +217,6 @@ export const openHostUrl = async (url: string): Promise<void> => {
   await ensureHostSession(url);
   window.open(url, '_blank');
 };
-
 /**
  * fetch() for a host media URL (archive/transcript manifests, playlists): mints the
  * host-session cookie first when the path is gated, and always sends credentials. The API
@@ -390,6 +427,16 @@ export const getAllServerUrls = (): string[] => {
  * @returns Complete URL with team_id
  */
 export const buildServerUrlForServer = (serverUrl: string, endpoint: string): string => {
+  // The "All servers" sentinel is a picker value, NOT a URL. Passing it here
+  // produced requests to `http://__all__/server/...`, which can never resolve
+  // (BUG-0769: the Run page's script analysis fell back to the sentinel when
+  // its script index was empty). `getServerBaseUrl()` already maps the
+  // sentinel to the configured default server; do the same here so no caller
+  // can build a request against a host named "__all__".
+  if (isAllServersSentinel(serverUrl)) {
+    serverUrl = getServerBaseUrl();
+  }
+
   // Validate serverUrl
   if (!serverUrl) {
     const error = `[buildServerUrlForServer] Invalid serverUrl: "${serverUrl}" - check VITE_SERVER_URL environment variable`;
@@ -437,6 +484,28 @@ export const buildServerUrlForServer = (serverUrl: string, endpoint: string): st
  * @param selectedServerUrl - The currently selected server URL
  * @returns Complete URL with team_id
  */
+/**
+ * Server-side route for a host: it must hit the server that owns the host. With several
+ * servers (or "All servers") the selected server's registry may not know the host -> 400/404
+ * "Host not found".
+ */
+export const buildHostServerUrl = (host: { server_url?: string } | null | undefined, endpoint: string): string =>
+  host?.server_url ? buildServerUrlForServer(host.server_url, endpoint) : buildServerUrl(endpoint);
+
+/** buildServerUrlWithParams against the server that owns the host (no server_url: the selected server). */
+export const buildHostServerUrlWithParams = (
+  host: { server_url?: string } | null | undefined,
+  endpoint: string,
+  params: Record<string, string | undefined>,
+): string => {
+  if (!host?.server_url) return buildServerUrlWithParams(endpoint, params);
+  const url = new URL(buildServerUrlForServer(host.server_url, endpoint), window.location.origin);
+  Object.entries(params).forEach(([key, value]) => {
+    if (value !== undefined) url.searchParams.append(key, value);
+  });
+  return url.toString();
+};
+
 export const buildSelectedServerUrl = (endpoint: string, selectedServerUrl: string): string => {
   return buildServerUrlForServer(selectedServerUrl, endpoint);
 };
@@ -957,6 +1026,53 @@ export const buildMetadataChunkUrl = (
   return internalBuildHostUrl(host, `host${chunkPath}`);
 };
 
+/**
+ * Timeline (TASK-94): files the host's vpt-timeline service writes for a finished 10-min chunk, under
+ * `thumbnails/<hour>/` (a folder the host nginx already serves): `timeline_<n>_30s.jpg|6s.jpg` sprites and
+ * `timeline_<n>_tracks.json`. `name` is the file name.
+ */
+export const buildTimelineFileUrl = (host: any, deviceId: string, hour: number, name: string): string => {
+  if (!deviceId) {
+    throw new Error('deviceId is required for buildTimelineFileUrl');
+  }
+  const basePath = getDeviceCaptureUrlPath(host, deviceId).replace('/captures', '');
+  return internalBuildHostUrl(host, `host${basePath}/thumbnails/${hour}/${name}`);
+};
+
+/** A file of ad_meter's break review (`ads/<break>/<t>.jpg`, the thumbnails it keeps while a break runs), served by the host's stream route. */
+export const buildDeviceAdsFileUrl = (host: any, deviceId: string, name: string): string => {
+  if (!deviceId) {
+    throw new Error('deviceId is required for buildDeviceAdsFileUrl');
+  }
+  const basePath = getDeviceCaptureUrlPath(host, deviceId).replace('/captures', '');
+  return internalBuildHostUrl(host, `host${basePath}/ads/${name.split('/').map(encodeURIComponent).join('/')}`);
+};
+
+/** The host's archive manifest (`segments/archive_manifest.json`): which 10-min chunks exist and when they were written. */
+export const buildArchiveManifestUrl = (host: any, deviceId: string): string => {
+  if (!deviceId) {
+    throw new Error('deviceId is required for buildArchiveManifestUrl');
+  }
+  const basePath = getDeviceCaptureUrlPath(host, deviceId).replace('/captures', '');
+  return internalBuildHostUrl(host, `host${basePath}/segments/archive_manifest.json`);
+};
+
+/**
+ * Build URL for a file the monitor wrote into a device's metadata folder (not an hour folder),
+ * e.g. the "last checked" crop of a monitor profile (TASK-90). nginx serves metadata/ like captures/.
+ *
+ * Example: buildMetadataFileUrl(host, 'device1', 'focus_12_3.jpg')
+ *   -> "http://host/stream/capture1/metadata/focus_12_3.jpg"
+ */
+export const buildMetadataFileUrl = (host: any, deviceId: string, fileName: string): string => {
+  if (!deviceId) {
+    throw new Error('deviceId is required for buildMetadataFileUrl');
+  }
+  const capturePath = getDeviceCaptureUrlPath(host, deviceId);
+  const basePath = capturePath.replace('/captures', '');
+  return internalBuildHostUrl(host, `host${basePath}/metadata/${encodeURIComponent(fileName)}`);
+};
+
 // =====================================================
 // AUDIO/TRANSCRIPT UTILITIES
 // =====================================================
@@ -1242,13 +1358,13 @@ export const pollForFreshStream = (
 
       if (segmentCount >= requiredSegments && restarted) {
         console.log(
-          `[@utils:buildUrlUtils] ✅ Fresh stream ready for ${host.host_name}-${deviceId}! ${segmentCount} segments, sequence ${mediaSequence} (gap=${sawRestartGap}, seqRestart=${sequenceRestarted})`
+          `[@utils:buildUrlUtils] Fresh stream ready for ${host.host_name}-${deviceId}! ${segmentCount} segments, sequence ${mediaSequence} (gap=${sawRestartGap}, seqRestart=${sequenceRestarted})`
         );
         clearInterval(pollingInterval);
         onReady();
       } else if (segmentCount >= requiredSegments) {
         console.log(
-          `[@utils:buildUrlUtils] ⏳ Manifest for ${host.host_name}-${deviceId} has ${segmentCount} segments but no restart detected yet (sequence ${mediaSequence}, baseline ${baselineSequence}) - waiting`
+          `[@utils:buildUrlUtils] Manifest for ${host.host_name}-${deviceId} has ${segmentCount} segments but no restart detected yet (sequence ${mediaSequence}, baseline ${baselineSequence}) - waiting`
         );
       }
     } catch (error) {

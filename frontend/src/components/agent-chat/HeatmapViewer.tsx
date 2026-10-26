@@ -31,6 +31,7 @@ import { RecHostStreamModal } from '../../components/rec/RecHostStreamModal';
 import { useHeatmap } from '../../hooks/useHeatmap';
 import { useHostData } from '../../hooks/useHostManager';
 import { Host, Device } from '../../types/common/Host_Types';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 const HeatmapViewerContent: React.FC = () => {
   const theme = useTheme();
@@ -117,7 +118,7 @@ const HeatmapViewerContent: React.FC = () => {
           color: 'error.contrastText',
           borderRadius: 1,
           zIndex: 10,
-          fontSize: '0.8rem'
+          fontSize: TYPOGRAPHY.body.size
         }}>
           {error}
           <IconButton
@@ -151,7 +152,7 @@ const HeatmapViewerContent: React.FC = () => {
         }}>
           <CardContent sx={{ py: 0, px: 1.5, '&:last-child': { pb: 0 } }}>
             <Box display="flex" alignItems="center" gap={0.5} sx={{ minHeight: 28 }}>
-              <HeatmapIcon color="primary" sx={{ fontSize: 16 }} />
+              <HeatmapIcon color="primary" sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
               {timeline[currentIndex] && (
                 <Typography variant="caption" sx={{ ml: 0.5, color: 'text.primary' }} noWrap>
                   {timeline[currentIndex].isToday ? 'Today' : 'Yesterday'} {timeline[currentIndex].displayTime.toLocaleTimeString('en-US', { hour12: false, hour: '2-digit', minute: '2-digit' })}
@@ -189,18 +190,18 @@ const HeatmapViewerContent: React.FC = () => {
                 <Select
                   value={filter}
                   onChange={(e) => setFilter(e.target.value as 'ALL' | 'OK' | 'KO')}
-                  sx={{ fontSize: '0.7rem', height: '22px' }}
+                  sx={{ fontSize: TYPOGRAPHY.caption.size, height: '22px' }}
                 >
-                  <MenuItem value="ALL" sx={{ fontSize: '0.7rem' }}>ALL</MenuItem>
-                  <MenuItem value="OK" sx={{ fontSize: '0.7rem' }}>OK</MenuItem>
-                  <MenuItem value="KO" sx={{ fontSize: '0.7rem' }}>KO</MenuItem>
+                  <MenuItem value="ALL" sx={{ fontSize: TYPOGRAPHY.caption.size }}>ALL</MenuItem>
+                  <MenuItem value="OK" sx={{ fontSize: TYPOGRAPHY.caption.size }}>OK</MenuItem>
+                  <MenuItem value="KO" sx={{ fontSize: TYPOGRAPHY.caption.size }}>KO</MenuItem>
                 </Select>
               </FormControl>
 
               {/* Go to Latest Button */}
               <Tooltip title="Go to Latest">
                 <IconButton size="small" onClick={goToLatest} sx={{ p: 0.5 }}>
-                  <OpenInNew sx={{ fontSize: 14 }} />
+                  <OpenInNew sx={{ fontSize: TYPOGRAPHY.body.size }} />
                 </IconButton>
               </Tooltip>
 
@@ -213,7 +214,7 @@ const HeatmapViewerContent: React.FC = () => {
                     disabled={isGeneratingReport || !analysisData || !timeline[currentIndex]}
                     sx={{ p: 0.5 }}
                   >
-                    <GridView sx={{ fontSize: 14 }} />
+                    <GridView sx={{ fontSize: TYPOGRAPHY.body.size }} />
                   </IconButton>
                 </span>
               </Tooltip>

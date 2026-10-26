@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import { getLanguageName } from '../../utils/recUtils';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface RestartSettingsPanelProps {
   open: boolean;
@@ -61,7 +62,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
           width: 350,
           height: '100%',
           zIndex: 1000040,
-          backgroundColor: 'rgba(0, 0, 0, 0.95)',
+          backgroundColor: P.surface,
           color: P.textPrimary,
           p: 3,
           overflowY: 'auto',
@@ -69,7 +70,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
       >
         {/* Header */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-          <Typography variant="h6" sx={{ fontSize: '1.1rem' }}>Settings</Typography>
+          <Typography variant="h6" sx={{ fontSize: TYPOGRAPHY.cardTitle.size }}>Settings</Typography>
           <IconButton onClick={onClose} sx={{ color: P.textPrimary, p: 0.5 }}>
             <CloseIcon fontSize="small" />
           </IconButton>
@@ -85,7 +86,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
             <Typography 
               variant="subtitle2" 
               sx={{ 
-                fontSize: '0.85rem', 
+                fontSize: TYPOGRAPHY.body.size, 
                 fontWeight: 600,
                 minWidth: 'fit-content'
               }}
@@ -100,18 +101,18 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
               sx={{ 
                 minWidth: 120, 
                 minHeight: 28,
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 color: P.textPrimary, 
                 '& .MuiOutlinedInput-notchedOutline': { borderColor: P.borderColor },
                 '& .MuiSelect-select': { py: 0.5 }
               }}
             >
-              <MenuItem value="en" sx={{ fontSize: '0.75rem' }}>English</MenuItem>
-              <MenuItem value="es" sx={{ fontSize: '0.75rem' }}>Spanish</MenuItem>
-              <MenuItem value="fr" sx={{ fontSize: '0.75rem' }}>French</MenuItem>
-              <MenuItem value="de" sx={{ fontSize: '0.75rem' }}>German</MenuItem>
-              <MenuItem value="it" sx={{ fontSize: '0.75rem' }}>Italian</MenuItem>
-              <MenuItem value="pt" sx={{ fontSize: '0.75rem' }}>Portuguese</MenuItem>
+              <MenuItem value="en" sx={{ fontSize: TYPOGRAPHY.caption.size }}>English</MenuItem>
+              <MenuItem value="es" sx={{ fontSize: TYPOGRAPHY.caption.size }}>Spanish</MenuItem>
+              <MenuItem value="fr" sx={{ fontSize: TYPOGRAPHY.caption.size }}>French</MenuItem>
+              <MenuItem value="de" sx={{ fontSize: TYPOGRAPHY.caption.size }}>German</MenuItem>
+              <MenuItem value="it" sx={{ fontSize: TYPOGRAPHY.caption.size }}>Italian</MenuItem>
+              <MenuItem value="pt" sx={{ fontSize: TYPOGRAPHY.caption.size }}>Portuguese</MenuItem>
             </Select>
             {isTranslating && (
               <CircularProgress 
@@ -135,7 +136,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
             <Typography 
               variant="subtitle2" 
               sx={{ 
-                fontSize: '0.85rem', 
+                fontSize: TYPOGRAPHY.body.size, 
                 fontWeight: 600,
                 flex: 1,
                 cursor: 'pointer'
@@ -160,7 +161,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
               <Box sx={{ mt: 1 }}>
                 <Typography variant="body2" sx={{ 
                   p: 1.5, 
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   backgroundColor: P.hoverBg, 
                   borderRadius: 1,
                   lineHeight: 1.3,
@@ -184,7 +185,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
             <Typography 
               variant="subtitle2" 
               sx={{ 
-                fontSize: '0.85rem', 
+                fontSize: TYPOGRAPHY.body.size, 
                 fontWeight: 600,
                 flex: 1,
                 cursor: 'pointer'
@@ -208,7 +209,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
             <Box sx={{ mt: 1 }}>
               <Typography variant="body2" sx={{ 
                 p: 1.5, 
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 lineHeight: 1.4,
                 backgroundColor: P.hoverBg, 
                 borderRadius: 1,
@@ -229,7 +230,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
                         href={dubbedAudioUrls[currentLanguage].edge}
                         target="_blank"
                         sx={{ 
-                          fontSize: '0.7rem', 
+                          fontSize: TYPOGRAPHY.caption.size, 
                           color: P.accentText, 
                           textDecoration: 'underline',
                           cursor: 'pointer',
@@ -251,7 +252,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
             <Typography 
               variant="subtitle2" 
               sx={{ 
-                fontSize: '0.85rem', 
+                fontSize: TYPOGRAPHY.body.size, 
                 fontWeight: 600,
                 flex: 1,
                 cursor: 'pointer'
@@ -285,7 +286,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
                     return subtitleContent && subtitleContent !== 'No subtitles detected';
                   }) && (
                     <Typography variant="body2" sx={{ 
-                      fontSize: '0.7rem',
+                      fontSize: TYPOGRAPHY.caption.size,
                       color: P.warning,
                       fontWeight: 600,
                       mb: 1,
@@ -328,7 +329,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
                         }}
                       >
                         <Typography variant="body2" sx={{ 
-                          fontSize: '0.7rem',
+                          fontSize: TYPOGRAPHY.caption.size,
                           fontWeight: 600,
                           color: P.series[1],
                           mb: 0.5
@@ -338,7 +339,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
                         
                         {subtitleContent && subtitleContent !== 'No subtitles detected' && (
                           <Typography variant="body2" sx={{ 
-                            fontSize: '0.65rem',
+                            fontSize: TYPOGRAPHY.microMeta.size,
                             color: P.warning,
                             fontStyle: 'italic',
                             mb: 0.5,
@@ -349,7 +350,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
                         )}
                         
                         <Typography variant="body2" sx={{ 
-                          fontSize: '0.65rem',
+                          fontSize: TYPOGRAPHY.microMeta.size,
                           lineHeight: 1.3,
                           color: P.textPrimary
                         }}>
@@ -368,8 +369,8 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
         {/* 4. Audio Timing Section */}
         <Box sx={{ mt: 2, pt: 1.5, borderTop: `1px solid ${P.borderColor}` }}>
           <Box sx={{ display: 'flex', alignItems: 'center', mb: 1 }}>
-            <AudioIcon sx={{ fontSize: '1rem', mr: 1, color: P.warning }} />
-            <Typography variant="subtitle2" sx={{ fontSize: '0.85rem', fontWeight: 600 }}>
+            <AudioIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size, mr: 1, color: P.warning }} />
+            <Typography variant="subtitle2" sx={{ fontSize: TYPOGRAPHY.body.size, fontWeight: 600 }}>
               Audio Timing
             </Typography>
           </Box>
@@ -382,7 +383,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
               disabled={isApplyingTiming}
               sx={{ 
                 minWidth: 100, 
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 color: P.textPrimary,
                 '& .MuiOutlinedInput-notchedOutline': { borderColor: P.borderColor }
               }}
@@ -402,7 +403,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
               size="small"
               variant="outlined"
               sx={{ 
-                fontSize: '0.7rem', 
+                fontSize: TYPOGRAPHY.caption.size, 
                 minWidth: 50,
                 color: P.textPrimary,
                 borderColor: P.borderColor
@@ -414,7 +415,7 @@ export const RestartSettingsPanel: React.FC<RestartSettingsPanelProps> = ({
           
           {audioTimingOffset !== 0 && (
             <Typography variant="caption" sx={{ 
-              fontSize: '0.65rem', 
+              fontSize: TYPOGRAPHY.microMeta.size, 
               color: P.warning, 
               mt: 0.5, 
               display: 'block' 

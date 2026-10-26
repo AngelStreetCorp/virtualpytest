@@ -8,6 +8,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import EditIcon from '@mui/icons-material/Edit';
 import { VerificationConfigDialog } from '../dialogs/VerificationConfigDialog';
 import { useOptionalTestCaseBuilder as useOptionalTestCaseBuilderContext } from '../../../contexts/testcase/TestCaseBuilderContext';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface ScriptInput {
   name: string;
@@ -304,18 +305,18 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
           onClick={() => setInputsExpanded(!inputsExpanded)}
         >
           <Typography
-            fontSize={13}
+            fontSize="0.8125rem"
             fontWeight={500}
             sx={{ color: 'text.primary' }}
           >
             Inputs
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography fontSize={11} sx={{ color: 'text.disabled' }}>
+            <Typography fontSize="0.6875rem" sx={{ color: 'text.disabled' }}>
               {inputs.length}
             </Typography>
             <IconButton size="small" sx={{ p: 0 }}>
-              {inputsExpanded ? <ExpandLessIcon sx={{ fontSize: 16 }} /> : <ExpandMoreIcon sx={{ fontSize: 16 }} />}
+              {inputsExpanded ? <ExpandLessIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} /> : <ExpandMoreIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />}
             </IconButton>
           </Box>
         </Box>
@@ -364,7 +365,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                     backgroundColor: 'transparent',
                     border: `1px solid ${sectionColors.inputs}`,
                     color: 'text.primary', // White text for readability
-                    fontSize: '0.7rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                     height: '24px',
                     justifyContent: 'space-between',
                     cursor: input.protected ? 'default' : 'grab',
@@ -388,7 +389,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                 backgroundColor: `${sectionColors.inputs}15`,
                 border: `1px dashed ${sectionColors.inputs}`,
                 color: sectionColors.inputs,
-                fontSize: '0.7rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 height: '24px',
               }}
             />
@@ -419,18 +420,18 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
           onClick={() => setOutputsExpanded(!outputsExpanded)}
         >
           <Typography
-            fontSize={13}
+            fontSize="0.8125rem"
             fontWeight={500}
             sx={{ color: 'text.primary' }}
           >
             Outputs
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography fontSize={11} sx={{ color: 'text.disabled' }}>
+            <Typography fontSize="0.6875rem" sx={{ color: 'text.disabled' }}>
               {outputs.length}
             </Typography>
             <IconButton size="small" sx={{ p: 0 }}>
-              {outputsExpanded ? <ExpandLessIcon sx={{ fontSize: 16 }} /> : <ExpandMoreIcon sx={{ fontSize: 16 }} />}
+              {outputsExpanded ? <ExpandLessIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} /> : <ExpandMoreIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />}
             </IconButton>
           </Box>
         </Box>
@@ -465,7 +466,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                       flex: 1,
                       '& .MuiInputBase-root': {
                         height: '24px',
-                        fontSize: '0.7rem',
+                        fontSize: TYPOGRAPHY.caption.size,
                         backgroundColor: 'transparent',
                       },
                       '& .MuiInputBase-input': {
@@ -548,7 +549,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                         backgroundColor: 'transparent',
                         border: `1px solid ${output.sourceBlockId ? sectionColors.variables : sectionColors.outputs}`,
                         color: 'text.primary', // White text for readability
-                        fontSize: '0.7rem',
+                        fontSize: TYPOGRAPHY.caption.size,
                         height: '24px',
                         justifyContent: 'space-between',
                         cursor: 'pointer',
@@ -569,7 +570,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                     onClick={(e) => handleStartEditOutput(output.name, e)}
                     sx={{ padding: 0, color: sectionColors.outputs, mr: 0.5 }}
                   >
-                    <EditIcon sx={{ fontSize: 14 }} />
+                    <EditIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                   </IconButton>
                 )}
                 <IconButton
@@ -590,7 +591,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                 backgroundColor: `${sectionColors.outputs}15`,
                 border: `1px dashed ${sectionColors.outputs}`,
                 color: sectionColors.outputs,
-                fontSize: '0.7rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 height: '24px',
               }}
             />
@@ -621,18 +622,18 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
           onClick={() => setVariablesExpanded(!variablesExpanded)}
         >
           <Typography
-            fontSize={13}
+            fontSize="0.8125rem"
             fontWeight={500}
             sx={{ color: 'text.primary' }}
           >
             Variables
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography fontSize={11} sx={{ color: 'text.disabled' }}>
+            <Typography fontSize="0.6875rem" sx={{ color: 'text.disabled' }}>
               {variables.length}
             </Typography>
             <IconButton size="small" sx={{ p: 0 }}>
-              {variablesExpanded ? <ExpandLessIcon sx={{ fontSize: 16 }} /> : <ExpandMoreIcon sx={{ fontSize: 16 }} />}
+              {variablesExpanded ? <ExpandLessIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} /> : <ExpandMoreIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />}
             </IconButton>
           </Box>
         </Box>
@@ -667,7 +668,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                       flex: 1,
                       '& .MuiInputBase-root': {
                         height: '24px',
-                        fontSize: '0.7rem',
+                        fontSize: TYPOGRAPHY.caption.size,
                         backgroundColor: 'transparent',
                       },
                       '& .MuiInputBase-input': {
@@ -746,7 +747,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                     <Tooltip 
                       title={
                         executionVariableValues[variable.name] !== undefined 
-                          ? <pre style={{ margin: 0, fontSize: '0.75rem' }}>{JSON.stringify(executionVariableValues[variable.name], null, 2)}</pre>
+                          ? <pre style={{ margin: 0, fontSize: TYPOGRAPHY.caption.size }}>{JSON.stringify(executionVariableValues[variable.name], null, 2)}</pre>
                           : getVariableTooltip(variable)
                       } 
                       placement="left"
@@ -759,7 +760,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                         sx={{
                           width: '100%',
                           '& .MuiBadge-badge': {
-                            fontSize: '0.6rem',
+                            fontSize: TYPOGRAPHY.microMeta.size,
                             height: '16px',
                             minWidth: '16px',
                             backgroundColor: sectionColors.variables,
@@ -813,7 +814,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                             backgroundColor: 'transparent',
                             border: `1px solid ${sectionColors.variables}`,
                             color: 'text.primary', // White text for readability
-                            fontSize: '0.7rem',
+                            fontSize: TYPOGRAPHY.caption.size,
                             height: '24px',
                             justifyContent: 'space-between',
                             cursor: normalizeSourceLinks(variable).length > 0 ? 'pointer' : 'grab',
@@ -836,7 +837,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                     onClick={(e) => handleStartEditVariable(variable.name, e)}
                     sx={{ padding: 0, color: sectionColors.variables, mr: 0.5 }}
                   >
-                    <EditIcon sx={{ fontSize: 14 }} />
+                    <EditIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                   </IconButton>
                 )}
                 <IconButton
@@ -857,7 +858,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                 backgroundColor: `${sectionColors.variables}15`,
                 border: `1px dashed ${sectionColors.variables}`,
                 color: sectionColors.variables,
-                fontSize: '0.7rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 height: '24px',
               }}
             />
@@ -888,18 +889,18 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
           onClick={() => setMetadataExpanded(!metadataExpanded)}
         >
           <Typography
-            fontSize={13}
+            fontSize="0.8125rem"
             fontWeight={500}
             sx={{ color: 'text.primary' }}
           >
             Metadata
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography fontSize={11} sx={{ color: 'text.disabled' }}>
+            <Typography fontSize="0.6875rem" sx={{ color: 'text.disabled' }}>
               {metadata.length}
             </Typography>
             <IconButton size="small" sx={{ p: 0 }}>
-              {metadataExpanded ? <ExpandLessIcon sx={{ fontSize: 16 }} /> : <ExpandMoreIcon sx={{ fontSize: 16 }} />}
+              {metadataExpanded ? <ExpandLessIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} /> : <ExpandMoreIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />}
             </IconButton>
           </Box>
         </Box>
@@ -934,7 +935,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                       flex: 1,
                       '& .MuiInputBase-root': {
                         height: '24px',
-                        fontSize: '0.7rem',
+                        fontSize: TYPOGRAPHY.caption.size,
                         backgroundColor: 'transparent',
                       },
                       '& .MuiInputBase-input': {
@@ -986,7 +987,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                     <Tooltip
                       title={
                         executionMetadataValues[field.name] !== undefined
-                          ? <pre style={{ margin: 0, fontSize: '0.75rem' }}>{JSON.stringify(executionMetadataValues[field.name], null, 2)}</pre>
+                          ? <pre style={{ margin: 0, fontSize: TYPOGRAPHY.caption.size }}>{JSON.stringify(executionMetadataValues[field.name], null, 2)}</pre>
                           : ''
                       }
                       placement="left"
@@ -1022,7 +1023,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                         backgroundColor: 'transparent',
                         border: `1px solid ${field.sourceBlockId ? sectionColors.variables : sectionColors.metadata}`,
                         color: 'text.primary', // White text for readability
-                        fontSize: '0.7rem',
+                        fontSize: TYPOGRAPHY.caption.size,
                         height: '24px',
                         justifyContent: 'space-between',
                         cursor: field.sourceBlockId ? 'pointer' : 'default',
@@ -1048,7 +1049,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                     onClick={(e) => handleStartEditMetadata(field.name, e)}
                     sx={{ padding: 0, color: sectionColors.metadata, mr: 0.5 }}
                   >
-                    <EditIcon sx={{ fontSize: 14 }} />
+                    <EditIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                   </IconButton>
                 )}
                 <IconButton
@@ -1069,7 +1070,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
                 backgroundColor: `${sectionColors.metadata}15`,
                 border: `1px dashed ${sectionColors.metadata}`,
                 color: sectionColors.metadata,
-                fontSize: '0.7rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 height: '24px',
               }}
             />
@@ -1086,7 +1087,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
           setSourcesMenuVariable(null);
         }}
       >
-        <MenuItem disabled sx={{ fontSize: '0.75rem', fontWeight: 'bold', color: sectionColors.variables }}>
+        <MenuItem disabled sx={{ fontSize: TYPOGRAPHY.caption.size, fontWeight: 'bold', color: sectionColors.variables }}>
           Jump to source:
         </MenuItem>
         {sourcesMenuVariable && normalizeSourceLinks(sourcesMenuVariable).map((source, idx) => (
@@ -1097,7 +1098,7 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
               setSourcesMenuAnchor(null);
               setSourcesMenuVariable(null);
             }}
-            sx={{ fontSize: '0.75rem' }}
+            sx={{ fontSize: TYPOGRAPHY.caption.size }}
           >
             {source.blockLabel || getBlockLabel(source.sourceBlockId)} → {source.sourceOutputName}
           </MenuItem>
@@ -1117,9 +1118,9 @@ export const ScriptIOSections: React.FC<ScriptIOSectionsProps> = ({
             setSourcesMenuAnchor(null);
             setSourcesMenuVariable(null);
           }}
-          sx={{ fontSize: '0.75rem', color: '#ef4444' }}
+          sx={{ fontSize: TYPOGRAPHY.caption.size, color: '#ef4444' }}
         >
-          ✖ Unlink All
+          Unlink All
         </MenuItem>
       </Menu>
     </Box>

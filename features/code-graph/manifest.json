@@ -1,0 +1,9 @@
+{
+  "name": "code-graph",
+  "description": "Code reference index for coding agents: one MCP tool, code_refs, answers 'who calls X / who imports X / which frontend or server code hits route Y' from a stdlib-ast index built in memory from the repo checkout (no artifact, no external dependency). Turn off with DISABLED_FEATURES=code-graph. Doc: docs/agent/Graphify.md.",
+  "parts": [
+    "backend_server",
+    "lib",
+    "scripts"
+  ]
+}

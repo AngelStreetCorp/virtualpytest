@@ -82,6 +82,18 @@ class DomCaptureSession:
 
 _session = DomCaptureSession()
 
+# `page.content()` and `page.title()` have no timeout of their own: on a renderer that
+# is busy or blocked they never return (TASK-161, 2026-10-23). These are the budgets
+# that stop a capture from waiting for one.
+DOM_CONTENT_TIMEOUT_S = float(os.getenv("VPT_DOM_CONTENT_TIMEOUT_S", "10"))
+DOM_TITLE_TIMEOUT_S = float(os.getenv("VPT_DOM_TITLE_TIMEOUT_S", "5"))
+
+
+async def _bounded_call(fn, timeout: float):
+    """Await a Playwright call that has no timeout of its own, with one."""
+    import asyncio
+    return await asyncio.wait_for(fn(), timeout=timeout)
+
 
 async def capture_page_dom(*, page: Any, name: str = '', output_dir: str = '') -> str:
     """Capture the current page DOM if this page state wasn't captured yet.
@@ -89,12 +101,18 @@ async def capture_page_dom(*, page: Any, name: str = '', output_dir: str = '') -
     Returns the path of the capture representing this page state ('' on
     failure). Dedupe: same normalized URL + same content hash → returns the
     existing file without writing a new one.
+
+    `page.content()` and `page.title()` are protocol calls with no timeout of
+    their own: on a renderer that is busy or blocked they never return, and the
+    navigation that called them never returned either (measured on
+    `web-internetarchive`, TASK-161, 2026-10-23). A capture that cannot be
+    taken is skipped, not waited for.
     """
     try:
-        html = _strip_dom_noise(await page.content())
+        html = _strip_dom_noise(await _bounded_call(page.content, DOM_CONTENT_TIMEOUT_S))
         url = page.url
         try:
-            title = (await page.title() or '').strip()
+            title = (await _bounded_call(page.title, DOM_TITLE_TIMEOUT_S) or '').strip()
         except Exception:
             title = ''
         normalized_url = _normalize_url(url)

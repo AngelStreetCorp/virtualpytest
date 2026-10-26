@@ -10,6 +10,7 @@ import {
 } from '../../../config/remote/nintendoSwitchRemote';
 import { useControllerApi } from '../../../hooks/controller/useControllerApi';
 import { Host } from '../../../types/common/Host_Types';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface NintendoSwitchRemoteProps {
   host: Host;
@@ -160,7 +161,9 @@ export const NintendoSwitchRemote = React.memo(function NintendoSwitchRemote({
           <Typography
             variant="caption"
             sx={{
-              fontSize: `${Math.max(8, parseInt(info.text_style.fontSize, 10) * scale)}px`,
+              // ui-ok: no-literal-font-size — per-button dynamic sizing from the layout
+              // config (px × scale, floored at 8 px); not a role token.
+              fontSize: `${Math.max(8, parseInt(info.text_style.fontSize, 10) * scale)}px`, // ui-ok: no-literal-font-size - overlay text scales with the remote image
               fontWeight: info.text_style.fontWeight,
               color: info.text_style.color,
               textShadow: info.text_style.textShadow,
@@ -221,7 +224,7 @@ export const NintendoSwitchRemote = React.memo(function NintendoSwitchRemote({
               variant="outlined"
               disabled={state === 'pairing' || state === 'daemon_down'}
               onClick={() => void sendCommand('pair')}
-              sx={{ minWidth: 0, px: 1, py: 0.25, fontSize: '0.7rem' }}
+              sx={{ minWidth: 0, px: 1, py: 0.25, fontSize: TYPOGRAPHY.caption.size }}
             >
               Pair
             </Button>
@@ -235,9 +238,9 @@ export const NintendoSwitchRemote = React.memo(function NintendoSwitchRemote({
             sx={{ p: 0.5 }}
           >
             {showOverlays ? (
-              <VisibilityIcon sx={{ fontSize: 18 }} />
+              <VisibilityIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />
             ) : (
-              <VisibilityOffIcon sx={{ fontSize: 18 }} />
+              <VisibilityOffIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />
             )}
           </IconButton>
         )}

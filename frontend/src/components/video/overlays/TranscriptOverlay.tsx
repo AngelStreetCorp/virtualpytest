@@ -1,8 +1,10 @@
+import { AppIcon } from '../../../constants/icons';
 import React, { useState } from 'react';
 import { Box, Typography, IconButton, Menu, MenuItem, CircularProgress } from '@mui/material';
 import { Headphones, Language } from '@mui/icons-material';
 
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface TranscriptOverlayProps {
   transcriptText: string;
@@ -85,8 +87,8 @@ export const TranscriptOverlay: React.FC<TranscriptOverlayProps> = ({
           }}
         >
           <CircularProgress size={20} sx={{ color: P.accent }} />
-          <Typography variant="caption" sx={{ fontSize: '13px', fontWeight: 500 }}>
-            🤖 AI translating...
+          <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.body.size, fontWeight: 500 }}>
+            <AppIcon name="ai" /> AI translating...
           </Typography>
         </Box>
       )}
@@ -155,9 +157,9 @@ export const TranscriptOverlay: React.FC<TranscriptOverlayProps> = ({
               }}
             >
               {languageNames[lang] || lang.toUpperCase()}
-              {lang === selectedLanguage && ' ✓'}
-              {!isCached && lang !== 'original' && ' 🤖'}
-              {hasAudio && ' 🎤'}
+              {lang === selectedLanguage && <AppIcon name="success" />}
+              {!isCached && lang !== 'original' && <AppIcon name="ai" />}
+              {hasAudio && <AppIcon name="mic" />}
             </MenuItem>
           );
         })}
@@ -188,7 +190,7 @@ export const TranscriptOverlay: React.FC<TranscriptOverlayProps> = ({
           sx={{ 
             fontWeight: 500, 
             lineHeight: 1.3,
-            fontSize: '0.95rem',
+            fontSize: TYPOGRAPHY.navbarItem.size,
             display: '-webkit-box',
             WebkitLineClamp: 2,
             WebkitBoxOrient: 'vertical',

@@ -111,6 +111,15 @@ class PhoneBridge:
     def get_slot(self, device_id: str) -> Optional[_Slot]:
         return self.slots.get(device_id)
 
+    def sid_for_device(self, device_id: str) -> Optional[str]:
+        """The live Socket.IO session id of a slot, or None when nothing is connected.
+
+        The drone bridge uses this to find the phone that carries a drone
+        (TASK-160): DEVICE{i}_TELLO_BRIDGE_PHONE names the phone_agent slot.
+        """
+        slot = self.slots.get(device_id)
+        return slot.sid if slot else None
+
     def slot_by_sid(self, sid: str) -> Optional[_Slot]:
         with self._lock:
             for slot in self.slots.values():
@@ -312,6 +321,16 @@ class PhoneBridge:
         if not done.wait(timeout):
             raise TimeoutError(f'{event} timed out after {timeout}s')
         return box.get('result')
+
+    def call_phone(self, event: str, payload: Dict[str, Any], sid: str, timeout: float) -> Any:
+        """Send one event to a phone and wait for its answer.
+
+        The drone bridge (TASK-160) uses this for the drone commands: the phone
+        runs the command on the drone and answers with the drone's own reply.
+        """
+        if not self.socketio:
+            raise RuntimeError('socketio not available on this host')
+        return self._call(event, payload, sid, timeout)
 
     # ---- hello rate limiting (TASK-19 P0 #2) ----------------------------
 
@@ -524,3 +543,15 @@ def get_bridge(app=None, socketio=None) -> PhoneBridge:
                 raise RuntimeError('get_bridge() called before the bridge was created (register(app) has not run yet)')
             _bridge_instance = PhoneBridge(app, socketio)
         return _bridge_instance
+
+
+def reset_bridge() -> None:
+    """Drop the per-process bridge so the next register(app) builds a fresh one.
+
+    A host process has exactly one bridge, so the singleton is right there. In the
+    TESTS it is not: several test modules each boot their own host app, and the
+    second one would otherwise inherit the first one's slots, state file and env.
+    """
+    global _bridge_instance
+    with _bridge_lock:
+        _bridge_instance = None

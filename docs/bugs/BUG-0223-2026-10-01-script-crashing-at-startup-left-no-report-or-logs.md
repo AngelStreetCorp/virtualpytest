@@ -9,7 +9,7 @@
 | Severity  | Medium — the run fails with no evidence; the cause is only in the host's journal |
 | Status    | Fixed (pending deploy)                                            |
 | Area      | `shared/src/lib/executors/script_executor.py`                     |
-| Fixed in  | Unreleased                                                        |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                       |
 
 ---

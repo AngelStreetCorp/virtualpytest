@@ -2,32 +2,65 @@
 
 **Learn how to use VirtualPyTest effectively.**
 
-This guide covers everything you need to know to get the most out of VirtualPyTest, from basic operations to advanced features.
+New here? Start with "Getting Started". Each link below opens one topic.
 
 ---
 
-## 🎯 Quick Navigation
+## Quick Navigation
 
 ### Getting Started
 - **[Install](../get-started/README.md)** - Docker, one VM, Proxmox fleet or developer setup
 - **[Getting Started](./getting-started.md)** - Your first test once the UI is up
 
 ### Core Features
+- **[Platform update](./platform-update.md)** - Update an install in seven steps
 - **[Running Tests](./running-tests.md)** - Execute tests and campaigns
-- **[Sharing a test report](./sharing-reports.md)** - An expiring link (optional password) to one report, for someone without a VPT account
-- **[App languages](./app-languages.md)** - Use the web app in English, French or German; change language and theme from Settings
-- **[Report languages](./report-languages.md)** - Read a report in English, French or German; translate your own script's strings
+- **[Sharing a test report](./sharing-reports.md)** - An expiring link for someone without an account
+- **[App languages](./app-languages.md)** - Use the app in English, French or German
+- **[Report languages](./report-languages.md)** - Read reports in three languages
+- **[Caption playback](./caption-playback.md)** - Watch a device 150 s behind live, with captions
 - **Monitoring** - 24/7 device monitoring and alerts
-- **[Grafana alerting](./grafana-alerting.md)** - Email / Slack alerts on host health, incidents and test regressions
-- **[Requirements management](../features/requirements-management.md)** - Link requirements to tests, coverage
-- **[Nintendo Switch](./nintendo-switch.md)** - Pair a stock Switch as a Bluetooth Pro Controller and drive it from the remote panel
-- **[Subtitle QA](./subtitle-qa.md)** - Check subtitles on a film (missing, wrong, late, stuck, wrong language) from an .mkv or a live device
+- **[Grafana alerting](./grafana-alerting.md)** - Alerts on host health and incidents
+- **[Requirements management](../features/requirements-management.md)** - Link requirements to tests
+- **[Nintendo Switch](./nintendo-switch.md)** - Pair a Switch and drive it from the remote panel
+- **[Support tickets](./support-tickets.md)** - Open a ticket from Settings
+- **[Subtitle QA](./subtitle-qa.md)** - Check subtitles on a film
+- **[Atlas Companion](./atlas-companion.md)** - See the real page next to Atlas's answer
+- **[Custom pages](./custom-pages.md)** - Build a page from blocks, or ask Atlas to build it, and share it
+
+<div data-technical>
+
+Full descriptions, in order:
+
+- **Platform update** - Update an install in seven guided steps (prerequisites, backup, bundle, deploy, migrations, testing, close) with a maintenance banner for users
+- **Sharing a test report** - An expiring link (optional password) to one report, for someone without a VPT account
+- **App languages** - Use the web app in English, French or German; change language and theme from Settings
+- **Report languages** - Read a report in English, French or German; translate your own script's strings
+- **Caption playback** - Watch a device 150 s behind live with machine captions; per-device profile, language picker, minutes that already have subtitles
+- **Grafana alerting** - Email / Slack alerts on host health, incidents and test regressions
+- **Requirements management** - Link requirements to tests, coverage
+- **Nintendo Switch** - Pair a stock Switch as a Bluetooth Pro Controller and drive it from the remote panel
+- **Support tickets** - Open a ticket from Settings, what each field means, the statuses you see
+- **Subtitle QA** - Check subtitles on a film (missing, wrong, late, stuck, wrong language) from an .mkv or a live device
+
+</div>
 
 ### Configuration
 - **[Configuration reference](../get-started/configuration.md)** - Every variable and port
-- **[Supabase and authentication](../get-started/supabase.md)** - Open mode vs login, cloud vs self-hosted
-- **[Free cloud starter](./free-cloud-starter.md)** - Render, Supabase, Redis, and a Linux host for a showcase
-- **[Who can do what](./permissions.md)** - Roles, teams and workspaces, with worked examples
+- **[Supabase and authentication](../get-started/supabase.md)** - Open mode vs login
+- **[Free cloud starter](./free-cloud-starter.md)** - A showcase setup
+- **[Who can do what](../agent/platform/ACCESS_MODEL.md)** - Users, roles and workspaces
+
+<div data-technical>
+
+Full descriptions, in order:
+
+- **Configuration reference** - Every variable and port
+- **Supabase and authentication** - Open mode vs login, cloud vs self-hosted
+- **Free cloud starter** - Render, Supabase, Redis, and a Linux host for a showcase
+- **Who can do what** - Tenants → teams → users → roles → workspaces → projects + AI config / provider / model / quota. Single source of truth.
+
+</div>
 
 ### Best Practices
 - **[Test Case Naming](../technical/testcase/testcase-naming.md)** - Naming conventions
@@ -39,124 +72,29 @@ This guide covers everything you need to know to get the most out of VirtualPyTe
 
 ---
 
-## 📚 Documentation by Topic
+## Documentation by Topic
 
-### Test Management
+The topics below are listed in the technical details.
 
-#### Creating Tests
-Learn how to create effective test cases:
-- Define test steps
-- Add verifications
-- Capture screenshots
-- Handle errors
+<div data-technical>
 
-#### Running Tests
-Execute tests on your devices:
-- Single test execution
-- Campaign execution
-- Parallel execution
-- Scheduled execution
+**Test Management.** Creating Tests: define test steps, add verifications, capture screenshots, handle errors. Running Tests: single test execution, campaign execution, parallel execution, scheduled execution. Test Results: view test reports, screenshot galleries, video playback, failure analysis.
 
-#### Test Results
-Understand and analyze results:
-- View test reports
-- Screenshot galleries
-- Video playback
-- Failure analysis
+**Device Management.** Device Configuration: add new devices, configure controllers (ADB, IR, Appium), set up video capture, power management. Device Monitoring: real-time status, connection monitoring, performance metrics, alert configuration.
+
+**Navigation Trees.** Building Navigation Maps: define nodes (screens), set navigation paths, add verifications, connect nodes. Using Navigation: navigate to any node, automatic pathfinding, breadcrumb navigation, custom navigation logic.
+
+**Monitoring & Alerts.** Setting Up Monitoring: video quality monitoring, black screen detection, freeze detection, subtitle validation. Alert Configuration: configure alert rules, set up notification channels (Slack, Email), define severity levels, alert escalation.
+
+**Campaigns.** Campaign Creation: select test cases, choose devices, set execution order, configure retries. Campaign Scheduling: cron-based scheduling, recurring campaigns, one-time executions, campaign dependencies.
+
+**Integrations.** JIRA Integration: sync test cases, create defects automatically, link requirements, update test status. Grafana Dashboards: access dashboards, create custom panels, set up alerts, export data.
+
+</div>
 
 ---
 
-### Device Management
-
-#### Device Configuration
-Set up and configure your devices:
-- Add new devices
-- Configure controllers (ADB, IR, Appium)
-- Set up video capture
-- Power management
-
-#### Device Monitoring
-Keep track of device health:
-- Real-time status
-- Connection monitoring
-- Performance metrics
-- Alert configuration
-
----
-
-### Navigation Trees
-
-#### Building Navigation Maps
-Create reusable navigation structures:
-- Define nodes (screens)
-- Set navigation paths
-- Add verifications
-- Connect nodes
-
-#### Using Navigation
-Navigate efficiently in tests:
-- Navigate to any node
-- Automatic pathfinding
-- Breadcrumb navigation
-- Custom navigation logic
-
----
-
-### Monitoring & Alerts
-
-#### Setting Up Monitoring
-Configure continuous monitoring:
-- Video quality monitoring
-- Black screen detection
-- Freeze detection
-- Subtitle validation
-
-#### Alert Configuration
-Get notified when issues occur:
-- Configure alert rules
-- Set up notification channels (Slack, Email)
-- Define severity levels
-- Alert escalation
-
----
-
-### Campaigns
-
-#### Campaign Creation
-Organize tests into campaigns:
-- Select test cases
-- Choose devices
-- Set execution order
-- Configure retries
-
-#### Campaign Scheduling
-Automate test execution:
-- Cron-based scheduling
-- Recurring campaigns
-- One-time executions
-- Campaign dependencies
-
----
-
-### Integrations
-
-#### JIRA Integration
-Connect to JIRA for issue tracking:
-- Sync test cases
-- Create defects automatically
-- Link requirements
-- Update test status
-
-#### Grafana Dashboards
-View analytics and metrics:
-- Access dashboards
-- Create custom panels
-- Set up alerts
-- Export data
-
----
-
-## 🎓 Learning Path
+## Learning Path
 
 ### For QA Engineers
 
@@ -182,46 +120,52 @@ View analytics and metrics:
 
 ---
 
-## 💡 Tips & Tricks
+## Tips & Tricks
 
 ### Productivity Tips
 
 - Use **navigation trees** to avoid repeating navigation code
-- Create **reusable fixtures** for common setup and teardown
 - Use **campaigns** for regression testing
+
+<div data-technical>
+
+- Create **reusable fixtures** for common setup and teardown
 - Enable **automatic retries** for flaky tests
 - Leverage **parallel execution** for faster results
+
+</div>
 
 ### Best Practices
 
 - Name test cases consistently ([naming guide](../technical/testcase/testcase-naming.md))
 - Verify after every navigation
+
+<div data-technical>
+
 - Take screenshots at key points
 - Use meaningful verification messages
 - Keep tests independent and isolated
 
+</div>
+
 ---
 
-## 🆘 Need Help?
+## Need Help?
 
 ### Common Issues
 
-Check [Troubleshooting](./troubleshooting.md) for solutions to:
-- Connection problems
-- Test failures
-- Performance issues
-- Configuration errors
+Check [Troubleshooting](./troubleshooting.md) for solutions to connection problems, test failures, performance issues and configuration errors.
 
 ### Get Support
 
-- 🐛 [Report a Bug](https://github.com/AngelStreetCorp/virtualpytest/issues)
-- 💬 [Ask a Question](https://github.com/AngelStreetCorp/virtualpytest/discussions)
-- 📖 [Technical Docs](../technical/README.md)
-- 🎯 [Feature Requests](https://github.com/AngelStreetCorp/virtualpytest/issues/new)
+- [Report a Bug](https://github.com/AngelStreetCorp/virtualpytest/issues)
+- [Ask a Question](https://github.com/AngelStreetCorp/virtualpytest/discussions)
+- [Technical Docs](../technical/README.md)
+- [Feature Requests](https://github.com/AngelStreetCorp/virtualpytest/issues/new)
 
 ---
 
-## 📖 Related Documentation
+## Related Documentation
 
 - **[Features](../features/README.md)** - What VirtualPyTest can do
 - **[Get Started](../get-started/README.md)** - Installation and setup
@@ -231,6 +175,4 @@ Check [Troubleshooting](./troubleshooting.md) for solutions to:
 ---
 
 **Ready to start testing?**  
-➡️ [Getting Started Guide](./getting-started.md)
-
-
+[Getting Started Guide](./getting-started.md)

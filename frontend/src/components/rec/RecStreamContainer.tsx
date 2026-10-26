@@ -1,5 +1,5 @@
 import { Box, Typography, CircularProgress } from '@mui/material';
-import React, { useMemo, useRef, useState, useLayoutEffect } from 'react';
+import React, { useMemo, useRef, useState, useLayoutEffect, useEffect, useCallback } from 'react';
 
 import { Host, Device } from '../../types/common/Host_Types';
 import { MonitoringAnalysis, SubtitleAnalysis, LanguageMenuAnalysis } from '../../types/pages/Monitoring_Types';
@@ -7,9 +7,15 @@ import { EnhancedHLSPlayer } from '../video/EnhancedHLSPlayer';
 import { HLSVideoPlayer } from '../common/HLSVideoPlayer';
 import { LiveStreamSwitch } from '../common/LiveStream/LiveStreamSwitch';
 import type { LiveStreamTransport, WhepStatus } from '../../types/controller/WebRTC_Types';
+import { AnalysedFrameLayer } from '../monitoring/AnalysedFrameLayer';
 import { MonitoringOverlay } from '../monitoring/MonitoringOverlay';
+import { DroneTelemetryOverlay } from './DroneBatteryBadge';
+import { LocalizeVideoBadge } from './LocalizeVideoBadge';
 import { StreamStatsOverlay } from '../monitoring/StreamStatsOverlay';
-import { buildStreamUrl, withVncCacheBust } from '../../utils/buildUrlUtils';
+import { useWebRTCStats } from '../../hooks/controller/useWebRTCStats';
+import { useLiveStreamStats, type LiveStreamStats } from '../video/hooks/useLiveStreamStats';
+import { buildCaptureUrl, buildMetadataFileUrl, buildStreamUrl, withVncCacheBust } from '../../utils/buildUrlUtils';
+import { withVncViewportScale } from '../../utils/vncUtils';
 import { useHostSession } from '../../hooks/useHostSession';
 import { useVncPassword } from '../../hooks/controller/useVncPassword';
 import { RestartPlayer } from './RestartPlayer';
@@ -47,7 +53,7 @@ interface RecStreamContainerProps {
 
   // Live transport (HLS / WebRTC toggle)
   streamTransport: LiveStreamTransport;
-  onWebRTCFailed: () => void;
+  onWebRTCFailed: (reason: string) => void;
   
   // Audio state
   isMuted: boolean;
@@ -64,13 +70,15 @@ interface RecStreamContainerProps {
   };
   
   // VNC scaling function
-  calculateVncScaling: (dimensions: { width: number; height: number }) => any;
   
   // Callbacks
   onPlayerReady: () => void;
   onVideoTimeUpdate: (time: number) => void;
   onVideoPause?: () => void;
   onCurrentSegmentChange?: (segmentUrl: string) => void;
+
+  // Archive mode: open at this time (archive global seconds = host time of day) once the manifest is loaded
+  archiveSeek?: { time: number; nonce: number } | null;
   
   // Monitoring data props (for overlay on live video)
   monitoringAnalysis?: MonitoringAnalysis;
@@ -80,6 +88,8 @@ interface RecStreamContainerProps {
   errorTrendData?: ErrorTrendData;
   analysisTimestamp?: string;
   isAIAnalyzing?: boolean;
+  /** Live capture FPS from the monitor (sequence deltas). */
+  captureFps?: number | null;
 
   // Reports the real rendered stream box (page coordinates) as it's measured, so callers
   // that position overlays on top of the video (e.g. the Android mobile tap/element
@@ -117,11 +127,11 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
   showRemote,
   showWeb,
   finalStreamContainerDimensions,
-  calculateVncScaling,
   onPlayerReady,
   onVideoTimeUpdate,
   onVideoPause,
   onCurrentSegmentChange,
+  archiveSeek,
   // Monitoring props
   monitoringAnalysis,
   subtitleAnalysis,
@@ -130,6 +140,7 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
   errorTrendData,
   analysisTimestamp,
   isAIAnalyzing,
+  captureFps = null,
   onMeasuredAreaChange,
   latencyDebug,
   persistentStream = false,
@@ -150,35 +161,59 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
   const isVncDevice = device?.device_model === 'host_vnc';
   const audioSupported = !isVncDevice;
 
+  const persistentSlotRef = useRef<HTMLDivElement | null>(null);
+  const persistentVideoRef = useRef<HTMLVideoElement | null>(null);
+  useEffect(() => {
+    if (!persistentStream || !monitoringMode) {
+      persistentVideoRef.current = null;
+      return undefined;
+    }
+    const bind = () => {
+      persistentVideoRef.current = persistentSlotRef.current?.querySelector('video') ?? null;
+    };
+    bind();
+    const id = window.setInterval(bind, 1000);
+    return () => {
+      window.clearInterval(id);
+      persistentVideoRef.current = null;
+    };
+  }, [persistentStream, monitoringMode]);
+  const persistentLive = useLiveStreamStats(
+    persistentVideoRef,
+    Boolean(persistentStream && monitoringMode && isLiveMode),
+    isLiveMode,
+  );
+
+  const handlePersistentSlotRef = useCallback(
+    (el: HTMLDivElement | null) => {
+      persistentSlotRef.current = el;
+      onPersistentStreamTargetChange?.(el);
+    },
+    [onPersistentStreamTargetChange],
+  );
+
   // Monitoring cards + host stats over a player that has no built-in overlay: the VNC
-  // iframe and the WebRTC <video> (EnhancedHLSPlayer draws its own). No live FPS/latency
-  // row here — neither path has the HLS <video> it is measured from.
-  const monitoringLayer = monitoringMode ? (
-    <Box
-      sx={{
-        position: 'absolute',
-        top: 0,
-        left: 0,
-        right: 0,
-        bottom: 0,
-        pointerEvents: 'none',
-        zIndex: 1300, // monitoring cards stay on top of player bars and badges
-      }}
-    >
-      <MonitoringOverlay
-        monitoringAnalysis={monitoringAnalysis || undefined}
-        subtitleAnalysis={subtitleAnalysis}
-        languageMenuAnalysis={languageMenuAnalysis}
-        consecutiveErrorCounts={errorTrendData || undefined}
-        audioSupported={audioSupported}
-        showSubtitles={!!subtitleAnalysis}
-        showLanguageMenu={!!languageMenuAnalysis}
-        analysisTimestamp={analysisTimestamp || undefined}
-        isAIAnalyzing={isAIAnalyzing}
-      />
-      <StreamStatsOverlay host={host} />
-    </Box>
+  // iframe and the WebRTC <video> (EnhancedHLSPlayer draws its own). The VNC iframe has no
+  // live row; the WebRTC <video> passes its peer connection so the overlay can read getStats().
+  const renderMonitoringLayer = (pc?: RTCPeerConnection | null, live?: LiveStreamStats | null) =>
+    monitoringMode ? (
+    <RecMonitoringLayer
+      host={host}
+      device={device}
+      pc={pc}
+      monitoringAnalysis={monitoringAnalysis}
+      subtitleAnalysis={subtitleAnalysis}
+      languageMenuAnalysis={languageMenuAnalysis}
+      errorTrendData={errorTrendData}
+      analysisTimestamp={analysisTimestamp}
+      isAIAnalyzing={isAIAnalyzing}
+      audioSupported={audioSupported}
+      captureFps={captureFps}
+      playbackFps={live?.fps ?? null}
+      live={live}
+    />
   ) : null;
+  const monitoringLayer = renderMonitoringLayer(null, persistentStream ? persistentLive : null);
   const archiveStreamBuild = useMemo(() => {
     if (!isVncDevice || isLiveMode) {
       return { url: undefined as string | undefined, error: null as string | null };
@@ -236,10 +271,8 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
   // player below, which is gated internally by HLSVideoPlayer itself).
   const isLiveVnc = isVncDevice && isLiveMode && !!effectiveStreamUrl;
   const vncSessionReady = useHostSession(isLiveVnc ? effectiveStreamUrl : null, false);
-  // VNC scaling: the iframe keeps a fixed internal size (see calculateVncScaling) and is
-  // fitted with a CSS transform, so the scale must follow the REAL stream-area size —
-  // which changes whenever the remote/web side panels open (they take width from the
-  // stream) or the window resizes. Measure the box instead of guessing from percentages.
+  // Measure the stream area for overlays and the archive player. The live VNC
+  // iframe fills this box; noVNC scales the server's actual framebuffer inside it.
   const streamAreaRef = useRef<HTMLDivElement | null>(null);
   const [measuredStreamArea, setMeasuredStreamArea] = useState<{ width: number; height: number } | null>(null);
   useLayoutEffect(() => {
@@ -260,19 +293,10 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
     ro.observe(el);
     return () => ro.disconnect();
   }, [onMeasuredAreaChange]);
-  const streamAreaWidth = measuredStreamArea?.width || finalStreamContainerDimensions.width;
   // The measured height is the box the video actually gets. finalStreamContainerDimensions
   // caps its height to the LANDSCAPE default resolution, which on a narrow (mobile) viewport
   // collapses the player to ~width*0.56 and shrinks the video right after the poster fades.
   const streamAreaHeight = measuredStreamArea?.height || finalStreamContainerDimensions.height;
-  const memoizedVncScaling = useMemo(
-    () =>
-      calculateVncScaling({
-        width: streamAreaWidth,
-        height: streamAreaHeight,
-      }),
-    [calculateVncScaling, streamAreaWidth, streamAreaHeight],
-  );
 
   return (
     <Box
@@ -294,6 +318,13 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
         backgroundColor: 'black',
       }}
     >
+      {/* Drone battery, temperature, speed and height, top-right on the video */}
+      {/* (the monitoring layer's drone HUD replaces it while the drone profile's frames are shown) */}
+      {!(monitoringMode && monitoringAnalysis?.ui?.hud) && <DroneTelemetryOverlay host={host} device={device} full />}
+      {/* Monitor's Localize verdict (tv_app profile, TASK-115). Stays up in monitoring
+          mode too: the overlay's Screen line is top-left; this chip is top-right. */}
+      <LocalizeVideoBadge host={host} device={device} full />
+
       {/* Stream transition overlay - solid black to hide corrupted/blank frames during
           a quality switch OR a WebRTC hand-off. The toolbar stays clean: the LOW/SD/HD
           and WEB toggle buttons don't carry inline spinners, the loading lives here. */}
@@ -328,7 +359,7 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
       {/* Content based on mode */}
       {persistentStream ? (
         <Box
-          ref={onPersistentStreamTargetChange}
+          ref={handlePersistentSlotRef}
           data-persistent-stream-slot
           sx={{ position: 'absolute', inset: 0, backgroundColor: 'black' }}
         >
@@ -355,17 +386,14 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
           >
             {vncSessionReady && vncPasswordReady && (
             <iframe
-              src={withVncCacheBust(withVncPassword(effectiveStreamUrl))}
+              src={withVncViewportScale(withVncCacheBust(withVncPassword(effectiveStreamUrl)))}
               style={{
                 border: 'none',
                 backgroundColor: '#000',
                 display: 'block',
                 pointerEvents: isControlActive ? 'auto' : 'none',
-                ...memoizedVncScaling, // Apply calculated scaling
-                transformOrigin: 'center center', // Override for centered layout in modal
-                // Never let flexbox shrink the iframe below its fixed internal size: a
-                // narrower iframe gives noVNC a viewport smaller than the remote desktop
-                // and the desktop gets cropped instead of scaled (seen with panels open).
+                width: '100%',
+                height: '100%',
                 flexShrink: 0,
               }}
               title="VNC Desktop Stream"
@@ -412,7 +440,7 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
             streamUrl={effectiveStreamUrl}
             webrtcEnabled={isLiveMode && streamTransport === 'webrtc'}
             muted={isMuted}
-            webrtcOverlay={monitoringLayer}
+            webrtcOverlay={renderMonitoringLayer}
             reconnectKey={currentQuality}
             onStatusChange={setWhepStatus}
             onWebRTCFailed={onWebRTCFailed}
@@ -427,6 +455,7 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
             height={streamAreaHeight}
             muted={isMuted}
             isLiveMode={isLiveMode}
+            archiveSeek={archiveSeek}
             quality={currentQuality}
             shouldPause={shouldPausePlayer}
             onPlayerReady={onPlayerReady}
@@ -445,6 +474,7 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
             errorTrendData={errorTrendData}
             analysisTimestamp={analysisTimestamp}
             isAIAnalyzing={isAIAnalyzing}
+            captureFps={captureFps}
           />
           </LiveStreamSwitch>
         )
@@ -467,6 +497,110 @@ export const RecStreamContainer: React.FC<RecStreamContainerProps> = ({
           </Typography>
         </Box>
       )}
+    </Box>
+  );
+};
+
+/** Monitoring cards + host stats. A component so WebRTC `pc` can feed FPS out via getStats(). */
+const RecMonitoringLayer: React.FC<{
+  host: Host;
+  device?: Device;
+  pc?: RTCPeerConnection | null;
+  monitoringAnalysis?: MonitoringAnalysis;
+  subtitleAnalysis?: SubtitleAnalysis;
+  languageMenuAnalysis?: LanguageMenuAnalysis;
+  errorTrendData?: ErrorTrendData;
+  analysisTimestamp?: string;
+  isAIAnalyzing?: boolean;
+  audioSupported: boolean;
+  captureFps?: number | null;
+  playbackFps?: number | null;
+  live?: LiveStreamStats | null;
+}> = ({
+  host,
+  device,
+  pc = null,
+  monitoringAnalysis,
+  subtitleAnalysis,
+  languageMenuAnalysis,
+  errorTrendData,
+  analysisTimestamp,
+  isAIAnalyzing,
+  audioSupported,
+  captureFps = null,
+  playbackFps = null,
+  live = null,
+}) => {
+  const rtc = useWebRTCStats(pc, pc !== null);
+  const fpsOut =
+    playbackFps != null
+      ? playbackFps
+      : pc !== null && rtc.framesPerSecond !== null
+        ? Math.round(rtc.framesPerSecond)
+        : null;
+  // BUG-0836: when a profile overlay is drawing, show the exact capture its boxes were measured on.
+  // The boxes and the picture are then the same frame, so they cannot drift apart no matter what the scene
+  // does; the live stream stays one click away for watching the device itself.
+  const frameLocked = true; // the analysed frame is the picture under a profile overlay (BUG-0836)
+  const overlayProfile = monitoringAnalysis?.profile;
+  const overlayActive = !!overlayProfile && overlayProfile !== 'tv_app' && !monitoringAnalysis?.ui?.hud;
+  const sequence = monitoringAnalysis?.filename?.match(/capture_(\d+)/)?.[1] ?? null;
+  const analysedFrameUrl = useMemo(() => {
+    if (!sequence || !device?.device_id) return null;
+    try {
+      return buildCaptureUrl(host, sequence, device.device_id);
+    } catch {
+      return null;
+    }
+  }, [host, sequence, device?.device_id]);
+
+  const profileName = device?.device_id
+    ? host.system_stats?.monitor_profiles?.[device.device_id]
+    : undefined;
+  // BUG-0575: ffmpeg-configured input rate, parsed on the host from the live
+  // ffmpeg process cmdline (`-framerate N`). Shown as the "in" value of the
+  // overlay's FPS line so the operator can tell "what ffmpeg was told" from
+  // "what we actually measure" (captureFps below, from sequence deltas).
+  const fpsInConfigured = device?.device_id
+    ? host.system_stats?.stream_capture_fps?.[device.device_id] ?? null
+    : null;
+
+  return (
+    <Box
+      sx={{
+        position: 'absolute',
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        pointerEvents: 'none',
+        zIndex: 1300,
+      }}
+    >
+      <AnalysedFrameLayer
+        url={analysedFrameUrl}
+        active={overlayActive}
+        frameLocked={frameLocked}
+      />
+      <MonitoringOverlay
+        frameLocked={frameLocked && overlayActive}
+        frameUrl={analysedFrameUrl}
+        metadataUrl={device?.device_id ? (fileName: string) => buildMetadataFileUrl(host, device.device_id, fileName) : undefined}
+        monitoringAnalysis={monitoringAnalysis || undefined}
+        subtitleAnalysis={subtitleAnalysis}
+        languageMenuAnalysis={languageMenuAnalysis}
+        consecutiveErrorCounts={errorTrendData || undefined}
+        audioSupported={audioSupported}
+        showSubtitles={!!subtitleAnalysis}
+        showLanguageMenu={!!languageMenuAnalysis}
+        analysisTimestamp={analysisTimestamp || undefined}
+        isAIAnalyzing={isAIAnalyzing}
+        profileName={profileName}
+        fpsIn={captureFps}
+        fpsInConfigured={fpsInConfigured}
+        fpsOut={fpsOut}
+      />
+      <StreamStatsOverlay host={host} pc={pc} live={live} deviceId={device?.device_id} />
     </Box>
   );
 };

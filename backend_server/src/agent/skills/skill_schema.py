@@ -75,7 +75,17 @@ class SkillDefinition(BaseModel):
     timeout_seconds: int = Field(
         default=1800,
         ge=60,
-        description="Default timeout for this skill"
+        description="Wall-clock limit for one answer: past it the model gets one last round with no tools"
+    )
+    think_budget_seconds: int = Field(
+        default=20,
+        ge=5,
+        description="Model time for one answer (sum of model calls, tool time excluded); past it the model must answer"
+    )
+    max_tool_calls: int = Field(
+        default=12,
+        ge=1,
+        description="Tool calls for one answer; past it the model must answer from what it found"
     )
     
     @field_validator('platform')

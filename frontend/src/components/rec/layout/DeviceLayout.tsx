@@ -6,6 +6,7 @@ import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { LAYOUT_STAGE_HEIGHT, LAYOUT_STAGE_MIN_HEIGHT } from '../../../constants/deviceLayouts';
 import { useI18n } from '../../../i18n/useI18n';
 import type { LayoutView } from '../../../types/pages/deviceLayout.types';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 export interface LayoutItem {
   key: string;
@@ -83,7 +84,11 @@ export const DeviceLayout: React.FC<DeviceLayoutProps> = ({
             outlineOffset: 1,
             opacity: dragKey === item.key ? 0.6 : 1,
             position: 'relative',
-            // The preview card has a fixed tile height; stretch it to the slot.
+            // The preview card sizes itself from its 16:9 stream area, but the
+            // grid layout here still wants the card to fill the slot exactly
+            // (TASK-75). Keep the override so the slot dimensions still drive
+            // the card — the inner 16:9 stream area then has whatever empty
+            // space below the stream that the slot leaves. TASK-116.
             '& > .MuiCard-root, & > * > .MuiCard-root': { height: '100%' },
             // The drag handle shows on the hovered tile only: the gesture, without any text on the page.
             '&:hover .layout-drag-handle': { opacity: 1 },
@@ -113,7 +118,7 @@ export const DeviceLayout: React.FC<DeviceLayoutProps> = ({
                   '&:active': { cursor: 'grabbing' },
                 }}
               >
-                <DragIndicatorIcon sx={{ fontSize: 16, transform: 'rotate(90deg)' }} />
+                <DragIndicatorIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size, transform: 'rotate(90deg)' }} />
               </Box>
             </Tooltip>
           )}

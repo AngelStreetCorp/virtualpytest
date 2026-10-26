@@ -17,6 +17,7 @@ import { Box, MenuItem, TextField } from '@mui/material';
 
 import { useOptionalBuilder } from '../../../contexts/builder/useBuilder';
 import { DynamicParamForm } from '../dialogs/DynamicParamForm';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface InlineStandardConfigProps {
   data: any;
@@ -64,7 +65,7 @@ export const InlineStandardConfig: React.FC<InlineStandardConfigProps> = ({ data
         helperText={!ops.length ? 'Take control to load operations' : undefined}
       >
         {ops.map((o) => (
-          <MenuItem key={o.command} value={o.command} sx={{ fontSize: '0.8rem' }}>
+          <MenuItem key={o.command} value={o.command} sx={{ fontSize: TYPOGRAPHY.body.size }}>
             {o.label || o.description || o.command}
           </MenuItem>
         ))}

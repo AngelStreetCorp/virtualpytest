@@ -270,7 +270,7 @@ export const AIProvider: React.FC<{children: React.ReactNode}> = ({ children }) 
     if (agentChat.status === 'needs_key') {
       setExecutionSteps([{
         id: 'error-key', label: 'Error', status: 'error',
-        detail: '⚠️ AI provider not configured. The platform admin sets the endpoint API key in Settings → AI → Endpoints.'
+        detail: 'AI provider not configured. The platform admin sets the endpoint API key in Settings → AI → Endpoints.'
       }]);
       return;
     }

@@ -4,9 +4,20 @@ VirtualPyTest connects to the shared [VirtualPyTest Postman workspace](https://m
 
 ## Configure the VirtualPyTest app
 
+**From the page (recommended).** Plugins → Postman → **Setup** takes a Postman API key, stores it
+outside the deploy tree (`state_path('postman_settings.json')`, mode 600) and proves it against
+Postman before saving. The key never goes back to a browser; the page is only told `has_key`.
+Saving needs the `plugins.postman:manage` permission, so grant it in Settings → Permissions.
+
+**From the server** (headless installs, or before the page is reachable):
+
 1. Set `POSTMAN_API_KEY` in the backend server's private environment (for example, its ignored `.env`). This credential lets the backend read collection definitions from Postman. Never commit it or expose it in frontend code.
 2. Copy `backend_server/config/postman/postman_config.json.example` to `backend_server/config/postman/postman_config.json`. The example already points to the shared workspace; do not replace it with a personal workspace.
 3. Restart the backend server and refresh the Postman page in VirtualPyTest.
+
+A key saved from the page wins over `POSTMAN_API_KEY`; an installation that only ever used the env
+var keeps working with nothing configured. `DELETE /server/postman/settings` forgets the saved key
+and hands control back to the env var.
 
 VPT users do not need their own Postman API key. Users granted `plugins.postman:view` can browse the shared collections and create environments in their browser. The runner sends requests directly from the user's browser to the selected backend URL; it does not proxy API requests through this VPT server. `team_id` is an optional request variable, not a Postman workspace or user ID.
 

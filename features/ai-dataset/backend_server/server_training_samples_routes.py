@@ -2,7 +2,8 @@
 Training Samples Review Routes (TASK-27 step 4)
 
 Admin-only tooling to human-verify AI training samples and freeze an eval set:
-- GET  /server/training-samples/list          filtered, signed image URLs, optional balance
+- GET  /server/training-samples/list          filtered, image paths, optional balance
+- GET  /server/training-samples/<id>/image    the screenshot of one sample
 - POST /server/training-samples/<id>/label    human label, validated per family
 - POST /server/training-samples/freeze        set eval_version on the verified eval rows
 - GET  /server/training-samples/eval-counts   per family, verified eval rows not yet frozen
@@ -27,7 +28,7 @@ from collections import OrderedDict
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request
 
 from backend_server.src.lib.auth_middleware import require_permission, require_user_auth
 from backend_server.src.lib.utils.route_handlers import (
@@ -54,7 +55,6 @@ server_training_samples_bp = Blueprint('server_training_samples', __name__,
 logger = logging.getLogger(__name__)
 
 FREEZE_MIN_ROWS = 200          # TASK-27 §8: an eval family needs 200+ human-verified rows
-IMAGE_URL_EXPIRY = 3600        # signed image URLs live 1 h: one review session
 LIST_MAX_LIMIT = 200
 BALANCE_POOL = 1000            # rows fetched before a balanced round-robin
 BALANCE_KEYS = ('device_model',)
@@ -112,18 +112,18 @@ def round_robin(rows: List[Dict[str, Any]], key: str) -> List[Dict[str, Any]]:
     return out
 
 
-def _sign_images(rows: List[Dict[str, Any]]) -> None:
-    try:
-        storage = cloudflare_utils.get_training_storage()
-    except Exception as e:
-        logger.warning(f"[training_review] training storage unavailable, no image URLs: {e}")
-        storage = None
+def _attach_image_paths(rows: List[Dict[str, Any]]) -> None:
+    """Give every row the app route that serves its screenshot.
+
+    The screenshot is not fetched from the training bucket by the browser: the
+    public host in front of that bucket only answers the allow-listed egress
+    IPs, so every ``<img>`` got a 403 HTML page (BUG-0775). The server reads
+    the object over the LAN and serves it (``GET .../<id>/image``).
+    """
     for row in rows:
-        url = None
-        if storage is not None and row.get('object_key'):
-            result = storage.generate_presigned_url(row['object_key'], expires_in=IMAGE_URL_EXPIRY)
-            url = result.get('url') if result.get('success') else None
-        row['image_url'] = url
+        row['image_path'] = (
+            f"/server/training-samples/{row['id']}/image" if row.get('object_key') else None
+        )
 
 
 def _attach_conflict_partners(team_id: str, rows: List[Dict[str, Any]]) -> None:
@@ -179,7 +179,7 @@ def _int_arg(name: str, default: int, lo: int, hi: int) -> int:
 @require_permission('ai.training:view')
 @handle_route_exceptions('server_training_samples:list')
 def list_training_samples():
-    """Samples for review, hardest first, each with ``image_url`` and ``proposed_label``.
+    """Samples for review, hardest first, each with ``image_path`` and ``proposed_label``.
 
     Query: team_id (required), family, split, label_source (comma list), is_failure,
     label_conflict (the "Confusable pairs" view), device_model, limit, offset,
@@ -224,13 +224,67 @@ def list_training_samples():
     else:
         rows, total = samples_db.list_samples(team_id, limit=limit, offset=offset, **filters)
 
-    _sign_images(rows)
+    _attach_image_paths(rows)
     _attach_conflict_partners(team_id, rows)
     for row in rows:
         row['proposed_label'], row['guess_source'] = _proposal(row)
         row['triage'] = triage_db.triage_of(row)
     return jsonify({'success': True, 'samples': rows, 'total': total,
                     'limit': limit, 'offset': offset, 'schemas': LABEL_SCHEMAS})
+
+
+# A review screenshot is a few hundred KB; anything near this is not one.
+IMAGE_MAX_BYTES = 20 * 1024 * 1024
+
+
+@server_training_samples_bp.route('/<sample_id>/image', methods=['GET'])
+@require_user_auth
+@require_permission('ai.training:view')
+@handle_route_exceptions('server_training_samples:image')
+def get_training_sample_image(sample_id):
+    """The screenshot of one sample, served by the server.
+
+    The images live in the training bucket. The browser cannot fetch them by
+    itself: the public host in front of that bucket answers only the
+    allow-listed egress IPs, so every ``<img>`` got a 403 HTML page, which
+    Chromium then blocked as an opaque response (BUG-0775). The server reads
+    the object over the LAN and serves it, so the review page works for every
+    user of the app.
+
+    The object key is read from the database, never taken from the request, so
+    a caller cannot ask for another team's image.
+    """
+    team_id, err = require_team_id_from_args()
+    if err:
+        return err
+    row = samples_db.get_sample(sample_id, team_id)
+    if not row:
+        return jsonify({'success': False, 'error': 'Sample not found'}), 404
+    object_key = row.get('object_key')
+    if not object_key:
+        return jsonify({'success': False, 'error': 'This sample has no screenshot'}), 404
+    try:
+        storage = cloudflare_utils.get_training_storage()
+    except Exception as e:
+        logger.warning(f"[training_review] training storage unavailable: {e}")
+        return jsonify({'success': False, 'error': 'Training storage is not configured on this server'}), 503
+    try:
+        obj = storage.s3_client.get_object(Bucket=storage.bucket_name, Key=object_key)
+        content_type = str(obj.get('ContentType') or 'image/jpeg')
+        if not content_type.lower().startswith('image/'):
+            # Never serve stored HTML or script as a same-origin document.
+            return jsonify({'success': False, 'error': 'The stored object is not an image'}), 415
+        # Bounded read: one more byte than the cap tells us the object is too large.
+        body = obj['Body'].read(IMAGE_MAX_BYTES + 1)
+        if len(body) > IMAGE_MAX_BYTES:
+            return jsonify({'success': False, 'error': 'The screenshot is too large to serve'}), 413
+    except Exception as e:
+        logger.warning(f"[training_review] could not read {object_key}: {e}")
+        return jsonify({'success': False, 'error': 'The screenshot could not be read from the training storage'}), 502
+    return Response(body, mimetype=content_type, headers={
+        'Cache-Control': 'private, max-age=300',
+        'X-Content-Type-Options': 'nosniff',
+    })
 
 
 def resolved_triage(old: Dict[str, Any], family: str, ground_truth: Any, now: str) -> Dict[str, Any]:

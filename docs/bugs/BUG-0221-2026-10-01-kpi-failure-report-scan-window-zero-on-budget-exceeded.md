@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low — the measurement result was right; the report could not be read |
 | Area      | `backend_host/scripts/kpi_executor.py`, KPI failure report   |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

@@ -13,6 +13,8 @@ import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import CallMadeIcon from '@mui/icons-material/CallMade'; // ✅ NEW: Outgoing link icon
 import { useTheme } from '../../../contexts/ThemeContext';
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { toggleSx } from '../../common/PageChrome';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 // ✅ NEW: Information about where this output is linked to
 interface LinkedTo {
@@ -145,11 +147,11 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
-          <Typography fontSize={13} fontWeight="bold" color="#f97316" sx={{ flexShrink: 0 }}>
+          <Typography fontSize="0.8125rem" fontWeight="bold" color="#f97316" sx={{ flexShrink: 0 }}>
             Outputs ({blockOutputs.length})
           </Typography>
         </Box>
-        {expanded ? <ExpandLessIcon sx={{ fontSize: 16, color: P.warning, flexShrink: 0 }} /> : <ExpandMoreIcon sx={{ fontSize: 16, color: P.warning, flexShrink: 0 }} />}
+        {expanded ? <ExpandLessIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size, color: P.warning, flexShrink: 0 }} /> : <ExpandMoreIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size, color: P.warning, flexShrink: 0 }} />}
       </Box>
       
       <Collapse in={expanded}>
@@ -186,7 +188,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
                     sx={{
                       flex: 1,
                       '& .MuiBadge-badge': {
-                        fontSize: '0.6rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         height: '16px',
                         minWidth: '16px',
                         backgroundColor: P.warning, // ✅ Orange (output color)
@@ -197,7 +199,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
                   >
                     <Chip
                       className="nodrag"
-                      icon={getLinkCount(output.name) > 0 ? <CallMadeIcon sx={{ fontSize: 12 }} /> : undefined}
+                      icon={getLinkCount(output.name) > 0 ? <CallMadeIcon sx={{ fontSize: TYPOGRAPHY.caption.size }} /> : undefined}
                       label={hasValue ? `${output.name}: ${displayValue.substring(0, 30)}${displayValue.length > 30 ? '...' : ''}` : `${output.name}: ${output.type}`}
                       size="small"
                     onClick={(e) => {
@@ -246,7 +248,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
                         
                         // Create a custom drag image with chip styling
                         const dragImg = document.createElement('div');
-                        dragImg.textContent = `🔗 ${output.name}`;
+                        dragImg.textContent = `${output.name}`;
                         dragImg.style.position = 'absolute';
                         dragImg.style.top = '-1000px';
                         dragImg.style.padding = '4px 12px';
@@ -274,7 +276,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
                       }
                     }}
                       sx={{ 
-                        fontSize: 16, 
+                        fontSize: TYPOGRAPHY.navbarItem.size, 
                         height: 26,
                         flex: 1,
                         bgcolor: `${P.warning}1a`,
@@ -300,13 +302,10 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
                     onClick={(e) => handleCopyOutput(output, e)}
                     sx={{
                       padding: '2px',
-                      color: copiedOutput === output.name ? P.success : P.warning,
-                      '&:hover': {
-                        backgroundColor: `${P.warning}1a`,
-                      },
+                      ...toggleSx(P, copiedOutput === output.name),
                     }}
                   >
-                    <ContentCopyIcon sx={{ fontSize: 12 }} />
+                    <ContentCopyIcon sx={{ fontSize: TYPOGRAPHY.caption.size }} />
                   </IconButton>
                 </Tooltip>
               </Box>
@@ -344,7 +343,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
             borderColor: `${P.warning}40`,
             color: P.textPrimary,
             fontWeight: 600,
-            fontSize: '1.1rem',
+            fontSize: TYPOGRAPHY.cardTitle.size,
             py: 2,
             mb: 1,
             display: 'flex',
@@ -358,7 +357,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
               label={getValueType(viewDialogData.value)}
               size="small"
               sx={{
-                fontSize: '0.7rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 height: '20px',
                 fontWeight: 500,
                 textTransform: 'uppercase',
@@ -382,7 +381,7 @@ export const OutputDisplay: React.FC<OutputDisplayProps> = ({
               p: 2.5,
               color: P.textPrimary,
               fontFamily: 'monospace',
-              fontSize: '0.875rem',
+              fontSize: TYPOGRAPHY.body.size,
               maxHeight: '400px',
               overflowY: 'auto',
               whiteSpace: 'pre-wrap',

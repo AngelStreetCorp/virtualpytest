@@ -611,6 +611,19 @@ def get_nodes_batch(tree_id: str, node_ids: list, team_id: str) -> Dict:
         print(f"[@db:navigation_trees:get_nodes_batch] Error: {e}")
         return {'success': False, 'error': str(e)}
 
+def _carry_localize_corrections(tree_id: str, nodes: List[Dict], team_id: str) -> None:
+    """Keep "Wrong screen?" samples / negatives across a recapture (TASK-107 goal 2): the
+    fingerprint a save brings is rebuilt from the node's active localize_verdicts rows. Never
+    blocks a save (a DB without the TASK-104 table just skips it)."""
+    try:
+        from shared.src.lib.database.localize_verdicts_db import carry_corrections
+        changed = carry_corrections(team_id, tree_id, nodes)
+        if changed:
+            print(f"[@db:navigation_trees] carried Localize corrections onto {changed} fingerprint(s)")
+    except Exception as e:
+        print(f"[@db:navigation_trees] Localize corrections not carried: {e}")
+
+
 def save_node(tree_id: str, node_data: Dict, team_id: str) -> Dict:
     """Save a single node (create or update)."""
     try:
@@ -670,6 +683,8 @@ def save_node(tree_id: str, node_data: Dict, team_id: str) -> Dict:
         if 'style' not in node_data or node_data['style'] is None:
             node_data['style'] = {}
         
+        _carry_localize_corrections(tree_id, [node_data], team_id)
+
         # Check if node exists
         existing = supabase.table('navigation_nodes').select('id')\
             .eq('tree_id', tree_id)\
@@ -769,6 +784,7 @@ def save_nodes_batch(tree_id: str, nodes_data: List[Dict], team_id: str) -> Dict
                 
             processed_nodes.append(node_data)
             
+        _carry_localize_corrections(tree_id, processed_nodes, team_id)
         print(f"[@db:navigation_trees:save_nodes_batch] Saving {len(processed_nodes)} nodes in one batch...")
         
         # Perform Batch Upsert

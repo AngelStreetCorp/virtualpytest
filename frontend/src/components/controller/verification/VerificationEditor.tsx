@@ -33,6 +33,7 @@ import { getZIndex } from '../../../utils/zIndexUtils';
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 
 import VerificationCapture from './VerificationCapture';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface DragArea {
   x: number;
@@ -225,7 +226,7 @@ export const VerificationEditor: React.FC<VerificationEditorProps> = React.memo(
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-          <Typography variant="h6" sx={{ fontSize: '1rem', fontWeight: 600 }}>
+          <Typography variant="h6" sx={{ fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600 }}>
             Verification Editor
           </Typography>
           {onToggleMaximized && (
@@ -263,12 +264,12 @@ export const VerificationEditor: React.FC<VerificationEditorProps> = React.memo(
               sx={{ p: 0.25 }}
             >
               {verification.verificationsCollapsed ? (
-                <ArrowRightIcon sx={{ fontSize: '1rem' }} />
+                <ArrowRightIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
               ) : (
-                <ArrowDownIcon sx={{ fontSize: '1rem' }} />
+                <ArrowDownIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
               )}
             </IconButton>
-            <Typography variant="subtitle2" sx={{ fontSize: '0.8rem', fontWeight: 600 }}>
+            <Typography variant="subtitle2" sx={{ fontSize: TYPOGRAPHY.body.size, fontWeight: 600 }}>
               Verifications
             </Typography>
           </Box>
@@ -278,25 +279,25 @@ export const VerificationEditor: React.FC<VerificationEditorProps> = React.memo(
             <Box
               sx={{
                 '& .MuiTypography-subtitle2': {
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
                 '& .MuiButton-root': {
-                  fontSize: '0.7rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
                 '& .MuiTextField-root': {
                   '& .MuiInputLabel-root': {
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                   '& .MuiInputBase-input': {
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 },
                 '& .MuiSelect-root': {
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
                 '& .MuiFormControl-root': {
                   '& .MuiInputLabel-root': {
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 },
               }}
@@ -340,11 +341,11 @@ export const VerificationEditor: React.FC<VerificationEditorProps> = React.memo(
             },
           }}
         >
-          <DialogTitle sx={{ color: '#ffffff', fontSize: '1rem' }}>
+          <DialogTitle sx={{ color: '#ffffff', fontSize: TYPOGRAPHY.navbarItem.size }}>
             Warning: Overwrite Reference
           </DialogTitle>
           <DialogContent>
-            <Typography sx={{ color: '#ffffff', fontSize: '0.875rem' }}>
+            <Typography sx={{ color: '#ffffff', fontSize: TYPOGRAPHY.body.size }}>
               A {verification.referenceType} reference named "{verification.referenceName}" already
               exists.
               <br />
@@ -359,7 +360,7 @@ export const VerificationEditor: React.FC<VerificationEditorProps> = React.memo(
               sx={{
                 borderColor: '#666',
                 color: '#ffffff',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 '&:hover': {
                   borderColor: '#888',
                   backgroundColor: 'rgba(255,255,255,0.1)',
@@ -374,7 +375,7 @@ export const VerificationEditor: React.FC<VerificationEditorProps> = React.memo(
               size="small"
               sx={{
                 bgcolor: P.error,
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 '&:hover': {
                   bgcolor: P.error,
                 },

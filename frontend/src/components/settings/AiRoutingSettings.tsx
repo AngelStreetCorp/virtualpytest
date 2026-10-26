@@ -34,6 +34,8 @@ export interface AiTabContext {
   fail: (message: string) => void;
   /** Team dropdown: '' = All (every team's overrides are listed, a new override needs a team picked). */
   scope: AiScope;
+  /** Switch to another AI sub-tab: 0 Routing, 1 Profiles, 2 Endpoints, 3 Prices. */
+  goToSub: (index: number) => void;
 }
 
 export const AiRoutingSettings: React.FC = () => {
@@ -75,7 +77,7 @@ export const AiRoutingSettings: React.FC = () => {
   }, [reload]);
 
   const ctx: AiTabContext | null = config
-    ? { config, stats, reload, notify: setToast, fail: setError, scope }
+    ? { config, stats, reload, notify: setToast, fail: setError, scope, goToSub: setSubTab }
     : null;
 
   return (

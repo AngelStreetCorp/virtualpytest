@@ -1,0 +1,16 @@
+{
+  "team_id": "bench-team",
+  "server_hosts": ["host-1", "host-2", "host-3", "host-4"],
+  "note": "Session target-identity context for the production-path dry run. Fictional devices so named-target prompts can be resolved without touching a real host.",
+  "devices": [
+    {"device_name": "Samsung TV", "device_id": "tv-samsung-1", "host_name": "host-1", "platform": "stb"},
+    {"device_name": "Android phone", "device_id": "phone-android-1", "host_name": "host-2", "platform": "mobile"},
+    {"device_name": "phone-2", "device_id": "phone-2", "host_name": "host-2", "platform": "mobile"},
+    {"device_name": "TV", "device_id": "tv-01", "host_name": "host-1", "platform": "stb"},
+    {"device_name": "tv-01", "device_id": "tv-01", "host_name": "host-1", "platform": "stb"},
+    {"device_name": "device A", "device_id": "device-a", "host_name": "host-3", "platform": "mobile"},
+    {"device_name": "device B", "device_id": "device-b", "host_name": "host-3", "platform": "mobile"},
+    {"device_name": "device 3", "device_id": "device-3", "host_name": "host-3", "platform": "stb"},
+    {"device_name": "living room STB", "device_id": "stb-lr-1", "host_name": "host-4", "platform": "stb"}
+  ]
+}

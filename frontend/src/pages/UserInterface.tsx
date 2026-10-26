@@ -8,10 +8,12 @@ import {
   AccountTreeOutlined as DomIcon,
   Download as ExportIcon,
   Upload as ImportIcon,
+  Search as SearchIcon,
   MoreVert as MoreIcon,
   Publish as PublishIcon,
   ReportProblemOutlined as UnknownIcon,
 } from '@mui/icons-material';
+import SettingRow from '../components/common/SettingRow';
 import {
   Box,
   Typography,
@@ -38,18 +40,20 @@ import {
   Tooltip,
   Menu,
   MenuItem,
+  Popover,
   ListItemIcon,
   ListItemText,
   Divider,
   ToggleButton,
   ToggleButtonGroup,
-  Switch,
-  FormControlLabel,
+  Checkbox,
+  Select,
 } from '@mui/material';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
 import { goldButtonSx, pageSurfaceSx, segmentedSx } from '../components/common/PageChrome';
+import { TableRowsSkeleton } from '../components/common/ReportSkeleton';
 import React, { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link as RouterLink } from 'react-router-dom';
 
 import { useUserInterface } from '../hooks/pages/useUserInterface';
 import { useDeviceModels } from '../hooks/pages/useDeviceModels';
@@ -72,6 +76,7 @@ import {
 } from '../types/pages/UserInterface_Types';
 import { buildServerUrl } from '../utils/buildUrlUtils';
 import { api } from '../utils/apiClient';
+import { TYPOGRAPHY } from '../constants/typography';
 
 // Collapse min/max into a single "min - max" cell to save a column.
 const formatVersionRange = (ui: UserInterfaceType): string => {
@@ -83,8 +88,51 @@ const formatVersionRange = (ui: UserInterfaceType): string => {
 
 const isProd = (ui: UserInterfaceType) => ui.mode === 'prod';
 
+/**
+ * Where "this interface" lives: its navigation editor.
+ *
+ * Three things open it — the row's name, the Navigation column's icon button, and (on a phone)
+ * the whole row — and they must never drift apart, so the target is built once here and they all
+ * read it. `state.userInterface` is the editor's fast path; it falls back to resolving the name
+ * through `getUserInterfaceByName`, which is why a pasted URL works too.
+ *
+ * Prod rows carry `?mode=prod`: the name is shared between the dev and prod rows, so without it a
+ * deep link is ambiguous. The editor opens that mode read-only.
+ */
+const navigationEditorTarget = (ui: UserInterfaceType) => {
+  const prod = isProd(ui);
+  return {
+    to: `/navigation-editor/${encodeURIComponent(ui.name)}${prod ? '?mode=prod' : ''}`,
+    state: {
+      userInterface: {
+        id: ui.id,
+        name: ui.name,
+        models: ui.models,
+        mode: ui.mode || 'dev',
+      },
+    },
+  };
+};
+
+/**
+ * Height of one Interface row, in px, and the only number the live row and the loading
+ * placeholder are each allowed to know about.
+ *
+ * Derived from what is actually tallest in a row, not from the obvious element: the 20px chips
+ * are not the tallest child — the action `IconButton`s (`sx={{ p: 0.5 }}`, small SvgIcon) measure
+ * 26.6px. 26.6 + `py: 0.5` above and below (4px each) + the row's 1px bottom border = 35.6px,
+ * so the integer is 36. Measured in the browser on the deployed page; see BUG-0768.
+ *
+ * Both the `<TableRow>` `height` and `TableRowsSkeleton`'s `rowHeight` read it, so a placeholder
+ * that is a different size from the value that replaces it — the visible "jump" when a list
+ * loads — is not expressible.
+ */
+const INTERFACE_ROW_HEIGHT = 36;
+
 // dev = outlined chip, prod = gold filled chip (matches the run-picker badges).
-const ModeChip: React.FC<{ ui: UserInterfaceType }> = ({ ui }) => (
+const ModeChip: React.FC<{ ui: UserInterfaceType }> = ({ ui }) => {
+  const P = useAgentChatPalette();
+  return (
   <Chip
     label={isProd(ui) ? 'prod' : 'dev'}
     size="small"
@@ -92,13 +140,107 @@ const ModeChip: React.FC<{ ui: UserInterfaceType }> = ({ ui }) => (
     sx={{
       height: 18,
       ml: 0.5,
-      '& .MuiChip-label': { px: 0.5, fontSize: '0.65rem', fontWeight: 600 },
+      '& .MuiChip-label': { px: 0.5, fontSize: TYPOGRAPHY.microMeta.size, fontWeight: 600 },
       ...(isProd(ui)
-        ? { bgcolor: '#b8860b', color: '#fff' } // gold = prod, same in both themes
+        ? { bgcolor: P.gold, color: '#fff' } // accent = prod, same in both themes
         : { color: 'text.secondary' }),
     }}
   />
-);
+  );
+};
+
+// Keeps a table row on one line: the first label as a chip, the rest behind a
+// "+N" chip that opens the full list in a popover.
+//
+// `onToggle` turns the labels into filter controls — it is OPTIONAL on purpose, because this
+// component renders both the Models column and the Variants column, and only a model is something
+// the list can be filtered by. A variant name is not a filter, so the Variants cell passes
+// nothing and gets exactly the read-only chips it had before. `isActive` (which of them are
+// currently filtering) is passed alongside it for the same reason: a chip with no `onToggle` never
+// reports itself active, so the two columns cannot be confused.
+const OneLineChips: React.FC<{
+  labels: string[];
+  onToggle?: (label: string) => void;
+  isActive?: (label: string) => boolean;
+}> = ({ labels, onToggle, isActive }) => {
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  const chipSx = { height: 20, '& .MuiChip-label': { px: 0.5, fontSize: TYPOGRAPHY.caption.size } };
+  if (labels.length === 0) return null;
+  const rest = labels.length - 1;
+
+  // A filter chip is `filled` while it is filtering and `outlined` when it is not, so the state is
+  // readable at a glance from across the table without a tooltip or a second legend.
+  const labelChipSx = (label: string) => ({
+    ...chipSx,
+    ...(onToggle ? { clickable: true, maxWidth: 160, minWidth: 0 } : { maxWidth: 160, minWidth: 0 }),
+    ...(isActive?.(label) ? { color: 'primary' as const, variant: 'filled' as const } : {}),
+  });
+
+  const labelChipProps = (label: string) => {
+    const active = Boolean(isActive?.(label));
+    return {
+      label,
+      size: 'small' as const,
+      variant: (active ? 'filled' : 'outlined') as 'filled' | 'outlined',
+      color: (active ? 'primary' : 'default') as 'primary' | 'default',
+      // MUI's clickable Chip is a `role="button"` div and does NOT set `aria-pressed` on its own —
+      // so without this a chip that filters the table announces nothing about being on or off to a
+      // screen reader, and the `filled`/`outlined` swap is colour alone. A toggle has to say it is
+      // one. Omitted entirely when there is no `onToggle`, because a read-only chip is not a toggle
+      // and claiming to be a pressed state that never changes is worse than saying nothing.
+      'aria-pressed': onToggle ? active : undefined,
+      onClick: onToggle
+        ? (e: React.MouseEvent<HTMLElement>) => {
+            // The whole row is clickable on a phone; without this a chip click would both toggle
+            // the filter and navigate to the interface, which is not what either control promises.
+            e.stopPropagation();
+            onToggle(label);
+          }
+        : undefined,
+    };
+  };
+
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'nowrap', minWidth: 0 }}>
+      <Chip {...labelChipProps(labels[0])} sx={labelChipSx(labels[0])} clickable={Boolean(onToggle)} />
+      {rest > 0 && (
+        <>
+          <Chip
+            label={`+${rest}`}
+            size="small"
+            color="primary"
+            variant="outlined"
+            clickable
+            onClick={(e: React.MouseEvent<HTMLElement>) => {
+              e.stopPropagation();
+              setAnchor(e.currentTarget);
+            }}
+            aria-label={`Show all ${labels.length}: ${labels.join(', ')}`}
+            sx={{ ...chipSx, flexShrink: 0 }}
+          />
+          <Popover
+            open={Boolean(anchor)}
+            anchorEl={anchor}
+            onClose={() => setAnchor(null)}
+            onClick={(e) => e.stopPropagation()}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+          >
+            <Box sx={{ p: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+              {labels.map((label) => (
+                <Chip
+                  key={label}
+                  {...labelChipProps(label)}
+                  sx={labelChipSx(label)}
+                  clickable={Boolean(onToggle)}
+                />
+              ))}
+            </Box>
+          </Popover>
+        </>
+      )}
+    </Box>
+  );
+};
 
 // One <VariantsCell> per row, hydrated from the cache primeAllVariants fills
 // on mount — so the rows issue no requests of their own. The module cache only
@@ -117,19 +259,7 @@ const VariantsCell: React.FC<{ userInterfaceId: string }> = ({ userInterfaceId }
       </Typography>
     );
   }
-  return (
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-      {variants.map((v) => (
-        <Chip
-          key={v.name}
-          label={v.name}
-          size="small"
-          variant="outlined"
-          sx={{ height: 20, '& .MuiChip-label': { px: 0.5, fontSize: '0.75rem' } }}
-        />
-      ))}
-    </Box>
-  );
+  return <OneLineChips labels={variants.map((v) => v.name)} />;
 };
 
 const UserInterface: React.FC = () => {
@@ -192,6 +322,12 @@ const UserInterface: React.FC = () => {
   const [submitting, setSubmitting] = useState(false);
   // Dev/prod filter (top-right toggle, like the execution-type filter on ModelReports).
   const [modeFilter, setModeFilter] = useState<'all' | 'dev' | 'prod'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  // Model filter, driven from two places at once: the dropdown in the toolbar, and the model
+  // chips in the rows themselves (click a badge to filter by it, click it again to lift it).
+  // Several can be on at a time and they AND together — "web AND android_tv" — so each further
+  // click narrows the list, which is what a badge you can turn off again implies.
+  const [modelFilter, setModelFilter] = useState<string[]>([]);
   // Duplication copies every reference image server-side, so it can run for a
   // while. Hold the name of the UI being duplicated to show a blocking overlay
   // (separate from `submitting` so the message reads specifically as "copying").
@@ -255,6 +391,36 @@ const UserInterface: React.FC = () => {
     setVariantsModalUi(userInterface);
   const handleCloseVariants = () => setVariantsModalUi(null);
 
+  // Every model actually used by an interface on this page, with how many use it — the rows for
+  // the model dropdown. Deliberately NOT the `availableModels` below (the whole Device Models
+  // catalogue): a facet that lists models no interface uses is a dead end — picking one filters
+  // the list down to nothing and the user has no way to tell that from a broken filter. The count
+  // also answers the question the dropdown raises ("how many of mine is this?") before committing.
+  const modelFacets = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const ui of userInterfaces) {
+      // A set per interface: an interface that lists the same model twice must not be counted
+      // twice, which would inflate the number the user then compares against the row count.
+      for (const m of new Set(ui.models || [])) counts.set(m, (counts.get(m) ?? 0) + 1);
+    }
+    return [...counts.entries()]
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+  }, [userInterfaces]);
+
+  // A selected model can disappear — the interface that used it was deleted, or renamed, while
+  // this page stayed open. Filtering on a model that no longer exists would show an empty list
+  // with no visible cause, so the selection is intersected with what is actually on offer.
+  const activeModelFilter = useMemo(
+    () => modelFilter.filter((m) => modelFacets.some((f) => f.name === m)),
+    [modelFilter, modelFacets],
+  );
+
+  const toggleModelFilter = (model: string) =>
+    setModelFilter((prev) =>
+      prev.includes(model) ? prev.filter((m) => m !== model) : [...prev, model],
+    );
+
   // Display order: each prod row right after its dev source, then the mode filter.
   const visibleInterfaces = useMemo(() => {
     const prodByDevId = new Map(
@@ -268,9 +434,17 @@ const UserInterface: React.FC = () => {
       const prod = prodByDevId.get(ui.id);
       if (prod) ordered.push(prod);
     }
-    if (modeFilter === 'all') return ordered;
-    return ordered.filter((ui) => (modeFilter === 'prod' ? isProd(ui) : !isProd(ui)));
-  }, [userInterfaces, modeFilter]);
+    const q = searchQuery.trim().toLowerCase();
+    const wanted = activeModelFilter;
+    return ordered.filter((ui) => {
+      if (modeFilter !== 'all' && (modeFilter === 'prod') !== isProd(ui)) return false;
+      // AND, not OR: with two models on, show the interfaces that carry both. Each chip you turn
+      // on narrows the list further, and turning one off widens it again by exactly that step.
+      if (wanted.length > 0 && !wanted.every((m) => (ui.models || []).includes(m))) return false;
+      if (!q) return true;
+      return [ui.name, ...(ui.models || [])].some((v) => String(v).toLowerCase().includes(q));
+    });
+  }, [userInterfaces, modeFilter, searchQuery, activeModelFilter]);
 
   // Real models from database (same hook as Models page — shares cache)
   const { models: deviceModels } = useDeviceModels();
@@ -588,19 +762,10 @@ const UserInterface: React.FC = () => {
       // Navigate to navigation editor using React Router navigation with state
       // This matches our simplified config system: {userinterface_name}.json
       // Prod opens read-only; ?mode=prod keeps deep links unambiguous (the name
-      // is shared between the dev and prod rows).
-      const prod = isProd(userInterface);
-      const url = `/navigation-editor/${encodeURIComponent(userInterface.name)}${prod ? '?mode=prod' : ''}`;
-      navigate(url, {
-        state: {
-          userInterface: {
-            id: userInterface.id,
-            name: userInterface.name,
-            models: userInterface.models,
-            mode: userInterface.mode || 'dev',
-          },
-        },
-      });
+      // is shared between the dev and prod rows). Both live in
+      // `navigationEditorTarget`, which the row's name link also renders from.
+      const { to, state } = navigationEditorTarget(userInterface);
+      navigate(to, { state });
     } catch (err) {
       console.error('[@component:UserInterface] Error opening navigation editor:', err);
       setError('Failed to open navigation editor. Please try again.');
@@ -608,24 +773,6 @@ const UserInterface: React.FC = () => {
   };
 
   // Loading state component
-  const LoadingState = () => (
-    <Box
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        py: 8,
-        textAlign: 'center',
-      }}
-    >
-      <CircularProgress size={40} sx={{ mb: 2 }} />
-      <Typography variant="h6" color="text.secondary">
-        Loading User Interfaces...
-      </Typography>
-    </Box>
-  );
-
   // Empty state component
   const EmptyState = () => (
     <Box
@@ -646,6 +793,91 @@ const UserInterface: React.FC = () => {
         for your test automation.
       </Typography>
     </Box>
+  );
+
+  // The header row, shared by the live table and the loading placeholder. It carries the same
+  // `isMobile` conditionals as the body below, so a phone gets the same four columns in the
+  // skeleton that the real table shows it.
+  //
+  // This is the <TableHead> ALONE — not a <Table> wrapped around it. 57f6cdac9 hoisted the whole
+  // <Table> element as `interfaceShell` and the <TableBody> that followed it was left as a
+  // sibling of the table inside the <TableContainer>: `div > table > thead` next to
+  // `div > tbody`. Two independent tables. The head kept `tableLayout: fixed` and its % widths
+  // and filled the card; the orphaned <tbody> fell back to content-based auto layout and
+  // shrink-to-fit, so every column drifted (measured: Models 12px off, Version 86px, Variants
+  // 172px, Actions 250px) and each row lost the `py: 0.5` override scoped to the header's <Table>
+  // and rendered 60px tall instead of 29. See BUG-0768.
+  const interfaceHead = (
+    <TableHead>
+      <TableRow>
+        <TableCell sx={{ width: isMobile ? '45%' : '24%' }}>
+          <strong>Name</strong>
+        </TableCell>
+        <TableCell sx={{ width: isMobile ? '30%' : '22%' }}>
+          <strong>Models</strong>
+        </TableCell>
+        {!isMobile && (
+          <TableCell sx={{ width: '12%' }}>
+            <strong>Version</strong>
+          </TableCell>
+        )}
+        <TableCell sx={{ width: isMobile ? '15%' : '13%' }}>
+          <strong>Variants</strong>
+        </TableCell>
+        {!isMobile && (
+          <>
+            <TableCell align="center" sx={{ width: '8%', whiteSpace: 'nowrap' }}>
+              <strong>Navigation</strong>
+            </TableCell>
+            <TableCell align="center" sx={{ width: '8%', whiteSpace: 'nowrap' }}>
+              <strong>References</strong>
+            </TableCell>
+          </>
+        )}
+        <TableCell align="center" sx={{ width: '10%', whiteSpace: 'nowrap' }}>
+          <strong>Actions</strong>
+        </TableCell>
+      </TableRow>
+    </TableHead>
+  );
+
+  // One width per visible column, in the header's order: Name, Models, [Version], Variants,
+  // [Navigation, References], Actions. `null` marks an icon-only cell.
+  const interfaceRowWidths = [
+    '84%',
+    '78%',
+    ...(isMobile ? [] : ['52%']),
+    '72%',
+    ...(isMobile ? [] : [null, null]),
+    null,
+  ];
+
+  // Head and body assembled into ONE table, with the body passed in as an argument rather than
+  // written as a sibling below the shell. This is the `coverageTable(body)` shape
+  // LocalizeCoverage already uses: the <tbody> is lexically inside the <table> that closes it,
+  // so "the body escaped the table" stops being expressible instead of being something a future
+  // edit has to remember. Both branches below go through here, which is also what keeps the
+  // placeholder and the live rows on the same geometry.
+  const interfaceTable = (body: React.ReactNode) => (
+    <Table
+      size="small"
+      sx={{
+        tableLayout: 'fixed',
+        width: '100%',
+        // Percentage widths inside a 358 px box left the name column a few
+        // characters wide, so identifiers broke mid-word and one cell was
+        // clipped to 8 px (BUG-0819). A minimum width gives the columns room;
+        // the container scrolls sideways instead of cutting the table.
+        minWidth: isMobile ? 520 : undefined,
+        '& .MuiTableCell-root': { py: 0.5, px: 1, wordBreak: 'break-word' },
+        '& .MuiTableRow-root:hover': {
+          backgroundColor: 'transparent !important',
+        },
+      }}
+    >
+      {interfaceHead}
+      {body}
+    </Table>
   );
 
   return (
@@ -676,6 +908,60 @@ const UserInterface: React.FC = () => {
             justifyContent: isMobile ? 'flex-start' : 'flex-end',
           }}
         >
+          <TextField
+            size="small"
+            placeholder="Search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            inputProps={{ 'aria-label': 'Search interfaces' }}
+            InputProps={{ startAdornment: <SearchIcon fontSize="small" sx={{ mr: 0.5, color: P.textMuted }} /> }}
+            sx={{ width: isMobile ? '100%' : 200 }}
+          />
+          {/* Per-model filter. Two ways in, one state: the dropdown here, or clicking a model chip
+              in any row — they are the same `modelFilter`, so a chip picked in the dropdown lights
+              up in the rows and vice versa. Read as "All models" while nothing is selected, so an
+              unfiltered list never looks like an empty result. */}
+          <Select
+            size="small"
+            multiple
+            value={activeModelFilter}
+            onChange={(e) => {
+              const v = e.target.value;
+              setModelFilter(typeof v === 'string' ? v.split(',') : v);
+            }}
+            renderValue={(selected) => {
+              const names = selected as string[];
+              if (names.length === 0) return 'All models';
+              return names.length === 1 ? names[0] : `${names.length} models`;
+            }}
+            inputProps={{ 'aria-label': 'Filter by model' }}
+            MenuProps={{ PaperProps: { sx: { maxHeight: 320 } } }}
+            sx={{ minWidth: isMobile ? 150 : 180, fontSize: TYPOGRAPHY.caption.size }}
+          >
+            {modelFacets.map(({ name, count }) => (
+              <MenuItem key={name} value={name} dense sx={{ gap: 0.5 }}>
+                <Checkbox size="small" checked={activeModelFilter.includes(name)} />
+                {/* Plain Box rather than <ListItemText>: the count is a right-aligned muted
+                    figure, not a second line of copy, and this pins that without relying on a
+                    ListItemText sub-prop whose name differs across MUI versions. */}
+                <Box
+                  sx={{
+                    flexGrow: 1,
+                    minWidth: 0,
+                    display: 'flex',
+                    alignItems: 'baseline',
+                    justifyContent: 'space-between',
+                    gap: 2,
+                  }}
+                >
+                  <Typography variant="body2" noWrap>{name}</Typography>
+                  <Typography variant="caption" sx={{ color: P.textMuted, flexShrink: 0 }}>
+                    {count}
+                  </Typography>
+                </Box>
+              </MenuItem>
+            ))}
+          </Select>
           <ToggleButtonGroup
             value={modeFilter}
             exclusive
@@ -733,64 +1019,33 @@ const UserInterface: React.FC = () => {
       <Card>
         <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
           {loading ? (
-            <LoadingState />
+            /* The real header and column widths with placeholder rows behind them — the centred
+               spinner this replaces reserved nothing and the table popped in. `rowHeight` is the
+               live row's own height so the swap from bar to value moves nothing. */
+            <TableContainer
+              component={Paper}
+              variant="outlined"
+              sx={{ boxShadow: 'none', overflowX: 'auto' }}
+            >
+              {interfaceTable(
+                <TableBody>
+                  <TableRowsSkeleton
+                    rows={8}
+                    widths={interfaceRowWidths}
+                    rowHeight={INTERFACE_ROW_HEIGHT}
+                  />
+                </TableBody>,
+              )}
+            </TableContainer>
           ) : userInterfaces.length === 0 ? (
             <EmptyState />
           ) : (
             <TableContainer
               component={Paper}
               variant="outlined"
-              sx={{ boxShadow: 'none', overflowX: 'hidden' }}
+              sx={{ boxShadow: 'none', overflowX: 'auto' }}
             >
-              <Table
-                size="small"
-                sx={{
-                  tableLayout: 'fixed',
-                  width: '100%',
-                  '& .MuiTableCell-root': {
-                    py: 0.5,
-                    px: 1,
-                    wordBreak: 'break-word',
-                  },
-                  '& .MuiTableBody-root .MuiTableRow-root:hover': {
-                    backgroundColor: 'transparent !important',
-                  },
-                  '& .MuiTableHead-root .MuiTableRow-root:hover': {
-                    backgroundColor: 'transparent !important',
-                  },
-                }}
-              >
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ width: isMobile ? '45%' : '24%' }}>
-                      <strong>Name</strong>
-                    </TableCell>
-                    <TableCell sx={{ width: isMobile ? '30%' : '22%' }}>
-                      <strong>Models</strong>
-                    </TableCell>
-                    {!isMobile && (
-                      <TableCell sx={{ width: '12%' }}>
-                        <strong>Version</strong>
-                      </TableCell>
-                    )}
-                    <TableCell sx={{ width: isMobile ? '15%' : '13%' }}>
-                      <strong>Variants</strong>
-                    </TableCell>
-                    {!isMobile && (
-                      <>
-                        <TableCell align="center" sx={{ width: '8%', whiteSpace: 'nowrap' }}>
-                          <strong>Navigation</strong>
-                        </TableCell>
-                        <TableCell align="center" sx={{ width: '8%', whiteSpace: 'nowrap' }}>
-                          <strong>References</strong>
-                        </TableCell>
-                      </>
-                    )}
-                    <TableCell align="center" sx={{ width: isMobile ? '10%' : '10%', whiteSpace: 'nowrap' }}>
-                      <strong>Actions</strong>
-                    </TableCell>
-                  </TableRow>
-                </TableHead>
+              {interfaceTable(
                 <TableBody>
                   {visibleInterfaces.map((userInterface) => (
                     <TableRow
@@ -798,22 +1053,55 @@ const UserInterface: React.FC = () => {
                       onClick={
                         isMobile ? () => handleEditNavigation(userInterface) : undefined
                       }
-                      sx={{ cursor: isMobile ? 'pointer' : 'default' }}
+                      sx={{
+                        cursor: isMobile ? 'pointer' : 'default',
+                        // Pinned, and it is the same number the skeleton uses: a `<tr>` also grows
+                        // to its tallest cell, so a longer name or a taller chip must not push
+                        // this row past the placeholder it replaces.
+                        height: `${INTERFACE_ROW_HEIGHT}px`,
+                      }}
                     >
                       <TableCell>
-                        <Box sx={{ display: 'flex', alignItems: 'center' }}>
-                          <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', minWidth: 0 }}>
+                          {/* The name IS the link to this interface's navigation editor — the same
+                              destination as the Navigation column's icon, which used to be the only
+                              way in. A real anchor, not an onClick div: middle-click and ⌘-click
+                              open it in a new tab, it is reachable by keyboard, and it announces as
+                              a link. `color: 'inherit'` keeps the cell's own text colour, so 56 rows
+                              don't turn into a wall of accent-coloured links; the underline on
+                              hover is the affordance. Same shape as the clickable script name in
+                              TestReports' results table. */}
+                          <Box
+                            component={RouterLink}
+                            to={navigationEditorTarget(userInterface).to}
+                            state={navigationEditorTarget(userInterface).state}
+                            onClick={(e: React.MouseEvent) => e.stopPropagation()}
+                            sx={{
+                              color: 'inherit',
+                              textDecoration: 'none',
+                              fontSize: TYPOGRAPHY.body.size,
+                              minWidth: 0,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                              '&:hover': { textDecoration: 'underline' },
+                            }}
+                          >
                             {userInterface.name}
-                          </Typography>
+                          </Box>
                           <ModeChip ui={userInterface} />
                         </Box>
                       </TableCell>
                       <TableCell>
-                        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5 }}>
-                          {userInterface.models.map((model) => (
-                            <Chip key={model} label={model} size="small" variant="outlined" />
-                          ))}
-                        </Box>
+                        {/* The models double as filter controls: click `web` to see only the
+                            interfaces that use it, click it again to lift that filter. The
+                            Variants cell below uses the same chip component but passes no
+                            `onToggle`, so a variant name stays read-only text. */}
+                        <OneLineChips
+                          labels={userInterface.models}
+                          onToggle={toggleModelFilter}
+                          isActive={(m) => activeModelFilter.includes(m)}
+                        />
                       </TableCell>
                       {!isMobile && (
                       <TableCell>
@@ -825,7 +1113,7 @@ const UserInterface: React.FC = () => {
                                 : ''
                             }
                           >
-                            <Typography variant="body2" sx={{ fontSize: '0.8rem' }}>
+                            <Typography variant="body2" sx={{ fontSize: TYPOGRAPHY.body.size }}>
                               v{userInterface.published_version ?? '?'}
                             </Typography>
                           </Tooltip>
@@ -904,8 +1192,8 @@ const UserInterface: React.FC = () => {
                       </TableCell>
                     </TableRow>
                   ))}
-                </TableBody>
-              </Table>
+                </TableBody>,
+              )}
             </TableContainer>
           )}
         </CardContent>
@@ -940,7 +1228,7 @@ const UserInterface: React.FC = () => {
               <UnknownIcon fontSize="small" />
             </ListItemIcon>
             <ListItemText>
-              Unknown screens ({unknownCountFor(unknownCounts, actionMenu.ui.name)})
+              Unknown screens
             </ListItemText>
           </MenuItem>
         )}
@@ -1087,7 +1375,7 @@ const UserInterface: React.FC = () => {
                       {...chipProps}
                       sx={{
                         height: 20,
-                        '& .MuiChip-label': { px: 0.5, fontSize: '0.75rem' },
+                        '& .MuiChip-label': { px: 0.5, fontSize: TYPOGRAPHY.caption.size },
                         '& .MuiChip-deleteIcon': { width: 14, height: 14 },
                       }}
                     />
@@ -1142,19 +1430,10 @@ const UserInterface: React.FC = () => {
               placeholder="e.g., brand_a, brand_b, brand_c"
             />
 
-            <FormControlLabel
-              control={
-                <Switch
-                  size="small"
-                  checked={!!newInterface.is_media}
-                  onChange={(_, checked) =>
-                    setNewInterface({ ...newInterface, is_media: checked })
-                  }
-                  inputProps={{ 'aria-label': 'is_media switch (new)' }}
-                />
-              }
-              label="Is media"
-              sx={{ mb: 1, ml: 0.5 }}
+            <SettingRow
+              title="Is media"
+              checked={!!newInterface.is_media}
+              onChange={(on) => setNewInterface({ ...newInterface, is_media: on })}
             />
             <Typography
               variant="caption"
@@ -1235,7 +1514,7 @@ const UserInterface: React.FC = () => {
                       {...chipProps}
                       sx={{
                         height: 20,
-                        '& .MuiChip-label': { px: 0.5, fontSize: '0.75rem' },
+                        '& .MuiChip-label': { px: 0.5, fontSize: TYPOGRAPHY.caption.size },
                         '& .MuiChip-deleteIcon': { width: 14, height: 14 },
                       }}
                     />
@@ -1290,19 +1569,10 @@ const UserInterface: React.FC = () => {
               placeholder="e.g., brand_a, brand_b, brand_c"
             />
 
-            <FormControlLabel
-              control={
-                <Switch
-                  size="small"
-                  checked={editForm.is_media === true}
-                  onChange={(_, checked) =>
-                    setEditForm({ ...editForm, is_media: checked })
-                  }
-                  inputProps={{ 'aria-label': 'is_media switch (edit)' }}
-                />
-              }
-              label="Is media"
-              sx={{ mb: 1, ml: 0.5 }}
+            <SettingRow
+              title="Is media"
+              checked={editForm.is_media === true}
+              onChange={(on) => setEditForm({ ...editForm, is_media: on })}
             />
             <Typography
               variant="caption"

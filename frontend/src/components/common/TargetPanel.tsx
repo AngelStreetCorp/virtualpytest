@@ -6,17 +6,23 @@ import {
   Typography,
   Checkbox,
   Tooltip,
+  Chip,
   FormControl,
   Select,
   MenuItem,
   ListItemText,
   SelectChangeEvent,
 } from '@mui/material';
-import { Search as SearchIcon, Lock as LockIcon, ErrorOutline as UnavailableIcon } from '@mui/icons-material';
+import { Search as SearchIcon, Lock as LockIcon, ErrorOutline as UnavailableIcon, Star as StarIcon } from '@mui/icons-material';
 import { EllipsisText } from './EllipsisText';
 import { UserinterfaceSelector } from './UserinterfaceSelector';
+import { DeviceFavoriteStar } from './DeviceFavoriteStar';
+import { DeviceMaintenanceBadge } from './DeviceMaintenanceBadge';
+import { useDeviceFavorites } from '../../hooks/useDeviceFavorites';
 import { useDeviceFlags } from '../../hooks/useDeviceFlags';
+import { useI18n } from '../../i18n/useI18n';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface Device {
   device_id: string;
@@ -64,6 +70,13 @@ export interface TargetPanelProps {
   hostOnly?: boolean;
   selectionCountLabel?: string;
   disableInternalScroll?: boolean;
+  /**
+   * Per-user device favorites (TASK-99): a star on each device row, favorites pinned first in a
+   * Favorites group, and a Favorites chip that selects them all. Off for permission pickers
+   * (Workspaces, DeviceScopePicker), which choose what a user may use, not what they like.
+   * Ignored when hostOnly (a host row is not a device).
+   */
+  showFavorites?: boolean;
 }
 
 export const TargetPanel: React.FC<TargetPanelProps> = ({
@@ -83,8 +96,12 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
   hostOnly = false,
   selectionCountLabel,
   disableInternalScroll = false,
+  showFavorites = false,
 }) => {
   const P = useAgentChatPalette();
+  const { t } = useI18n();
+  const favorites = useDeviceFavorites();
+  const favoritesOn = showFavorites && !hostOnly;
   const [search, setSearch] = useState('');
   const [modelFilter, setModelFilter] = useState<string[]>([]);
   const [tagFilter, setTagFilter] = useState<string[]>([]);
@@ -206,6 +223,21 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
       .filter((targetKey) => !(isTargetDisabled?.(targetKey) ?? false));
   }, [visibleTargets, isTargetDisabled]);
 
+  const isFavoriteTarget = (target: (typeof visibleTargets)[number]) =>
+    favoritesOn && !!target.device && favorites.isFavorite(target.hostName, target.device.device_id);
+  const favoriteTargets = visibleTargets.filter(isFavoriteTarget);
+  const otherTargets = visibleTargets.filter((target) => !isFavoriteTarget(target));
+  const favoriteSelectableKeys = favoriteTargets
+    .map((target) => target.key)
+    .filter((key) => !(isTargetDisabled?.(key) ?? false));
+  const allFavoritesSelected =
+    favoriteSelectableKeys.length > 0 && favoriteSelectableKeys.every((key) => selectedDevices.has(key));
+  const handleToggleFavorites = () => {
+    favoriteSelectableKeys.forEach((key) => {
+      if (selectedDevices.has(key) === allFavoritesSelected) onToggle(key);
+    });
+  };
+
   const visibleSelectedCount = useMemo(
     () => visibleSelectableKeys.filter((key) => selectedDevices.has(key)).length,
     [visibleSelectableKeys, selectedDevices],
@@ -225,6 +257,109 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
         onToggle(key);
       }
     });
+  };
+
+  const renderTarget = (target: (typeof visibleTargets)[number]) => {
+    const isSelected = selectedDevices.has(target.key) || (isTargetForceChecked?.(target.key) ?? false);
+    const isDisabled = isTargetDisabled?.(target.key) ?? false;
+    const isLocked = isTargetLocked?.(target.key) ?? false;
+    const disabledReason = isDisabled ? getDisabledReason?.(target.key) : undefined;
+    const userinterface = selectedDevices.get(target.key) || '';
+
+    return (
+      <Box key={target.key}>
+        <Box
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 0.75,
+            minHeight: 28,
+            py: 0.125,
+            px: 0.25,
+            borderRadius: 0.5,
+            '&:hover': { bgcolor: 'action.hover' },
+          }}
+        >
+          <Checkbox
+            checked={isSelected}
+            onChange={() => onToggle(target.key)}
+            disabled={isDisabled}
+            size="small"
+            sx={{
+              p: 0.25,
+              '&.Mui-disabled.Mui-checked': {
+                color: P.textMuted,
+              },
+            }}
+          />
+          <EllipsisText
+            variant="body2"
+            sx={{
+              minWidth: 0,
+              flex: '0 1 34%',
+              fontSize: TYPOGRAPHY.body.size,
+              cursor: isDisabled ? 'default' : 'pointer',
+            }}
+            onClick={() => {
+              if (!isDisabled) {
+                onToggle(target.key);
+              }
+            }}
+          >
+            {target.targetLabel}
+          </EllipsisText>
+          {target.device && (
+            <DeviceMaintenanceBadge hostName={target.hostName} deviceId={target.device.device_id} size={14} />
+          )}
+          {isLocked && (
+            <Tooltip title={getLockTooltip?.(target.key) || 'Locked'} arrow>
+              <LockIcon sx={{ fontSize: TYPOGRAPHY.body.size, color: 'warning.main', flexShrink: 0 }} />
+            </Tooltip>
+          )}
+          {!isLocked && disabledReason && (
+            <Tooltip title={disabledReason} arrow>
+              <UnavailableIcon sx={{ fontSize: TYPOGRAPHY.body.size, color: 'text.disabled', flexShrink: 0 }} />
+            </Tooltip>
+          )}
+          <EllipsisText
+            variant="caption"
+            color="text.secondary"
+            sx={{ minWidth: 0, flex: '1 1 42%', fontSize: TYPOGRAPHY.caption.size }}
+          >
+            {target.hostName}
+          </EllipsisText>
+          <EllipsisText
+            variant="caption"
+            color="text.secondary"
+            sx={{
+              minWidth: 0,
+              flex: '0 0 96px',
+              fontSize: TYPOGRAPHY.caption.size,
+              textAlign: 'right',
+              mr: 1,
+            }}
+          >
+            {target.modelLabel}
+          </EllipsisText>
+          {favoritesOn && target.device && (
+            <DeviceFavoriteStar hostName={target.hostName} deviceId={target.device.device_id} />
+          )}
+        </Box>
+
+        {isSelected && showUserinterfaceSelector && (
+          <Box sx={{ pl: 4, pr: 0.25, pb: 0.375 }}>
+            <UserinterfaceSelector
+              deviceModel={target.device?.device_model || ''}
+              value={userinterface}
+              onChange={ui => onUpdateUserinterface(target.key, ui)}
+              label="UI"
+              size="small"
+              fullWidth
+            />
+          </Box>
+        )}
+      </Box>
+    );
   };
 
   return (
@@ -247,7 +382,7 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
           InputProps={{
             startAdornment: (
               <InputAdornment position="start">
-                <SearchIcon sx={{ fontSize: 16 }} />
+                <SearchIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
               </InputAdornment>
             ),
           }}
@@ -293,9 +428,9 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
         </FormControl>
       </Box>
 
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75, px: 0.5, flexWrap: 'wrap' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75, px: 0.5, flexWrap: 'nowrap', minWidth: 0, whiteSpace: 'nowrap' }}>
         <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
-          {selectionCountLabel || `${selectedDevices.size} target${selectedDevices.size !== 1 ? 's' : ''} selected`}
+          {selectionCountLabel || t('{n} selected', { n: selectedDevices.size })}
         </Typography>
         <Typography
           variant="caption"
@@ -303,7 +438,7 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
           sx={{ cursor: visibleSelectableKeys.length > 0 ? 'pointer' : 'default' }}
           onClick={visibleSelectableKeys.length > 0 ? handleSelectAllVisible : undefined}
         >
-          select all
+          {t('select all')}
         </Typography>
         <Typography variant="caption" color="text.disabled">-</Typography>
         <Typography
@@ -312,8 +447,27 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
           sx={{ cursor: visibleSelectedCount > 0 ? 'pointer' : 'default' }}
           onClick={visibleSelectedCount > 0 ? handleUnselectAllVisible : undefined}
         >
-          unselect all
+          {t('Clear')}
         </Typography>
+        {favoritesOn && favoriteTargets.length > 0 && (
+          <Chip
+            size="small"
+            icon={<StarIcon sx={{ fontSize: TYPOGRAPHY.body.size, color: `${P.gold} !important` }} />}
+            label={`${t('Favorites')} ${favoriteTargets.length}`}
+            onClick={handleToggleFavorites}
+            disabled={favoriteSelectableKeys.length === 0}
+            variant={allFavoritesSelected ? 'filled' : 'outlined'}
+            sx={{
+              ml: 'auto',
+              flexShrink: 0,
+              height: 22,
+              fontSize: TYPOGRAPHY.caption.size,
+              borderColor: P.gold,
+              color: P.textPrimary,
+              ...(allFavoritesSelected ? { bgcolor: P.hoverBg } : {}),
+            }}
+          />
+        )}
       </Box>
 
       {/* Target list */}
@@ -328,102 +482,20 @@ export const TargetPanel: React.FC<TargetPanelProps> = ({
             No targets found
           </Typography>
         ) : (
-          visibleTargets.map((target) => {
-            const isSelected = selectedDevices.has(target.key) || (isTargetForceChecked?.(target.key) ?? false);
-            const isDisabled = isTargetDisabled?.(target.key) ?? false;
-            const isLocked = isTargetLocked?.(target.key) ?? false;
-            const disabledReason = isDisabled ? getDisabledReason?.(target.key) : undefined;
-            const userinterface = selectedDevices.get(target.key) || '';
-
-            return (
-              <Box key={target.key}>
-                <Box
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.75,
-                    minHeight: 28,
-                    py: 0.125,
-                    px: 0.25,
-                    borderRadius: 0.5,
-                    '&:hover': { bgcolor: 'action.hover' },
-                  }}
-                >
-                  <Checkbox
-                    checked={isSelected}
-                    onChange={() => onToggle(target.key)}
-                    disabled={isDisabled}
-                    size="small"
-                    sx={{
-                      p: 0.25,
-                      '&.Mui-disabled.Mui-checked': {
-                        color: P.textMuted,
-                      },
-                    }}
-                  />
-                  <EllipsisText
-                    variant="body2"
-                    sx={{
-                      minWidth: 0,
-                      flex: '0 1 34%',
-                      fontSize: '0.8rem',
-                      cursor: isDisabled ? 'default' : 'pointer',
-                    }}
-                    onClick={() => {
-                      if (!isDisabled) {
-                        onToggle(target.key);
-                      }
-                    }}
-                  >
-                    {target.targetLabel}
-                  </EllipsisText>
-                  {isLocked && (
-                    <Tooltip title={getLockTooltip?.(target.key) || 'Locked'} arrow>
-                      <LockIcon sx={{ fontSize: 14, color: 'warning.main', flexShrink: 0 }} />
-                    </Tooltip>
-                  )}
-                  {!isLocked && disabledReason && (
-                    <Tooltip title={disabledReason} arrow>
-                      <UnavailableIcon sx={{ fontSize: 14, color: 'text.disabled', flexShrink: 0 }} />
-                    </Tooltip>
-                  )}
-                  <EllipsisText
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{ minWidth: 0, flex: '1 1 42%', fontSize: '0.7rem' }}
-                  >
-                    {target.hostName}
-                  </EllipsisText>
-                  <EllipsisText
-                    variant="caption"
-                    color="text.secondary"
-                    sx={{
-                      minWidth: 0,
-                      flex: '0 0 96px',
-                      fontSize: '0.7rem',
-                      textAlign: 'right',
-                      mr: 1,
-                    }}
-                  >
-                    {target.modelLabel}
-                  </EllipsisText>
-                </Box>
-
-                {isSelected && showUserinterfaceSelector && (
-                  <Box sx={{ pl: 4, pr: 0.25, pb: 0.375 }}>
-                    <UserinterfaceSelector
-                      deviceModel={target.device?.device_model || ''}
-                      value={userinterface}
-                      onChange={ui => onUpdateUserinterface(target.key, ui)}
-                      label="UI"
-                      size="small"
-                      fullWidth
-                    />
-                  </Box>
-                )}
-              </Box>
-            );
-          })
+          <>
+            {favoriteTargets.length > 0 && (
+              <Typography variant="caption" sx={{ display: 'block', px: 0.5, pt: 0.5, color: P.textSecondary, fontWeight: 600 }}>
+                {t('Favorites')}
+              </Typography>
+            )}
+            {favoriteTargets.map(renderTarget)}
+            {favoriteTargets.length > 0 && otherTargets.length > 0 && (
+              <Typography variant="caption" sx={{ display: 'block', px: 0.5, pt: 0.75, color: P.textSecondary, fontWeight: 600 }}>
+                {t('All devices')}
+              </Typography>
+            )}
+            {otherTargets.map(renderTarget)}
+          </>
         )}
       </Box>
     </Box>

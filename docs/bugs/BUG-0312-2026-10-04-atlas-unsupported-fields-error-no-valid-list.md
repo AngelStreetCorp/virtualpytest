@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                     |
 | Severity  | Low — one wasted failing tool call         |
 | Area      | backend_server/src/lib/analytics/service.py |
-| Fixed in  | Unreleased                                 |
+| Fixed in  | build 90145 |
 | Commit    | see branch task43-w5-scope-hints           |
 
 ---

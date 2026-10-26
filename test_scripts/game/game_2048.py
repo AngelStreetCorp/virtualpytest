@@ -18,6 +18,7 @@ if project_root not in sys.path:
     sys.path.insert(0, project_root)
 
 from shared.src.lib.executors.script_decorators import script, get_context, get_args, get_device
+from shared.src.lib.game.ai_usage import AiUsage
 from shared.src.lib.game2048.player import heuristic_decide, make_llm_decider
 from shared.src.lib.game2048.runner import GameRunner, kpi_metadata, resolve_userinterface, summary
 
@@ -63,17 +64,18 @@ def main():
         return False
     context.tree_id = tree["tree_id"]
 
-    decide = make_llm_decider(context.team_id) if args.player == "llm" else heuristic_decide
+    ai_usage = AiUsage("game_2048")
+    decide = make_llm_decider(context.team_id, ai_usage) if args.player == "llm" else heuristic_decide
     data = GameRunner(
         device, context, userinterface, context.tree_id, decide, args.player,
         int(args.max_moves), int(args.max_duration), int(args.min_score), int(args.min_tile),
     ).run()
 
-    context.metadata = kpi_metadata(data)
+    context.metadata = {**kpi_metadata(data), "ai_usage": ai_usage.metadata()}
     context.overall_success = bool(data.get("success"))
     if not context.overall_success:
         context.error_message = data.get("error") or "2048 run failed"
-    context.execution_summary = summary(data, context.overall_success, context.error_message or "")
+    context.execution_summary = summary(data, context.overall_success, context.error_message or "") + "\n" + ai_usage.summary()
     return context.overall_success
 
 

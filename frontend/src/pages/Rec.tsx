@@ -1,4 +1,4 @@
-import { Computer as ComputerIcon, Dashboard as DashboardIcon, Edit as EditIcon, FactCheck as DeviceInfoIcon } from '@mui/icons-material';
+import { Computer as ComputerIcon, Dashboard as DashboardIcon, HighQuality as QualityIcon, Edit as EditIcon, FactCheck as DeviceInfoIcon } from '@mui/icons-material';
 import {
   Box,
   Typography,
@@ -7,44 +7,48 @@ import {
   CircularProgress,
   Chip,
   Stack,
-  Button,
   TextField,
   Autocomplete,
   Backdrop,
-  InputAdornment,
-  Divider,
   IconButton,
   Tooltip,
   Pagination,
-  keyframes,
 } from '@mui/material';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
 import React, { useEffect, useState, useMemo, useCallback, memo, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 
 import { DeviceFilterBar } from '../components/common/DeviceFilterBar';
 import { MobileHeaderActions } from '../components/common/MobileHeaderActions';
+import { QuickfilterBadgeArea } from '../components/common/QuickfilterBadgeArea';
 import { RecHostPreview } from '../components/rec/RecHostPreview';
 import { useResponsiveMode } from '../hooks/useResponsiveMode';
+import { isEmbedded } from '../utils/embeddedMode';
 import { useRec } from '../hooks/pages/useRec';
 import { useDeviceFlags } from '../hooks/useDeviceFlags';
 import { useServerManager } from '../hooks/useServerManager';
-import { getDeviceTargetLabel, useDeviceFilters } from '../hooks/useDeviceFilters';
+import { DeviceKey, useDeviceFavorites } from '../hooks/useDeviceFavorites';
+import { countMonitorProfiles, getDeviceMonitorProfile, getDeviceTargetLabel, narrowFilterOptions, reachableFilterOptions, useDeviceFilters, usePruneDeviceFilters } from '../hooks/useDeviceFilters';
 import { useWorkspaceContext } from '../contexts/workspace/WorkspaceContext';
 import { REC_LIVE_TILE_LIMIT } from '../config/constants';
 import { Host, Device } from '../types/common/Host_Types';
 import { RecHostStreamModal } from '../components/rec/RecHostStreamModal';
 import { GroupControlModal } from '../components/rec/group/GroupControlModal';
 import { GroupSelectBar } from '../components/rec/group/GroupSelectBar';
+import { QualitySelectBar } from '../components/rec/QualitySelectBar';
+import { deviceSupportsQuality, useQualitySelection, type QualityTarget } from '../hooks/rec/useQualitySelection';
 import { useGroupSelection } from '../hooks/rec/useGroupSelection';
 import { DeviceLayout } from '../components/rec/layout/DeviceLayout';
 import { ViewMenu } from '../components/rec/layout/ViewMenu';
 import { useDeviceView } from '../hooks/rec/useDeviceView';
 import { useLayoutOrder } from '../hooks/rec/useLayoutOrder';
-import { GRID_VIEWS, findView } from '../constants/deviceLayouts';
+import { GRID_VIEWS, findView, previewGridGapPx } from '../constants/deviceLayouts';
+import { ModeBar, ModeBarActions } from '../components/rec/ModeBar';
 import { useI18n } from '../i18n/useI18n';
+import { useMaintenanceGuard } from '../hooks/platformUpdate/useMaintenanceGuard';
 import type { GroupCandidate, GroupSelection } from '../types/pages/groupControl.types';
 import type { LiveStreamTransport, WhepStatus } from '../types/controller/WebRTC_Types';
+import { TYPOGRAPHY } from '../constants/typography';
 
 const DEVICE_KEY_SEPARATOR = '::';
 
@@ -103,7 +107,9 @@ const MemoizedRecHostPreview = memo(RecHostPreview, (prevProps, nextProps) => {
     prevProps.persistentStreamOnWebRTCFailed === nextProps.persistentStreamOnWebRTCFailed &&
     prevProps.persistentStreamOnWebRTCStatusChange === nextProps.persistentStreamOnWebRTCStatusChange &&
     prevProps.groupStreamTarget === nextProps.groupStreamTarget &&
-    prevProps.snapshotMode === nextProps.snapshotMode
+    prevProps.snapshotMode === nextProps.snapshotMode &&
+    prevProps.isPartial === nextProps.isPartial &&
+    prevProps.showProfileBadge === nextProps.showProfileBadge
   ) {
     return true; // Props haven't changed, skip re-render
   }
@@ -133,7 +139,9 @@ const MemoizedRecHostPreview = memo(RecHostPreview, (prevProps, nextProps) => {
     prevProps.persistentStreamOnWebRTCFailed === nextProps.persistentStreamOnWebRTCFailed &&
     prevProps.persistentStreamOnWebRTCStatusChange === nextProps.persistentStreamOnWebRTCStatusChange &&
     prevProps.groupStreamTarget === nextProps.groupStreamTarget &&
-    prevProps.snapshotMode === nextProps.snapshotMode
+    prevProps.snapshotMode === nextProps.snapshotMode &&
+    prevProps.isPartial === nextProps.isPartial &&
+    prevProps.showProfileBadge === nextProps.showProfileBadge
   );
 
   return areEqual; // Return true to skip re-render, false to re-render
@@ -149,6 +157,7 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
 }) => {
   const P = useAgentChatPalette();
   const { t, tn } = useI18n();
+  const { guardAny, guardDialog: maintenanceGuardDialog } = useMaintenanceGuard();
   const { isMobile, isTablet } = useResponsiveMode();
   // Server change transition state - blocks UI during stream initialization
   const { isServerChanging, selectedServer } = useServerManager();
@@ -171,18 +180,36 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
     setTargetFilter,
     deviceModelFilter,
     setDeviceModelFilter,
+    profileFilter,
+    setProfileFilter,
     flagFilter,
     setFlagFilter,
     flagMatchMode,
     setFlagMatchMode,
   } = useDeviceFilters();
-  // View (TASK-75): Grid 12/24/48 (scrolls, TASK-48 page sizes) or a layout that fits the
-  // screen. Persisted per browser. Phones always use the grid. Current page is plain
-  // state — it resets when filters or the view change (see effect below).
-  const { view: storedView, setView } = useDeviceView(!isMobile);
+  // View: Grid 12/24 or a custom columns × rows (at most 100 per page), or a layout
+  // that fits the screen. Persisted per browser. Phones always use the grid.
+  const { view: storedView, setView, customShape, setCustomShape } = useDeviceView(!isMobile);
   const view = isMobile && storedView.kind === 'layout' ? findView('grid24')! : storedView;
   const pageSize = view.kind === 'grid' ? view.pageSize : view.slots;
-  const [page, setPage] = useState(1);
+  // The current page lives in the URL (`?page=N`), so a reload keeps the operator on the same page.
+  const [linkParams, setLinkParams] = useSearchParams();
+  const rawPage = Number(linkParams.get('page'));
+  const page = Number.isInteger(rawPage) && rawPage > 1 ? rawPage : 1;
+  const setPage = useCallback(
+    (next: number) => {
+      setLinkParams(
+        (prev) => {
+          const params = new URLSearchParams(prev);
+          if (next > 1) params.set('page', String(next));
+          else params.delete('page');
+          return params;
+        },
+        { replace: true },
+      );
+    },
+    [setLinkParams],
+  );
 
   // Edit mode state
   const [isEditMode, setIsEditMode] = useState(false);
@@ -223,7 +250,7 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
   const [modalStreamOnReady, setModalStreamOnReady] = useState<(() => void) | undefined>();
   const [modalStreamTransport, setModalStreamTransport] = useState<LiveStreamTransport>('hls');
   const [modalStreamReconnectKey, setModalStreamReconnectKey] = useState<string>();
-  const [modalWebRTCFailed, setModalWebRTCFailed] = useState<(() => void) | undefined>();
+  const [modalWebRTCFailed, setModalWebRTCFailed] = useState<((reason: string) => void) | undefined>();
   const [modalWebRTCStatusChange, setModalWebRTCStatusChange] = useState<((status: WhepStatus) => void) | undefined>();
 
   const openModal = useCallback((host: Host, device: Device, poster?: string | null, canReuseStream = false) => {
@@ -267,7 +294,7 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
     onPlayerReady: () => void;
     transport: LiveStreamTransport;
     reconnectKey: string;
-    onWebRTCFailed: () => void;
+    onWebRTCFailed: (reason: string) => void;
     onWebRTCStatusChange: (status: WhepStatus) => void;
   }) => {
     setModalStreamMuted(muted);
@@ -281,22 +308,102 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
   }, []);
 
   // Get unique target labels and device models for filter controls
-  const { targetOptions, uniqueDeviceModels } = useMemo(() => {
+  const { uniqueProfiles, profileCounts } = useMemo(() => countMonitorProfiles(avDevices), [avDevices]);
+  const { targetOptions, targetKeys, uniqueDeviceModels, deviceModelCounts } = useMemo(() => {
     const targets = new Set<string>();
+    const keys: Record<string, DeviceKey> = {};
     const deviceModels = new Set<string>();
+    const modelCounts: Record<string, number> = {};
 
     avDevices.forEach(({ host, device }) => {
-      targets.add(getDeviceTargetLabel(host, device));
+      const label = getDeviceTargetLabel(host, device);
+      targets.add(label);
+      keys[label] = { host_name: host.host_name, device_id: device.device_id };
       if (device.device_model) {
         deviceModels.add(device.device_model);
+        modelCounts[device.device_model] = (modelCounts[device.device_model] ?? 0) + 1;
       }
     });
 
     return {
       targetOptions: Array.from(targets).sort(),
+      targetKeys: keys,
       uniqueDeviceModels: Array.from(deviceModels).sort(),
+      deviceModelCounts: modelCounts,
     };
   }, [avDevices]);
+
+  // Per-user favorites (TASK-99 / TASK-120). The chip row needs the subset of
+  // targets the user has starred so the Favorites chip can show its count and
+  // the toggle can fill-or-clear the target filter.
+  const favorites = useDeviceFavorites();
+  const favoriteTargetOptions = useMemo(() => {
+    return targetOptions.filter((option) => {
+      const key = targetKeys?.[option];
+      return !!key && favorites.isFavorite(key.host_name, key.device_id);
+    });
+  }, [targetOptions, targetKeys, favorites.isFavorite]);
+
+  // Per-tag device counts (TASK-120). Drives the count shown on each tag chip in
+  // the quickfilter row. We already iterate `deviceFlags` for the filter — count
+  // the number of devices carrying each tag once, here.
+  const flagCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    avDevices.forEach(({ host, device }) => {
+      const df = deviceFlags.find(
+        (f: { host_name: string; device_id: string }) =>
+          f.host_name === host.host_name && f.device_id === device.device_id,
+      );
+      const tags: string[] = df?.flags || [];
+      tags.forEach((tag) => {
+        counts[tag] = (counts[tag] ?? 0) + 1;
+      });
+    });
+    return counts;
+  }, [avDevices, deviceFlags]);
+
+  // Favorites toggle (TASK-120). Same logic as `handleToggleFavorites` in
+  // DeviceFilterBar — the chip row's Favorites chip and the toolbar's Favorites
+  // chip share the same source of truth so they light up identically.
+  const allFavoritesSelected =
+    favoriteTargetOptions.length > 0 &&
+    favoriteTargetOptions.every((option) => targetFilter.includes(option));
+  const handleQuickfilterFavoritesToggle = useCallback(() => {
+    if (allFavoritesSelected) {
+      const removed = new Set(favoriteTargetOptions);
+      setTargetFilter(targetFilter.filter((option) => !removed.has(option)));
+    } else {
+      setTargetFilter(Array.from(new Set([...targetFilter, ...favoriteTargetOptions])));
+    }
+  }, [allFavoritesSelected, favoriteTargetOptions, targetFilter]);
+
+  // Deep links from the Dashboard cockpit: `?favorites=1` selects the user's favourites, `?device=<host>/<device_id>`
+  // selects that one device, `?host=<host>` selects every device of that host. Both only fill the shared target filter (the same one the dropdown and the Favorites chip
+  // write), once per link, as soon as the devices and the stars are loaded.
+  const appliedLink = useRef<string | null>(null);
+  useEffect(() => {
+    const wantFavorites = linkParams.get('favorites') === '1';
+    const wantDevice = linkParams.get('device');
+    const wantHost = linkParams.get('host');
+    const linkKey = wantDevice ? `device:${wantDevice}` : wantHost ? `host:${wantHost}` : wantFavorites ? 'favorites' : null;
+    if (!linkKey || appliedLink.current === linkKey) return;
+    if (wantHost && !wantDevice) {
+      const labels = targetOptions.filter((o) => targetKeys?.[o]?.host_name === wantHost);
+      if (labels.length === 0) return;
+      setTargetFilter(labels);
+    } else if (wantDevice) {
+      const label = targetOptions.find((o) => {
+        const k = targetKeys?.[o];
+        return !!k && `${k.host_name}/${k.device_id}` === wantDevice;
+      });
+      if (!label) return;
+      setTargetFilter([label]);
+    } else {
+      if (favoriteTargetOptions.length === 0) return;
+      setTargetFilter(favoriteTargetOptions);
+    }
+    appliedLink.current = linkKey;
+  }, [linkParams, targetOptions, targetKeys, favoriteTargetOptions, setTargetFilter]);
 
   // Filter devices based on selected filters
   const filteredDevices = useMemo(() => {
@@ -309,6 +416,7 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
       const matchesTarget =
         targetFilter.length === 0 || targetFilter.includes(getDeviceTargetLabel(host, device));
       const matchesDeviceModel = deviceModelFilter.length === 0 || (device.device_model && deviceModelFilter.includes(device.device_model));
+      const matchesProfile = profileFilter.length === 0 || profileFilter.includes(getDeviceMonitorProfile(host, device));
 
       // Flag filtering — AND requires every selected tag, OR any one.
       let matchesFlag = true;
@@ -323,7 +431,7 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
             : flagFilter.some((f) => deviceTags.includes(f));
       }
 
-      return matchesTarget && matchesDeviceModel && matchesFlag;
+      return matchesTarget && matchesDeviceModel && matchesProfile && matchesFlag;
     })
       // Sort by the same label shown on each card so cards appear A→Z
       // (numeric-aware: vfr108 before vfr109).
@@ -334,42 +442,52 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
           { numeric: true },
         ),
       );
-  }, [avDevices, targetFilter, deviceModelFilter, flagFilter, flagMatchMode, deviceFlags]);
+  }, [avDevices, targetFilter, deviceModelFilter, profileFilter, flagFilter, flagMatchMode, deviceFlags]);
 
-  // Reconcile persisted filter selections against the options that actually
-  // exist in the current workspace. Switching workspaces changes avDevices (via
-  // isDeviceAllowed) but leaves the localStorage-persisted filters untouched, so
-  // a target/model/flag picked in another workspace would otherwise linger in
-  // the filter bar and silently hide every device here ("No targets match").
-  // Skip while loading so an empty option list mid-fetch doesn't wipe filters
-  // legitimately restored from localStorage on refresh. `isLoading` stays true
-  // until HostManager has actually copied the hosts in (BUG-0387).
-  useEffect(() => {
-    if (isLoading) return;
-    const prune = (
-      setter: React.Dispatch<React.SetStateAction<string[]>>,
-      valid: string[],
-    ) => {
-      const validSet = new Set(valid);
-      setter((prev) => {
-        const next = prev.filter((v) => validSet.has(v));
-        return next.length === prev.length ? prev : next;
-      });
-    };
-    prune(setTargetFilter, targetOptions);
-    prune(setDeviceModelFilter, uniqueDeviceModels);
-    // Flags load separately from the device list — same rule, own loading flag.
-    if (!isFlagsLoading) prune(setFlagFilter, uniqueFlags);
-  }, [
-    isLoading,
-    isFlagsLoading,
-    targetOptions,
-    uniqueDeviceModels,
-    uniqueFlags,
-    setTargetFilter,
-    setDeviceModelFilter,
-    setFlagFilter,
-  ]);
+  // What each filter list may still offer (BUG-0829). `filteredDevices` is the
+  // AND of all four axes, so it IS the set of surviving devices: every option
+  // the bar shows is one at least one surviving device carries. That is what
+  // makes "No targets match the selected filters" unreachable by clicking —
+  // pick targets, then More, and the models / tags of the devices you just
+  // filtered out are no longer on offer instead of silently emptying the grid.
+  // Computed AFTER `filteredDevices`, which is why the unfiltered lists above
+  // still feed pruning and the deep links below.
+  const reachableOptions = useMemo(
+    () =>
+      reachableFilterOptions(
+        avDevices,
+        { targetFilter, deviceModelFilter, profileFilter, flagFilter, flagMatchMode },
+        (hostName, deviceId) =>
+          deviceFlags.find((f: { host_name: string; device_id: string }) => f.host_name === hostName && f.device_id === deviceId)?.flags ?? [],
+      ),
+    [avDevices, targetFilter, deviceModelFilter, profileFilter, flagFilter, flagMatchMode, deviceFlags],
+  );
+
+  // Chip-row lists obey the same rule as the toolbar dropdowns: two controls
+  // offering two different sets of values is how a dead-end filter gets
+  // reintroduced from the other side. The toolbar narrows its own copies from
+  // `reachableOptions`, so only the chip row needs these.
+  const reachableProfiles = useMemo(
+    () => narrowFilterOptions(uniqueProfiles, reachableOptions.profiles, profileFilter),
+    [uniqueProfiles, reachableOptions.profiles, profileFilter],
+  );
+  const reachableModels = useMemo(
+    () => narrowFilterOptions(uniqueDeviceModels, reachableOptions.models, deviceModelFilter),
+    [uniqueDeviceModels, reachableOptions.models, deviceModelFilter],
+  );
+  const reachableFlags = useMemo(
+    () => narrowFilterOptions(uniqueFlags, reachableOptions.flags, flagFilter),
+    [uniqueFlags, reachableOptions.flags, flagFilter],
+  );
+
+  // Drop persisted filter picks that don't exist in this workspace/server.
+  // `isLoading` stays true until HostManager has copied the hosts in (BUG-0387).
+  usePruneDeviceFilters(
+    { setTargetFilter, setDeviceModelFilter, setFlagFilter, setProfileFilter },
+    { targetOptions, uniqueDeviceModels, uniqueFlags, uniqueProfiles },
+    !isLoading,
+    !isFlagsLoading,
+  );
 
   // Total pages for the current filter result. Clamped to ≥1 so a filter that
   // wipes the grid still renders the empty-state Alert below instead of a
@@ -393,6 +511,11 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
     [filteredDevices],
   );
   const groupSelection = useGroupSelection(groupSelectablePool);
+  const qualitySel = useQualitySelection();
+  const qualityPool: QualityTarget[] = useMemo(
+    () => filteredDevices.map(({ host, device }) => ({ key: buildDeviceKey(host.host_name, device.device_id), host, device })),
+    [filteredDevices],
+  );
 
   // Layouts keep the operator's swaps (per layout); the grid keeps the filter order.
   const { ordered: layoutOrdered, swap: swapLayoutTiles, reset: resetLayoutOrder } = useLayoutOrder(
@@ -413,6 +536,8 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
   // ≤ REC_LIVE_TILE_LIMIT devices always play live whatever the page size.
   // Focus layouts: only the big slot plays live, thumbnails are snapshots (TASK-75 G6).
   const snapshotMode = paginatedDevices.length > REC_LIVE_TILE_LIMIT;
+  // The profile badge needs room: standard grids top out at 4 columns; a custom grid shows it up to 5.
+  const showProfileBadge = view.kind !== 'grid' || !view.custom || view.glyph.cols <= 5;
   const isFocusLayout = view.kind === 'layout' && !!view.focus;
   // Page tiles that play live (not snapshots) — only those have a player the group modal can reuse.
   const liveTileKeys = useMemo<ReadonlySet<string>>(() => {
@@ -424,18 +549,24 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
   // Reset to page 1 whenever the filter inputs change OR the page size
   // changes — filters can otherwise leave the user stranded on an empty page,
   // and switching page size keeps page 1 anchored to the top of the result.
+  // Skipped on mount so a reload keeps the `?page=` from the URL.
+  const pageResetKey = JSON.stringify([targetFilter, deviceModelFilter, profileFilter, flagFilter, flagMatchMode, view.id, pageSize]);
+  const lastPageResetKey = useRef(pageResetKey);
   useEffect(() => {
+    if (lastPageResetKey.current === pageResetKey) return;
+    lastPageResetKey.current = pageResetKey;
     setPage(1);
-  }, [targetFilter, deviceModelFilter, flagFilter, flagMatchMode, view.id]);
+  }, [pageResetKey, setPage]);
 
   // Clamp the page when devices disappear (workspace switch, host reload).
   // filteredDevices shrinks so the current page can become empty; without this
   // clamp the user sees a blank grid with a Pagination at "Page 5 of 2".
+  // Waits for devices to load: before that totalPages is 1 and would wipe a restored page.
   useEffect(() => {
-    if (page > totalPages) {
+    if (!isLoading && page > totalPages) {
       setPage(totalPages);
     }
-  }, [page, totalPages]);
+  }, [page, totalPages, isLoading, setPage]);
 
   const handlePageChange = useCallback(
     (_event: React.ChangeEvent<unknown>, next: number) => {
@@ -448,6 +579,7 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
   const clearFilters = () => {
     setTargetFilter([]);
     setDeviceModelFilter([]);
+    setProfileFilter([]);
     setFlagFilter([]);
   };
 
@@ -486,13 +618,14 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
       setPendingTags([]);
       setTagInputValue('');
     } else {
-      // Entering edit mode - exit group mode if it was on
+      // Entering edit mode - exit group and quality mode if on
       if (groupSelection.isGroupMode) {
         groupSelection.toggleGroupMode();
       }
+      if (qualitySel.isQualityMode) qualitySel.toggleQualityMode();
       setIsEditMode(true);
     }
-  }, [isEditMode, groupSelection]);
+  }, [isEditMode, groupSelection, qualitySel]);
 
   // Group mode toggle handler — entering Group mode also exits Edit mode.
   // Symmetric to handleEditModeToggle.
@@ -505,8 +638,17 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
       setPendingTags([]);
       setTagInputValue('');
     }
+    if (!groupSelection.isGroupMode && qualitySel.isQualityMode) qualitySel.toggleQualityMode();
     groupSelection.toggleGroupMode();
-  }, [groupSelection, isEditMode]);
+  }, [groupSelection, isEditMode, qualitySel]);
+
+  const handleQualityModeToggle = useCallback(() => {
+    if (!qualitySel.isQualityMode) {
+      if (isEditMode) handleEditModeToggle();
+      if (groupSelection.isGroupMode) groupSelection.toggleGroupMode();
+    }
+    qualitySel.toggleQualityMode();
+  }, [qualitySel, isEditMode, handleEditModeToggle, groupSelection]);
 
   // Create stable selection handlers per device using refs
   const selectionHandlersRef = useRef<Map<string, (selected: boolean) => void>>(new Map());
@@ -600,32 +742,6 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
   }, [filteredDevices, getCurrentFlags, emptyFlagsArray]);
 
   // Bulk flag operations (now work with pending changes)
-  const handleBulkAddFlag = useCallback((flag: string) => {
-    const trimmedFlag = flag.trim();
-    if (!trimmedFlag) return;
-    
-    setPendingChanges(prev => {
-      const newChanges = new Map(prev);
-      Array.from(selectedDevices).forEach(deviceKey => {
-        const { hostName, deviceId } = parseDeviceKey(deviceKey);
-        
-        // Get current flags from either pending changes or device flags
-        let currentFlags: string[];
-        if (prev.has(deviceKey)) {
-          currentFlags = prev.get(deviceKey) || [];
-        } else {
-          currentFlags = deviceFlags.find((df: any) => df.host_name === hostName && df.device_id === deviceId)?.flags || [];
-        }
-        
-        if (!currentFlags.includes(trimmedFlag)) {
-          const updatedFlags = normalizeFlags([...currentFlags, trimmedFlag]);
-          newChanges.set(deviceKey, updatedFlags);
-        }
-      });
-      return newChanges;
-    });
-  }, [selectedDevices, deviceFlags]);
-
   const handleBulkRemoveFlag = useCallback((flag: string) => {
     setPendingChanges(prev => {
       const newChanges = new Map(prev);
@@ -647,28 +763,30 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
     });
   }, [selectedDevices, deviceFlags]);
 
-  const applyPendingTags = useCallback(() => {
-    const trimmedInput = tagInputValue.trim();
-    const combined = trimmedInput ? [...pendingTags, trimmedInput] : pendingTags;
-    const tagsToApply = normalizeFlags(combined);
-    if (tagsToApply.length === 0 || selectedDevices.size === 0) return;
-
-    tagsToApply.forEach(tag => handleBulkAddFlag(tag));
-    setPendingTags([]);
-    setTagInputValue('');
-  }, [handleBulkAddFlag, pendingTags, selectedDevices.size, tagInputValue]);
-
-  // Save all pending changes
+  // Save all pending changes; tags still typed in the input / pending list are flushed first (no async state).
   const handleSaveChanges = useCallback(async () => {
-    if (pendingChanges.size === 0) return;
-    
+    const trimmedInput = tagInputValue.trim();
+    const tagsToFlush = normalizeFlags(trimmedInput ? [...pendingTags, trimmedInput] : pendingTags);
+    const effective = new Map(pendingChanges);
+    if (tagsToFlush.length > 0) {
+      Array.from(selectedDevices).forEach(deviceKey => {
+        const { hostName, deviceId } = parseDeviceKey(deviceKey);
+        const current = effective.has(deviceKey)
+          ? (effective.get(deviceKey) || [])
+          : (deviceFlags.find((df: any) => df.host_name === hostName && df.device_id === deviceId)?.flags || []);
+        const merged = normalizeFlags([...current, ...tagsToFlush]);
+        if (merged.length !== current.length) effective.set(deviceKey, merged);
+      });
+    }
+    if (effective.size === 0) return;
+
     setIsSaving(true);
     try {
-      const updates = Array.from(pendingChanges.entries()).map(([deviceKey, flags]) => {
+      const updates = Array.from(effective.entries()).map(([deviceKey, flags]) => {
         const { hostName, deviceId } = parseDeviceKey(deviceKey);
         return { hostName, deviceId, flags };
       });
-      
+
       const success = await batchUpdateDeviceFlags(updates);
       if (success) {
         setPendingChanges(new Map());
@@ -682,7 +800,7 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
     } finally {
       setIsSaving(false);
     }
-  }, [pendingChanges, batchUpdateDeviceFlags]);
+  }, [pendingChanges, pendingTags, tagInputValue, selectedDevices, deviceFlags, batchUpdateDeviceFlags]);
 
   // Check if there are unsaved changes
   const hasUnsavedChanges = pendingChanges.size > 0;
@@ -710,7 +828,7 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
     }
   }, [avDevices, isEditMode, selectedDevices]);
 
-  const hasActiveFilters = targetFilter.length > 0 || deviceModelFilter.length > 0 || flagFilter.length > 0;
+  const hasActiveFilters = targetFilter.length > 0 || deviceModelFilter.length > 0 || profileFilter.length > 0 || flagFilter.length > 0;
   const filteredDeviceKeys = useMemo(
     () => new Set(filteredDevices.map(({ host, device }) => buildDeviceKey(host.host_name, device.device_id))),
     [filteredDevices]
@@ -752,40 +870,22 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
     selectedFilteredCount,
   ]);
 
-  // Flash the "X of Y selected" line whenever `selectedFilteredCount`
-  // changes (BUG-0443). A useRef holds the last-seen count, the effect
-  // bumps a counter on change, and the counter is the Typography's React
-  // `key` — remounting replays the `countFlash` keyframe (a 0.7s gold
-  // pulse that fades to transparent). The chip/select-all row never
-  // reflows because the row keeps its existing 28 px minHeight and the
-  // flash only animates the count text's background.
-  const [selectedCountFlash, setSelectedCountFlash] = useState(0);
-  const prevSelectedFilteredCountRef = useRef(selectedFilteredCount);
-  useEffect(() => {
-    if (prevSelectedFilteredCountRef.current !== selectedFilteredCount) {
-      prevSelectedFilteredCountRef.current = selectedFilteredCount;
-      setSelectedCountFlash((c) => c + 1);
-    }
-  }, [selectedFilteredCount]);
-  const countFlash = keyframes`
-    0%   { background-color: ${P.accent}40; }
-    100% { background-color: transparent; }
-  `;
-
   // One tile for both the grid and the layouts. In a focus layout slot 0 is the big live
   // stream (click opens the stream modal as today); a click on a thumbnail promotes it.
-  const renderTile = (entry: { host: Host; device: Device }, { slotIndex }: { slotIndex?: number }) => {
+  const renderTile = (entry: { host: Host; device: Device }, { slotIndex, isPartial }: { slotIndex?: number; isPartial?: boolean }) => {
     const { host, device } = entry;
     const deviceKey = buildDeviceKey(host.host_name, device.device_id);
     const candidate: GroupCandidate = { key: deviceKey, host, device };
     groupCandidateRef.current.set(deviceKey, candidate);
     const inGroupMode = groupSelection.isGroupMode;
-    const groupDimmed = inGroupMode && !groupSelection.isSelectable(candidate);
+    const inQualityMode = qualitySel.isQualityMode;
+    const qualityDimmed = inQualityMode && !deviceSupportsQuality(device, qualitySel.quality);
+    const groupDimmed = (inGroupMode && !groupSelection.isSelectable(candidate)) || qualityDimmed;
     const isThumbnail = isFocusLayout && slotIndex !== undefined && slotIndex > 0;
     const focusKey = paginatedDevices[0]
       ? buildDeviceKey(paginatedDevices[0].host.host_name, paginatedDevices[0].device.device_id)
       : deviceKey;
-    const promotes = isThumbnail && !inGroupMode && !isEditMode;
+    const promotes = isThumbnail && !inGroupMode && !inQualityMode && !isEditMode;
     return (
       <Box
         data-device-tile={deviceKey}
@@ -808,14 +908,14 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
         <MemoizedRecHostPreview
           host={host}
           device={device}
-          isEditMode={isEditMode || inGroupMode}
-          isSelected={inGroupMode ? groupSelection.selectedKeys.has(deviceKey) : selectedDevices.has(deviceKey)}
-          onSelectionChange={inGroupMode ? getGroupSelectionHandler(deviceKey) : getSelectionHandler(deviceKey)}
+          isEditMode={isEditMode || inGroupMode || inQualityMode}
+          isSelected={inQualityMode ? qualitySel.selected.has(deviceKey) : inGroupMode ? groupSelection.selectedKeys.has(deviceKey) : selectedDevices.has(deviceKey)}
+          onSelectionChange={inQualityMode ? () => qualitySel.toggle(candidate) : inGroupMode ? getGroupSelectionHandler(deviceKey) : getSelectionHandler(deviceKey)}
           snapshotMode={snapshotMode || isThumbnail}
           deviceFlags={memoizedDeviceFlags.get(deviceKey)!}
           activeFlagFilters={flagFilter}
-          onFlagClick={isEditMode || inGroupMode ? undefined : toggleFlagFilter}
-          onOpenModal={(poster, canReuseStream) => (inGroupMode ? groupSelection.toggle(candidate) : openModal(host, device, poster, canReuseStream))}
+          onFlagClick={isEditMode || inGroupMode || inQualityMode ? undefined : toggleFlagFilter}
+          onOpenModal={(poster, canReuseStream) => (inQualityMode ? qualitySel.toggle(candidate) : inGroupMode ? groupSelection.toggle(candidate) : openModal(host, device, poster, canReuseStream))}
           isAnyModalOpen={!!modalHost || !!openGroup}
           isSelectedForModal={modalHost?.host_name === host.host_name && modalDevice?.device_id === device.device_id}
           persistentStreamTarget={modalStreamTarget}
@@ -828,6 +928,8 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
           persistentStreamOnWebRTCFailed={modalWebRTCFailed}
           persistentStreamOnWebRTCStatusChange={modalWebRTCStatusChange}
           groupStreamTarget={openGroup ? groupStreamTargets.get(deviceKey) ?? null : null}
+          isPartial={isPartial}
+          showProfileBadge={showProfileBadge}
         />
       </Box>
     );
@@ -846,7 +948,14 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
   // desktop; on mobile it sits with the pagination under the grid (grid sizes only),
   // because the filter row there is a full-width scroller it would overlap.
   const viewMenu = (
-    <ViewMenu view={view} onChange={setView} onResetOrder={resetLayoutOrder} gridOnly={isMobile} />
+    <ViewMenu
+      view={view}
+      onChange={setView}
+      onResetOrder={resetLayoutOrder}
+      gridOnly={isMobile}
+      customShape={customShape}
+      onCustomShape={setCustomShape}
+    />
   );
 
   return (
@@ -885,10 +994,10 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
         <Box sx={{ flex: 1, minWidth: isMobile || isTablet ? 0 : 250, width: isMobile || isTablet ? '100%' : 'auto', display: isMobile && !isEditMode ? 'none' : undefined }}>
           {!isMobile && (
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minHeight: 40, flexWrap: 'wrap' }}>
-              <Typography component="h1" sx={{ mb: 0, fontSize: '1.5rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Typography component="h1" sx={{ mb: 0, fontSize: TYPOGRAPHY.pageTitle.size, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 }}>
                 Device
-                <Box component="span" sx={{ fontSize: '0.75rem', fontWeight: 600, px: 1, py: 0.25, borderRadius: 999, color: P.textSecondary, bgcolor: P.hoverBg }}>
-                  {filteredDevices.length}
+                <Box component="span" sx={{ fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, px: 1, py: 0.25, borderRadius: 999, color: P.textSecondary, bgcolor: P.hoverBg }}>
+                  {filteredDevices.length === avDevices.length ? filteredDevices.length : `${filteredDevices.length}/${avDevices.length}`}
                 </Box>
               </Typography>
               <Tooltip title="Device info">
@@ -896,11 +1005,7 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
                   <DeviceInfoIcon fontSize="small" />
                 </IconButton>
               </Tooltip>
-              {isEditMode && (
-                <Typography variant="body2" color="text.secondary" sx={{ whiteSpace: 'nowrap' }}>
-                  {editModeSummary}
-                </Typography>
-              )}
+
             </Box>
           )}
           {isMobile && (
@@ -926,63 +1031,91 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
           sx={{
             alignItems: 'center',
             width: isMobile ? '100%' : 'auto',
-            flexWrap: 'nowrap',
-            overflowX: isMobile ? 'auto' : 'visible',
+            // Narrow containers (the split view's iframe in particular) need the row
+            // to be scrollable: the title bar's controls (Group / HQ / Edit + 3 filters
+            // at 200 px each + ViewMenu) easily exceed 1100 px and would otherwise
+            // bleed past the right edge of the pane. Horizontal scroll on mobile,
+            // and additionally on embedded (the split view's second page).
+            flexWrap: isMobile || isEmbedded ? 'wrap' : 'nowrap',
+            overflowX: isMobile || isEmbedded ? 'auto' : 'visible',
             pb: isMobile ? 0.5 : 0,
             '&::-webkit-scrollbar': { display: 'none' },
           }}
         >
-          {/* Group control and Edit buttons — always visible (desktop only),
-              always at the same x and y, always the same style: two 40×40
-              icon buttons (dashboard / pencil) that never change width and
-              never change label. The active mode gets a soft gold tint
-              (`${P.accent}26` = ~15% alpha), no border, no pulse. Tooltips
-              carry the full meaning. BUG-0438: group-control-align-and-stay.
-              BUG-0440: short tooltips. BUG-0443: coherence (no border,
-              fixed width). BUG-0444: icon toggles + reserved bottom slot. */}
+          {/* Mode buttons (group / quality / edit tags) share one div, left of the filters. */}
           {!isMobile && (
-            <Tooltip title={groupSelection.isGroupMode ? t('Exit group') : t('Take control of several devices together')}>
-              <IconButton
-                onClick={handleGroupModeToggle}
-                sx={{
-                  width: 40,
-                  height: 40,
-                  flexShrink: 0,
-                  alignSelf: 'center',
-                  color: groupSelection.isGroupMode ? P.accentText : P.textSecondary,
-                  backgroundColor: groupSelection.isGroupMode ? `${P.accent}26` : 'transparent',
-                  '&:hover': {
-                    backgroundColor: groupSelection.isGroupMode ? `${P.accent}40` : P.hoverBg,
-                  },
-                  transition: 'background-color 120ms, color 120ms',
-                }}
-              >
-                <DashboardIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+            {/* Group control and Edit buttons — always visible (desktop only),
+                always at the same x and y, always the same style: two 40×40
+                icon buttons (dashboard / pencil) that never change width and
+                never change label. The active mode gets a soft gold tint
+                (`${P.accent}26` = ~15% alpha), no border, no pulse. Tooltips
+                carry the full meaning. BUG-0438: group-control-align-and-stay.
+                BUG-0440: short tooltips. BUG-0443: coherence (no border,
+                fixed width). BUG-0444: icon toggles + reserved bottom slot. */}
+            {!isMobile && (
+              <Tooltip title={groupSelection.isGroupMode ? t('Exit group') : t('Take control of several devices together')}>
+                <IconButton
+                  onClick={handleGroupModeToggle}
+                  sx={{
+                    width: 40,
+                    height: 40,
+                    flexShrink: 0,
+                    alignSelf: 'center',
+                    color: groupSelection.isGroupMode ? P.accentText : P.textSecondary,
+                    backgroundColor: groupSelection.isGroupMode ? `${P.accent}26` : 'transparent',
+                    '&:hover': {
+                      backgroundColor: groupSelection.isGroupMode ? `${P.accent}40` : P.hoverBg,
+                    },
+                    transition: 'background-color 120ms, color 120ms',
+                  }}
+                >
+                  <DashboardIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+            {!isMobile && (
+              <Tooltip title={qualitySel.isQualityMode ? t('Exit quality') : t('Set stream quality')}>
+                <IconButton
+                  onClick={handleQualityModeToggle}
+                  sx={{
+                    width: 40,
+                    height: 40,
+                    flexShrink: 0,
+                    alignSelf: 'center',
+                    color: qualitySel.isQualityMode ? P.accentText : P.textSecondary,
+                    backgroundColor: qualitySel.isQualityMode ? `${P.accent}26` : 'transparent',
+                    '&:hover': { backgroundColor: qualitySel.isQualityMode ? `${P.accent}40` : P.hoverBg },
+                    transition: 'background-color 120ms, color 120ms',
+                  }}
+                >
+                  <QualityIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+            {!isMobile && (
+              <Tooltip title={isEditMode ? t('Exit Edit mode') : t('Edit tag')}>
+                <IconButton
+                  onClick={handleEditModeToggle}
+                  sx={{
+                    width: 40,
+                    height: 40,
+                    flexShrink: 0,
+                    alignSelf: 'center',
+                    color: isEditMode ? P.accentText : P.textSecondary,
+                    backgroundColor: isEditMode ? `${P.accent}26` : 'transparent',
+                    '&:hover': {
+                      backgroundColor: isEditMode ? `${P.accent}40` : P.hoverBg,
+                    },
+                    transition: 'background-color 120ms, color 120ms',
+                  }}
+                >
+                  <EditIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+            </Box>
           )}
-          {!isMobile && (
-            <Tooltip title={isEditMode ? t('Exit Edit mode') : t('Edit tag')}>
-              <IconButton
-                onClick={handleEditModeToggle}
-                sx={{
-                  width: 40,
-                  height: 40,
-                  flexShrink: 0,
-                  alignSelf: 'center',
-                  color: isEditMode ? P.accentText : P.textSecondary,
-                  backgroundColor: isEditMode ? `${P.accent}26` : 'transparent',
-                  '&:hover': {
-                    backgroundColor: isEditMode ? `${P.accent}40` : P.hoverBg,
-                  },
-                  transition: 'background-color 120ms, color 120ms',
-                }}
-              >
-                <EditIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )}
-
 
           {/* Filters + View menu — always visible (BUG-0444). Previously
               hidden when in Edit mode because the tag input took their slot
@@ -994,14 +1127,19 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
             onTargetFilterChange={setTargetFilter}
             deviceModelFilter={deviceModelFilter}
             onDeviceModelFilterChange={setDeviceModelFilter}
+            profileFilter={profileFilter}
+            onProfileFilterChange={setProfileFilter}
+            uniqueProfiles={uniqueProfiles}
             flagFilter={flagFilter}
             onFlagFilterChange={setFlagFilter}
             flagMatchMode={flagMatchMode}
             onFlagMatchModeChange={setFlagMatchMode}
             targetOptions={targetOptions}
+            targetKeys={targetKeys}
             uniqueDeviceModels={uniqueDeviceModels}
             uniqueFlags={uniqueFlags}
             hasActiveFilters={!!hasActiveFilters}
+            reachableOptions={reachableOptions}
             onClearFilters={clearFilters}
             isMobile={isMobile}
             targetPlaceholder="All Targets"
@@ -1023,198 +1161,140 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
           here from the bottom of the page in BUG-0444 — the bar above
           the grid reads as part of the header chrome, not as a footer
           that interrupts the device list. */}
-      <Box sx={{ mt: 2, minHeight: 56 }}>
+      <Box sx={{ mt: '14px', mb: 1, height: 56 }}>
         {isEditMode ? (
-          <Box
-            sx={{
-              display: 'flex',
-              alignItems: 'stretch',
-              gap: 1.5,
-              px: 1.5,
-              py: 1,
-              bgcolor: P.surface,
-              border: `1px solid ${P.borderColor}`,
-              borderRadius: 1,
-            }}
-          >
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, flex: 1, minWidth: 0 }}>
-              <Box
-                sx={{
-                  display: 'flex',
-                  alignItems: 'stretch',
-                  minWidth: 320,
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  borderRadius: 1.5,
-                  backgroundColor: 'background.paper',
-                  overflow: 'hidden',
-                  '&:focus-within': {
-                    borderColor: P.accent,
-                    boxShadow: (theme) => `0 0 0 1px ${theme.palette.primary.main}`,
-                  },
-                }}
-              >
-                <Autocomplete
-                  multiple
-                  freeSolo
-                  size="small"
-                  options={uniqueFlags}
-                  value={pendingTags}
-                  onChange={(_, newValue) => setPendingTags(normalizeFlags(newValue))}
-                  inputValue={tagInputValue}
-                  onInputChange={(_, newInputValue) => setTagInputValue(newInputValue)}
-                  renderInput={(params) => (
-                    <TextField
-                      {...params}
-                      placeholder={selectedDevices.size === 0 ? 'Select devices first…' : 'Tags'}
-                      disabled={selectedDevices.size === 0}
-                      variant="standard"
-                      InputProps={{
-                        ...params.InputProps,
-                        disableUnderline: true,
-                        sx: {
-                          px: 1.5,
-                          py: 0.75,
-                          minHeight: 40,
-                          alignItems: 'center',
-                          flexWrap: 'wrap',
-                          gap: 0.5,
-                        },
-                        endAdornment: (
-                          <>
-                            {params.InputProps.endAdornment}
-                            <InputAdornment position="end" sx={{ ml: 0.5 }}>
-                              <Divider orientation="vertical" flexItem sx={{ mr: 1, height: 22 }} />
-                              <Button
-                                size="small"
-                                variant="text"
-                                disabled={(pendingTags.length === 0 && tagInputValue.trim().length === 0) || selectedDevices.size === 0}
-                                onClick={applyPendingTags}
-                                sx={{
-                                  minWidth: 'auto',
-                                  px: 1,
-                                  py: 0.25,
-                                  textTransform: 'none',
-                                  fontWeight: 600,
-                                }}
-                              >
-                                Add
-                              </Button>
-                            </InputAdornment>
-                          </>
-                        ),
-                      }}
-                    />
-                  )}
-                  sx={{
-                    flex: 1,
-                    '& .MuiAutocomplete-inputRoot': {
-                      alignItems: 'center',
-                    },
-                    '& .MuiAutocomplete-tag': {
-                      my: 0.25,
-                    },
-                  }}
-                />
-              </Box>
-
-              {/* Chips + count + select/unselect (BUG-0443 flash on the count) */}
-              <Box
-                sx={{
-                  minHeight: 28,
-                  display: 'flex',
-                  alignItems: 'center',
-                  flexWrap: 'nowrap',
-                  gap: 1,
-                  px: 0.5,
-                }}
-              >
-                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, flex: 1, minWidth: 0 }}>
-                  {selectedDevices.size > 0 && selectedFlags.map(({ flag, count }) => (
+          <ModeBar>
+            <Autocomplete
+              multiple
+              freeSolo
+              size="small"
+              options={uniqueFlags}
+              value={pendingTags}
+              onChange={(_, newValue) => setPendingTags(normalizeFlags(newValue))}
+              inputValue={tagInputValue}
+              onInputChange={(_, newInputValue) => setTagInputValue(newInputValue)}
+              renderTags={(value, getTagProps) => {
+                const chipSx = { borderRadius: 1, height: 24, flexShrink: 0 };
+                const items = [
+                  ...(selectedDevices.size > 0 ? selectedFlags : []).map(({ flag, count }) => (
                     <Chip
-                      key={flag}
+                      key={`sel-${flag}`}
                       label={count === selectedDevices.size ? flag : `${flag} (${count})`}
                       size="small"
-                      color="default"
                       onDelete={() => handleBulkRemoveFlag(flag)}
-                      sx={{
-                        borderRadius: 1,
-                        height: 20,
-                        backgroundColor: count === selectedDevices.size ? 'rgba(255,255,255,0.08)' : 'rgba(255,152,0,0.12)',
-                      }}
+                      sx={{ ...chipSx, bgcolor: count === selectedDevices.size ? P.hoverBg : P.surface, border: `1px solid ${P.borderColor}` }}
                     />
-                  ))}
-                </Box>
-                <Typography
-                  key={selectedCountFlash}
-                  variant="caption"
-                  color="text.secondary"
-                  sx={{
-                    whiteSpace: 'nowrap',
-                    borderRadius: 1,
-                    px: 0.5,
-                    animation: `${countFlash} 0.7s ease-out`,
-                  }}
-                >
-                  {selectedFilteredCount} of {filteredDevices.length} selected
-                </Typography>
-                <Typography
-                  variant="caption"
-                  color={filteredDevices.length > 0 && selectedFilteredCount < filteredDevices.length ? P.accentText : P.textMuted}
-                  sx={{
-                    cursor: filteredDevices.length > 0 && selectedFilteredCount < filteredDevices.length ? 'pointer' : 'default',
-                    whiteSpace: 'nowrap',
-                  }}
-                  onClick={filteredDevices.length > 0 && selectedFilteredCount < filteredDevices.length ? handleSelectAll : undefined}
-                >
-                  select all
-                </Typography>
-                <Typography variant="caption" color="text.disabled">-</Typography>
-                <Typography
-                  variant="caption"
-                  color={selectedFilteredCount > 0 ? P.accentText : P.textMuted}
-                  sx={{
-                    cursor: selectedFilteredCount > 0 ? 'pointer' : 'default',
-                    whiteSpace: 'nowrap',
-                  }}
-                  onClick={selectedFilteredCount > 0 ? (hasActiveFilters ? handleClearFilteredSelection : handleClearSelection) : undefined}
-                >
-                  unselect all
-                </Typography>
-              </Box>
-            </Box>
-
-            <Button
-              variant="contained"
-              size="small"
-              onClick={handleSaveChanges}
-              disabled={!hasUnsavedChanges || isSaving}
-              startIcon={isSaving ? <CircularProgress size={16} /> : undefined}
-              sx={{
-                height: 40,
-                flexShrink: 0,
-                alignSelf: 'flex-start',
-                textTransform: 'none',
-                backgroundColor: hasUnsavedChanges ? P.accent : undefined,
-                '&:disabled': {
-                  backgroundColor: hasUnsavedChanges ? 'rgba(25, 118, 210, 0.3)' : undefined
-                }
+                  )),
+                  ...value.map((tag, index) => {
+                    const { key, ...tagProps } = getTagProps({ index });
+                    return <Chip key={key} label={tag} size="small" {...tagProps} sx={{ ...chipSx, bgcolor: P.hoverBg, color: P.accentText, border: `1px solid ${P.accent}` }} />;
+                  }),
+                ];
+                const shown = items.slice(0, 3);
+                return (
+                  <>
+                    {shown}
+                    {items.length > shown.length && (
+                      <Chip size="small" label={`+${items.length - shown.length}`} sx={{ ...chipSx, bgcolor: P.hoverBg }} />
+                    )}
+                  </>
+                );
               }}
-            >
-              {isSaving ? 'Saving…' : hasUnsavedChanges ? `Save (${pendingChanges.size})` : 'Save'}
-            </Button>
-          </Box>
+              renderInput={(params) => (
+                <TextField
+                  {...params}
+                  placeholder={selectedDevices.size === 0 ? t('Select devices first…') : t('Add tag…')}
+                  disabled={selectedDevices.size === 0}
+                  variant="standard"
+                  InputProps={{
+                    ...params.InputProps,
+                    disableUnderline: true,
+                    sx: { px: 1.5, height: 36, py: 0, flexWrap: 'nowrap', overflow: 'hidden', gap: 0.5, alignItems: 'center' },
+                  }}
+                />
+              )}
+              sx={{
+                flex: 1,
+                minWidth: 0,
+                height: 36,
+                border: `1px solid ${P.borderColor}`,
+                borderRadius: 1.5,
+                overflow: 'hidden',
+                '&:focus-within': { borderColor: P.accent },
+                '& .MuiAutocomplete-inputRoot': { flexWrap: 'nowrap', height: 36, py: 0 },
+                '& .MuiAutocomplete-input': { minWidth: 60 },
+              }}
+            />
+            <ModeBarActions
+              count={selectedFilteredCount}
+              total={filteredDevices.length}
+              onSelectAll={handleSelectAll}
+              selectAllDisabled={filteredDevices.length === 0 || selectedFilteredCount >= filteredDevices.length}
+              onClear={hasActiveFilters ? handleClearFilteredSelection : handleClearSelection}
+              clearDisabled={selectedFilteredCount === 0}
+              actionLabel={isSaving ? t('Saving…') : t('Save')}
+              onAction={handleSaveChanges}
+              actionDisabled={!(hasUnsavedChanges || (selectedDevices.size > 0 && (pendingTags.length > 0 || tagInputValue.trim().length > 0))) || isSaving}
+              actionStartIcon={isSaving ? <CircularProgress size={16} /> : undefined}
+            />
+          </ModeBar>
+        ) : qualitySel.isQualityMode && !isLoading ? (
+          <QualitySelectBar
+            quality={qualitySel.quality}
+            count={qualitySel.selected.size}
+            total={qualityPool.length}
+            phase={qualitySel.phase}
+            okCount={qualitySel.okCount}
+            failedCount={qualitySel.failed.length}
+            secondsLeft={qualitySel.secondsLeft}
+            onQuality={qualitySel.setQuality}
+            onSelectAll={() => qualitySel.selectAll(qualityPool)}
+            onClear={qualitySel.clear}
+            onApply={qualitySel.apply}
+            onRetry={qualitySel.retryFailed}
+            onUndo={qualitySel.undo}
+            onClose={handleQualityModeToggle}
+          />
         ) : groupSelection.isGroupMode && !isLoading ? (
           <GroupSelectBar
             count={groupSelection.selected.length}
+            total={groupSelection.selectAllTotal}
+            onSelectAll={groupSelection.selectAll}
             selectedByModel={groupSelection.selectedByModel}
             poolByModel={groupSelection.poolByModel}
             onToggleByModel={groupSelection.toggleByModel}
             canStart={groupSelection.canStart}
             onClear={groupSelection.clear}
-            onStart={() => setOpenGroup(groupSelection.selection)}
+            onStart={() => {
+              const selection = groupSelection.selection;
+              if (!selection) return;
+              guardAny(
+                selection.candidates.map((c) => ({ hostName: c.host.host_name, deviceId: c.device.device_id })),
+                () => setOpenGroup(selection),
+              );
+            }}
           />
-        ) : null}
+        ) : (
+          // Idle: the reserved line above the grid carries the quickfilter chips, so they take no new space.
+          // TASK-120 — Profiles / Models / Tags / Favorites, user-chosen, capped at 2 lines with `+N more`.
+          <QuickfilterBadgeArea
+            uniqueProfiles={reachableProfiles}
+            profileCounts={profileCounts}
+            profileFilter={profileFilter}
+            onProfileFilterChange={setProfileFilter}
+            uniqueDeviceModels={reachableModels}
+            deviceModelCounts={deviceModelCounts}
+            deviceModelFilter={deviceModelFilter}
+            onDeviceModelFilterChange={setDeviceModelFilter}
+            uniqueFlags={reachableFlags}
+            flagCounts={flagCounts}
+            flagFilter={flagFilter}
+            onFlagFilterChange={setFlagFilter}
+            favoriteTargetOptions={favoriteTargetOptions}
+            onFavoritesToggle={handleQuickfilterFavoritesToggle}
+            isMobile={isMobile}
+          />
+        )}
       </Box>
 
 
@@ -1267,43 +1347,85 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
           {view.kind === 'layout' ? (
             <DeviceLayout
               view={view}
+              // Partial-fill layouts (one/side/row3): height='100%' fills the flex
+              // column; the card's inner content uses flex:1 to fill the stretched
+              // card (no 16:9 dead space). All other layouts keep the default
+              // LAYOUT_STAGE_HEIGHT fixed height.
+              height={['one', 'side', 'row3'].includes(view.id) ? '100%' : undefined}
               onSwap={swapLayoutTiles}
               items={paginatedDevices.map((entry, i) => ({
                 key: buildDeviceKey(entry.host.host_name, entry.device.device_id),
-                node: renderTile(entry, { slotIndex: i }),
+                node: renderTile(entry, { slotIndex: i, isPartial: ['one', 'side', 'row3'].includes(view.id) }),
               }))}
             />
+          ) : view.kind === 'grid' && view.custom ? (
+            <Box
+              sx={{
+                display: 'grid',
+                // Embedded pane: cap the custom grid at 2 columns so the tiles
+                // stay readable. The user's selected cols value is still
+                // remembered; we only resize the grid below the breakpoint
+                // the split view actually lives in.
+                gridTemplateColumns: `repeat(${isEmbedded ? Math.min(2, view.glyph.cols) : view.glyph.cols}, minmax(0, 1fr))`,
+                // BUG-0578: density-aware gap — at <= 4 cols keep 12 px so tiles
+                // breathe; 5-8 cols halve to 6 px; > 8 cols go near-zero (2 px)
+                // so the wall of tiles reads as one surface, separated only by
+                // border. The helper lives in deviceLayouts.
+                gap: previewGridGapPx(isEmbedded ? Math.min(2, view.glyph.cols) : view.glyph.cols),
+              }}
+            >
+              {paginatedDevices.map((entry) => {
+                const deviceKey = buildDeviceKey(entry.host.host_name, entry.device.device_id);
+                return (
+                  <Box
+                    key={deviceKey}
+                    sx={{
+                      minWidth: 0,
+                      // TASK-116: the row used to set `aspectRatio: '16 / 9'`
+                      // here and force the Card to `height: 100%`, both to
+                      // dodge BUG-0452's tile overflow. The Card now drives
+                      // its own size from its 16:9 stream content area, so the
+                      // row keeps its single `minWidth: 0` and the Card grows
+                      // to fit the header + content area. Drop both old rules.
+                    }}
+                  >
+                    {renderTile(entry, {})}
+                  </Box>
+                );
+              })}
+            </Box>
           ) : (
             <Grid container spacing={2}>
               {paginatedDevices.map((entry) => {
                 const deviceKey = buildDeviceKey(entry.host.host_name, entry.device.device_id);
                 return (
-                  // BUG-XXXX: every grid-view tile has the same 16/9 shape,
-                  // so a phone (9:16) stream no longer stretches the row
-                  // and every TV tile in the same row goes tall + empty.
-                  // The inner RecHostPreview letterboxes its own stream.
-                  //
-                  // BUG-0452: the Card inside (RecHostPreview) still has a
-                  // fixed height: 180 of its own. When the aspectRatio above
-                  // computes a height < 180 (any container between the
-                  // breakpoints where 16:9 of the 25%/33%/100%-width item
-                  // drops under 180px), the Card overflows its Grid item and
-                  // bleeds past the Grid container into the Pagination row
-                  // below — visually the pager overlays the preview tiles.
-                  // Mirror the override DeviceLayout already uses on its grid
-                  // slots: force the Card to fill the Grid item so the
-                  // 16/9 ratio always wins.
+                  // TASK-116: every grid-view tile has the same shape — the
+                  // Card's 16:9 stream content area drives its own height, so
+                  // the row is one consistent size per breakpoint and a phone
+                  // (9:16) stream slots in without stretching the row. The
+                  // old `aspectRatio: '16 / 9'` + `height: 100%` pair (and the
+                  // BUG-0452 override it lived under) are gone from this file
+                  // and from DeviceLayout's sibling slot.
                   <Grid
                     item
-                    xs={12}
-                    sm={6}
-                    md={4}
-                    lg={3}
+                    // Embedded = the split view's iframe. The pane is usually
+                    // narrower than the lg breakpoint, so the normal grid
+                    // collapses to 1 card per row, which then overflows the
+                    // pane horizontally. Cap at xs={6} when embedded so the
+                    // grid stays at 2 columns (cards keep their 16:9 stream
+                    // readable) and the user can still compare two devices at
+                    // a glance. The main window keeps the full xs→lg ramp.
+                    xs={isEmbedded ? 6 : 12}
+                    sm={isEmbedded ? 6 : 6}
+                    md={isEmbedded ? 6 : 4}
+                    lg={isEmbedded ? 6 : 3}
                     key={deviceKey}
-                    sx={{
-                      aspectRatio: '16 / 9',
-                      '& > .MuiCard-root, & > * > .MuiCard-root': { height: '100%' },
-                    }}
+                    // TASK-116: the row used to set `aspectRatio: '16 / 9'`
+                    // here and force the Card to `height: 100%`, both to
+                    // dodge BUG-0452's tile overflow. The Card now drives
+                    // its own size from its 16:9 stream content area, so the
+                    // Grid item shrinks to whatever the Card needs — drop both
+                    // old rules.
                   >
                     {renderTile(entry, {})}
                   </Grid>
@@ -1351,6 +1473,7 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
           reads as part of the header chrome instead of as a footer that
           interrupts the device list. */}
 
+      {maintenanceGuardDialog}
       {openGroup && (
         <GroupControlModal
           selection={openGroup}

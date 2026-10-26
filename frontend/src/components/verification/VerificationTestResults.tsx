@@ -6,6 +6,7 @@ import { Verification } from '../../types/verification/Verification_Types';
 
 import { VerificationImageComparisonThumbnails } from './VerificationImageComparisonThumbnails';
 import { VerificationTextComparisonDisplay } from './VerificationTextComparisonDisplay';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface VerificationTestResultsProps {
   verification: Verification;
@@ -64,7 +65,7 @@ export const VerificationTestResults: React.FC<VerificationTestResultsProps> = (
         <Typography
           sx={{
             fontWeight: 'bold',
-            fontSize: '0.75rem',
+            fontSize: TYPOGRAPHY.caption.size,
             color: testResult.success ? P.success : P.error,
           }}
         >
@@ -75,7 +76,7 @@ export const VerificationTestResults: React.FC<VerificationTestResultsProps> = (
         {(testResult.message || testResult.error) && (
           <Typography
             sx={{
-              fontSize: '0.7rem',
+              fontSize: TYPOGRAPHY.caption.size,
               fontWeight: 500,
               color: testResult.success ? P.success : P.error,
               ml: 1,

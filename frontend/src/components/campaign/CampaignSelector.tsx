@@ -18,6 +18,10 @@ import { getCampaignBadge } from '../../config/constants';
 import type { CampaignExecutableSource } from '../../config/constants';
 import { useIdentityMap } from '../../hooks/useIdentityMap';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { useExecutableFavorites } from '../../hooks/useExecutableFavorites';
+import { ExecutableFavoriteStar } from '../common/DeviceFavoriteStar';
+import { DeviceFavoriteGroupHeader } from '../common/DeviceFavoriteGroupHeader';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export interface CampaignItem {
   id: string;
@@ -164,6 +168,8 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
   };
 
   // Filter campaigns
+  const favorites = useExecutableFavorites();
+
   const filteredCampaigns = useMemo(() => {
     let campaigns = [...allCampaigns];
 
@@ -200,6 +206,11 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
   }, [allCampaigns, hiddenKeys, searchQuery, selectedTags, selectedFolder, selectedType, showHidden]);
 
   // Handle campaign selection
+  // Favorites pinned first (TASK-100); the filters above still decide what is visible.
+  const favoriteCampaigns = filteredCampaigns.filter((c) => favorites.isFavorite('campaign', c.id));
+  const otherCampaigns = filteredCampaigns.filter((c) => !favorites.isFavorite('campaign', c.id));
+  const orderedCampaigns = [...favoriteCampaigns, ...otherCampaigns];
+
   const handleCampaignSelect = (campaign: CampaignItem) => {
     if (!campaign.campaign_id) {
       console.log('[@CampaignSelector] ℹ️ File campaign listed for filtering only:', campaign.id);
@@ -319,7 +330,7 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
             </Box>
           ) : (
             <List dense disablePadding>
-              {filteredCampaigns.map(campaign => {
+              {orderedCampaigns.map((campaign, index) => {
                 const campaignId = campaign.campaign_id || campaign.id;
                 const isSelected = selectedCampaignId === campaign.campaign_id;
                 const isHidden = hiddenKeys.has(campaign.id);
@@ -327,8 +338,12 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
                 const folderLabel = campaign.folder && campaign.folder !== 'All' && campaign.folder !== 'Root' ? campaign.folder : '';
 
                 return (
+                  <React.Fragment key={campaignId}>
+                  {favoriteCampaigns.length > 0 && index === 0 && <DeviceFavoriteGroupHeader kind="favorites" />}
+                  {favoriteCampaigns.length > 0 && otherCampaigns.length > 0 && index === favoriteCampaigns.length && (
+                    <DeviceFavoriteGroupHeader kind="allItems" />
+                  )}
                   <ListItem
-                    key={campaignId}
                     disablePadding
                     sx={{
                       borderBottom: 1,
@@ -358,6 +373,7 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
                     >
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%', minWidth: 0 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flex: '1 1 48%', minWidth: 0 }}>
+                          <ExecutableFavoriteStar kind="campaign" itemId={campaign.id} />
                           <Chip
                             icon={campaign.source === 'db' ? <CampaignIcon /> : undefined}
                             label={badge.label}
@@ -365,7 +381,7 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
                             color={badge.color}
                             sx={{
                               height: '16px',
-                              fontSize: '0.6rem',
+                              fontSize: TYPOGRAPHY.microMeta.size,
                               minWidth: badge.label.length > 2 ? '30px' : '24px',
                               '.MuiChip-label': { px: 0.5 },
                               opacity: isSelected ? 0.95 : 1,
@@ -380,13 +396,13 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
                                   <Chip
                                     label={identity.prefix}
                                     size="small"
-                                    sx={{ fontSize: '0.6rem', height: 16, flexShrink: 0, fontFamily: 'monospace', px: 0.25 }}
+                                    sx={{ fontSize: TYPOGRAPHY.microMeta.size, height: 16, flexShrink: 0, fontFamily: 'monospace', px: 0.25 }}
                                   />
                                 )}
                                 <Typography
                                   variant="body2"
                                   sx={{
-                                    fontSize: '0.8rem',
+                                    fontSize: TYPOGRAPHY.body.size,
                                     minWidth: 0,
                                     overflow: 'hidden',
                                     textOverflow: 'ellipsis',
@@ -408,7 +424,7 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
                               color={selectedFolder === folderLabel ? P.accentText : P.textSecondary}
                               sx={{
                                 display: 'block',
-                                fontSize: '0.68rem',
+                                fontSize: TYPOGRAPHY.microMeta.size,
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap',
@@ -443,7 +459,7 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
                                 }}
                                 sx={{
                                   height: '14px',
-                                  fontSize: '0.55rem',
+                                  fontSize: TYPOGRAPHY.microMeta.size,
                                   backgroundColor: tag?.color || P.textMuted,
                                   color: 'white',
                                   cursor: 'pointer',
@@ -491,6 +507,7 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
                       </Box>
                     </ListItemButton>
                   </ListItem>
+                  </React.Fragment>
                 );
               })}
             </List>
@@ -500,7 +517,7 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
 
       {/* Summary Footer */}
       <Box sx={{ mt: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
           {filteredCampaigns.length} campaign{filteredCampaigns.length !== 1 ? 's' : ''}
           {selectedType && ` • ${selectedType === 'file' ? 'S' : 'TP'}`}
           {selectedFolder && selectedFolder !== 'All' && ` in ${selectedFolder}`}
@@ -510,7 +527,7 @@ export const CampaignSelector = forwardRef<{ refresh: () => void }, CampaignSele
         {(searchQuery || selectedTags.length > 0 || (selectedFolder && selectedFolder !== 'All') || selectedType) && (
           <Typography
             variant="caption"
-            sx={{ color: P.accentText, cursor: 'pointer', textDecoration: 'underline', fontSize: '0.75rem' }}
+            sx={{ color: P.accentText, cursor: 'pointer', textDecoration: 'underline', fontSize: TYPOGRAPHY.caption.size }}
             onClick={() => {
               setSearchQuery('');
               setSelectedTags([]);

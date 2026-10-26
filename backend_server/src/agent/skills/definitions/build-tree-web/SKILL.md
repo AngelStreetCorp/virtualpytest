@@ -4,6 +4,8 @@ description: Build navigation tree for web applications
 platform: web
 requires_device: true
 timeout_seconds: 1800
+think_budget_seconds: 600
+max_tool_calls: 150
 tools:
   - list_userinterfaces
   - get_userinterface_complete
@@ -23,6 +25,7 @@ tools:
   - get_node
   - create_edge
   - update_edge
+  - auto_layout_tree
   - delete_edge
   - get_edge
   - create_subtree
@@ -55,59 +58,85 @@ triggers:
 
 # Build Tree Web
 
-Build navigation trees for web apps using DOM inspection.
+Build a navigation tree for a web app: one node per screen, one edge per link (forward + back action),
+one verification per node that only that screen passes. Time goes into device actions (a click or a
+navigate_to_node takes seconds), so every turn must move the tree forward. The rules below come from
+measured runs (TASK-135): each one removes turns that were wasted before.
 
-STEP 0 — CONSULT THE AI UI KNOWLEDGE BASE FIRST (DB-backed):
-1. Resolve the active domain via execute_javascript: `document.location.host`,
-   then resolve_ai_userinterface(fingerprint_type='url_host', value=<host>).
-2. If a ui_id is returned: get_ai_userinterface(ui_id) for the bundle.
-   - Reuse verified flows instead of re-exploring.
-   - Respect quirks (e.g. Flutter Web requires activate_semantic before
-     flt-semantics interaction; pointer-event dispatch instead of
-     Playwright's locator.click()).
-3. If no row exists for this domain: explore first, then document only what you confirm.
-4. Reference: docs/agent/AI_USERINTERFACE.md.
+STEP 0 — THE APP'S PLAYBOOK FIRST (AI UI knowledge base, DB-backed):
+1. resolve_ai_userinterface(fingerprint_type='url_host', value=<host of the app URL>).
+2. If a ui_id comes back: get_ai_userinterface(ui_id). Its pack text (ui_pack_markdown) is this app's
+   playbook: login, popups, menu labels, each screen's identity and the click targets that work.
+   Follow it over the generic steps below; it was checked on the live app.
+3. No row: explore, and write back only what you confirmed (VERIFIED-ONLY RULE below) unless the
+   user said the knowledge base is read-only.
+
+STEP 1 — WHERE THE TREE STANDS: get_userinterface_complete(userinterface_name). It gives the tree id,
+every node and edge. Never recreate an existing node or edge: fix it with update_node / update_edge.
+When the user lists failed edges, fix those before exploring new screens.
+
+STEP 2 — FOR EACH SCREEN (one iteration):
+1. Get there with one execute_device_action batch (click + activate_semantic for Flutter + optional
+   execute_javascript 'location.href'), include_screenshot=true only when you need to see the page.
+2. dump_ui_elements(platform='web') once per screen. Do not dump a screen you already dumped.
+3. create_node(node_id, label, verifications=[...]) with the verification inline.
+4. create_edge(source_node_id, target_node_id, action_sets=[forward, back]): action set ids
+   '<src>_to_<dst>' and '<dst>_to_<src>', each with its actions.
+5. Test it: navigate_to_node(target_node_label=<node>, include_screenshot=False), then
+   verify_node, then save_node_screenshot. Going back to home with navigate_to_node tests the back action.
+Create several nodes and edges in a row when you already know them (one dump of home shows the whole
+menu); test them after. Do not read back what you just wrote (no get_node / get_edge after a create).
+
+COMMANDS (web device; no need to call list_actions or list_verifications for these):
+- click_element: params {element_id: '#id' | CSS | 'xpath=//...' | visible text or aria-label prefix,
+  wait_time: ms}. A bare id like 'kc-login' works too. There is no click_element_by_id.
+- input_text: {selector: '#username', text: '...'} (fill replaces what is in the field);
+  press_key: {key: 'Enter'}; tap_x_y: {x, y}; navigate_to_url: {url}; activate_semantic: {}.
+- execute_javascript: {script: 'location.href'} returns the value; a top-level `return` is fine.
+- execute_pyautogui_* are desktop commands (action_type 'desktop'), for browser chrome such as a
+  "save password?" bubble, never for the page.
+- Verification, language-free FIRST: {command: 'waitForUrlToMatch', verification_type: 'web', params:
+  {url_pattern: '/epg/initial', timeout: 10000}}. The path is matched with host, query and the app's
+  language segment (/de/ /en/) ignored, `*` is a wildcard (`/watchtv/linearplayer/*`). A tree built
+  on translated aria-labels breaks the day the app (or the test account) switches language, so a node's
+  FIRST verification is its URL path. Read the path with execute_javascript 'location.pathname' on the
+  screen; use the shortest path that only this screen has. Add a waitForElementToAppear on a label only
+  as a second check, and only for a screen whose URL is shared with another one (a tab inside a page);
+  for those prefer a structural/ id selector over translated words.
+  Screens with no URL of their own (dialogs, filters, toggles): waitForElementToAppear on the aria-label
+  is all there is; mark it in the doc as language-bound.
+- Edge actions follow the same rule: `navigate_to_url` takes a path (`/settings` or `/{lang}/settings`)
+  and opens it in the language the app shows now. Never write `/en/...` or a full URL with a language
+  segment into a back action. click_element on a translated label is language-bound: prefer a URL
+  navigation when the target is a page, or a selector that does not contain words (`a[href$="/epg/initial"]`).
+- The entry edge (edge_id 'edge-entry-node-to-home') opens the app: update_edge(edge={edge_id,
+  action_sets:[{id:'entry_to_home', actions:[navigate_to_url, activate_semantic]}]}) — source and
+  target may be left out, the stored ones are kept.
+
+FLUTTER WEB: the page is a <canvas>; the readable tree lives under <flt-semantics> nodes that are
+inactive by default. Call activate_semantic before any dump or click, and again after every
+navigation and popup. Labels are aria-labels such as 'TV Guide, Press Enter or Space to Select';
+click_element matches their prefix ('TV Guide').
+
+A BUSY DEVICE: "in use by ... (script_execution / deployment_execution / testcase_execution)" is
+another job. Wait 30-60 s (one capture_screenshot or a planning turn) and retry the same call; never
+force_unlock, it stops someone else's run.
 
 VERIFIED-ONLY RULE for the AI UI knowledge base:
-- Schema-enforced: every ai_userinterface_* sub-row carries verified_against NOT NULL.
-- Never write a row whose verified_against you didn't physically observe this session.
-- Do not copy from older memory into the DB unless the same flow was rerun this session.
+- Every ai_userinterface_* sub-row carries verified_against NOT NULL.
+- Never write a row whose verified_against you did not observe this session.
+- After a successful flow: add_ai_userinterface_transition / add_ai_userinterface_quirk; a domain
+  without a parent row gets create_ai_userinterface(category='web', domain=<host>). Correct a wrong
+  row with supersede_ai_userinterface_row; never delete.
 
-AFTER A SUCCESSFUL FLOW (self-improvement loop, write back to DB via tools):
-- add_ai_userinterface_transition(ui_id, name, key_sequence, verified_against=<framework
-  build or domain version if visible>, verified_at=today, actor)
-- add_ai_userinterface_quirk(ui_id, description, verified_against, actor)
-- If the domain had no parent row yet: create_ai_userinterface with category='web',
-  domain=<host>. Schema CHECK requires domain IS NOT NULL for web.
-- To correct a wrong row: supersede_ai_userinterface_row with reason. Never DELETE.
+BEFORE DONE (every round, once):
+1. Every node except entry-node has a screenshot: get_userinterface_complete lists them; for one
+   without, navigate_to_node to it, then save_node_screenshot. A player screen is no exception
+   (geo-blocked or not, save what it shows).
+2. auto_layout_tree(userinterface_name=<ui>): tool-made nodes all sit at (0, 0) and the editor shows
+   them stacked; this places them top to bottom. Only positions change. update_node keeps a node's
+   stored position and screenshot when you leave them out.
 
-FLUTTER WEB SPECIFIC:
-- Page renders into a single <canvas>; the readable tree lives under <flt-semantics>
-  nodes that are inactive by default. Call activate_semantic before any flt-semantics
-  interaction (re-call after every navigation and popup dismissal). See
-  docs/agent/DEVICE_CONTROL.md for the activate_semantic -> dump_elements pattern.
+DONE: reply with the nodes and edges built, which were tested and passed, and what is left.
 
-WORKFLOW:
-1. list_userinterfaces() - Find available interfaces
-2. get_userinterface_complete(userinterface_id) - Get tree_id and existing nodes/edges
-3. get_compatible_hosts(userinterface_name) - Get host_name and device_id
-   (device locking is automatic: every action/navigation tool acquires and
-   releases the lock itself — there is no take_control tool to call)
-4. For each screen:
-   - dump_ui_elements(platform='web') - Get current DOM
-   - analyze_screen_for_action(elements, intent, platform='web') - Get best selector
-   - create_node or update_node with verifications
-   - save_node_screenshot(node_id, tree_id)
-   - create_edge or update_edge with selectors from analyze_screen_for_action
-   - execute_device_action to test the action works
-   - navigate_to_node to move around
-5. verify_node to test verifications work
-   (no release_control needed — locks release automatically per action)
-
-SELECTOR PRIORITY: #id > [data-testid] > .class > xpath
-
-IMPORTANT:
-- Use list_nodes/list_edges to see what already exists before creating
-- Use analyze_screen_for_action to get reliable selectors (don't guess!)
-- Use update_node/update_edge to fix broken edges instead of recreating
-- Use verify_node to test verifications before moving on
+LANGUAGE: build so the tree passes in every UI language. Identify nodes by signals that do not translate (web: URL path; Android: resource_id / activity; STB: focus position / tab index, icon references) and act by keys, URLs or positions; a label only as a second check. Method: docs/agent/navigation/LANGUAGE_FREE_TREES.md.

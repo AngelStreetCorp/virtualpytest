@@ -66,15 +66,23 @@ ANY_MAP = _EveryMap()
 OPPOSITE = {"north": "south", "south": "north", "west": "east", "east": "west"}
 
 
-def parts(walk: Dict[Tuple[int, int], bool], info: Dict, pos: Optional[Tuple[int, int]] = None) -> Dict:
+# BUG-0711: warp entries on a plain floor square, which never fire: Silph Co. 11F's (5, 5) (a "last map" entry) is the
+# only way into the president's row, so it must stay walkable
+INERT_WARPS = {(0xEB, 5, 5)}
+
+
+def parts(walk: Dict[Tuple[int, int], bool], info: Dict, pos: Optional[Tuple[int, int]] = None, also=()) -> Dict:
     """Which connected part of the map each warp and each edge belongs to:
     {"warp": [part per warp], "edge": {side: [parts]}, "down": [[part, part]], "player": part of `pos`}.
     A part is the index of a flood-filled component of walkable squares (doors drawn as blocked join the
     part next to them; tile-pair walls split them). "down" lists the one-way ledge jumps between parts."""
     jumps, walls = getattr(walk, "jumps", {}), getattr(walk, "walls", set())
+    # BUG-0711: a warp square is no way through (stepping on it warps; the walk treats it as a wall, Runner.avoid_warps),
+    # except the one the player stands on. Silph 5F's teleporter pad joined a strip shut by a beaten Rocket to the rest
+    pads = {(w[0], w[1]) for w in info["warps"] if (info.get("map"), w[0], w[1]) not in INERT_WARPS} - {tuple(pos) if pos else None}
     comp, n = {}, 0
     for start, ok in walk.items():
-        if not ok or start in comp:
+        if not ok or start in comp or start in pads:
             continue
         stack = [start]
         comp[start] = n
@@ -82,7 +90,7 @@ def parts(walk: Dict[Tuple[int, int], bool], info: Dict, pos: Optional[Tuple[int
             x, y = stack.pop()
             nxt = [(x + dx, y + dy) for dx, dy in ((0, 1), (0, -1), (1, 0), (-1, 0))]
             for q in nxt:
-                if walk.get(q) and q not in comp and ((x, y), q) not in walls:
+                if walk.get(q) and q not in comp and q not in pads and ((x, y), q) not in walls:
                     comp[q] = n
                     stack.append(q)
         n += 1
@@ -108,7 +116,7 @@ def parts(walk: Dict[Tuple[int, int], bool], info: Dict, pos: Optional[Tuple[int
             "edge": {side: sorted({comp[p] for p in comp if on_edge[side](p)}) for side in info["edges"]},
             "down": sorted({(comp[sq], comp[land]) for sq, js in jumps.items() for _, land in js
                             if sq in comp and land in comp and comp[sq] != comp[land]}),
-            "player": part_of(pos) if pos else None}
+            "player": part_of(pos) if pos else None, "also": [part_of(tuple(sq)) for sq in also]}
 
 
 class World:
@@ -224,9 +232,11 @@ class World:
                 if node == begin and first_hop_ok and not first_hop_ok(how):
                     continue
                 key = nxt if nxt[1] is not None else (nxt[0], None)
-                if key in prev or (key == (start, None) and goal != start):
+                if key in prev or (key[0] == start and key[1] in (None, start_part) and goal != start):
                     # back into the start map at an unknown part (an edge strip spanning two parts): every one of
-                    # its hops would look open, though the player's own part has no way out
+                    # its hops would look open, though the player's own part has no way out. BUG-0644: nor back into
+                    # the player's own part through another map (a door out of the building and back in): the
+                    # first-hop filter applies to the start's hops only, so that loop would reach the hops it excludes
                     continue
                 prev[key] = (node, how)
                 reached = key[0] == goal and (goal_part is None or key[1] is not None and goal_part in self.downhill(goal, key[1]))
@@ -239,6 +249,29 @@ class World:
                     return list(reversed(path))
                 q.append(key)
         return None
+
+
+def pad_route(walk: Dict[Tuple[int, int], bool], info: Dict, pos: Tuple[int, int], goal: Tuple[int, int]) -> Optional[Tuple[int, int]]:
+    """BUG-0712: the first teleporter pad to step on toward `goal` on a map whose rooms are joined only by pads leading to
+    the same map (Saffron's gym): a breadth-first search over the parts (parts()), a pad taking its part to its twin's
+    part. None when `goal` is in the player's part or no chain of pads reaches it."""
+    p = parts(walk, info, pos, also=(goal,))
+    start, end, here = p["player"], p["also"][0], info.get("map")
+    if start is None or end is None or start == end:
+        return None
+    first, todo = {start: None}, [start]
+    while todo:
+        part = todo.pop(0)
+        for i, w in enumerate(info["warps"]):
+            if p["warp"][i] != part or w[2] != here or w[3] >= len(info["warps"]):
+                continue
+            nxt = p["warp"][w[3]]
+            if nxt is not None and nxt not in first:
+                first[nxt] = first[part] or (w[0], w[1])
+                if nxt == end:
+                    return first[nxt]
+                todo.append(nxt)
+    return None
 
 
 def hop_target(info: Dict, how: Tuple, pos: Tuple[int, int]) -> Tuple[int, int]:

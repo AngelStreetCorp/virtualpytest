@@ -4,13 +4,15 @@
  * every quality answer carries, the workspace scope note and the loading/error gates.
  */
 
-import { Alert, Box, FormControl, InputLabel, MenuItem, Select, Typography } from '@mui/material';
+import { Alert, Box, MenuItem, Select, Typography } from '@mui/material';
+
 import React, { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 
 import { useReportScope } from '../../hooks/reports/useRunManagement';
 import { QUALITY_WINDOW_OPTIONS, type QualityIdentity, type QualityWindow } from '../../types/reports';
 import { QueryState } from './PageState';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 /** "script · UI · env · host/device" — the full comparable identity of a quality row. */
 export const identityLabel = (identity: QualityIdentity): string =>
@@ -88,7 +90,7 @@ export const QualityPageShell: React.FC<QualityPageShellProps> = ({
     <Box sx={{ width: '100%', maxWidth: '100%', minWidth: 0, overflowX: 'hidden' }}>
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.5, alignItems: 'flex-start', mb: 1 }}>
         <Box sx={{ flex: '1 1 260px', minWidth: 0 }}>
-          <Typography component="h2" sx={{ fontSize: '1rem', fontWeight: 600 }}>
+          <Typography component="h2" sx={{ fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600 }}>
             {title}
           </Typography>
           <Typography variant="body2" color="text.secondary">
@@ -96,13 +98,29 @@ export const QualityPageShell: React.FC<QualityPageShellProps> = ({
           </Typography>
         </Box>
         <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-          <FormControl size="small" sx={{ minWidth: 120 }}>
-            <InputLabel id="quality-window-label">Window</InputLabel>
+          {/* One visible label on one control. A floating MUI label cannot be used
+              here: the app paints an opaque background on every outlined field, and
+              that background covers the lower half of MUI's floating label, so only
+              the top row of the letters showed (BUG-0814). A plain label next to the
+              select is never covered, and `labelId` keeps the accessible name. */}
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Typography
+              id="quality-window-label"
+              component="label"
+              htmlFor="quality-window"
+              variant="body2"
+              color="text.secondary"
+              sx={{ flexShrink: 0, whiteSpace: 'nowrap' }}
+            >
+              Window
+            </Typography>
             <Select
+              id="quality-window"
               labelId="quality-window-label"
-              label="Window"
+              size="small"
               value={windowDays}
               onChange={(event) => onWindowChange(Number(event.target.value))}
+              sx={{ minWidth: 120 }}
             >
               {QUALITY_WINDOW_OPTIONS.map((days) => (
                 <MenuItem key={days} value={days}>
@@ -110,7 +128,7 @@ export const QualityPageShell: React.FC<QualityPageShellProps> = ({
                 </MenuItem>
               ))}
             </Select>
-          </FormControl>
+          </Box>
           {actions}
         </Box>
       </Box>

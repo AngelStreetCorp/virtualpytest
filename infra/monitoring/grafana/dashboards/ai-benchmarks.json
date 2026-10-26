@@ -1,0 +1,344 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "tags": [
+    "ai",
+    "benchmark",
+    "task-143"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "None",
+          "value": "none"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "includeAll": false,
+        "label": "Workspace",
+        "multi": false,
+        "name": "workspace",
+        "query": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Allowed devices",
+        "multi": false,
+        "name": "allowed_devices",
+        "query": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT DISTINCT split_part(usage_key, ':', 2) FROM public.ai_calls WHERE ref_type = 'benchmark' ORDER BY 1",
+        "includeAll": true,
+        "allValue": "%",
+        "label": "Usage key",
+        "multi": true,
+        "name": "usage_key",
+        "query": "SELECT DISTINCT split_part(usage_key, ':', 2) FROM public.ai_calls WHERE ref_type = 'benchmark' ORDER BY 1",
+        "refresh": 1,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "AI benchmarks (TASK-143)",
+  "uid": "vpt-ai-benchmarks",
+  "version": 1,
+  "panels": [
+    {
+      "id": 1,
+      "type": "table",
+      "title": "Pass rate by usage key and model",
+      "description": "Which named model answers which usage key best. One row per usage key and model.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        }
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT split_part(usage_key, ':', 2) AS \"Usage key\", model AS \"Model\", ROUND(100.0 * COUNT(*) FILTER (WHERE parse_ok) / NULLIF(COUNT(*) FILTER (WHERE parse_ok IS NOT NULL), 0), 1) AS \"Pass rate %\", COUNT(*) FILTER (WHERE parse_ok IS NOT NULL) AS \"Cases\", COUNT(*) FILTER (WHERE parse_ok IS FALSE) AS \"Failed\" FROM public.ai_calls WHERE $__timeFilter(ts) AND ref_type = 'benchmark' AND outcome <> 'skipped' AND split_part(usage_key, ':', 2) LIKE ANY (ARRAY[$usage_key]) GROUP BY 1, 2 ORDER BY 1, 3 DESC"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Cost per model",
+      "description": "What the benchmark of each model cost, and how fast it answered.",
+      "gridPos": {
+        "h": 9,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "currencyUSD",
+          "custom": {
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        }
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT model AS \"Model\", ROUND(SUM(cost)::numeric, 6) AS \"Cost USD\", COUNT(*) AS \"Cases\", ROUND(AVG(latency_ms)) AS \"Avg ms\" FROM public.ai_calls WHERE $__timeFilter(ts) AND ref_type = 'benchmark' AND outcome <> 'skipped' AND split_part(usage_key, ':', 2) LIKE ANY (ARRAY[$usage_key]) GROUP BY 1 ORDER BY 2 DESC"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Pass rate over time",
+      "description": "A model's pass rate over time: a drop after a route change is the signal to read.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('hour', ts) AS time, model AS \"Model\", ROUND(100.0 * COUNT(*) FILTER (WHERE parse_ok) / NULLIF(COUNT(*) FILTER (WHERE parse_ok IS NOT NULL), 0), 1) AS \"Pass rate %\" FROM public.ai_calls WHERE $__timeFilter(ts) AND ref_type = 'benchmark' AND outcome <> 'skipped' AND split_part(usage_key, ':', 2) LIKE ANY (ARRAY[$usage_key]) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Cases per day",
+      "description": "How many benchmark cases ran each day, and how many passed or errored.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('day', ts) AS time, COUNT(*) AS \"Cases\", COUNT(*) FILTER (WHERE parse_ok) AS \"Passed\", COUNT(*) FILTER (WHERE error_type IS NOT NULL) AS \"Errors\" FROM public.ai_calls WHERE $__timeFilter(ts) AND ref_type = 'benchmark' AND outcome <> 'skipped' AND split_part(usage_key, ':', 2) LIKE ANY (ARRAY[$usage_key]) GROUP BY 1 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Latency per model",
+      "description": "How long each model took to answer the frozen cases.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('hour', ts) AS time, model AS \"Model\", ROUND(AVG(latency_ms)) AS \"Avg ms\", ROUND(MAX(latency_ms)) AS \"Max ms\" FROM public.ai_calls WHERE $__timeFilter(ts) AND ref_type = 'benchmark' AND outcome <> 'skipped' AND split_part(usage_key, ':', 2) LIKE ANY (ARRAY[$usage_key]) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "table",
+      "title": "Failing cases by usage key",
+      "description": "The cases that did not pass, with the reason, newest first.",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "line",
+            "stacking": {
+              "mode": "none"
+            }
+          }
+        }
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "footer": {
+          "show": false
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT split_part(usage_key, ':', 2) AS \"Usage key\", model AS \"Model\", ref_kind AS \"Case\", COALESCE(error_type, 'check failed') AS \"Why\" FROM public.ai_calls WHERE $__timeFilter(ts) AND ref_type = 'benchmark' AND outcome <> 'skipped' AND split_part(usage_key, ':', 2) LIKE ANY (ARRAY[$usage_key]) AND parse_ok IS FALSE ORDER BY ts DESC LIMIT 200"
+        }
+      ]
+    }
+  ]
+}

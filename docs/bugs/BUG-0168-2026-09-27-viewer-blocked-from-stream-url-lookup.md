@@ -9,7 +9,7 @@
 | Status    | Fixed, deployed on the gcloud VM (build 9389)                |
 | Severity  | Medium                                                       |
 | Area      | backend_server auth middleware (viewer read-only floor)      |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | 0c11b8fab1                                                   |
 
 ---

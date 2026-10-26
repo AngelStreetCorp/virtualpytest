@@ -21,6 +21,10 @@ import {
 } from '@mui/icons-material';
 import { useAIContext } from '../../contexts/AIContext';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
+import { useVoice } from '../../contexts/VoiceContext';
+import { useI18n } from '../../i18n/useI18n';
+import { VoiceCommandLine, VoiceConversationButton, VoiceError, VoiceMessageButton, VoiceRecordBar, VoiceSettingsButton, VoiceStrip } from './voice/VoiceControls';
 
 // Available agents with agent-specific tips
 const AVAILABLE_AGENTS = [
@@ -48,6 +52,10 @@ export const AICommandBar: React.FC = () => {
   const inputRef = useRef<HTMLInputElement>(null);
   const chipRef = useRef<HTMLDivElement>(null);
   const [agentMenuOpen, setAgentMenuOpen] = useState(false);
+  const voice = useVoice();
+  const { t } = useI18n();
+  const recording = voice.phase === 'recording' && voice.surface === 'askai';
+  const talking = voice.conversation && voice.surface === 'askai';
   
   const selectedAgent = AVAILABLE_AGENTS.find(a => a.id === selectedAgentId) || AVAILABLE_AGENTS[0];
 
@@ -62,6 +70,14 @@ export const AICommandBar: React.FC = () => {
     }
   }, [isCommandOpen]);
 
+  // Closing Ask AI ends its voice session (recording or conversation).
+  const { phase, surface, conversation, cancelMessage, endConversation } = voice;
+  useEffect(() => {
+    if (isCommandOpen || surface !== 'askai') return;
+    if (phase === 'recording') cancelMessage();
+    if (conversation) endConversation();
+  }, [isCommandOpen, phase, surface, conversation, cancelMessage, endConversation]);
+
   const handleSubmit = (e?: React.FormEvent) => {
     e?.preventDefault();
     if (!input.trim()) return;
@@ -71,10 +87,15 @@ export const AICommandBar: React.FC = () => {
     // Send message directly via AIContext - executes in place without navigation
     sendMessage(message, selectedAgentId);
     
-    // Clear input and close command bar
+    // Clear input and close command bar (a voice conversation keeps it open)
     setInput('');
     setAgentMenuOpen(false);
-    closeCommand();
+    if (!talking) closeCommand();
+  };
+
+  const sendVoiceMessage = (text: string) => {
+    sendMessage(text, selectedAgentId);
+    if (!talking) closeCommand();
   };
 
   if (!isCommandOpen) return null;
@@ -85,7 +106,8 @@ export const AICommandBar: React.FC = () => {
       <Backdrop
         open={isCommandOpen}
         onClick={closeCommand}
-        sx={{ zIndex: 9998, bgcolor: 'rgba(0,0,0,0.5)' }}
+        // A voice conversation drives the page, so keep the page visible behind the bar.
+        sx={{ zIndex: 9998, bgcolor: talking ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.72)', backdropFilter: talking ? 'none' : 'blur(3px)' }}
       />
 
       {/* Floating Command Input */}
@@ -119,6 +141,13 @@ export const AICommandBar: React.FC = () => {
               overflow: 'hidden'
             }}
           >
+            {recording ? (
+              <VoiceRecordBar
+                onEdit={(text) => { setInput(text); setTimeout(() => inputRef.current?.focus(), 50); }}
+                onSend={sendVoiceMessage}
+              />
+            ) : (
+            <>
             <Box sx={{ p: 1.5, display: 'flex', alignItems: 'center', color: P.accentText }}>
               <SparkleIcon fontSize="medium" />
             </Box>
@@ -130,14 +159,14 @@ export const AICommandBar: React.FC = () => {
               size="small"
               onClick={() => setAgentMenuOpen(true)}
               onDelete={() => setAgentMenuOpen(true)}
-              deleteIcon={<ArrowDownIcon sx={{ fontSize: 16 }} />}
+              deleteIcon={<ArrowDownIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />}
               sx={{
                 height: 28,
                 bgcolor: `${selectedAgent.color}20`,
                 color: selectedAgent.color,
                 border: `1px solid ${selectedAgent.color}40`,
                 fontWeight: 600,
-                fontSize: '0.8rem',
+                fontSize: TYPOGRAPHY.body.size,
                 cursor: 'pointer',
                 transition: 'all 0.15s',
                 '& .MuiChip-deleteIcon': {
@@ -153,8 +182,8 @@ export const AICommandBar: React.FC = () => {
             
             <InputBase
               inputRef={inputRef}
-              sx={{ ml: 1.5, flex: 1, fontSize: '1.1rem' }}
-              placeholder="Ask AI Agent to do something..."
+              sx={{ ml: 1.5, flex: 1, fontSize: TYPOGRAPHY.cardTitle.size }}
+              placeholder={talking ? t('Talk, or type. Both work.') : 'Ask AI Agent to do something...'}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -187,19 +216,59 @@ export const AICommandBar: React.FC = () => {
                   }}
                   aria-label="toggle auto-redirect"
                 >
-                  {allowAutoNavigation ? <RedirectIcon sx={{ fontSize: 18 }} /> : <RedirectOffIcon sx={{ fontSize: 18 }} />}
+                  {allowAutoNavigation ? <RedirectIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} /> : <RedirectOffIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />}
                 </IconButton>
               </Tooltip>
               
-              <IconButton type="submit" sx={{ p: 1 }} aria-label="send">
-                <EnterIcon />
-              </IconButton>
+              <VoiceSettingsButton />
+              <VoiceMessageButton surface="askai" />
+              {input.trim() || talking ? (
+                <IconButton type="submit" sx={{ p: 1 }} aria-label="send">
+                  <EnterIcon />
+                </IconButton>
+              ) : null}
+              <VoiceConversationButton surface="askai" compact />
             </Box>
+            </>
+            )}
           </Paper>
           
-          {/* Agent-specific suggestions - hide when dropdown is open */}
+          {talking && (
+            <Box sx={{ mt: 1.5 }}>
+              <VoiceStrip />
+            </Box>
+          )}
+          <Box sx={{ mt: 1, display: 'flex', justifyContent: 'center' }}>
+            <VoiceError />
+          </Box>
+          {!talking && (
+            <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'center' }}>
+              {voice.lastCommand && (
+                <Box sx={{ px: 1.25, py: 0.5, borderRadius: 1.5, bgcolor: P.surfaceSolid, border: '1px solid', borderColor: P.borderColor }}>
+                  <VoiceCommandLine />
+                </Box>
+              )}
+            </Box>
+          )}
+
+          {/* Agent-specific suggestions - hide when dropdown is open or during a voice conversation */}
+          {!talking && !recording && (
           <Fade in={!agentMenuOpen} timeout={150}>
-            <Box sx={{ mt: 1.5, display: 'flex', justifyContent: 'center', gap: 1, flexWrap: 'wrap' }}>
+            <Box
+              sx={{
+                mt: 1.5,
+                p: 1,
+                display: 'flex',
+                justifyContent: 'center',
+                gap: 1,
+                flexWrap: 'wrap',
+                bgcolor: P.surfaceSolid,
+                border: '1px solid',
+                borderColor: P.borderColor,
+                borderRadius: 2,
+                boxShadow: '0 8px 32px rgba(0,0,0,0.3)'
+              }}
+            >
               {selectedAgent.tips.map((tip) => (
                 <Chip
                   key={tip}
@@ -209,7 +278,7 @@ export const AICommandBar: React.FC = () => {
                   sx={{
                     bgcolor: P.hoverBg,
                     color: P.textSecondary,
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                     height: 26,
                     border: '1px solid',
                     borderColor: P.borderColor,
@@ -217,7 +286,7 @@ export const AICommandBar: React.FC = () => {
                     cursor: 'pointer',
                     transition: 'all 0.15s ease',
                     '&:hover': {
-                      bgcolor: P.surface,
+                      bgcolor: P.surfaceSolid,
                       color: P.textPrimary,
                       borderColor: P.accent
                     }
@@ -226,6 +295,7 @@ export const AICommandBar: React.FC = () => {
               ))}
             </Box>
           </Fade>
+          )}
         </Box>
       </Fade>
       
@@ -243,7 +313,7 @@ export const AICommandBar: React.FC = () => {
         slotProps={{
           paper: {
             sx: {
-              bgcolor: P.surface,
+              bgcolor: P.surfaceSolid,
               border: '1px solid',
               borderColor: P.borderColor,
               borderRadius: 2,
@@ -283,10 +353,10 @@ export const AICommandBar: React.FC = () => {
               bgcolor: agent.color,
               flexShrink: 0
             }} />
-            <Typography sx={{ fontWeight: 600, color: P.textPrimary, fontSize: '0.85rem', ml: 1.5 }}>
+            <Typography sx={{ fontWeight: 600, color: P.textPrimary, fontSize: TYPOGRAPHY.body.size, ml: 1.5 }}>
               {agent.nickname}
             </Typography>
-            <Typography sx={{ color: P.textMuted, fontSize: '0.75rem', ml: 'auto', pl: 2 }}>
+            <Typography sx={{ color: P.textMuted, fontSize: TYPOGRAPHY.caption.size, ml: 'auto', pl: 2 }}>
               {agent.description}
             </Typography>
           </MenuItem>

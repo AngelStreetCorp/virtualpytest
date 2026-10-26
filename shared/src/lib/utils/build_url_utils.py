@@ -210,13 +210,21 @@ def call_host(
         
         return response_data, response.status_code
         
-    except requests.exceptions.Timeout:
+    except requests.exceptions.Timeout as e:
+        # ConnectTimeout = host not accepting connections (saturated/wedged, 3s connect limit);
+        # ReadTimeout = host accepted but did not answer within `timeout`. Say which.
+        connect_failed = isinstance(e, requests.exceptions.ConnectTimeout)
         host_name = host_info.get('host_name', 'unknown')
         host_api_url = host_info.get('host_api_url', 'not set')
         print(f"[@call_host] ❌ TIMEOUT connecting to host '{host_name}'")
         print(f"[@call_host]    URL: {full_url}")
         print(f"[@call_host]    host_api_url: {host_api_url}")
-        print(f"[@call_host]    Timeout: {timeout}s")
+        print(f"[@call_host]    Timeout: {'connect 3' if connect_failed else timeout}s")
+        if connect_failed:
+            return {
+                'success': False,
+                'error': 'Request to host timed out (host not accepting connections, connect timeout=3s)'
+            }, 504
         return {
             'success': False,
             'error': f'Request to host timed out (timeout={timeout}s)'
@@ -598,6 +606,61 @@ def buildStreamUrl(host_info: dict, device_id: str) -> str:
 
         relative = _build_host_relative_url(host_info, f"{clean_stream_path}/segments/output.m3u8")
         return relative
+
+
+def buildAudioStreamUrl(host_info: dict, device_id: str) -> Optional[str]:
+    """Build the audio-only HLS stream URL for a device, or None if not configured.
+
+    Mirrors buildStreamUrl but for the separate audio HLS playlist that
+    captures from the host's desktop loopback (Mixage st\u00e9r\u00e9o / Stereo Mix
+    on Win10/11 Realtek via the vpt-windows-audio Scheduled Task; pulseaudio
+    monitor source on Linux).
+
+    For a host_vnc device the video path is the noVNC iframe, so the audio
+    lives on its own playlist; the dashboard plays them side-by-side and keeps
+    them in sync via wall-clock timestamps ffmpeg stamps on every segment
+    (matching run_ffmpeg.sh's behavior of muxing `-f pulse -i default` into the
+    same HLS -- the Windows mirror just splits the two paths into separate
+    playlists because noVNC already has the video).
+
+    Returns:
+      * None when the device has no `audio_stream_path` configured.
+      * The dashboard-relative URL of `output.m3u8` on the audio folder
+        (e.g. `/host/vpt-windows/stream/device1_audio/segments/output.m3u8`).
+
+    The dashboard's useStream hook feeds the returned URL straight into HLS.js
+    for an `<audio>` element bound next to the VNC iframe.
+    """
+    device = get_device_by_id(host_info, device_id)
+    if not device:
+        return None
+    audio_path = device.get('audio_stream_path')
+    if not audio_path:
+        return None
+
+    # Accept three shapes so an operator can write whichever is natural:
+    #   /stream/device1_audio                                  (host-relative folder)
+    #   /stream/device1_audio/segments/output.m3u8             (host-relative playlist)
+    #   /host/vpt-windows/stream/device1_audio/segments/output.m3u8  (already absolute)
+    # The old implementation always prefixed `/host/<name>/` and always appended
+    # `/segments/output.m3u8`, so an absolute path produced
+    # `/host/x/host/x/.../segments/segments/output.m3u8` (BUG-0605).
+    device_host = (host_info or {}).get('host_name') or ''
+    raw = str(audio_path).strip().rstrip('/')
+
+    if raw.startswith('/host/'):
+        # Already host-absolute (this host or another one): trust it as written.
+        base = raw
+    else:
+        base = _build_host_relative_url(host_info, '/' + raw.lstrip('/'))
+
+    base = base.rstrip('/')
+    if base.endswith('.m3u8'):
+        return base
+    if base.endswith('/segments'):
+        return base + '/output.m3u8'
+    return base + '/segments/output.m3u8'
+
 
 def buildHostImageUrl(host_info: dict, image_path: str) -> str:
     """

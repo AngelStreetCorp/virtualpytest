@@ -14,7 +14,8 @@ from shared.src.lib.database.in_filter import chunked_in
 from shared.src.lib.database.folder_tag_db import (
     get_or_create_tag,
     set_executable_tags,
-    get_executable_tags
+    get_executable_tags,
+    get_executable_tags_bulk,
 )
 
 DEFAULT_TEAM_ID = '7fdeb4bb-3639-4ec3-959f-b54769a219ce'
@@ -588,6 +589,18 @@ def list_campaigns(team_id: str, include_config: bool = False) -> List[Dict[str,
         campaign_names = [c['campaign_name'] for c in result.data]
         exec_map = {}
 
+        # Batch-fetch tags for every campaign in this team so the response can
+        # surface the project / folder tag chips alongside the row. G10: the
+        # `executable_tags.executable_type` CHECK was widened to include
+        # 'campaign' in migration 20261015a, so this lookup finally works.
+        campaign_ids = [str(c.get('campaign_id')) for c in result.data if c.get('campaign_id') is not None]
+        campaign_tags_map: Dict[str, List[Dict[str, Any]]] = {}
+        if campaign_ids:
+            try:
+                campaign_tags_map = get_executable_tags_bulk('campaign', campaign_ids)
+            except Exception as e:
+                print(f"[@campaign_db] Warning: Failed to fetch campaign tags: {e}")
+
         if campaign_names:
             try:
                 # Fetch all execution records for these campaigns
@@ -616,6 +629,11 @@ def list_campaigns(team_id: str, include_config: bool = False) -> List[Dict[str,
         for campaign in result.data:
             campaign['campaign_id'] = str(campaign['campaign_id'])
             campaign['team_id'] = str(campaign['team_id'])
+            # Surface the tag list so the UI can render the project /
+            # folder chip without an extra round-trip. Same shape as
+            # `list_testcases`'s tag surfacing (G10 mirrors that path).
+            tag_rows = campaign_tags_map.get(campaign['campaign_id'], [])
+            campaign['tags'] = [tag.get('name') for tag in tag_rows if tag.get('name')]
 
             # Add execution stats from batch-fetched map
             exec_info = exec_map.get(campaign['campaign_name'], {})

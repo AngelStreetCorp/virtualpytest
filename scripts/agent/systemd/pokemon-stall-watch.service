@@ -1,0 +1,17 @@
+[Unit]
+Description=Start an agent that fixes a Pokemon long-play stall (TASK-33)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=jndoye
+Group=jndoye
+Environment=HOME=/home/jndoye
+Environment=PATH=/home/jndoye/.local/bin:/usr/local/bin:/bin:/usr/sbin:/sbin
+KillMode=process
+# The lane runs from its own clone, never from the shared checkout of ~/virtualpytest. The clone is
+# brought back to main before every tick: the clone that was deployed kept the code that read only
+# the *latest* lock of the canonical store while main already read every lock, so the second save
+# stayed locked for two days and nobody was asked to fix it (BUG-0911).
+ExecStartPre=-/home/jndoye/.local/bin/sync_lane_clone.sh /home/jndoye/.local/share/vpt-stall-watch
+ExecStart=/home/jndoye/.local/share/vpt-stall-watch/scripts/agent/pokemon_stall_watch.sh

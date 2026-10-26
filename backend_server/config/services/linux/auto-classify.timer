@@ -1,0 +1,24 @@
+[Unit]
+Description=VirtualPyTest auto-classify unknowns (hourly)
+# Schedules the auto-classify service.  Runs every hour: a screen seen
+# more than the threshold is named within the hour (it was nightly; BUG-0507).
+#
+# WHY A TIMER AND NOT CRON
+#   systemd timers are observable: `systemctl list-timers` shows when
+#   the next run is.  Cron only shows that.  The smoke test relies on
+#   `systemctl list-timers | grep auto-classify` to confirm the
+#   scheduler is installed.
+#
+# WHY PERSISTENT
+#   PERSISTENT=true means "if the box was off at the trigger time, run
+#   the missed cycle on the next boot".  The LLM cost is bounded by the
+#   MAX_ATTEMPTS guard, so a missed cycle that runs late is harmless.
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+# If the box was off for > 24 h, run once on boot then resume schedule.
+Unit=auto-classify.service
+
+[Install]
+WantedBy=timers.target

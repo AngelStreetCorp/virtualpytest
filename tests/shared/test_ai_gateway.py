@@ -46,7 +46,7 @@ def test_complete_uses_routed_model_and_params(monkeypatch):
     assert call["model"] == "qwen3-vl-8b-instruct"
     assert call["max_tokens"] == 256
     assert call["extra_body"] == {"chat_template_kwargs": {"enable_thinking": False}}
-    assert call["messages"][0]["content"][1]["type"] == "image"
+    assert call["messages"][0]["content"][0]["type"] == "image"
 
 
 def test_fallback_on_error_then_success(monkeypatch):
@@ -374,3 +374,118 @@ def test_shadow_usage_is_skipped_counted_and_never_the_probe(monkeypatch):
     # a normal usage is the probe and ends the pause when it answers
     assert gateway.complete("text.translation", "q")["success"] is True
     assert router.no_credit_for("or") == 0
+
+
+def test_minimax_vlm_quota_error_is_not_an_empty_answer(monkeypatch):
+    """MiniMax answers HTTP 200 with an empty content and a base_resp error when the coding plan's token
+    allowance is used up (base_resp 2056, 'Token Plan usage limit reached').
+
+    Read as an empty answer it is invisible: the call is logged as a wasted empty answer and the caller
+    cannot tell a finished plan from a hard frame. It must surface as a failure carrying the provider's
+    own words, classified as no_credit (the quota wall) rather than an empty answer."""
+    import shared.src.lib.ai.provider_client as pc
+
+    class _Resp:
+        status_code = 200
+        text = '{"content":"", "base_resp":{"status_code":2056,"status_msg":"Token Plan usage limit reached"}}'
+
+        def json(self):
+            return {"content": "",
+                    "base_resp": {"status_code": 2056, "status_msg": "Token Plan usage limit reached"}}
+
+    monkeypatch.setattr(pc.requests, "post", lambda url, json, headers, timeout: _Resp())
+    client = create_client("minimax_vlm", "mm")
+    with pytest.raises(pc.requests.HTTPError) as exc:
+        client.create(model="minimax-vlm", max_tokens=16, system=[],
+                      messages=[{"role": "user", "content": [{"type": "text", "text": "hi"},
+                                                             {"type": "image", "source": {"media_type": "image/jpeg", "data": "QUJD"}}]}],
+                      tools=[])
+    message = str(exc.value)
+    assert 'Token Plan usage limit reached' in message
+    assert 'base_resp 2056' in message
+    # the fixed ai_calls.error_type list: a quota wall is no_credit, not "other" and not an empty answer
+    assert pc.classify_error(exc.value) == 'no_credit'
+
+
+def test_minimax_vlm_success_body_still_returns_content(monkeypatch):
+    """The happy path must be untouched by the base_resp check (base_resp 0 / absent)."""
+    import shared.src.lib.ai.provider_client as pc
+
+    class _Resp:
+        status_code = 200
+        text = '{"content":"(a) View: Home", "base_resp":{"status_code":0,"status_msg":"success"}}'
+
+        def json(self):
+            return {"content": "(a) View: Home", "base_resp": {"status_code": 0, "status_msg": "success"}}
+
+    monkeypatch.setattr(pc.requests, "post", lambda url, json, headers, timeout: _Resp())
+    client = create_client("minimax_vlm", "mm")
+    resp = pc.single_completion(client, model="minimax-vlm", prompt="describe", image_b64="QUJD", system="be brief")
+    assert resp.text() == "(a) View: Home"
+
+
+def test_minimax_flash_profile_survives_an_sdk_without_temperature(monkeypatch):
+    """The M3.1-Flash profile on the `minimax` (Anthropic-compatible) endpoint is the free vision model.
+
+    gateway.execute defaults `temperature` to 0.0, and 0.0 is not None, so the wrapper kept it. The newer
+    anthropic SDK (1.x) rewrote Messages.create with an explicit keyword-only signature and DROPPED
+    `temperature` from it, so the call raised TypeError before a byte went out. The repository pins
+    anthropic<1.0 ("1.x ... broke client construction"), but a host whose environment drifted must not
+    break the free vision route, so the wrapper sends the parameter only where the installed SDK takes it.
+    """
+    import shared.src.lib.ai.provider_client as pc
+
+    seen = {}
+
+    class _Messages:
+        def create(self, **kwargs):
+            seen.update(kwargs)
+            return _Resp()
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"content": "OK"}
+
+    class _Anthropic:
+        def __init__(self, **kwargs):
+            self.messages = _Messages()
+
+    monkeypatch.setattr(pc.anthropic, "Anthropic", _Anthropic)
+    client = pc.AnthropicProviderClient(api_key="k", provider="minimax")
+    # pretend the installed SDK has no `temperature` parameter
+    monkeypatch.setattr(pc, "_SDK_ACCEPTS_TEMPERATURE", False)
+    client.create(model="MiniMax-M3.1-Flash-Preview", max_tokens=16, system=[], messages=[],
+                  tools=[], tool_choice=None, temperature=0.0, extra_headers=None, extra_body={})
+    assert "temperature" not in seen, "a kwarg the installed SDK does not accept must not be sent"
+    assert seen["model"] == "MiniMax-M3.1-Flash-Preview"
+
+
+def test_temperature_is_still_sent_when_the_sdk_takes_it(monkeypatch):
+    """The old behaviour must not change on the pinned SDK: a profile that sets a temperature still gets it."""
+    import shared.src.lib.ai.provider_client as pc
+
+    seen = {}
+
+    class _Messages:
+        def create(self, **kwargs):
+            seen.update(kwargs)
+            return _Resp()
+
+    class _Resp:
+        status_code = 200
+
+        def json(self):
+            return {"content": "OK"}
+
+    class _Anthropic:
+        def __init__(self, **kwargs):
+            self.messages = _Messages()
+
+    monkeypatch.setattr(pc.anthropic, "Anthropic", _Anthropic)
+    monkeypatch.setattr(pc, "_SDK_ACCEPTS_TEMPERATURE", True)
+    client = pc.AnthropicProviderClient(api_key="k", provider="minimax")
+    client.create(model="m", max_tokens=16, system=[], messages=[], tools=[], tool_choice=None,
+                  temperature=0.3, extra_headers=None, extra_body={})
+    assert seen.get("temperature") == 0.3

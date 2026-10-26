@@ -150,13 +150,13 @@ customer support case is "VNC/streams suddenly 500 for everyone," check this fir
 ## Where this lives per deployment
 
 **Production proxy (`proxy` / `.107`, hand-maintained, not in git).** The real VNC/stream
-location blocks live in a **root-owned** `snippets/vpt-app-locations.conf`, which `jndoye`
+location blocks live in a **root-owned** `snippets/vpt-app-locations.conf`, which `<operator>`
 cannot edit. So instead of editing them in place, matching shadow `location` blocks (identical
 regex, `auth_request` added) are declared directly in the writable
 `/etc/nginx/sites-enabled/virtualpytest`, **before** the `include` line — nginx picks the first
 matching regex location in file order, so these win. This is the same trick already used there
 for the phone Socket.IO path (pre-existing, TASK-17). Backups before each edit:
-`~jndoye/virtualpytest.nginx.bak-<date>-<label>` on the proxy host.
+`~<operator>/virtualpytest.nginx.bak-<date>-<label>` on the proxy host.
 
 **Packaged templates (`infra/proxy/nginx/config/*.conf`, IS in git, used to generate customer
 installs).** These are standalone, single-file server blocks with no root-owned snippet

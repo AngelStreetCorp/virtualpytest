@@ -35,6 +35,7 @@ import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react'
 import { buildPrimaryServerUrl } from '../../../frontend/src/utils/buildUrlUtils';
 import { getCached, setCached } from '../../../frontend/src/utils/pageCache';
 import { useAgentChatPalette } from '../../../frontend/src/constants/agentChatTheme';
+import { StatTileSkeleton, TableRowsSkeleton } from '../../../frontend/src/components/common/ReportSkeleton';
 
 interface RunnerStatus {
   name: string;
@@ -258,6 +259,11 @@ const JOB_CATEGORY_LABEL: Record<string, string> = {
   script: 'Script',
 };
 
+/** Which categories the KPI row reports, in the order it reports them. */
+const CATEGORIES = ['browser', 'api', 'unit', 'script', 'lint'] as const;
+/** KPI tiles the row shows at full width: the two headline tiles plus one per category. */
+const KPI_TILE_COUNT = 2 + CATEGORIES.length;
+
 // What each job proves, in plain words — shown as a tooltip on the job name so anyone can
 // tell e2e-pages from frontend-component-tests without reading the workflow.
 const JOB_DESCRIPTION: Record<string, string> = {
@@ -430,12 +436,24 @@ function KpiCard({
   value,
   sub,
   valueColor,
+  loading,
 }: {
   label: string;
   value: string | number;
   sub?: string;
   valueColor?: string;
+  /** First load: keep the tile, draw its three lines as grey bars. */
+  loading?: boolean;
 }) {
+  // `StatTileSkeleton` carries this tile's own box (p: 2 / flex: 1 / minWidth: 100), so the
+  // KPI row holds its size and the real card replaces the placeholder without a jump.
+  if (loading) {
+    return (
+      <Paper variant="outlined">
+        <StatTileSkeleton />
+      </Paper>
+    );
+  }
   return (
     <Paper
       variant="outlined"
@@ -689,8 +707,7 @@ const CICDReports: React.FC = () => {
     });
 
     // Only show known categories in a fixed order
-    const catOrder = ['browser', 'api', 'unit', 'script', 'lint'];
-    const cats = catOrder.filter((c) => catStats[c]);
+    const cats = CATEGORIES.filter((c) => catStats[c]);
 
     return { total, passed, passRate, catStats, cats };
   }, [filteredRuns]);
@@ -758,9 +775,40 @@ const CICDReports: React.FC = () => {
 
       {error && <Alert severity="warning">{error}</Alert>}
 
+      {/* First load: draw the page's own shape — the KPI row's tile count and the runs table's real
+          header and column widths — instead of a lone spinner in an empty area that then pops
+          into place (UI_STYLE §10 S6, contract #29). Same skeleton the Test Reports page uses. */}
       {loading && runs.length === 0 ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', pt: 4 }}>
-          <CircularProgress />
+        <Box aria-busy="true" aria-live="polite">
+          <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', justifyContent: 'center' }}>
+            {Array.from({ length: KPI_TILE_COUNT }).map((_, i) => (
+              <KpiCard key={i} label="" value="" loading />
+            ))}
+          </Box>
+          <Paper variant="outlined" sx={{ overflow: 'hidden', mt: 2 }}>
+            <Table size="small" stickyHeader sx={{ tableLayout: 'fixed', width: '100%' }}>
+              <TableHead>
+                <TableRow>
+                  <TableCell width={40} />
+                  <TableCell sx={{ width: 210, maxWidth: 210 }}>Project</TableCell>
+                  <TableCell sx={{ width: 70, maxWidth: 70 }}>Run</TableCell>
+                  <TableCell sx={{ width: 130, maxWidth: 130 }}>Branch</TableCell>
+                  <TableCell sx={{ width: 80, maxWidth: 80 }}>Commit</TableCell>
+                  <TableCell sx={{ width: 110, maxWidth: 110 }}>Date</TableCell>
+                  <TableCell sx={{ width: 90, maxWidth: 90 }}>Status</TableCell>
+                  <TableCell sx={{ width: 220, maxWidth: 220 }}>Jobs</TableCell>
+                  <TableCell align="right" sx={{ width: 100, maxWidth: 100 }}>Report</TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                <TableRowsSkeleton
+                  rows={12}
+                  widths={[null, '82%', '68%', '62%', '78%', '80%', null, '88%', null]}
+                  rowHeight={42}
+                />
+              </TableBody>
+            </Table>
+          </Paper>
         </Box>
       ) : (
         <>

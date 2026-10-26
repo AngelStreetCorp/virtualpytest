@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy) |
 | Severity  | Medium — results for the latest commit arrived hours late |
 | Area      | CI / regression workflow |
-| Fixed in  | Unreleased |
+| Fixed in  | build 90145 |
 | Commit    | this commit |
 
 ---

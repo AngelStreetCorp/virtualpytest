@@ -5,11 +5,13 @@ import {
   Tooltip, Typography,
 } from '@mui/material';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
-import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
-import { Refresh } from '@mui/icons-material';
+import { PAGE_TITLE_SX, neutralButtonSx, pageSurfaceSx } from '../components/common/PageChrome';
+import { FileDownloadOutlined, Refresh, SearchOutlined } from '@mui/icons-material';
 import { apiClient } from '../utils/apiClient';
 import { buildServerUrl } from '../utils/buildUrlUtils';
 import { useServerManager } from '../hooks/useServerManager';
+import { TYPOGRAPHY } from '../constants/typography';
+import { useI18n } from '../i18n/useI18n';
 
 type Question = {
   question: string;
@@ -38,6 +40,8 @@ type AgentEvent = {
   tool_calls: number;
   error_summary: string | null;
 };
+type ActivityTone = 'ok' | 'error' | 'running' | 'neutral';
+type ActivityRow = { at: string; event: string; tone: ActivityTone; target: string; details: string; actor: string; source: string };
 type OutcomeFilter = 'all' | 'answered' | 'cached' | 'off_topic' | 'error';
 const SERVER_LOG_SERVICES = [
   { name: 'vpt-server', label: 'vpt-server' },
@@ -61,9 +65,37 @@ const HOST_LOG_SERVICES = [
   'vpt-websockify', 'vpt-emulator', 'vpt-emulator-fifo', 'deployments',
 ];
 
+const relativeTime = (value: string) => {
+  const seconds = Math.round((Date.now() - new Date(value).getTime()) / 1000);
+  if (Number.isNaN(seconds)) return value;
+  if (seconds < 60) return 'just now';
+  const units: [number, string][] = [[60, 'min'], [3600, 'h'], [86400, 'd']];
+  const [size, label] = seconds < 3600 ? units[0] : seconds < 86400 ? units[1] : units[2];
+  return `${Math.floor(seconds / size)} ${label} ago`;
+};
+
+/** Client-side CSV download (Excel-safe: UTF-8 BOM, quotes doubled). */
+const downloadCsv = (filename: string, header: string[], rows: (string | number | null | undefined)[][]) => {
+  const cell = (v: string | number | null | undefined) => `"${String(v ?? '').replace(/"/g, '""')}"`;
+  const body = [header, ...rows].map((r) => r.map(cell).join(',')).join('\r\n');
+  const url = URL.createObjectURL(new Blob(['\ufeff', body], { type: 'text/csv;charset=utf-8' }));
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = `${filename}-${new Date().toISOString().slice(0, 10)}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
+const StatePill: React.FC<{ color: string; children: React.ReactNode }> = ({ color, children }) => (
+  <Box component="span" sx={{ display: 'inline-block', px: 1, py: 0.25, borderRadius: 999, fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, lineHeight: 1.5, color, bgcolor: `${color}1f`, border: `1px solid ${color}66`, whiteSpace: 'nowrap' }}>
+    {children}
+  </Box>
+);
+
 const Logs: React.FC = () => {
   const P = useAgentChatPalette();
-  // Tab order: MCP, API, ASK AI, Server, Host.
+  const { t } = useI18n();
+  // Tab order: MCP, API, ASK AI, Server, Host, Activity.
   const [tab, setTab] = useState(0);
   const [days, setDays] = useState(30);
   const [limit, setLimit] = useState(50);
@@ -85,6 +117,11 @@ const Logs: React.FC = () => {
   const [selectedHost, setSelectedHost] = useState('');
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
+  const [activity, setActivity] = useState<{ rows: ActivityRow[]; counts: Record<string, number>; actors: string[]; skipped: string[] }>({ rows: [], counts: {}, actors: [], skipped: [] });
+  const [activityQuery, setActivityQuery] = useState('');
+  const [activitySearch, setActivitySearch] = useState('');
+  const [activityEvent, setActivityEvent] = useState('');
+  const [activityActor, setActivityActor] = useState('');
   const [refreshed, setRefreshed] = useState<Date | null>(null);
   const { serverHostsData, selectedServer } = useServerManager();
   // Only the hosts registered on the selected server: log requests go to that server.
@@ -127,6 +164,17 @@ const Logs: React.FC = () => {
         if (!response.ok || !data.success) throw new Error(data.error || `Unable to load ${tab === 1 ? 'API' : 'server'} logs (HTTP ${response.status}).`);
         if (tab === 1) setApiLogs(data.logs || '');
         else setServerLogs(data.logs || '');
+      } else if (tab === 5) {
+        const params = new URLSearchParams({ since: `${days}d`, limit: '1000' });
+        if (activitySearch) params.set('q', activitySearch);
+        if (activityEvent) params.set('event', activityEvent);
+        if (activityActor) params.set('actor', activityActor);
+        const response = await apiClient(buildServerUrl(`/server/activity?${params.toString()}`), { signal: controller.signal });
+        if (response.status === 401) throw new Error('Your session is not available for this server. Sign in again or select an authenticated server.');
+        if (response.status === 403) throw new Error('Logs are available to administrators only.');
+        if (!response.ok) throw new Error(`Unable to load activity (HTTP ${response.status}).`);
+        const data = await response.json();
+        setActivity({ rows: data.rows || [], counts: data.counts || {}, actors: data.actors || [], skipped: data.skipped_sources || [] });
       } else if (tab === 4) {
         if (selectedHost && hostService) {
           const logResponse = await apiClient(buildServerUrl('/server/logs/view'), {
@@ -148,7 +196,12 @@ const Logs: React.FC = () => {
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [tab, days, limit, apiLines, apiSince, apiLevel, serverService, selectedHost, hostService]);
+  }, [tab, days, limit, apiLines, apiSince, apiLevel, serverService, selectedHost, hostService, activitySearch, activityEvent, activityActor]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => setActivitySearch(activityQuery), 300);
+    return () => window.clearTimeout(timer);
+  }, [activityQuery]);
 
   useEffect(() => { void load(); }, [load]);
   useEffect(() => () => { requestController.current?.abort(); }, []);
@@ -202,21 +255,28 @@ const Logs: React.FC = () => {
         <Tab label="ASK AI" />
         <Tab label="Server" />
         <Tab label="Host" />
+        <Tab label={t('Activity')} />
       </Tabs>
 
       {error && <Alert severity="error" action={<Button color="inherit" onClick={() => void load()}>Retry</Button>} sx={{ mb: 2 }}>{error}</Alert>}
-      {loading && <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress /></Box>}
+      {loading && tab !== 5 && <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress /></Box>}
 
-      {!loading && tab === 0 && (agentEvents.length === 0 ? <Typography color="text.secondary">No MCP activity found for the last 30 days.</Typography> : (
+      {!loading && tab === 0 && (agentEvents.length === 0 ? <Typography color="text.secondary">No MCP activity found for the last 30 days.</Typography> : (<>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
+          <Button size="small" sx={neutralButtonSx(P)} startIcon={<FileDownloadOutlined />} onClick={() => downloadCsv('mcp-activity',
+            ['Timestamp', 'Agent', 'Session', 'Event', 'Tool calls', 'Status', 'Duration (s)', 'Error summary'],
+            agentEvents.map((e) => [e.timestamp, e.agent_id, e.session_id, e.event_type, e.tool_calls, e.status, e.duration_seconds, e.error_summary]))}>{t('Export CSV')}</Button>
+        </Box>
         <Paper sx={{ overflowX: 'auto' }}><Table size="small" sx={commonTableSx}>
           <TableHead><TableRow>{['Timestamp', 'Agent / session', 'Event', 'Tool calls', 'Status', 'Duration', 'Error summary'].map((title) => <TableCell key={title}>{title}</TableCell>)}</TableRow></TableHead>
           <TableBody>{agentEvents.map((event) => <TableRow hover key={event.id}>
             <TableCell>{formatTimestamp(event.timestamp)}</TableCell><TableCell>{event.agent_id || '—'} / {event.session_id || '—'}</TableCell>
-            <TableCell>{event.event_type}</TableCell><TableCell>{event.tool_calls}</TableCell><TableCell>{event.status}</TableCell>
+            <TableCell>{event.event_type}</TableCell><TableCell>{event.tool_calls}</TableCell>
+            <TableCell>{event.status ? <StatePill color={/^(ok|success|completed|done|passed)/i.test(event.status) ? P.success : /(error|fail)/i.test(event.status) ? P.error : P.textSecondary}>{event.status}</StatePill> : '—'}</TableCell>
             <TableCell>{event.duration_seconds == null ? '—' : `${event.duration_seconds}s`}</TableCell><TableCell>{event.error_summary || '—'}</TableCell>
           </TableRow>)}</TableBody>
         </Table></Paper>
-      ))}
+      </>))}
 
       {!loading && tab === 1 && <>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
@@ -231,7 +291,7 @@ const Logs: React.FC = () => {
           </TextField>
           <TextField label="Search logs" size="small" value={apiSearch} onChange={(event) => setApiSearch(event.target.value)} sx={{ width: 240 }} />
         </Box>
-        <Paper sx={{ p: 2, minHeight: 320, maxHeight: '65vh', overflow: 'auto', border: `1px solid ${P.borderColor}`, bgcolor: P.surface, color: P.textPrimary, fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+        <Paper sx={{ p: 2, minHeight: 320, maxHeight: '65vh', overflow: 'auto', border: `1px solid ${P.borderColor}`, bgcolor: P.surface, color: P.textPrimary, fontFamily: 'monospace', fontSize: TYPOGRAPHY.body.size, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
           {apiLogs.split('\n').filter((line) => line.toLowerCase().includes(apiSearch.toLowerCase())).join('\n') || <Typography color="grey.500">No API service logs found for this range.</Typography>}
         </Paper>
       </>}
@@ -254,6 +314,11 @@ const Logs: React.FC = () => {
             {[25, 50, 100, 250].map((value) => <MenuItem key={value} value={value}>{value}</MenuItem>)}
           </TextField>
           <TextField label="Search questions" size="small" value={query} onChange={(event) => setQuery(event.target.value)} />
+        </Box>
+        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1.5 }}>
+          <Button size="small" sx={neutralButtonSx(P)} startIcon={<FileDownloadOutlined />} disabled={questions.length === 0} onClick={() => downloadCsv('ask-ai-questions',
+            ['Question', 'Count', 'First seen', 'Last seen', 'Cached', 'Off-topic', 'Errors', 'Model calls', 'Avg. model time (s)', 'Sources'],
+            questions.map((q) => [q.question, q.count, q.first, q.last, q.cached, q.off_topic, q.errors, q.llm_calls, q.avg_llm_seconds, (q.sources || []).join('; ')]))}>{t('Export CSV')}</Button>
         </Box>
         {questions.length === 0 ? <Typography color="text.secondary">No public questions found for these filters.</Typography> : (
           <Paper sx={{ overflow: 'hidden' }}><Table size="small" sx={{ ...commonTableSx, width: '100%', tableLayout: 'fixed' }}>
@@ -303,7 +368,7 @@ const Logs: React.FC = () => {
           </TextField>
           <TextField label="Search logs" size="small" value={apiSearch} onChange={(event) => setApiSearch(event.target.value)} sx={{ width: 220 }} />
         </Box>
-        <Paper sx={{ p: 2, minHeight: 320, maxHeight: '65vh', overflow: 'auto', border: `1px solid ${P.borderColor}`, bgcolor: P.surface, color: P.textPrimary, fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+        <Paper sx={{ p: 2, minHeight: 320, maxHeight: '65vh', overflow: 'auto', border: `1px solid ${P.borderColor}`, bgcolor: P.surface, color: P.textPrimary, fontFamily: 'monospace', fontSize: TYPOGRAPHY.body.size, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
           {serverLogs.split('\n').filter((line) => line.toLowerCase().includes(apiSearch.toLowerCase())).join('\n') || <Typography color="grey.500">No server logs found for this range.</Typography>}
         </Paper>
       </>}
@@ -318,9 +383,59 @@ const Logs: React.FC = () => {
         <TextField label="Search logs" size="small" value={hostSearch} onChange={(event) => setHostSearch(event.target.value)} sx={{ width: 220 }} />
       </Box>}
 
-      {!loading && tab === 4 && <Paper sx={{ mt: 1.5, p: 2, minHeight: 320, maxHeight: '65vh', overflow: 'auto', border: `1px solid ${P.borderColor}`, bgcolor: P.surface, color: P.textPrimary, fontFamily: 'monospace', fontSize: '0.8rem', whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+      {!loading && tab === 4 && <Paper sx={{ mt: 1.5, p: 2, minHeight: 320, maxHeight: '65vh', overflow: 'auto', border: `1px solid ${P.borderColor}`, bgcolor: P.surface, color: P.textPrimary, fontFamily: 'monospace', fontSize: TYPOGRAPHY.body.size, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
         {hostLogs.split('\n').filter((line) => line.toLowerCase().includes(hostSearch.toLowerCase())).join('\n') || <Typography color="grey.500">No active host services or no host logs found for this range.</Typography>}
       </Paper>}
+
+      {tab === 5 && <>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 1.5 }}>
+          <TextField size="small" label={t('Search actions, targets, details')} value={activityQuery} onChange={(event) => setActivityQuery(event.target.value)}
+            InputProps={{ startAdornment: <SearchOutlined fontSize="small" sx={{ mr: 0.75, color: P.textMuted }} /> }} sx={{ flex: '1 1 220px', minWidth: 220 }} />
+          <TextField select size="small" label={t('Event')} value={activityEvent} onChange={(event) => setActivityEvent(event.target.value)} sx={{ minWidth: 230 }}>
+            <MenuItem value="">{t('All events')} ({Object.values(activity.counts).reduce((a, b) => a + b, 0)})</MenuItem>
+            {Object.entries(activity.counts).map(([name, count]) => <MenuItem key={name} value={name}>{name} ({count})</MenuItem>)}
+            {activityEvent && !(activityEvent in activity.counts) && <MenuItem value={activityEvent}>{activityEvent} (0)</MenuItem>}
+          </TextField>
+          <TextField select size="small" label={t('Actor')} value={activityActor} onChange={(event) => setActivityActor(event.target.value)} sx={{ minWidth: 200 }}>
+            <MenuItem value="">{t('Everyone')}</MenuItem>
+            {activity.actors.map((name) => <MenuItem key={name} value={name}>{name}</MenuItem>)}
+          </TextField>
+          <TextField select size="small" label={t('Time range')} value={days} onChange={(event) => setDays(Number(event.target.value))} sx={{ minWidth: 130 }}>
+            {[1, 7, 30, 90].map((value) => <MenuItem key={value} value={value}>{value} {t('days')}</MenuItem>)}
+          </TextField>
+          <Button size="small" sx={neutralButtonSx(P)} startIcon={<FileDownloadOutlined />} disabled={activity.rows.length === 0}
+            onClick={() => downloadCsv('activity', ['When', 'Event', 'Target', 'Details', 'Actor', 'Source'],
+              activity.rows.map((r) => [r.at, r.event, r.target, r.details, r.actor, r.source]))}>{t('Export CSV')}</Button>
+        </Box>
+        {activity.skipped.includes('masterchief') && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 1 }}>{t('Elevated operations are not recorded on this server')}</Typography>}
+        {loading && <Box sx={{ p: 4, textAlign: 'center' }}><CircularProgress /></Box>}
+        {/* The activity table is a fixed layout that fills its box: `commonTableSx`
+            forbids line breaks, which made the table 974 px wide in a 324 px phone
+            box and pushed Target, Details and Actor off screen (BUG-0817). The
+            cells wrap now, and the Details column (the longest text of the five)
+            is dropped on a phone — it stays in the CSV export. */}
+        {!loading && (activity.rows.length === 0 ? <Typography color="text.secondary">{t('No activity found for these filters.')}</Typography> : (
+          <Paper sx={{ overflowX: 'auto' }}><Table size="small" sx={{ ...commonTableSx, width: '100%', tableLayout: 'fixed', '& .MuiTableCell-root': { whiteSpace: 'normal' } }}>
+            <TableHead><TableRow>
+              <TableCell sx={{ width: '20%' }}>{t('When')}</TableCell>
+              <TableCell sx={{ width: '25%' }}>{t('Event')}</TableCell>
+              <TableCell sx={{ width: '30%' }}>{t('Target')}</TableCell>
+              <TableCell sx={{ width: '20%', display: { xs: 'none', sm: 'table-cell' } }}>{t('Details')}</TableCell>
+              <TableCell sx={{ width: '25%' }}>{t('Actor')}</TableCell>
+            </TableRow></TableHead>
+            <TableBody>{activity.rows.map((row, index) => {
+              const color = row.tone === 'ok' ? P.success : row.tone === 'error' ? P.error : row.tone === 'running' ? P.accentText : P.textSecondary;
+              return <TableRow hover key={`${row.at}-${row.event}-${index}`}>
+                <TableCell><Tooltip title={formatTimestamp(row.at)}><span>{relativeTime(row.at)}</span></Tooltip></TableCell>
+                <TableCell><StatePill color={color}>{row.event}</StatePill></TableCell>
+                <TableCell sx={{ fontFamily: 'monospace', fontSize: TYPOGRAPHY.caption.size, overflowWrap: 'anywhere' }}>{row.target || '—'}</TableCell>
+                <TableCell sx={{ whiteSpace: 'normal !important', overflowWrap: 'anywhere' }}>{row.details || '—'}</TableCell>
+                <TableCell>{row.actor || '—'}</TableCell>
+              </TableRow>;
+            })}</TableBody>
+          </Table></Paper>
+        ))}
+      </>}
 
       {(tab === 1 || tab === 3 || tab === 4) && <Typography variant="body2" sx={{ mt: 2 }}>
         <a href="/docs/user-guide/troubleshooting">Troubleshooting and log review guide</a>

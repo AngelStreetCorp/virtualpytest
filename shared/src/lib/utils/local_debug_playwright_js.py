@@ -1,6 +1,64 @@
 #!/usr/bin/env python3
 """Shared JavaScript snippets for local-debug Playwright web scripts."""
 
+# The sound state of the page: is the media muted, and how loud is it.
+#
+# A page that plays a video muted is silent while everything is fine - the
+# player shows a mute icon and the device is not broken. So a check that
+# watches for sound asks the page first. Reports the media element that is
+# actually playing (the same pick as WEB_JS_VIDEO_STATUS).
+WEB_JS_AUDIO_STATE = r"""
+(() => {
+  const medias = Array.from(document.querySelectorAll('video, audio'));
+  if (!medias.length) return {found: false, muted: null, volume: null};
+  const score = (v) => {
+    let area = 0;
+    try { const r = v.getClientRects(); if (r.length) area = r[0].width * r[0].height; } catch (_) {}
+    const active = (!v.paused && !v.ended && v.readyState >= 2) ? 1e12 : 0;
+    return active + area;
+  };
+  const v = medias.slice().sort((a, b) => score(b) - score(a))[0];
+  let volume = null;
+  try { volume = v.volume; } catch (_) {}
+  return {
+    found: true,
+    muted: !!v.muted,
+    volume: volume,
+    tag: v.tagName.toLowerCase(),
+    count: medias.length
+  };
+})()
+"""
+
+# Clear a mute the page reports: set muted=false and, when the player still
+# refuses, click its "Unmute" button. Returns what it managed to do.
+WEB_JS_ENSURE_UNMUTED = r"""
+(() => {
+  const medias = Array.from(document.querySelectorAll('video, audio'));
+  if (!medias.length) return {success: false, error: 'no media element found', muted: null};
+
+  const score = (v) => {
+    let area = 0;
+    try { const r = v.getClientRects(); if (r.length) area = r[0].width * r[0].height; } catch (_) {}
+    const active = (!v.paused && !v.ended && v.readyState >= 2) ? 1e12 : 0;
+    return active + area;
+  };
+  const v = medias.slice().sort((a, b) => score(b) - score(a))[0];
+
+  const wasMuted = !!v.muted;
+  try { v.muted = false; } catch (_) {}
+  if (!v.muted) {
+    return {success: true, via: 'media.muted=false', muted: false, wasMuted: wasMuted};
+  }
+
+  const btn = document.querySelector('[aria-label*="Unmute"], [aria-label*="unmute"], div[role="button"][aria-label*="Unmute"]');
+  if (btn) {
+    try { btn.click(); } catch (_) {}
+  }
+  return {success: !v.muted, via: btn ? 'unmute-button' : 'none', muted: v.muted, wasMuted: wasMuted};
+})()
+"""
+
 # Native, site-agnostic playback probe. Picks the video that is actually
 # playing (largest active element, so it survives feed pages with multiple
 # <video> nodes) and reports the decoded-frame counter from
@@ -9,14 +67,51 @@
 # currentTime delta lies. Falls back to webkitDecodedFrameCount on WebKit.
 WEB_JS_VIDEO_STATUS = r"""
 (() => {
-  const vids = Array.from(document.querySelectorAll('video'));
-  if (!vids.length) return { found: false };
   const score = (v) => {
     let area = 0;
     try { const r = v.getClientRects(); if (r.length) area = r[0].width * r[0].height; } catch (_) {}
     const active = (!v.paused && !v.ended && v.readyState >= 2) ? 1e12 : 0;
     return active + area;
   };
+  const srcHost = (raw) => {
+    try {
+      if (!raw) return null;
+      const base = (document && document.baseURI) ? document.baseURI : undefined;
+      const u = new URL(raw, base);
+      return u.host || null;
+    } catch (_) { return null; }
+  };
+  const PLAYERISH = /player|video|embed|stream|media|vjs|shaka|jwplayer|hls|dash|watch/i;
+  let frames = [];
+  try { frames = Array.from(document.querySelectorAll('iframe')); } catch (_) {}
+  const playerLike = frames.filter((f) => {
+    let hay = '';
+    try {
+      hay = [f.getAttribute('src'), f.getAttribute('id'), f.getAttribute('class'),
+             f.getAttribute('title'), f.getAttribute('name')]
+        .filter(Boolean).join(' ');
+    } catch (_) {}
+    return PLAYERISH.test(hay);
+  });
+  const vids = Array.from(document.querySelectorAll('video'));
+  if (!vids.length) {
+    let consentWallLikely = false;
+    try {
+      consentWallLikely = !!document.querySelector(
+        '[id*="consent" i], [class*="consent" i], [data-testid*="consent" i], ' +
+        '[class*="cookie" i][class*="banner" i], [id*="cookie" i][class*="banner" i], ' +
+        'button[aria-label*="Accept" i], button[aria-label*="Agree" i]'
+      );
+    } catch (_) {}
+    return {
+      found: false,
+      videoCount: 0,
+      reason: 'no_video_element_in_top_document',
+      iframeCount: frames.length,
+      playerLikeIframes: playerLike.length,
+      consentWallLikely: consentWallLikely
+    };
+  }
   const v = vids.slice().sort((a, b) => score(b) - score(a))[0];
   let totalVideoFrames = null, droppedVideoFrames = null;
   try {
@@ -30,9 +125,11 @@ WEB_JS_VIDEO_STATUS = r"""
   } catch (_) {}
   let buffered = 0;
   try { buffered = v.buffered.length ? v.buffered.end(v.buffered.length - 1) : 0; } catch (_) {}
+  const rawSrc = v.currentSrc || v.src || '';
   return {
     found: true,
     videoCount: vids.length,
+    elementIndex: vids.indexOf(v),
     currentTime: v.currentTime,
     duration: v.duration,
     paused: v.paused,
@@ -43,7 +140,107 @@ WEB_JS_VIDEO_STATUS = r"""
     totalVideoFrames: totalVideoFrames,
     droppedVideoFrames: droppedVideoFrames,
     error: v.error ? v.error.code : null,
-    src: v.currentSrc || v.src || ''
+    srcHost: srcHost(rawSrc),
+    iframeCount: frames.length,
+    playerLikeIframes: playerLike.length
+  };
+})()
+"""
+
+# Force playback on the SAME element the status probe watches, and report what
+# play() actually did.
+#
+# The old snippet picked the FIRST <video> (not the best-scoring one the probe
+# watches), called play(), dropped the returned promise and answered
+# "attempted: true" whether the promise resolved or was rejected - so a blocked
+# autoplay, an unsupported source, a DRM-protected stream and a decode error
+# were all indistinguishable from a successful attempt.
+#
+# This snippet:
+#   - plays the same best-scoring element the probe watches (same scoring rule,
+#     same document order), and reports its index so a mismatch is visible;
+#   - awaits the play() promise, bounded by a timeout, and reports the outcome
+#     (resolved / rejected / pending / threw) with the rejection reason;
+#   - keeps the old keys (found, attempted, played, paused, currentTime,
+#     hasPromise) so existing callers keep working.
+WEB_JS_FORCE_PLAY = r"""
+(async () => {
+  const score = (v) => {
+    let area = 0;
+    try { const r = v.getClientRects(); if (r.length) area = r[0].width * r[0].height; } catch (_) {}
+    const active = (!v.paused && !v.ended && v.readyState >= 2) ? 1e12 : 0;
+    return active + area;
+  };
+  const vids = Array.from(document.querySelectorAll('video'));
+  if (!vids.length) {
+    return {
+      found: false,
+      attempted: false,
+      played: false,
+      hasPromise: false,
+      playOutcome: 'no_video_element',
+      playError: null,
+      playErrorName: null,
+      elementIndex: null,
+      videoCount: 0
+    };
+  }
+  const video = vids.slice().sort((a, b) => score(b) - score(a))[0];
+  const elementIndex = vids.indexOf(video);
+  try { video.muted = true; } catch (_) {}
+  let promise = null;
+  try {
+    promise = video.play();
+  } catch (e) {
+    return {
+      found: true,
+      attempted: true,
+      played: false,
+      hasPromise: false,
+      playOutcome: 'threw',
+      playError: String((e && e.message) || e),
+      playErrorName: (e && e.name) ? String(e.name) : null,
+      elementIndex: elementIndex,
+      videoCount: vids.length,
+      paused: video.paused,
+      currentTime: video.currentTime
+    };
+  }
+  const hasPromise = !!(promise && typeof promise.then === 'function');
+  let outcome = 'no_promise';
+  let playError = null;
+  let playErrorName = null;
+  if (hasPromise) {
+    const settled = await Promise.race([
+      promise.then(
+        () => ({ outcome: 'resolved' }),
+        (e) => ({
+          outcome: 'rejected',
+          error: String((e && e.message) || e),
+          errorName: (e && e.name) ? String(e.name) : null
+        })
+      ),
+      new Promise((resolve) => setTimeout(() => resolve({ outcome: 'pending' }), 1500))
+    ]);
+    outcome = settled.outcome;
+    playError = settled.error || null;
+    playErrorName = settled.errorName || null;
+    if (outcome === 'pending' && !playError) {
+      playError = 'play() did not settle within 1500ms';
+    }
+  }
+  return {
+    found: true,
+    attempted: true,
+    played: outcome === 'resolved',
+    hasPromise: hasPromise,
+    playOutcome: outcome,
+    playError: playError,
+    playErrorName: playErrorName,
+    elementIndex: elementIndex,
+    videoCount: vids.length,
+    paused: video.paused,
+    currentTime: video.currentTime
   };
 })()
 """
@@ -360,25 +557,7 @@ YOUTUBE_JS_VIDEO_STATUS = WEB_JS_VIDEO_STATUS
 YOUTUBE_JS_INSTALL_FIRST_FRAME_PROBE = WEB_JS_INSTALL_FIRST_FRAME_PROBE
 YOUTUBE_JS_GET_FIRST_FRAME = WEB_JS_GET_FIRST_FRAME
 
-YOUTUBE_JS_FORCE_PLAY = """
-(() => {
-    const video = document.querySelector('video');
-    if (!video) return { found: false, attempted: false };
-    try {
-        video.muted = true;
-        const maybePromise = video.play();
-        return {
-            found: true,
-            attempted: true,
-            paused: video.paused,
-            currentTime: video.currentTime,
-            hasPromise: !!maybePromise
-        };
-    } catch (e) {
-        return { found: true, attempted: true, error: String(e) };
-    }
-})()
-"""
+YOUTUBE_JS_FORCE_PLAY = WEB_JS_FORCE_PLAY
 
 YOUTUBE_JS_ENTER_FULLSCREEN = """
 (() => {
@@ -511,23 +690,7 @@ FACEBOOK_JS_PLAY = r"""
 })()
 """
 
-FACEBOOK_JS_ENSURE_UNMUTED = r"""
-(() => {
-  const video = document.querySelector('video');
-  if (!video) return {success: false, error: 'video not found'};
-
-  try { video.muted = false; } catch (_) {}
-  if (!video.muted) {
-    return {success: true, via: 'video.muted=false', muted: video.muted};
-  }
-
-  const btn = document.querySelector('[aria-label*="Unmute"], div[role="button"][aria-label*="Unmute"]');
-  if (btn) {
-    try { btn.click(); } catch (_) {}
-  }
-  return {success: !video.muted, via: btn ? 'unmute-button' : 'none', muted: video.muted};
-})()
-"""
+FACEBOOK_JS_ENSURE_UNMUTED = WEB_JS_ENSURE_UNMUTED
 
 FACEBOOK_JS_ENTER_FULLSCREEN = r"""
 (() => {
@@ -572,19 +735,7 @@ NETFLIX_JS_WAIT_FOR_LOGIN_RESULT = """
 
 NETFLIX_JS_VIDEO_STATUS = WEB_JS_VIDEO_STATUS
 
-NETFLIX_JS_FORCE_PLAY = """
-(() => {
-    const video = document.querySelector('video');
-    if (!video) return { found: false, played: false };
-    try {
-        video.muted = true;
-        const p = video.play();
-        return { found: true, played: true, paused: video.paused, hasPromise: !!p, currentTime: video.currentTime };
-    } catch (e) {
-        return { found: true, played: false, error: String(e) };
-    }
-})()
-"""
+NETFLIX_JS_FORCE_PLAY = WEB_JS_FORCE_PLAY
 
 NETFLIX_JS_CLICK_GENERIC_PLAY = """
 (() => {
@@ -1132,25 +1283,7 @@ DAILYMOTION_JS_VIDEO_STATUS = WEB_JS_VIDEO_STATUS
 DAILYMOTION_JS_INSTALL_FIRST_FRAME_PROBE = WEB_JS_INSTALL_FIRST_FRAME_PROBE
 DAILYMOTION_JS_GET_FIRST_FRAME = WEB_JS_GET_FIRST_FRAME
 
-DAILYMOTION_JS_FORCE_PLAY = """
-(() => {
-    const video = document.querySelector('video');
-    if (!video) return { found: false, attempted: false };
-    try {
-        video.muted = true;
-        const maybePromise = video.play();
-        return {
-            found: true,
-            attempted: true,
-            paused: video.paused,
-            currentTime: video.currentTime,
-            hasPromise: !!maybePromise
-        };
-    } catch (e) {
-        return { found: true, attempted: true, error: String(e) };
-    }
-})()
-"""
+DAILYMOTION_JS_FORCE_PLAY = WEB_JS_FORCE_PLAY
 
 DAILYMOTION_JS_ENTER_FULLSCREEN = """
 (() => {

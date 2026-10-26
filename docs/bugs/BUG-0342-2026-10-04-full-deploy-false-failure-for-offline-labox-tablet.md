@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low - false alarm, the deploy itself worked                  |
 | Area      | `update_core.sh` host list on the proxmox node (live copy, not in the repo) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | none: the live `~/update_core.sh` on proxmox was edited      |
 
 ---

@@ -9,7 +9,7 @@
 | Severity  | Low — IR on a Fire TV only worked with the misspelled type        |
 | Status    | Fixed (pending deploy)                                            |
 | Area      | `backend_host/src/controllers/remote/ir_conf/`                    |
-| Fixed in  | Unreleased                                                        |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                       |
 
 ---

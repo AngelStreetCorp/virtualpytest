@@ -304,6 +304,28 @@ ALLOW_404 = {
     '/server/run-management/results/labels': 'no labels for the synthetic run id',
     '/server/settings/host-config': 'host-config belongs to a different host or not registered',
     '/server/agents/<agent_id>/logs': 'no agent logs yet for this agent id',
+    '/server/ai_userinterface/get/<ui_id>': 'synthetic ui_id the sweep cannot resolve — 404 is the healthy answer',
+    # Testcase routes: NOT a list-vs-get filtering mismatch. Both sides read the
+    # same table, the same id column and the same team filter —
+    # list_testcases() selects testcase_definitions .eq('team_id', team_id)
+    # (testcase_db.py) and get_testcase() selects testcase_definitions
+    # .eq('testcase_id', id).eq('team_id', team_id); /history, /labels and
+    # /versions are all gated on that same lookup. So every id the list returns
+    # is readable by get for the same caller — the set can only shrink, never
+    # 404 on an id the list just produced.
+    #
+    # The real cause is the sweep's own resolve cache: ParamResolver caches the
+    # first /server/testcase/list pick for the WHOLE run (self.cache[cache_key]),
+    # discovery resolves every id up front (load_discovered_endpoints) and the
+    # probes only fire later in the endpoint loop. The four subroutes therefore
+    # share ONE id and the staleness window is the entire sweep (minutes, not
+    # seconds) — which is exactly why all four failed together on one run.
+    # The route is live and the lookup is honest; "test case not found" is the
+    # healthy answer for an id that went away since discovery.
+    '/server/testcase/<testcase_id>':          'id resolved once from /list and cached for the whole sweep; the row can go away before the probe runs',
+    '/server/testcase/<testcase_id>/history': 'id resolved once from /list and cached for the whole sweep; the row can go away before the probe runs',
+    '/server/testcase/<testcase_id>/labels':  'id resolved once from /list and cached for the whole sweep; the row can go away before the probe runs',
+    '/server/testcase/<testcase_id>/versions':'id resolved once from /list and cached for the whole sweep; the row can go away before the probe runs',
 }
 
 #: Routes where 400 is the healthy answer (an upstream dependency is not yet
@@ -316,6 +338,37 @@ ALLOW_400 = {
     '/server/custom-reports/<report_id>':      'custom-reports smoke endpoint is intentionally permissive',
     '/server/integrations/testrail/cases':    'no testrail project configured for this team',
     '/server/training-samples/screen-groups': 'no screen groups defined for this device',
+    # The following routes are healthy when they reject a bare GET, because they need
+    # param shapes the discover sweep cannot synthesize — script_result_ids is a list,
+    # `project` is a gitlab project slug, `instance_id` belongs to a configured
+    # integration. Adding them here turns "missing param" into a known-good row.
+    '/server/ai/usage/run':                          'needs script_result_ids=<list> (run ids the sweep cannot synthesize)',
+    '/server/drone/tello/status':                    'needs team_id + drone device_id the sweep does not carry',
+    '/server/gitlab/project':                        'needs ?project=<slug> — belongs to a configured GitLab instance',
+    '/server/gitlab/project/branches':               'needs ?project=<slug>',
+    '/server/gitlab/project/file':                   'needs ?project=<slug> + ?file_path',
+    '/server/gitlab/project/jobs/trace':             'needs ?project=<slug> + ?job_id',
+    '/server/gitlab/project/overview':               'needs ?project=<slug>',
+    '/server/gitlab/project/pipelines':              'needs ?project=<slug>',
+    '/server/gitlab/project/pipelines/jobs':         'needs ?project=<slug> + ?pipeline_id',
+    '/server/gitlab/project/readme':                 'needs ?project=<slug>',
+    '/server/gitlab/project/tree':                   'needs ?project=<slug>',
+    '/server/heatmap/discardedIncidents':            'needs ?id=<heatmap_id>',
+    '/server/mods/widgets':                          'needs ?path=<widgets/.json path>',
+    '/server/script/liveProgress':                   'needs ?host_name=<host> + ?device_id=<device>',
+    '/server/action/execution/<execution_id>/status':'needs ?host_name=<host> (actions route forwarder)',
+    '/server/settings/host-grabbers':                'needs ?host_name=<host>',
+    '/server/settings/host-monitor-profiles':        'needs ?host_name=<host>',
+    '/server/settings/host-monitor-profiles/status': 'needs ?host_name=<host>',
+    '/server/userinterface/domReport/url':           'needs ?userinterface=<name>',
+}
+
+#: Routes where 5xx is the healthy answer when an upstream service is configured but
+#: unreachable from CI (e.g. a customer's GitLab instance behind a private network).
+#: Same shape as ALLOW_400 / ALLOW_404 — rule -> reason; pre-empts discover_verdict.
+ALLOW_5xx = {
+    '/server/gitlab/projects': 'configured GitLab instance is unreachable from the runner',
+    '/server/gitlab/runners':  'configured GitLab instance is unreachable from the runner',
 }
 
 #: The GETs that forward to a host need a `host_name` (and sometimes a `device_id`) that
@@ -610,6 +663,8 @@ def discover_verdict(endpoint: dict, status_code: int):
     if status_code == 404 and endpoint.get('rule') in ALLOW_404:
         return True, None
     if status_code == 400 and endpoint.get('rule') in ALLOW_400:
+        return True, None
+    if status_code >= 500 and endpoint.get('rule') in ALLOW_5xx:
         return True, None
     if status_code == 404:
         return False, '404 — route or resolved id not found'

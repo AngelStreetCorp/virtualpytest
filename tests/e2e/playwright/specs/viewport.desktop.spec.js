@@ -60,7 +60,10 @@ test.describe('Viewport Desktop (1280x800)', () => {
   test('API docs layout has no horizontal overflow', async ({ page }) => {
     await gotoWithAutoSign(page, '/docs/api');
     await skipIfNotAuthenticated(page);
-    await expect(page.getByRole('heading', { name: /API Documentation/i })).toBeVisible();
+    // The docs shell now owns /docs/api: the header bar reads "API Reference" (H1 of
+    // docs/api/README.md) — the previous "API Documentation" text was on the removed
+    // standalone ApiDocumentation page.
+    await expect(page.getByRole('heading', { name: /API Reference/i })).toBeVisible();
     await expect(page.locator('iframe')).toBeVisible();
     await expectNoHorizontalOverflow(page);
   });

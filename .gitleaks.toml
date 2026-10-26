@@ -27,6 +27,11 @@ paths = [
   '''.*\.example$''',
   # Lockfiles: integrity hashes trip the entropy rules and carry no secrets.
   '''(^|/)(package-lock\.json|yarn\.lock|pnpm-lock\.yaml)$''',
+  # LAN-probe smoke scripts: read X-API-Key from the API_KEY env var (the script aborts if
+  # the var is unset, per the comment above the assignment) and pass it to curl. The
+  # `VPT_API_KEY="$API_KEY"` line matches generic-api-key on shape but carries no literal.
+  # Keep the path narrow so a real key in any other script keeps tripping the gate.
+  '''scripts/smoke_match_runs.*\.sh$''',
 ]
 
 regexes = [

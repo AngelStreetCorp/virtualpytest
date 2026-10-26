@@ -100,6 +100,9 @@ def scrub_messages(messages: Any) -> Any:
         if kind == "image":
             source = messages.get("source") or {}
             return {"type": "image", "note": IMAGE_PLACEHOLDER.format(media_type=source.get("media_type", "image"))}
+        if kind == "input_audio":
+            audio = messages.get("input_audio") or {}
+            return {"type": "input_audio", "note": f"[{audio.get('format', 'audio')} audio omitted]"}
         if kind == "image_url":
             url = (messages.get("image_url") or {}).get("url", "")
             media = url.split(";", 1)[0].replace("data:", "") if url.startswith("data:") else "url"

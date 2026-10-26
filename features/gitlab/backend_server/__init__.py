@@ -15,6 +15,11 @@ for configuring an instance or changing the selected project — same shape as
 `plugins.jira:view/:manage` in the core integrations routes. Triggering a pipeline additionally
 requires a signed-in user, because it is a side effect on the customer's CI.
 
+This feature is a GitLab READER, and nothing else. Building a delivery bundle used to live here as
+`/package/*` driven by a panel on the page; packaging is a rollout concern and moved to
+`setup/proxmox/node/lib/customer_bundle.py` (owner decision, 2026-10-13), so this module exposes no
+packaging route at all. Do not add one back without asking.
+
 Every GitLabError becomes a 502 (or its own 4xx when GitLab says 4xx) carrying GitLab's reason
 rather than a stack trace: gitlab_api raises GitLabError with a readable message on purpose.
 """
@@ -57,6 +62,22 @@ def _instance(instance_id: str = None):
     if not inst or not inst.get('token'):
         return None
     return inst['base_url'], inst['token']
+
+
+def _project_or_400():
+    """The `project` query argument, or a 400 when it is missing.
+
+    The project is a query argument and NOT a path segment, on purpose. Every GitLab project is
+    namespaced (`group/project`), and Flask's default string converter does not match a path
+    segment carrying an encoded slash — so `/projects/root%2Fvpt-customer/tree` matches no route,
+    falls through to the auto_proxy catch-all, and comes back as a 400 about `host_name`, a
+    parameter this feature has never heard of. The 400 said nothing about the real problem, and
+    it hit every namespaced project, i.e. all of them.
+    """
+    project = (request.args.get('project') or '').strip()
+    if not project:
+        return None, (jsonify({'success': False, 'error': 'project is required'}), 400)
+    return project, None
 
 
 # ─── instances (the "set it up" form) ────────────────────────────────────────
@@ -201,10 +222,13 @@ def list_projects():
     return jsonify({'success': True, 'projects': out, 'truncated': len(rows) > HEALTH_PROJECT_LIMIT})
 
 
-@feature_gitlab_bp.route('/projects/<project>', methods=['GET'], strict_slashes=False)
+@feature_gitlab_bp.route('/project', methods=['GET'], strict_slashes=False)
 @require_permission('plugins.gitlab:view')
 @handle_route_exceptions('gitlab:get_project')
-def get_project(project: str):
+def get_project():
+    project, err = _project_or_400()
+    if err:
+        return err
     target = _instance()
     if not target:
         return _not_configured('No GitLab instance configured')
@@ -215,26 +239,54 @@ def get_project(project: str):
         return _bad_request(exc)
 
 
-@feature_gitlab_bp.route('/projects/<project>/branches', methods=['GET'], strict_slashes=False)
+@feature_gitlab_bp.route('/project/branches', methods=['GET'], strict_slashes=False)
 @require_permission('plugins.gitlab:view')
 @handle_route_exceptions('gitlab:branches')
-def branches(project: str):
+def branches():
+    project, err = _project_or_400()
+    if err:
+        return err
     target = _instance()
     if not target:
         return _not_configured('No GitLab instance configured')
     try:
+        names = gitlab_api.branches(project, per_page=100, api=target[0], tok=target[1])
+        # branches() now returns names only (test contract: drop entries without `name`).
+        # The frontend GitLabPage renders commit dates next to each branch, so wrap each name
+        # as {name, commit: null} — the commit metadata isn't returned here. The frontend's
+        # ago(null) renders the same dash the empty state already shows.
         return jsonify({'success': True,
-                        'branches': gitlab_api.branches(project, api=target[0], tok=target[1])})
+                        'branches': [{'name': n, 'commit': None} for n in names]})
+    except GitLabError as exc:
+        return _bad_request(exc)
+
+
+@feature_gitlab_bp.route('/project/overview', methods=['GET'], strict_slashes=False)
+@require_permission('plugins.gitlab:view')
+@handle_route_exceptions('gitlab:overview')
+def overview():
+    project, err = _project_or_400()
+    if err:
+        return err
+    target = _instance()
+    if not target:
+        return _not_configured('No GitLab instance configured')
+    try:
+        return jsonify({'success': True, 'overview': gitlab_api.overview(
+            project, ref=request.args.get('ref') or None, api=target[0], tok=target[1])})
     except GitLabError as exc:
         return _bad_request(exc)
 
 
 # ─── repository ──────────────────────────────────────────────────────────────
 
-@feature_gitlab_bp.route('/projects/<project>/tree', methods=['GET'], strict_slashes=False)
+@feature_gitlab_bp.route('/project/tree', methods=['GET'], strict_slashes=False)
 @require_permission('plugins.gitlab:view')
 @handle_route_exceptions('gitlab:tree')
-def tree(project: str):
+def tree():
+    project, err = _project_or_400()
+    if err:
+        return err
     target = _instance()
     if not target:
         return _not_configured('No GitLab instance configured')
@@ -242,15 +294,24 @@ def tree(project: str):
         entries = gitlab_api.repository_tree(
             project, ref=request.args.get('ref') or None,
             path=request.args.get('path') or '', api=target[0], tok=target[1])
+        if request.args.get('with_commits') in ('1', 'true'):
+            commits = gitlab_api.last_commits(
+                project, request.args.get('ref') or None, [e['path'] for e in entries],
+                api=target[0], tok=target[1])
+            for e in entries:
+                e['last_commit'] = commits.get(e['path'])
         return jsonify({'success': True, 'entries': entries})
     except GitLabError as exc:
         return _bad_request(exc)
 
 
-@feature_gitlab_bp.route('/projects/<project>/readme', methods=['GET'], strict_slashes=False)
+@feature_gitlab_bp.route('/project/readme', methods=['GET'], strict_slashes=False)
 @require_permission('plugins.gitlab:view')
 @handle_route_exceptions('gitlab:readme')
-def readme(project: str):
+def readme():
+    project, err = _project_or_400()
+    if err:
+        return err
     target = _instance()
     if not target:
         return _not_configured('No GitLab instance configured')
@@ -262,10 +323,13 @@ def readme(project: str):
         return _bad_request(exc)
 
 
-@feature_gitlab_bp.route('/projects/<project>/file', methods=['GET'], strict_slashes=False)
+@feature_gitlab_bp.route('/project/file', methods=['GET'], strict_slashes=False)
 @require_permission('plugins.gitlab:view')
 @handle_route_exceptions('gitlab:file')
-def repository_file(project: str):
+def repository_file():
+    project, err = _project_or_400()
+    if err:
+        return err
     path = request.args.get('path') or ''
     if not path:
         return jsonify({'success': False, 'error': 'path is required'}), 400
@@ -282,10 +346,13 @@ def repository_file(project: str):
 
 # ─── pipelines ───────────────────────────────────────────────────────────────
 
-@feature_gitlab_bp.route('/projects/<project>/pipelines', methods=['GET'], strict_slashes=False)
+@feature_gitlab_bp.route('/project/pipelines', methods=['GET'], strict_slashes=False)
 @require_permission('plugins.gitlab:view')
 @handle_route_exceptions('gitlab:pipelines')
-def pipelines(project: str):
+def pipelines():
+    project, err = _project_or_400()
+    if err:
+        return err
     target = _instance()
     if not target:
         return _not_configured('No GitLab instance configured')
@@ -298,11 +365,19 @@ def pipelines(project: str):
         return _bad_request(exc)
 
 
-@feature_gitlab_bp.route('/projects/<project>/pipelines/<int:pipeline_id>/jobs',
-                          methods=['GET'], strict_slashes=False)
+@feature_gitlab_bp.route('/project/pipelines/jobs', methods=['GET'], strict_slashes=False)
 @require_permission('plugins.gitlab:view')
 @handle_route_exceptions('gitlab:pipeline_jobs')
-def pipeline_jobs(project: str, pipeline_id: int):
+def pipeline_jobs():
+    project, err = _project_or_400()
+    if err:
+        return err
+    try:
+        pipeline_id = int(request.args.get('pipeline_id') or 0)
+    except ValueError:
+        return jsonify({'success': False, 'error': 'pipeline_id must be a number'}), 400
+    if not pipeline_id:
+        return jsonify({'success': False, 'error': 'pipeline_id is required'}), 400
     target = _instance()
     if not target:
         return _not_configured('No GitLab instance configured')
@@ -328,16 +403,19 @@ def runners():
 
 # ─── actions ─────────────────────────────────────────────────────────────────
 
-@feature_gitlab_bp.route('/projects/<project>/trigger', methods=['POST'], strict_slashes=False)
+@feature_gitlab_bp.route('/project/trigger', methods=['POST'], strict_slashes=False)
 @require_user_auth
 @require_permission('plugins.gitlab:view')
 @handle_route_exceptions('gitlab:trigger')
-def trigger(project: str):
+def trigger():
     """Start a pipeline on the customer's GitLab.
 
     GitLab CE 19.4 cannot take parameters here — a bare `ref` is the only form it accepts (see
     lib/gitlab_api.py::trigger_pipeline) — so `inputs` is only forwarded when the caller sends it.
     """
+    project, err = _project_or_400()
+    if err:
+        return err
     target = _instance()
     if not target:
         return _not_configured('No GitLab instance configured')
@@ -351,11 +429,19 @@ def trigger(project: str):
         return _bad_request(exc)
 
 
-@feature_gitlab_bp.route('/projects/<project>/jobs/<int:job_id>/trace',
-                          methods=['GET'], strict_slashes=False)
+@feature_gitlab_bp.route('/project/jobs/trace', methods=['GET'], strict_slashes=False)
 @require_permission('plugins.gitlab:view')
 @handle_route_exceptions('gitlab:job_trace')
-def job_trace(project: str, job_id: int):
+def job_trace():
+    project, err = _project_or_400()
+    if err:
+        return err
+    try:
+        job_id = int(request.args.get('job_id') or 0)
+    except ValueError:
+        return jsonify({'success': False, 'error': 'job_id must be a number'}), 400
+    if not job_id:
+        return jsonify({'success': False, 'error': 'job_id is required'}), 400
     target = _instance()
     if not target:
         return _not_configured('No GitLab instance configured')

@@ -1,4 +1,4 @@
-import { LightMode, DarkMode, SettingsBrightness } from '@mui/icons-material';
+import { LightMode, DarkMode, DesktopWindowsOutlined } from '@mui/icons-material';
 import { IconButton, Menu, Tooltip } from '@mui/material';
 import React from 'react';
 
@@ -22,7 +22,7 @@ const ThemeToggle: React.FC = () => {
 
   const getCurrentIcon = () => {
     if (mode === 'system') {
-      return <SettingsBrightness />;
+      return <DesktopWindowsOutlined />;
     }
     return actualMode === 'dark' ? <DarkMode /> : <LightMode />;
   };

@@ -19,6 +19,7 @@ import {
   getAllServerUrls,
 } from '../../frontend/src/utils/buildUrlUtils';
 import { APP_CONFIG, STORAGE_KEYS } from '../../frontend/src/config/constants';
+import { ALL_SERVERS_SENTINEL } from '../../frontend/src/lib/allServer/scope';
 
 const PRIMARY = 'https://primary.example.com';
 const SECONDARY = 'https://secondary.example.com';
@@ -68,6 +69,17 @@ describe('buildServerUrlForServer', () => {
     // This is why the relative branch below is unreachable from here: an unset
     // VITE_SERVER_URL cannot reach buildServerUrlForServer at all.
     expect(() => buildServerUrlForServer('', ENDPOINT)).toThrow(/Invalid serverUrl/);
+  });
+
+  it('never builds a request against the "__all__" sentinel (BUG-0769)', () => {
+    localStorage.clear();
+    delete (window as unknown as Record<string, unknown>).__VPT_CONFIG__;
+
+    const url = buildServerUrlForServer(ALL_SERVERS_SENTINEL, ENDPOINT);
+
+    expect(url).not.toContain('__all__');
+    expect(() => new URL(url)).not.toThrow();
+    expect(new URL(url).searchParams.get('team_id')).toBe(TEAM);
   });
 });
 

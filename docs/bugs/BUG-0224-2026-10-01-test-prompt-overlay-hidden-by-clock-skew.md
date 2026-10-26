@@ -9,7 +9,7 @@
 | Status    | Fixed — deployed and verified 2026-10-01                     |
 | Severity  | Medium — a viewer whose clock is more than 5 s ahead of the host never sees live steps on the stream |
 | Area      | `features/ai-test/frontend/hooks/useTestPromptPage.ts` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

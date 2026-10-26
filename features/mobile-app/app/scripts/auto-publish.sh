@@ -65,6 +65,18 @@ fi
 
 # --- build tree --------------------------------------------------------------
 if [ ! -d "$BUILD_TREE/.git" ] && [ ! -f "$BUILD_TREE/.git" ]; then
+  # A build tree left behind by a killed run makes `worktree add` fail with
+  # "already exists", and the publisher then never builds again - the app stays on
+  # its old version for ever and nothing says why. Prune the registration and clear
+  # the leftover directory, then add the worktree again.
+  if [ -e "$BUILD_TREE" ]; then
+    log "clearing the stale build tree $BUILD_TREE"
+    git -C "$SRC_REPO" worktree prune || true
+    case "$BUILD_TREE" in
+      "$HOME"/*) rm -rf "$BUILD_TREE" ;;
+      *) log "refusing to clear $BUILD_TREE: it is not under $HOME"; exit 1 ;;
+    esac
+  fi
   git -C "$SRC_REPO" worktree add --detach "$BUILD_TREE" origin/main || { log "worktree add failed"; exit 1; }
 fi
 
@@ -80,7 +92,38 @@ build_and_publish() {
   # or failure) so they don't sit idle for hours until the next run.
   local build_java_home="${JAVA_HOME:-}"
   trap '(cd "$android" && JAVA_HOME="$build_java_home" ./gradlew --stop) >/dev/null 2>&1 || true; trap - RETURN' RETURN
-  export VPT_APK_VERSION_CODE; VPT_APK_VERSION_CODE=$(git -C "$BUILD_TREE" rev-list --count HEAD) || return 1
+  # The version code has to GROW. Android refuses an update whose code is not higher
+  # than the installed one, and `git rev-list --count` is only the real history on a
+  # FULL clone - on a shallow one it counts only what was fetched, which can be lower
+  # than the code the installed app already carries. The published APK then looks
+  # older than the one on the phone and the app says "up to date" for ever.
+  # So: take the commit count, and if it is not above what is published, publish the
+  # next number instead.
+  # Three numbers have to agree, and the largest one wins:
+  #   * the commit count of the build tree - the real history only on a FULL clone;
+  #   * the version code of the APK that is published right now;
+  #   * the highest code this publisher ever handed out ($STATE/version-code).
+  # The third one is what keeps a phone from being stuck: a phone that installed a
+  # build with a high code (a full-clone build, say) refuses every later APK whose
+  # code is lower, and the app then says "up to date" with a new file on the server.
+  local code published_code high
+  code=$(git -C "$BUILD_TREE" rev-list --count HEAD) || return 1
+  published_code=$(curl -s -m 15 "${PUBLIC_APK_URL}.json" 2>/dev/null | python3 -c 'import json,sys
+try:
+    print(int(json.load(sys.stdin).get("version_code", 0)))
+except Exception:
+    print(0)' 2>/dev/null) || published_code=0
+  case "$published_code" in ''|*[!0-9]*) published_code=0 ;; esac
+  high=$(cat "$STATE/version-code" 2>/dev/null || echo 0)
+  case "$high" in ''|*[!0-9]*) high=0 ;; esac
+  if [ "$code" -le "$published_code" ] || [ "$code" -le "$high" ]; then
+    local floor=$published_code
+    [ "$high" -gt "$floor" ] && floor=$high
+    code=$((floor + 1))
+    log "commit count is not above the published code $published_code / high-water $high - publishing as $code"
+  fi
+  echo "$code" > "$STATE/version-code"
+  export VPT_APK_VERSION_CODE=$code
   # git-ignored build inputs: signing key kept in $STATE, SDK path, download URL baked into the app
   cp "$STATE/keystore.properties" "$android/keystore.properties" || { log "missing $STATE/keystore.properties"; return 1; }
   mkdir -p "$android/keystore" && cp "$STATE/release.jks" "$android/keystore/release.jks" || return 1

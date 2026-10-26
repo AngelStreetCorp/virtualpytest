@@ -74,6 +74,8 @@ import { NavigationEditorProvider } from '../contexts/navigation/NavigationEdito
 import { useDeviceData } from '../contexts/device/DeviceDataContext';
 import { StyledDialog } from '../components/common/StyledDialog';
 import { DEFAULT_VIEWPORT, ZOOM_CONSTRAINTS, FIT_VIEW_OPTIONS } from '../constants/builderDefaults';
+import { dangerButtonSx } from '../components/common/PageChrome';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 
 // Define node types for React Flow - reuse TestCase terminal blocks
 const nodeTypes = {
@@ -110,6 +112,7 @@ const defaultEdgeOptions = {
 
 // Exported for embedding in ContentViewer
 export const CampaignBuilderContent: React.FC = () => {
+  const P = useAgentChatPalette();
   // Inject styles to hide React Flow attribution
   React.useEffect(() => {
     const styleTag = document.createElement('style');
@@ -757,8 +760,8 @@ export const CampaignBuilderContent: React.FC = () => {
           </Button>
           <Button
             onClick={handleConfirmDelete}
-            color="error"
             variant="contained"
+            sx={dangerButtonSx(P)}
           >
             Delete
           </Button>

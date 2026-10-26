@@ -13,6 +13,8 @@
 
 > **Update 2026-09-28:** the 300 s wait added here is gone. It assumed every run closes its browser, which a run that had only *attached* to one never did, so the wait fired on every later script. A browser on the port when a script holds the device lock is an orphan by definition: it is now reused or killed, never waited for — [BUG-0179](BUG-0179-2026-09-28-goto-waits-300s-for-an-orphan-chromium.md).
 
+> **Superseded by [BUG-0727](BUG-0727-2026-10-20-two-web-scripts-on-one-host-destroyed-each-others-browser.md) (TASK-146), fixed 2026-10-20.** The `build 9151` fix above made the host *survive* a second run; it did not stop two runs from fighting over one Chrome. Every browser on a host still used port 9222 and the profile directory `backend_host/config/user_data`, so the second run still killed the first one's browser, or attached to it and drove its tab, and the first run's cleanup then killed the second one's browser instead. BUG-0727 gives each run its own debug port and its own Chrome profile and makes the cleanup touch only a browser nobody owns, so the two no longer meet. Kept as the report of the original symptom.
+
 ---
 
 ## Symptom

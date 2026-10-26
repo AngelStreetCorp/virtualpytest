@@ -30,24 +30,30 @@
         }
 
         #top_bar {
+            /* Collapsed by default: the "Connected to <host>" banner is noise
+               inside a dashboard tile. It expands only when status() reports a
+               problem (disconnected / failed), so errors stay visible. */
             background-color: #6e84a3;
             color: white;
             font: bold 12px Helvetica;
+            padding: 0;
+            height: 0;
+            overflow: hidden;
+            border-bottom: 0;
+        }
+        #top_bar.problem {
             padding: 6px 5px 4px 5px;
+            height: auto;
+            overflow: visible;
             border-bottom: 1px outset;
         }
         #status {
             text-align: center;
+            display: none;
         }
-        #sendCtrlAltDelButton {
-            position: fixed;
-            top: 0px;
-            right: 0px;
-            border: 1px outset;
-            padding: 5px 5px 4px 5px;
-            cursor: pointer;
+        #top_bar.problem #status {
+            display: block;
         }
-
         #screen {
             flex: 1; /* fill remaining space */
             overflow: hidden;
@@ -90,17 +96,16 @@
             desktopName = e.detail.name;
         }
 
-        // Since most operating systems will catch Ctrl+Alt+Del
-        // before they get a chance to be intercepted by the browser,
-        // we provide a way to emulate this key sequence.
-        function sendCtrlAltDel() {
-            rfb.sendCtrlAltDel();
-            return false;
-        }
-
         // Show a status text in the top bar
+        // Status text. Routine states ("Connecting", "Connected to <host>") stay
+        // hidden so a dashboard tile shows only the desktop; connection problems
+        // expand the bar so the user can see what went wrong.
         function status(text) {
-            document.getElementById('status').textContent = text;
+            var el = document.getElementById('status');
+            var bar = document.getElementById('top_bar');
+            el.textContent = text;
+            var problem = /error|closed|disconnect|failed|refused|invalid/i.test(text || '');
+            if (bar) { bar.className = problem ? 'problem' : ''; }
         }
 
         // This function extracts the value of one variable from the
@@ -122,9 +127,6 @@
 
             return defaultValue;
         }
-
-        document.getElementById('sendCtrlAltDelButton')
-            .onclick = sendCtrlAltDel;
 
         // Auto-detect websockify path from current page location
         // Handles both /host/hostname/vnc_lite.html and /host/hostname/vnc/vnc_lite.html
@@ -188,7 +190,6 @@
 <body>
     <div id="top_bar">
         <div id="status">Loading</div>
-        <div id="sendCtrlAltDelButton">Send CtrlAltDel</div>
     </div>
     <div id="screen">
         <!-- This is where the remote screen will appear -->

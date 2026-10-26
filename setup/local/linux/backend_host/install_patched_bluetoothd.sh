@@ -40,6 +40,29 @@ if [[ "${EUID}" -ne 0 ]]; then
     exec sudo -E "${BASH_SOURCE[0]}" "$@"
 fi
 
+# ---------- WirePlumber Bluetooth monitor off -------------------------------
+# A desktop user's WirePlumber re-registers ~150 A2DP/HFP endpoints on bluetoothd
+# every ~12 s when RegisterProfile is refused, so bluetoothd (-d) burns 40-90 % CPU
+# and floods the journal (vpt-pi1, BUG-0939). A BLE remote host plays no Bluetooth
+# audio. File names differ from install_procon.sh so its --revert keeps these.
+WP_LUA=".config/wireplumber/bluetooth.lua.d/80-vpt-ble-disable-bluez.lua"   # WirePlumber 0.4
+WP_CONF=".config/wireplumber/wireplumber.conf.d/80-vpt-ble-disable-bluez.conf"  # WirePlumber 0.5
+for u in $(awk -F: '$3 >= 1000 && $3 < 60000 && $6 ~ /^\/home\// {print $1}' /etc/passwd); do
+    home=$(getent passwd "$u" | cut -d: -f6)
+    [[ -f "$home/$WP_LUA" && -f "$home/$WP_CONF" ]] && continue
+    install -d -o "$u" -g "$u" "$home/$(dirname "$WP_LUA")" "$home/$(dirname "$WP_CONF")"
+    printf -- '-- vpt BLE remote: keep PipeWire off the Bluetooth adapter (BUG-0939)\nbluez_monitor.enabled = false\n' \
+        > "$home/$WP_LUA"
+    printf '# vpt BLE remote: keep PipeWire off the Bluetooth adapter (BUG-0939)\nwireplumber.profiles = {\n  main = {\n    monitor.bluez = disabled\n  }\n}\n' \
+        > "$home/$WP_CONF"
+    chown "$u:$u" "$home/$WP_LUA" "$home/$WP_CONF"
+    uid=$(id -u "$u")
+    if [[ -d "/run/user/$uid" ]]; then
+        sudo -u "$u" XDG_RUNTIME_DIR="/run/user/$uid" systemctl --user restart wireplumber 2>/dev/null || true
+    fi
+    log "WirePlumber Bluetooth monitor disabled for $u"
+done
+
 # ---------- Skip-if-already-installed ---------------------------------------
 if [[ "${FORCE_REBUILD}" != "1" && -x "${PATCHED_BIN}" ]]; then
     if grep -Fq "${PATCHED_BIN}" "${OVERRIDE_FILE}" 2>/dev/null; then

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High                                                         |
 | Area      | backend_host (Nintendo Switch, vpt-procon)                   |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `eeba2b0c9`                                  |
 
 ---

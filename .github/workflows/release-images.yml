@@ -2,8 +2,8 @@
 #   - the five container images (server, host, frontend, minio, minio-mc), so a first run
 #     pulls instead of building (docs/get-started/docker.md, `VPT_IMAGE_TAG` in
 #     setup/docker/.env.example)
-#   - the standalone Docker bundle, ~0.5 MB of the config the stack mounts, so nobody has
-#     to clone 330 MB of git history to run it (setup/docker/make_bundle.sh)
+#   - the standalone Docker bundle, ~6 MB of the config and docs the stack mounts, so
+#     nobody has to clone 330 MB of git history to run it (setup/docker/make_bundle.sh)
 #
 # The frontend is publishable because it takes its VITE_* at runtime: its entrypoint
 # (frontend/docker/entrypoint.sh) writes dist/config.js from the container environment on
@@ -242,7 +242,7 @@ jobs:
                   if v.get('type') != 'bind':
                       continue
                   src = v['source']
-                  if src == '/dev':
+                  if src == '/dev' or src.startswith('/dev/'):
                       continue          # host hardware, correctly outside the bundle
                   if not os.path.exists(src):
                       missing.append((name, src))

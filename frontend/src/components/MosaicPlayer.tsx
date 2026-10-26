@@ -12,13 +12,15 @@ import {
   Typography,
   Alert,
   IconButton,
-  Tooltip
+  Tooltip,
+  alpha
 } from '@mui/material';
 import { ChevronLeft, ChevronRight } from '@mui/icons-material';
 
-import { TimelineItem } from '../hooks/useHeatmap';
+import { TimelineItem, deviceHasIncident } from '../hooks/useHeatmap';
 import { useR2Url } from '../hooks/storage/useR2Url';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../constants/typography';
 
 // Add type alias for filter
 type FilterType = 'ALL' | 'OK' | 'KO';
@@ -29,6 +31,7 @@ interface MosaicPlayerProps {
   onIndexChange: (index: number) => void;
   onCellClick?: (deviceData: any) => void;
   hasIncidents?: boolean;
+  hasDiscards?: boolean; // Frame holds a discarded incident: its baked red border / OK-KO split is stale
   hasDataError?: boolean;
   displayItem?: TimelineItem | null; // Slot the loaded data came from (may lag currentIndex)
   analysisData?: any; // Device analysis data for overlays
@@ -43,6 +46,7 @@ export const MosaicPlayer: React.FC<MosaicPlayerProps> = ({
   onIndexChange,
   onCellClick,
   hasIncidents = false,
+  hasDiscards = false,
   hasDataError = false,
   displayItem,
   analysisData,
@@ -61,6 +65,8 @@ export const MosaicPlayer: React.FC<MosaicPlayerProps> = ({
   const preloadImageRef = useRef<HTMLImageElement | null>(null);
   const imgElementRef = useRef<HTMLImageElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  // Displayed px per mosaic px, to size the cell border the processor baked in (4 px)
+  const [imageScale, setImageScale] = useState(1);
   const [overlayPositions, setOverlayPositions] = useState<Array<{
     left: number;
     top: number;
@@ -82,11 +88,11 @@ export const MosaicPlayer: React.FC<MosaicPlayerProps> = ({
   // Convert R2 URL to signed URL (handles public/private mode automatically)
   const { url: mosaicSrc } = useR2Url(mosaicSrcOriginal || null);
   
-  // Reset loading state when filter or index changes
+  // Reset loading state when the displayed mosaic changes (a filter switch that keeps the same image must not)
   useEffect(() => {
     setImageLoading(true);
     setImageError(false);
-  }, [filter, currentIndex, mosaicSrcOriginal]);
+  }, [currentIndex, mosaicSrcOriginal]);
 
   // Calculate overlay positions based on actual image dimensions
   const calculatePositions = useCallback(() => {
@@ -155,6 +161,7 @@ export const MosaicPlayer: React.FC<MosaicPlayerProps> = ({
       };
     });
 
+    setImageScale(displayedImageWidth / imageNaturalWidth);
     setOverlayPositions(positions);
   }, [analysisData]);
 
@@ -354,7 +361,7 @@ export const MosaicPlayer: React.FC<MosaicPlayerProps> = ({
           <Alert 
             severity="warning" 
             sx={{ 
-              backgroundColor: 'rgba(255, 193, 7, 0.1)',
+              backgroundColor: alpha(P.warning, 0.1),
               color: 'white'
             }}
           >
@@ -400,11 +407,19 @@ export const MosaicPlayer: React.FC<MosaicPlayerProps> = ({
                   const audioLabel =
                     analysis.audio === true ? 'Yes' : analysis.audio === false ? 'No' : 'N/A';
 
+                  const discardedTypes: string[] = analysis.discarded || [];
+                  // The mosaic was baked red for this device; triage has since discarded every flag.
+                  const repaintOk = discardedTypes.length > 0 && !deviceHasIncident(analysis);
+                  // Under OK/KO with a discard the ALL mosaic is shown: dim the cells outside the filter.
+                  const dimmed =
+                    hasDiscards && filter !== 'ALL' && (filter === 'KO') !== deviceHasIncident(analysis);
+
                   const tooltipText = `${deviceLabel}
 Audio: ${audioLabel}
 Video: ${!analysis.blackscreen && !analysis.freeze ? 'Yes' : 'No'}
 ${analysis.volume_percentage !== undefined ? `Volume: ${analysis.volume_percentage}%` : ''}
-${analysis.freeze ? `Freeze: ${(analysis.freeze_diffs || []).length} diffs` : ''}`;
+${analysis.freeze ? `Freeze: ${(analysis.freeze_diffs || []).length} diffs` : ''}
+${discardedTypes.length ? `Discarded by triage: ${discardedTypes.join(', ')}` : ''}`;
 
                   return (
                     <Tooltip key={`${device.host_name}-${device.device_id}`} title={tooltipText} arrow>
@@ -417,6 +432,9 @@ ${analysis.freeze ? `Freeze: ${(analysis.freeze_diffs || []).length} diffs` : ''
                           height: `${position.height}px`,
                           cursor: 'pointer',
                           zIndex: 3,
+                          boxSizing: 'border-box',
+                          ...(repaintOk && { boxShadow: `inset 0 0 0 ${Math.max(2, 4 * imageScale)}px ${P.success}` }),
+                          ...(dimmed && { backgroundColor: alpha(P.surfaceSolid, 0.75) }),
                           '&:hover': {
                             backgroundColor: 'rgba(255, 255, 255, 0.1)',
                             border: '2px solid #fff'
@@ -455,7 +473,7 @@ ${analysis.freeze ? `Freeze: ${(analysis.freeze_diffs || []).length} diffs` : ''
         sx={{
           mt: 1.5,
           p: 1.5,
-          backgroundColor: P.surface,
+          backgroundColor: P.surfaceSolid,
           border: `1px solid ${P.borderColor}`,
           borderRadius: 3,
         }}
@@ -471,7 +489,7 @@ ${analysis.freeze ? `Freeze: ${(analysis.freeze_diffs || []).length} diffs` : ''
             >
               <ChevronLeft fontSize="small" />
             </IconButton>
-            <Typography sx={{ width: 150, textAlign: 'center', fontSize: '1.1rem', fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
+            <Typography sx={{ width: 150, textAlign: 'center', fontSize: TYPOGRAPHY.cardTitle.size, fontWeight: 600, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>
               {formatDisplayTime(timeline[isDragging && previewIndex !== null ? previewIndex : currentIndex] || currentItem)}
             </Typography>
             <IconButton
@@ -485,7 +503,7 @@ ${analysis.freeze ? `Freeze: ${(analysis.freeze_diffs || []).length} diffs` : ''
             </IconButton>
           </Box>
           {!isCompactLayout && (
-            <Typography sx={{ fontSize: '0.72rem', color: P.textMuted }}>Click an hour or drag the bar</Typography>
+            <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted }}>Click an hour or drag the bar</Typography>
           )}
         </Box>
 
@@ -519,7 +537,7 @@ ${analysis.freeze ? `Freeze: ${(analysis.freeze_diffs || []).length} diffs` : ''
               sx={{
                 color: P.accent,
                 py: 1,
-                '& .MuiSlider-thumb': { width: 14, height: 14, backgroundColor: P.accent, border: `2px solid ${P.surface}` },
+                '& .MuiSlider-thumb': { width: 14, height: 14, backgroundColor: P.accent, border: `2px solid ${P.surfaceSolid}` },
                 '& .MuiSlider-track': { backgroundColor: P.accent, border: 'none' },
                 '& .MuiSlider-rail': { backgroundColor: P.borderColor, opacity: 1 },
               }}
@@ -563,8 +581,8 @@ ${analysis.freeze ? `Freeze: ${(analysis.freeze_diffs || []).length} diffs` : ''
         {midnightMark && (
           <Box sx={{ position: 'relative', height: 18, mt: 0.25 }}>
             <Box sx={{ position: 'absolute', top: 0, bottom: 0, left: `${(midnightMark.pos / hourMarks.length) * 100}%`, borderLeft: `1px dashed ${P.textMuted}` }} />
-            <Typography sx={{ position: 'absolute', right: `${100 - (midnightMark.pos / hourMarks.length) * 100 + 0.5}%`, fontSize: '0.65rem', color: P.textMuted }}>Yesterday</Typography>
-            <Typography sx={{ position: 'absolute', left: `${(midnightMark.pos / hourMarks.length) * 100 + 0.5}%`, fontSize: '0.65rem', color: P.textMuted }}>Today</Typography>
+            <Typography sx={{ position: 'absolute', right: `${100 - (midnightMark.pos / hourMarks.length) * 100 + 0.5}%`, fontSize: TYPOGRAPHY.microMeta.size, color: P.textMuted }}>Yesterday</Typography>
+            <Typography sx={{ position: 'absolute', left: `${(midnightMark.pos / hourMarks.length) * 100 + 0.5}%`, fontSize: TYPOGRAPHY.microMeta.size, color: P.textMuted }}>Today</Typography>
           </Box>
         )}
       </Box>

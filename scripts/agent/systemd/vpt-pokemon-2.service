@@ -1,0 +1,20 @@
+[Unit]
+Description=Second Pokemon long-play save on a free host (TASK-164, user unit on codebox)
+After=network-online.target
+
+[Service]
+Type=oneshot
+Environment=HOME=/home/jndoye
+Environment=PATH=/home/jndoye/.local/bin:/usr/local/bin:/bin:/usr/sbin:/sbin
+# The second save: its own save name and its own dispatcher state, the same canonical store (the ROM) and
+# the same hosts. The lease registry keeps the two runs on two different hosts: the whole host is leased
+# for a run, so the second lane waits for the other one.
+Environment=POKEMON_SAVE=second
+Environment=POKEMON_STATE_DIR=/home/jndoye/.cache/pokemon-dispatch-2
+Environment=POKEMON_CANON=/home/jndoye/vpt-private/pokemon/canonical
+Environment=POKEMON_HOSTS=host-clone-1,host-clone-2
+Environment=POKEMON_AGENT=codebox:pokemon-dispatch-2
+# The lane runs from its own clone, never from the shared checkout of ~/virtualpytest. The clone is
+# brought back to main before every tick.
+ExecStartPre=-/home/jndoye/.local/bin/sync_lane_clone.sh /home/jndoye/.local/share/pokemon-dispatch/repo
+ExecStart=/usr/bin/python3 /home/jndoye/.local/share/pokemon-dispatch/repo/scripts/agent/pokemon_dispatch.py tick

@@ -5,9 +5,37 @@ The fleet deploy script that runs on the **Proxmox jump host** (`proxmox` for `n
 targets via the `*_IP` lines at the top.
 
 Canonical source: `setup/proxmox/node/update_core.sh` in this repo. The copy on proxmox
-(`/home/<user>/update_core.sh`) is **manually rsynced** from the repo — the script and the
-file on disk can drift. After any change to the script in the repo, `scp` it to every
-proxmox node that runs it.
+(`/home/<user>/update_core.sh`) is **manually installed** from the repo — the script and the
+file on disk can drift, and the deploy runs the **copy on the node**, not the repo file.
+After any change to the script in the repo, install it on every proxmox node that runs it:
+
+```bash
+# report the drift, change nothing
+python3 setup/proxmox/node/install_update_core.py --node proxmox --check
+# install it: backs the old copy up, merges the repo's script with the node's fleet
+# config, syntax-checks the result and only then swaps it in
+python3 setup/proxmox/node/install_update_core.py --node proxmox --install
+```
+
+**Do not `scp` the repo file over the node's copy.** The repo file is the template (default
+targets for a fresh node); the node's copy carries that node's fleet targets (`SERVER_IP`,
+`HOST_IPS`, `HOST_WINDOWS_IPS`, `DOCKER_IPS`, `SSH_USER`). A blind copy replaces them with
+the template's, and the node then deploys to the wrong VMs — silently, and worse than the
+drift it was meant to fix. The installer merges instead: the repo's script with the node's
+config values.
+
+A node whose copy is too far from the repo to install wholesale (an older variant with its
+own layout) cannot be merged this way; patch the change into it by hand, with a backup and
+a `bash -n`, and keep the node's copy in sync with its own checkout.
+
+**Run the installer from a checkout that is up to date.** It reads the script from the checkout
+it runs in, so a checkout that is behind `origin/main` holds the *old* script — installing from
+it would roll the node back to the version the repo has already replaced. The installer
+compares the local copy with `origin/main`'s copy of the same file and refuses to install a
+stale one; `--check` then judges the node against `origin/main` and says plainly that the
+local copy is stale. Update the checkout (`git fetch origin && git pull`) and run again.
+`--force` overrides the refusal — it is there for the deliberate rollback, not for a stale
+checkout.
 
 See also:
 
@@ -36,8 +64,8 @@ Default (no flags): **full deploy** of every VM listed in the script's header.
 3. **Rsync** the tree to each target VM as `vpt_user`, excluding volatile paths
    (`frontend/dist`, `frontend/public/docs`, `playwright-report*`, generated
    artifacts, overlay-owned files).
-4. **Restart** the matching systemd services on each VM and reconcile per-feature
-   systemd units on hosts.
+4. **Restart** the matching core systemd services on each VM and reconcile per-feature
+   systemd units on hosts. Auxiliary services restart only with `--restart`.
 
 ## Usage
 
@@ -56,10 +84,13 @@ script deploys whatever branch the local `REPO_DIR` is currently on.
 | `--frontend` | rsync + restart the **frontend** VM (`FRONTEND_IP`, `vpt-frontend-prod.service`). |
 | `--host` | rsync + restart every host in `HOST_IPS` + `RUNNER_IPS` (`vpt-host.service`). |
 | `--host-windows` | rsync + restart every Windows host in `HOST_WINDOWS_IPS` (Cygwin target). |
-| `--hosts a,b` | deploy only these hosts (implies `--host` for them; an unknown name aborts). |
+| `--hosts a,b` | deploy only these hosts (implies `--host` for them). A name this node does not know — a typo, or a host that was retired from the node's list — is **dropped** with a `WARNING: --hosts names not in this node's host lists (dropped): …` line, and the deploy goes on with the names the node knows; the dropped names are recorded in the deploy note as `dropped (unknown host)`, never in `SKIPPED_HOSTS` (no catch-up deploy is queued for a host that no longer exists). The deploy **aborts** only when EVERY requested name is unknown, or when the request names no host at all (`--hosts ,`). |
 | `--skip-hosts a,b` | drop these hosts from this run. |
-| `--skip-leased` | a host leased by another agent is dropped (printed as `SKIPPED (leased by <agent>): <host>`); the server part is then blocked only by `server` and env-wide leases, not by per-host leases. The last output line `SKIPPED_HOSTS=…` lets the deploy runner queue a catch-up deploy. |
-| `--restart [service]` | restart-only mode. On its own: skip git pull + rsync, just restart aux services on host VMs. With a service name (`vpt-stream`, `vpt-monitor`, `vpt-subtitle`, `vpt-transcript`, `vpt-archiver`, `vpt-avq`, `vpt-kpi`): only that one, still only if already active. With a deploy target: deploy first, then restart aux services on the hosts. |
+| `--skip-leased` | a host of this run's host lists that another agent leases is synced **without** a lease — its `vpt-host` restart is deferred to the catch-up deploy (printed as `SYNC ONLY (leased by <agent>): <host>`); a leased host that is not part of this run (a Windows host, a secondary server) is dropped and printed as `SKIPPED (leased by <agent>): <host>`. The server part is then blocked only by `server` and env-wide leases, not by per-host leases. The last output line `SKIPPED_HOSTS=…` lets the deploy runner queue a catch-up deploy for the dropped ones. |
+| _(automatic)_ | **Down and unreachable hosts are skipped, never failed.** Hosts named in `~/.vpt-down-hosts` (one per line, `#` comments; ignored when `--hosts` names them) are dropped, then one parallel `ssh true` preflight (6 s) drops any host with no route. Printed as `SKIPPED (down on purpose…)` / `SKIPPED (unreachable, no ssh)` and recorded in the deploy note as `skipped (down|unreachable)`. They are not in `SKIPPED_HOSTS`, so no catch-up deploy is queued for them. `VPT_SKIP_PROBE=1` turns the preflight off. |
+| _(automatic)_ | **vpt-host is restarted only when the host code changed.** A hash of the git trees `backend_host shared features scripts setup requirements.txt` is stored on the host (`~/.vpt_host_code_id`) after each healthy restart. If it matches and the unit is active, the files are still rsynced but `vpt-host` is not restarted (`restart skipped: host code unchanged`, deploy note `no restart (host code unchanged)`). Frontend-, docs- and test-only pushes no longer restart hosts under long runs. `VPT_FORCE_HOST_RESTART=1` forces it; a dirty tree or a bundle without `.git` always restarts. |
+| _(automatic)_ | **Pinned hosts for long runs.** Hosts listed in `~/.vpt-pinned-hosts` (same format as `.vpt-down-hosts`) are left on the code they have by every push-driven deploy (full, `--host`, `--skip-leased`): printed as `SKIPPED (pinned…)`, noted `skipped (pinned)`, never in `SKIPPED_HOSTS` (no catch-up). A deploy that names them with `--hosts a,b` updates them; the manager runs that in an idle gap. **Servers too:** the node's own server and the Pi servers restart only when `backend_server shared features scripts setup requirements.txt` changed (marker `~/.vpt_server_code_id`). |
+| `--restart [service]` | restart-only mode. On its own: skip git pull + rsync, just restart aux services on host VMs. With a service name (`vpt-stream`, `vpt-monitor-img`, `vpt-monitor-subtitle`, `vpt-monitor-audio`, `vpt-archiver`, `vpt-avq`, `vpt-kpi`): only that one, still only if already active. With a deploy target: deploy first, then restart aux services on the hosts. |
 | `--force` | deploy even if a lease blocks. **Footgun** — only when the user explicitly says to. |
 | `--help` / `-h` | print the built-in usage. |
 
@@ -82,7 +113,7 @@ ssh proxmox "bash update_core.sh --restart vpt-stream"
 ssh proxmox "bash update_core.sh main --host --hosts vpt-pi1"
 
 # Drop a host for this run only (e.g. it's running a long script)
-ssh proxmox "bash update_core.sh main --skip-hosts labox-dongle"
+ssh proxmox "bash update_core.sh main --skip-hosts labox-mobile"
 
 # Full deploy but skip any host another agent has leased
 ssh proxmox "bash update_core.sh main --skip-leased"
@@ -95,6 +126,17 @@ fresh `setup/proxmox/node/update_core.sh` from the repo ships **defaults**, not 
 fleet. Edit the `*_IP` lines for your node before running, or ship the file through a
 customer bundle.
 
+Every target is read from the environment, with the value in the script as its default
+(`HOST_IPS="${HOST_IPS:-<this node's hosts>}"`), so one deploy can be pointed somewhere
+else without editing the file:
+
+```bash
+HOST_IPS=<host-a>,<host-b> bash ~/update_core.sh main --host
+```
+
+The installer (`install_update_core.py`) merges the node's own targets into that shape, so
+the node's fleet stays the default and the environment still wins over it.
+
 | Constant | Role |
 |---|---|
 | `SERVER_IP` | VM running `vpt-server` and the server aux services. |
@@ -102,6 +144,7 @@ customer bundle.
 | `HOST_IPS` | comma-separated hosts running `vpt-host`. |
 | `RUNNER_IPS` | optional comma-separated CI runner VMs. |
 | `HOST_WINDOWS_IPS` | optional Windows hosts (Cygwin target). |
+| `DOCKER_IPS` | optional hosts whose Docker-compose stacks are rebuilt from source. |
 
 An alias that does not resolve in the node's `~/.ssh/config` is **skipped silently** —
 check the live `*_IP` lines with `ssh -G <alias>` if a target looks configured but is
@@ -115,7 +158,7 @@ never deployed to.
 | Server aux (restarted after `vpt-server`, only if already active) | `vpt-heatmap`, `vpt-discard-incidents`, `vpt-discard-scripts` | on `--server` / full deploy. |
 | Frontend | `vpt-frontend-prod.service` | on `--frontend` / full deploy. |
 | Host | `vpt-host.service` | on `--host` / full deploy. |
-| Host aux (restarted after `vpt-host`, only if already active) | `vpt-stream`, `vpt-monitor`, `vpt-subtitle`, `vpt-transcript`, `vpt-archiver`, `vpt-avq`, `vpt-kpi` | on `--host` / full deploy, or via `--restart`. |
+| Host aux (only if already active) | `vpt-stream`, `vpt-monitor-img`, `vpt-monitor-subtitle`, `vpt-monitor-audio`, `vpt-archiver`, `vpt-avq`, `vpt-kpi` | only with `--restart`, alongside a deploy or by itself. |
 | Windows host | `vpt-host` scheduled task | on `--host-windows`. |
 
 Aux-service restarts are best-effort: a failure here never aborts the deploy, it is
@@ -155,8 +198,9 @@ leases do not block it.
   `proxmox3` (node3-qualiai) are independent envs, separate lease registries.
 - **Different feature branches on the same node is not safe.** They share
   `REPO_DIR` and would corrupt each other mid-rsync.
-- **`--skip-leased` is the way to share the env with a long-running test.** Drop
-  the busy host from this run; the catch-up deploy is queued by the runner.
+- **`--skip-leased` is the way to share the env with a long-running test.** A busy
+  host of this run is synced without a lease and its `vpt-host` restart is deferred;
+  the catch-up deploy that restarts it is queued by the runner.
 - **`--restart <service>` needs no lease** because the service starts in seconds.
   `vpt-host` and `vpt-stream` are not in that list.
 
@@ -191,7 +235,7 @@ leases do not block it.
   find /opt/virtualpytest -not -user vpt_user -printf '%u:%g %m %p\n' | head
   ```
 - **`SERVICE RESTART FAILED`** lines at the end. The deploy succeeded but an aux
-  service (e.g. `vpt-monitor`) failed to come back. Re-run with
+  service (e.g. `vpt-monitor-img`) failed to come back. Re-run with
   `bash update_core.sh --restart <service>` to retry; the restart is
   best-effort by design.
 - **Stale frontend bundle**. `--frontend` rsyncs source but not the built bundle
@@ -211,6 +255,11 @@ every run logs on `-h`.
 After any change, run `bash update_core.sh --help` to verify the usage block,
 and ship the file to every Proxmox node that runs it:
 ```bash
-scp setup/proxmox/node/update_core.sh proxmox:update_core.sh
-scp setup/proxmox/node/update_core.sh proxmox3:update_core.sh
+# report the drift, change nothing
+python3 setup/proxmox/node/install_update_core.py --node proxmox --check
+# install it: merges the repo's script with the node's fleet config, backs the old
+# copy up, syntax-checks the result and only then swaps it in
+python3 setup/proxmox/node/install_update_core.py --node proxmox --install
 ```
+Do not `scp` the file over the node's copy (see the top of this page): that replaces the
+node's fleet targets with the template's.

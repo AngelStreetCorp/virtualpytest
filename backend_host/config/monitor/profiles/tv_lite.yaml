@@ -1,0 +1,13 @@
+# tv_lite (TASK-95): stream and control only. The device keeps its live stream (HLS/WebRTC), screenshots on
+# demand and the live-window report video; it runs no monitor, no archiver (so no 24 h review buffer), no KPI
+# scan and no AVQ, and run_ffmpeg.sh writes only the outputs that is left needing (`stream: lean`).
+# For hosts that carry many streams (vpt-nipogi). `img.analyzers` is required by the manifest format but never
+# runs: vpt-monitor-img skips a device whose profile has `services.img: false`.
+# See docs/tasks/TASK-95-tv-lite-profile.md and docs/agent/devices/MONITOR_PROFILES.md.
+name: tv_lite
+stream: lean
+services: { img: false, audio: false, subtitle: false, archiver: false, kpi: false, avq: false }
+img:
+  runtime: edge
+  analyzers:
+    - type: tv_app

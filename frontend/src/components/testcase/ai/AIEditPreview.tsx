@@ -9,6 +9,7 @@ import React, { useMemo } from 'react';
 import { Box, Button, Typography } from '@mui/material';
 
 import { AIGraphEditProposal } from '../../../hooks/testcase/useAIGraphEdit';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface AIEditPreviewProps {
   proposal: AIGraphEditProposal;
@@ -44,7 +45,7 @@ export const AIEditPreview: React.FC<AIEditPreviewProps> = ({ proposal, onApply,
           {proposal.analysis}
         </Typography>
       )}
-      <Box component="ol" sx={{ m: 0, pl: 3, fontFamily: 'monospace', fontSize: 12 }}>
+      <Box component="ol" sx={{ m: 0, pl: 3, fontFamily: 'monospace', fontSize: TYPOGRAPHY.caption.size }}>
         {proposal.stepsAfter.map((line, i) => (
           <Box
             component="li"

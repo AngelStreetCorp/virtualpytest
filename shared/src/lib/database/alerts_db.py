@@ -27,7 +27,8 @@ def get_all_alerts(
     device_id: Optional[str] = None,
     incident_type: Optional[str] = None,
     active_limit: int = 100,
-    resolved_limit: int = 100
+    resolved_limit: int = 100,
+    profile: Optional[str] = None
 ) -> Dict:
     """Get all alerts (both active and resolved) with optional filtering.
     
@@ -54,6 +55,8 @@ def get_all_alerts(
             active_query = active_query.eq('device_id', device_id)
         if incident_type:
             active_query = active_query.eq('incident_type', incident_type)
+        if profile:
+            active_query = active_query.eq('profile', profile)  # needs migration 20261013b_alerts_profile
         
         # Execute active query - uses idx_alerts_status_start_time index
         active_result = active_query.order('start_time', desc=True).limit(active_limit).execute()
@@ -70,6 +73,8 @@ def get_all_alerts(
             resolved_query = resolved_query.eq('device_id', device_id)
         if incident_type:
             resolved_query = resolved_query.eq('incident_type', incident_type)
+        if profile:
+            resolved_query = resolved_query.eq('profile', profile)
         
         # Execute resolved query - uses idx_alerts_status_start_time index
         resolved_result = resolved_query.order('start_time', desc=True).limit(resolved_limit).execute()
@@ -224,9 +229,13 @@ def create_alert(
     incident_type: str,
     consecutive_count: int = 3,
     metadata: Optional[Dict] = None,
-    device_name: Optional[str] = None
+    device_name: Optional[str] = None,
+    profile: Optional[str] = None
 ) -> Dict:
-    """Create a new alert in the database."""
+    """Create a new alert in the database.
+
+    profile: monitor profile that raised it (TASK-90). Left out for tv_app so a database without
+    migration 20261013b_alerts_profile keeps working: the column defaults to 'tv_app'."""
     try:
         alert_id = str(uuid4())
         
@@ -241,6 +250,8 @@ def create_alert(
             'start_time': datetime.now(timezone.utc).isoformat(),
             'metadata': metadata or {}
         }
+        if profile and profile != 'tv_app':
+            alert_data['profile'] = profile
         
         _alert_log(f"[@db:alerts:create_alert] Creating alert:")
         _alert_log(f"  - alert_id: {alert_id}")
@@ -390,7 +401,8 @@ def create_alert_safe(
     incident_type: str,
     consecutive_count: int = 3,
     metadata: Optional[Dict] = None,
-    device_name: Optional[str] = None
+    device_name: Optional[str] = None,
+    profile: Optional[str] = None
 ) -> Dict:
     """Create a new alert safely - resolves any existing active alert first."""
     try:
@@ -423,7 +435,7 @@ def create_alert_safe(
                 # Continue anyway - we'll let the database constraint handle it
         
         # Step 3: Create new alert
-        return create_alert(host_name, device_id, incident_type, consecutive_count, metadata, device_name)
+        return create_alert(host_name, device_id, incident_type, consecutive_count, metadata, device_name, profile)
         
     except Exception as e:
         _alert_log(f"[@db:alerts:create_alert_safe] Error: {str(e)}")
@@ -705,7 +717,7 @@ def get_triage_stats() -> Dict:
         unavailable = ({'reason': last[0].get('error_type') or 'other', 'since': last[0]['ts']}
                        if last and not last[0]['ok'] else None)
         screens = {'expected': 0, 'bad': 0, 'unknown': 0}
-        for row in (supabase.table('screen_fingerprints').select('verdict').execute()).data or []:
+        for row in (supabase.table('screen_fingerprints').select('verdict').is_('merged_into', 'null').execute()).data or []:
             screens[row['verdict']] = screens.get(row['verdict'], 0) + 1
         return {
             'success': True,

@@ -22,6 +22,7 @@ import {
   DialogTitle,
   FormControlLabel,
   Grid,
+  Link,
   IconButton,
   MenuItem,
   Table,
@@ -37,8 +38,10 @@ import React, { useState } from 'react';
 
 import { useConfirmDialog } from '../../../hooks/useConfirmDialog';
 import { ConfirmDialog } from '../../common/ConfirmDialog';
+import SettingRow from '../../common/SettingRow';
 import type { AiTabContext } from '../AiRoutingSettings';
 
+import { PRESET_INFO } from './presetInfo';
 import { aiApi, errorMessage, numOrNull, strOrNull, type EndpointPayload } from './api';
 import type { AiEndpoint, EndpointTestResult, Reach } from './types';
 
@@ -101,6 +104,23 @@ export const EndpointsTab: React.FC<{ ctx: AiTabContext }> = ({ ctx }) => {
   const { config, reload, notify, fail } = ctx;
   const admin = config.is_platform_admin;
   const presetByName = new Map(config.presets.map((p) => [p.name, p]));
+  // Read-only fallback order: each profile chain, e.g. "fast → backup". Edited in Routing / Profiles.
+  const profileById = new Map(config.profiles.map((p) => [p.id, p]));
+  const fallbackTargets = new Set(config.profiles.map((p) => p.fallback_profile_id).filter(Boolean));
+  const fallbackOrder = config.profiles
+    .filter((p) => p.fallback_profile_id && !fallbackTargets.has(p.id))
+    .map((p) => {
+      const names = [p.name];
+      const seen = new Set([p.id]);
+      let next = p.fallback_profile_id ? profileById.get(p.fallback_profile_id) : undefined;
+      while (next && !seen.has(next.id)) {
+        names.push(next.name);
+        seen.add(next.id);
+        next = next.fallback_profile_id ? profileById.get(next.fallback_profile_id) : undefined;
+      }
+      return names.join(' → ');
+    })
+    .join(' · ');
   const { dialogState, confirm, handleConfirm, handleCancel } = useConfirmDialog();
 
   const [editing, setEditing] = useState<AiEndpoint | 'new' | null>(null);
@@ -203,6 +223,9 @@ export const EndpointsTab: React.FC<{ ctx: AiTabContext }> = ({ ctx }) => {
 
   return (
     <Box>
+      <Alert severity="info" sx={{ mb: 1.5 }}>
+        Keys are stored on the server and never sent back to the browser.
+      </Alert>
       <Box display="flex" alignItems="center" mb={1}>
         <Typography variant="body2" color="text.secondary" sx={{ flex: 1 }}>
           Endpoints are where requests go (a provider API or a local OpenAI-compatible server).
@@ -215,8 +238,8 @@ export const EndpointsTab: React.FC<{ ctx: AiTabContext }> = ({ ctx }) => {
         )}
       </Box>
 
-      <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 940, '& .MuiTableCell-root': { overflowWrap: 'anywhere' } }}>
-<colgroup><col /><col style={{ width: 130 }} /><col style={{ width: 220 }} /><col style={{ width: 80 }} /><col style={{ width: 110 }} /><col style={{ width: 80 }} /><col style={{ width: 90 }} />{admin && <col style={{ width: 110 }} />}</colgroup>
+      <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 1100, '& .MuiTableCell-root': { overflowWrap: 'anywhere' } }}>
+<colgroup><col style={{ width: 130 }} /><col style={{ width: 230 }} /><col style={{ width: 220 }} /><col style={{ width: 80 }} /><col style={{ width: 110 }} /><col style={{ width: 80 }} /><col style={{ width: 90 }} />{admin && <col style={{ width: 110 }} />}</colgroup>
         <TableHead>
           <TableRow>
             <TableCell>Name</TableCell>
@@ -245,7 +268,14 @@ export const EndpointsTab: React.FC<{ ctx: AiTabContext }> = ({ ctx }) => {
                 <TableCell>
                   <strong>{endpoint.name}</strong>
                 </TableCell>
-                <TableCell>{presetByName.get(endpoint.preset)?.label || endpoint.preset}</TableCell>
+                <TableCell>
+                  {presetByName.get(endpoint.preset)?.label || endpoint.preset}
+                  {PRESET_INFO[endpoint.preset] && (
+                    <Typography variant="caption" color="text.secondary" display="block">
+                      {PRESET_INFO[endpoint.preset].description}
+                    </Typography>
+                  )}
+                </TableCell>
                 <TableCell sx={{ maxWidth: 260, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                   {endpoint.base_url || presetByName.get(endpoint.preset)?.base_url || '—'}
                 </TableCell>
@@ -254,7 +284,20 @@ export const EndpointsTab: React.FC<{ ctx: AiTabContext }> = ({ ctx }) => {
                   {endpoint.has_secret ? (
                     <Chip size="small" color="success" label="key saved" />
                   ) : endpoint.needs_key ? (
-                    <Chip size="small" color="warning" label="no key" />
+                    <>
+                      <Chip size="small" color="warning" label="no key" />
+                      {PRESET_INFO[endpoint.preset]?.keyUrl && (
+                        <Link
+                          href={PRESET_INFO[endpoint.preset].keyUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          variant="caption"
+                          display="block"
+                        >
+                          Get a key ↗
+                        </Link>
+                      )}
+                    </>
                   ) : (
                     <Chip size="small" variant="outlined" label="keyless" />
                   )}
@@ -305,6 +348,13 @@ export const EndpointsTab: React.FC<{ ctx: AiTabContext }> = ({ ctx }) => {
         </TableBody>
       </Table>
 
+      <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 1.5 }}>
+        Fallback order: {fallbackOrder || 'no profile has a fallback'}.{' '}
+        <Link component="button" type="button" variant="caption" onClick={() => ctx.goToSub(0)} sx={{ verticalAlign: 'baseline' }}>
+          Edit in Routing
+        </Link>
+      </Typography>
+
       <Dialog open={editing !== null} onClose={() => !saving && setEditing(null)} maxWidth="sm" fullWidth>
         <DialogTitle>{editing === 'new' ? 'Add endpoint' : `Edit endpoint ${editingEndpoint?.name ?? ''}`}</DialogTitle>
         <DialogContent>
@@ -335,6 +385,19 @@ export const EndpointsTab: React.FC<{ ctx: AiTabContext }> = ({ ctx }) => {
                   </MenuItem>
                 ))}
               </TextField>
+              {PRESET_INFO[form.preset] && (
+                <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.5 }}>
+                  {PRESET_INFO[form.preset].description}
+                  {PRESET_INFO[form.preset].keyUrl && (
+                    <>
+                      {' '}
+                      <Link href={PRESET_INFO[form.preset].keyUrl} target="_blank" rel="noopener noreferrer">
+                        Get a key ↗
+                      </Link>
+                    </>
+                  )}
+                </Typography>
+              )}
             </Grid>
             <Grid item xs={12}>
               <TextField
@@ -456,10 +519,7 @@ export const EndpointsTab: React.FC<{ ctx: AiTabContext }> = ({ ctx }) => {
               )}
             </Grid>
             <Grid item xs={12}>
-              <FormControlLabel
-                control={<Checkbox checked={form.enabled} onChange={(e) => set('enabled', e.target.checked)} />}
-                label="Enabled"
-              />
+              <SettingRow title="Enabled" checked={form.enabled} onChange={(on) => set('enabled', on)} />
             </Grid>
           </Grid>
           {dialogError && (

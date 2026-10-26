@@ -8,16 +8,52 @@ Step 2.5 creates device controllers — so register_remote_implementation() here
 already visible when controller_manager builds a phone_agent device (C1/C2 in the
 task doc; controller_registry.py is the core hook).
 """
+from typing import Optional
+
 from flask import Blueprint, jsonify, request
 
-from .bridge import get_bridge
+from .bridge import get_bridge, reset_bridge
 from .controllers.phone_agent import PhoneAgentRemoteController
 from .controllers.phone_ui_verification import PhoneAgentAdbVerificationController
+from .drone_bridge import DroneBridge
 from ..lib import protocol
 
 _LOG = '[@mobile-app:backend_host]'
 
 phone_bp = Blueprint('mobile_app_phone', __name__, url_prefix='/host/phone')
+
+# The drone bridge (TASK-167): one per host process, created next to the phone
+# bridge it shares the Socket.IO connection with. Module-level so the REST
+# routes and the Socket.IO handlers see the same instance.
+_drone_bridge: Optional[DroneBridge] = None
+
+
+def get_drone_bridge() -> DroneBridge:
+    """The host's drone bridge, created on first use.
+
+    It shares the phone bridge's Socket.IO connection: the phone is already
+    connected to this host for its screen frames, and the drone commands ride
+    the same channel.
+    """
+    global _drone_bridge
+    if _drone_bridge is None:
+        bridge = get_bridge()
+        _drone_bridge = DroneBridge(bridge.socketio, bridge)
+    return _drone_bridge
+
+
+def reset_drone_bridge() -> None:
+    """Drop the drone bridge and the phone bridge, so a test can boot its own host.
+
+    A host process has exactly one of each. The tests do not: each test module
+    boots its own host app, and the second one would otherwise inherit the first
+    one's slots and ports.
+    """
+    global _drone_bridge
+    if _drone_bridge is not None:
+        _drone_bridge.stop()
+        _drone_bridge = None
+    reset_bridge()
 
 
 def register(app) -> None:
@@ -51,6 +87,10 @@ def register(app) -> None:
 
     _register_socketio_handlers(socketio, bridge)
     print(f"{_LOG} Socket.IO handlers registered on namespace {protocol.NAMESPACE}")
+
+    # The drone sidecar opens its local UDP ports and answers SDK commands for
+    # every drone the environment says is bridged (TASK-167).
+    get_drone_bridge().start()
 
 
 def register_controllers() -> None:
@@ -146,6 +186,24 @@ def _register_socketio_handlers(socketio, bridge) -> None:
     def _on_status(payload):
         bridge.handle_status(request.sid, payload or {})
 
+    # ---- drone bridge (TASK-167) --------------------------------------------
+    # The phone holds the drone's Wi-Fi conversation and relays it here: the
+    # commands down, the state and the video back up.
+
+    @socketio.on(protocol.EV_DRONE_STATE, namespace=protocol.NAMESPACE)
+    def _on_drone_state(payload):
+        get_drone_bridge().handle_state(payload or {})
+
+    @socketio.on(protocol.EV_DRONE_VIDEO, namespace=protocol.NAMESPACE)
+    def _on_drone_video(payload, data):
+        # The phone sends (meta, packet) as one tuple, the same shape the frame
+        # event uses - socketio.emit takes a single data argument.
+        get_drone_bridge().handle_video(payload or {}, data)
+
+    @socketio.on(protocol.EV_DRONE_STATUS, namespace=protocol.NAMESPACE)
+    def _on_drone_status(payload):
+        get_drone_bridge().handle_status(payload or {})
+
     @socketio.on('disconnect', namespace=protocol.NAMESPACE)
     def _on_disconnect():
         bridge.handle_disconnect(request.sid)
@@ -220,3 +278,15 @@ def unpair_slot(device_id):
     if not get_bridge().unpair(device_id):
         return jsonify({'success': False, 'error': f'no phone_agent slot {device_id}'}), 404
     return jsonify({'success': True, 'device_id': device_id})
+
+
+# ---- REST: /host/phone/drones ------------------------------------------------
+
+@phone_bp.route('/drones', methods=['GET'])
+def list_drones():
+    """The bridged drones: which phone carries them, and how fresh their link is.
+
+    A drone with no phone attached is still listed (with its last error), so a
+    dead link reads as a dead link and not as a missing device.
+    """
+    return jsonify({'success': True, 'drones': get_drone_bridge().summary()})

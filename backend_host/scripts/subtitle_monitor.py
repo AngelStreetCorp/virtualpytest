@@ -56,11 +56,24 @@ os.environ['MKL_NUM_THREADS'] = '4'
 os.environ['OPENBLAS_NUM_THREADS'] = '4'
 
 import sys
+
+# TASK-90: idle (a few MB: no OpenCV, no workers, no watches) while no device on this host has a
+# profile that needs this service; checked again every 60 s.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+if __name__ == '__main__':
+    # PC-host idle gate (BUG-0563). On a host whose every device runs `pc` (or `tv_lite` /
+    # `caption_playback` with `services.subtitle: false`), this call loops every 60 s, holding only the
+    # python interpreter: no Tesseract, no per-capture worker. Same single source of truth as the
+    # imager and the audio service (`folders_needing_service`); see
+    # `shared.src.lib.utils.monitor_service` module docstring.
+    from shared.src.lib.utils.monitor_service import wait_until_needed
+    wait_until_needed('subtitle', 'vpt-monitor-subtitle')
 import json
 import logging
 import queue
 import threading
 import time
+import hashlib
 import cv2
 import numpy as np
 import re
@@ -112,6 +125,9 @@ except ImportError:
     pytesseract = None
     PYTESSERACT_AVAILABLE = False
 
+from shared.src.lib.utils.tesseract_env import harden_pytesseract
+harden_pytesseract()  # 1 OpenMP thread (BUG-0274) + reap timed-out tesseract children (no zombies)
+
 try:
     from langdetect import detect_langs, DetectorFactory
     # Deterministic results: without a fixed seed langdetect can flip the label
@@ -155,6 +171,28 @@ SUPPORTED_LANGS = set(LANG_MAP.keys())
 LANG_MIN_CONFIDENCE = 0.90
 
 
+def _file_digest(path, chunk=65536):
+    """Content digest of a file, or None when it cannot be read.
+
+    Used to recognise a picture the OCR already answered: the capture monitor
+    flags every analysed frame as `subtitle_ocr_pending`, so an unchanged frame
+    would otherwise be decoded and OCR'd again for the same result (TASK-169).
+    The digest is of the JPEG BYTES, not of the decoded pixels: two frames of the
+    same picture encode to the same bytes, and the hash of ~50 KB costs ~0.05 ms.
+    """
+    try:
+        digest = hashlib.blake2b(digest_size=16)
+        with open(path, 'rb') as handle:
+            while True:
+                block = handle.read(chunk)
+                if not block:
+                    break
+                digest.update(block)
+        return digest.hexdigest()
+    except OSError:
+        return None
+
+
 def detect_supported_language(text):
     """Return the best-matching SUPPORTED language for `text`, or 'unknown'.
 
@@ -192,6 +230,21 @@ class SubtitleMonitor:
         self.language_cache = {}
         self.dynamic_roi_cache = {}
         self.dynamic_roi_state = {}
+        # Last skip reason announced per device: {capture_folder: reason}.
+        # Every captured frame (~5/s/device) re-decides the SAME thing ('no audio',
+        # 'frozen', 'no OCR pending'), and the old per-frame INFO line wrote that
+        # decision every single time: 422,917 lines/day on vpt-pi1 — 74% of the whole
+        # journal, which filled the 500 MB quota and made journald vacuum away four
+        # days of history (TASK-169). The decision is unchanged; only the repetition
+        # is gone.
+        self._last_skip_reason = {}
+        # Last OCR'd picture per device: {capture_folder: (digest, subtitle_analysis)}.
+        # The capture monitor flags EVERY analysed frame as `subtitle_ocr_pending`,
+        # so an unchanged picture (a paused video, a static menu, a frozen channel
+        # that the freeze detector has not latched yet) was decoded and OCR'd again
+        # and again for the same result. An identical picture gives an identical
+        # answer, so the previous analysis is reused instead (TASK-169).
+        self._last_ocr_frame = {}
         # Lazily-loaded pyspellchecker dictionaries, keyed by 2-letter code.
         # Loaded once (~0.4s each) then reused; membership lookups are O(1).
         self._dictionaries = {}
@@ -216,6 +269,33 @@ class SubtitleMonitor:
         
         self._start_ocr_worker()
     
+    def _log_skip(self, capture_folder, reason, message, heartbeat=30.0):
+        """Announce a per-frame skip decision at most once per HEARTBEAT, per reason.
+
+        The monitor re-decides the same thing on every captured frame (~5/s/device):
+        no audio, frozen picture, nothing pending, no subtitle edges. Logging each
+        decision wrote the same line 423,000 times a day on vpt-pi1 and buried every
+        real OCR result in the journal (TASK-169). The decision itself is untouched —
+        only the repeated line is demoted to DEBUG, so `journalctl` keeps the signal.
+
+        The heartbeat is per (device, reason): a device that alternates between two
+        reasons ("nothing pending" then "no edges") would otherwise log on every
+        switch and defeat the throttle. Each reason keeps its own timestamp, so every
+        reason still announces itself the first time it fires and then at most once
+        per `heartbeat` seconds.
+
+        Returns True when this call is the one that logged at INFO level.
+        """
+        now = time.time()
+        seen = self._last_skip_reason.setdefault(capture_folder, {})
+        last = seen.get(reason)
+        if last is not None and (now - last[1]) < heartbeat:
+            logger.debug(f"[{capture_folder}] {message}")
+            return False
+        seen[reason] = (message, now)
+        logger.info(f"[{capture_folder}] {message}")
+        return True
+
     def _start_ocr_worker(self):
         self.worker_running = True
         self.ocr_worker = threading.Thread(
@@ -362,7 +442,7 @@ class SubtitleMonitor:
         
         # Skip OCR if no audio detected (no content = no subtitles)
         if not data.get('audio', True):
-            logger.info(f"[{capture_folder}] ⊗ SKIP: No audio (no content to subtitle)")
+            self._log_skip(capture_folder, 'no_audio', '⊗ SKIP: No audio (no content to subtitle)')
             data['subtitle_analysis'] = {
                 'has_subtitles': False,
                 'extracted_text': '',
@@ -384,16 +464,18 @@ class SubtitleMonitor:
         audio = "🔇" if not data.get('audio', True) else "🔊"
         freeze = "❄️" if data.get('freeze', False) else ""
         black = "⬛" if data.get('blackscreen', False) else ""
-        logger.info(f"[{capture_folder}] Processing frame: {frame_path} {audio}{freeze}{black}")
-        logger.info(f"[{capture_folder}]    └─ JSON: {json_path}")
-        
+        # Per frame, every frame: DEBUG. At INFO this was one of the two lines that
+        # wrote 423,000 lines/day to the journal (TASK-169).
+        logger.debug(f"[{capture_folder}] Processing frame: {frame_path} {audio}{freeze}{black}")
+        logger.debug(f"[{capture_folder}]    └─ JSON: {json_path}")
+
         if not data.get('subtitle_ocr_pending', False):
-            logger.info(f"[{capture_folder}] ⊗ Skip: no OCR pending")
+            self._log_skip(capture_folder, 'no_pending', '⊗ Skip: no OCR pending')
             return
-        
+
         # Skip OCR if freeze detected (frozen frame = no new subtitles)
         if data.get('freeze', False):
-            logger.info(f"[{capture_folder}] ⊗ SKIP: Freeze detected (no new content)")
+            self._log_skip(capture_folder, 'freeze', '⊗ SKIP: Freeze detected (no new content)')
             data['subtitle_analysis'] = {
                 'has_subtitles': False,
                 'extracted_text': '',
@@ -409,7 +491,7 @@ class SubtitleMonitor:
         
         # Skip OCR if blackscreen detected (no content = no subtitles)
         if data.get('blackscreen', False):
-            logger.info(f"[{capture_folder}] ⊗ SKIP: Blackscreen (no content)")
+            self._log_skip(capture_folder, 'blackscreen', '⊗ SKIP: Blackscreen (no content)')
             data['subtitle_analysis'] = {
                 'has_subtitles': False,
                 'extracted_text': '',
@@ -426,7 +508,23 @@ class SubtitleMonitor:
         if not os.path.exists(frame_path):
             logger.error(f"[{capture_folder}] ⊗ Skip: image deleted")
             return
-        
+
+        # ── Same picture as the last OCR? Reuse the answer (TASK-169) ──────────
+        # Decoding the JPEG and running the edge gate is only worth it when the
+        # picture changed. On a 4-core Pi that also serves three other capture
+        # stacks this was pure duplicated work, and a tesseract run on an
+        # unchanged frame can cost seconds.
+        frame_digest = _file_digest(frame_path)
+        previous = self._last_ocr_frame.get(capture_folder)
+        if frame_digest is not None and previous is not None and previous[0] == frame_digest:
+            data['subtitle_analysis'] = dict(previous[1], reused_from_previous_frame=True)
+            data['subtitle_ocr_pending'] = False
+            with open(json_path + '.tmp', 'w') as f:
+                json.dump(data, f, indent=2)
+            # Windows-safe atomic overwrite (os.rename fails when destination exists)
+            os.replace(json_path + '.tmp', json_path)
+            return
+
         try:
             start_total = time.perf_counter()
             img = cv2_io.imread(frame_path, cv2.IMREAD_GRAYSCALE)
@@ -451,8 +549,11 @@ class SubtitleMonitor:
             edge_time = (time.perf_counter() - start_edge) * 1000
             
             if not (0.9 < subtitle_edge_density < 8):
-                logger.info(f"[{capture_folder}] ⊗ SKIP: No subtitle edges detected")
-                logger.info(f"[{capture_folder}]    └─ Edge density: {subtitle_edge_density:.1f}% (need 0.9-8%)")
+                self._log_skip(
+                    capture_folder, 'no_edges',
+                    f'⊗ SKIP: No subtitle edges detected '
+                    f'(density {subtitle_edge_density:.1f}%, need 0.9-8%)'
+                )
                 data['subtitle_analysis'] = {
                     'has_subtitles': False,
                     'extracted_text': '',
@@ -687,9 +788,14 @@ class SubtitleMonitor:
                 'extracted_text': '',
                 'error': str(e)
             }
-        
+
         data['subtitle_ocr_pending'] = False
-        
+
+        # Remember what this picture answered, so the next identical frame reuses
+        # the answer instead of decoding and OCR-ing the same picture again.
+        if frame_digest is not None:
+            self._last_ocr_frame[capture_folder] = (frame_digest, data.get('subtitle_analysis') or {})
+
         with open(json_path + '.tmp', 'w') as f:
             json.dump(data, f, indent=2)
         # Windows-safe atomic overwrite (os.rename fails if destination exists)
@@ -796,11 +902,16 @@ def main():
         logger.info(f"Killed existing instances: {killed}")
         time.sleep(1)
     
+    from shared.src.lib.utils.monitor_profile import folders_needing_service
     base_dirs = get_capture_base_directories()
     capture_dirs = []
+    needed = set(folders_needing_service('subtitle', [os.path.basename(b) for b in base_dirs]))
     
     for base_dir in base_dirs:
         device_folder = os.path.basename(base_dir)
+        if device_folder not in needed:
+            logger.info(f"  [{device_folder}] profile does not use the subtitle service, skipped")
+            continue
         capture_path = get_captures_path(device_folder)
         capture_dirs.append(capture_path)
     
@@ -812,6 +923,8 @@ def main():
     
     logger.info("=" * 80)
     logger.info("Subtitle OCR Monitor - OPTIMIZED")
+    from shared.src.lib.utils.monitor_profile import resolve_monitor_profile
+    logger.info(f"Monitor profile (host level): {resolve_monitor_profile(None)}")
     logger.info(f"- Downscale: {downscale_pct}% ({pixel_reduction}% fewer pixels)")
     logger.info(f"- Binarization: {binarize_status} (black/white for faster OCR)")
     logger.info(f"- Spellcheck: {spellcheck_status} (corrects misspelled words)")

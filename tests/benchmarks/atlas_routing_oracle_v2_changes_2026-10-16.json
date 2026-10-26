@@ -1,0 +1,801 @@
+{
+ "revision": "v2",
+ "date": "2026-10-16",
+ "base": "tests/benchmarks/atlas_routing_cases.jsonl (v1 corrected)",
+ "prompt_count": 100,
+ "source_decision_report": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+ "original_sha256": "56cf9c9be3b6dd63ab3274b794989754ff751cb121446253965f5e5f4adac18c",
+ "v1_sha256": "0da6df135f017eb833bb7e1fdb4d9c0a24a7e48be9560fa8789b303edd9c3472",
+ "v2_sha256": "fde7917d6dd98ed4a6ccdfe675de257c94f243b5df7d4d4f6987e88a8063d167",
+ "direct_convention": "expected_skill=\"direct\" marks a manager direct-tool route (a permitted tool no loaded skill declares); the validator resolves it against the manager direct-tool policy.",
+ "parameter_convention": "expected_parameters contains only ToolBridge schema arguments; expected_semantic_slots holds explicitly labelled target/argument labels that no schema declares (measured by a separate extractor metric, P0-3).",
+ "changed_case_count": 39,
+ "required_model_extension_rows": [
+  "ATLAS-004",
+  "ATLAS-012",
+  "ATLAS-019",
+  "ATLAS-024",
+  "ATLAS-025",
+  "ATLAS-034"
+ ],
+ "changes": [
+  {
+   "id": "ATLAS-002",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "host_name": "lab-1"
+     },
+     "after": {}
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "host_name": "lab-1"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-003",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "device_name": "Samsung TV"
+     },
+     "after": {}
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "device_name": "Samsung TV"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-004",
+   "kind": "label",
+   "fields": {
+    "expected_action": {
+     "before": "reject",
+     "after": "route"
+    },
+    "expected_mcp_tool": {
+     "before": "none",
+     "after": "list_services"
+    },
+    "expected_skill": {
+     "before": "check-system-health",
+     "after": "direct"
+    }
+   },
+   "reason": "Service inventory is a manager direct/planner read (list_services; system-ops routes it via propose_masterchief_op). Both reviewers reject the v1 false reject.",
+   "decision_source": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+   "required_model_extension": true
+  },
+  {
+   "id": "ATLAS-005",
+   "kind": "label",
+   "fields": {
+    "expected_action": {
+     "before": "clarify",
+     "after": "route"
+    },
+    "expected_mcp_tool": {
+     "before": "none",
+     "after": "get_device_info"
+    },
+    "expected_routing_level": {
+     "before": "other",
+     "after": "algorithm"
+    }
+   },
+   "reason": "Both reviewers call the v1 edit incorrect: the check-system-health workflow (get_device_info + get_alerts) is exactly the requested health summary, so a valid executable skill route exists.",
+   "decision_source": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-006",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "page": "monitoring"
+     },
+     "after": {
+      "page_name": "monitoring"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-012",
+   "kind": "label",
+   "fields": {
+    "expected_action": {
+     "before": "reject",
+     "after": "route"
+    },
+    "expected_mcp_tool": {
+     "before": "none",
+     "after": "get_coverage_summary"
+    },
+    "expected_skill": {
+     "before": "testcase-management",
+     "after": "direct"
+    }
+   },
+   "reason": "get_coverage_summary is a permitted direct read; the coverage summary is answerable, so reject is false.",
+   "decision_source": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+   "required_model_extension": true
+  },
+  {
+   "id": "ATLAS-016",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "device_name": "Android phone"
+     },
+     "after": {}
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "device_name": "Android phone"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-018",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "device_name": "TV"
+     },
+     "after": {}
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "device_name": "TV"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-019",
+   "kind": "label",
+   "fields": {
+    "expected_action": {
+     "before": "reject",
+     "after": "route"
+    },
+    "expected_mcp_tool": {
+     "before": "none",
+     "after": "get_installed_apps"
+    },
+    "expected_skill": {
+     "before": "device-control",
+     "after": "direct"
+    }
+   },
+   "reason": "get_installed_apps is a permitted direct tool (Android); the installed-apps read is answerable. Target resolution is a P0-3 concern, not an unsupported-capability reject.",
+   "decision_source": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+   "required_model_extension": true
+  },
+  {
+   "id": "ATLAS-021",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "node": "Home"
+     },
+     "after": {
+      "node_label": "Home"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-022",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "node": "Settings"
+     },
+     "after": {
+      "target_node_label": "Settings"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-024",
+   "kind": "label",
+   "fields": {
+    "expected_action": {
+     "before": "reject",
+     "after": "route"
+    },
+    "expected_mcp_tool": {
+     "before": "none",
+     "after": "load_testcase"
+    },
+    "expected_skill": {
+     "before": "testcase-management",
+     "after": "direct"
+    }
+   },
+   "reason": "load_testcase is a permitted direct tool; list_testcases -> resolve id -> load is a supported path, so reject is false.",
+   "decision_source": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+   "required_model_extension": true
+  },
+  {
+   "id": "ATLAS-025",
+   "kind": "label",
+   "fields": {
+    "expected_action": {
+     "before": "reject",
+     "after": "route"
+    },
+    "expected_mcp_tool": {
+     "before": "none",
+     "after": "list_requirements"
+    },
+    "expected_skill": {
+     "before": "testcase-management",
+     "after": "direct"
+    }
+   },
+   "reason": "Both reviewers call the v1 edit incorrect: list_requirements is a direct/fallback Atlas tool.",
+   "decision_source": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+   "required_model_extension": true
+  },
+  {
+   "id": "ATLAS-026",
+   "kind": "label",
+   "fields": {
+    "expected_mcp_tool": {
+     "before": "analyze_screen_for_action",
+     "after": "none"
+    },
+    "expected_skill": {
+     "before": "build-tree-mobile",
+     "after": "none"
+    }
+   },
+   "reason": "analyze_screen_for_action is declared by build-tree-mobile AND build-tree-web, so the mobile skill is non-unique, and it designs selectors from elements rather than inspecting pixels. Drop the unjustified skill/tool; keep clarify.",
+   "decision_source": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-027",
+   "kind": "label",
+   "fields": {
+    "expected_mcp_tool": {
+     "before": "analyze_screen_for_verification",
+     "after": "none"
+    },
+    "expected_skill": {
+     "before": "build-tree-mobile",
+     "after": "none"
+    }
+   },
+   "reason": "analyze_screen_for_verification is declared by both tree skills; mobile is asserted without platform evidence. Drop the skill/tool; keep clarify.",
+   "decision_source": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-029",
+   "kind": "label",
+   "fields": {
+    "expected_action": {
+     "before": "reject",
+     "after": "clarify"
+    },
+    "expected_skill": {
+     "before": "device-control",
+     "after": "none"
+    }
+   },
+   "reason": "get_transcript exists (device+host window) so reject is too strong, but \"recording r1\" does not map to a device/time window; clarify is correct with or without direct-route support.",
+   "decision_source": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-030",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "host_name": "host-1"
+     },
+     "after": {}
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "host_name": "host-1"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-031",
+   "kind": "label",
+   "fields": {
+    "expected_action": {
+     "before": "route",
+     "after": "clarify"
+    },
+    "expected_mcp_tool": {
+     "before": "capture_screenshot",
+     "after": "none"
+    },
+    "expected_skill": {
+     "before": "ai-userinterface",
+     "after": "none"
+    }
+   },
+   "reason": "The chain step verify_node is not declared by ai-userinterface, so the route is invalid, and \"verify the Home screen\" is ambiguous. Drop to clarify.",
+   "decision_source": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-032",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "node": "Settings"
+     },
+     "after": {
+      "target_node_label": "Settings"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-034",
+   "kind": "label+parameter",
+   "fields": {
+    "expected_action": {
+     "before": "clarify",
+     "after": "route"
+    },
+    "expected_execution_plan": {
+     "before": [
+      "list_testcases"
+     ],
+     "after": [
+      "list_testcases",
+      "get_testcase_requirements"
+     ]
+    },
+    "expected_parameters": {
+     "before": {
+      "name": "checkout"
+     },
+     "after": {}
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "name": "checkout"
+     }
+    }
+   },
+   "reason": "The v1 edit dropped the requested requirements read. Restore route with the direct step get_testcase_requirements after list_testcases. P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+   "required_model_extension": true
+  },
+  {
+   "id": "ATLAS-035",
+   "kind": "label",
+   "fields": {
+    "expected_mcp_tool": {
+     "before": "analyze_screen_for_verification",
+     "after": "none"
+    },
+    "expected_skill": {
+     "before": "build-tree-mobile",
+     "after": "none"
+    }
+   },
+   "reason": "Same class as ATLAS-026/027: analyzer declared by both tree skills, mobile asserted without platform evidence. Keep clarify.",
+   "decision_source": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-036",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "name": "smoke"
+     },
+     "after": {
+      "testcase_name": "smoke"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-041",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "campaign": "regression",
+      "device_name": "living room STB"
+     },
+     "after": {
+      "campaign_name": "regression"
+     }
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "device_name": "living room STB"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-042",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "name": "login flow"
+     },
+     "after": {
+      "testcase_name": "login flow"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-044",
+   "kind": "label",
+   "fields": {
+    "expected_action": {
+     "before": "reject",
+     "after": "clarify"
+    },
+    "expected_skill": {
+     "before": "testcase-management",
+     "after": "none"
+    }
+   },
+   "reason": "create_requirement / link_testcase_to_requirement exist, so reject is false, but the prompt lacks requirement content and a resolved testcase; clarify is correct with or without direct-route support.",
+   "decision_source": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-045",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "device_id": "device A",
+      "app": "YouTube"
+     },
+     "after": {
+      "device_id": "device A"
+     }
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "app": "YouTube"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-047",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "device_name": "Samsung"
+     },
+     "after": {}
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "device_name": "Samsung"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-048",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "device_name": "Samsung"
+     },
+     "after": {}
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "device_name": "Samsung"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-049",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "device_name": "Samsung"
+     },
+     "after": {}
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "device_name": "Samsung"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-052",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "app": "Netflix"
+     },
+     "after": {}
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "app": "Netflix"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-053",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "device": "headset"
+     },
+     "after": {}
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "device": "headset"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-057",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "apk": "missing"
+     },
+     "after": {}
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "apk": "missing"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-058",
+   "kind": "label",
+   "fields": {
+    "expected_mcp_tool": {
+     "before": "capture_screenshot",
+     "after": "none"
+    },
+    "expected_skill": {
+     "before": "ai-userinterface",
+     "after": "none"
+    }
+   },
+   "reason": "capture_screenshot is right but its owner is non-unique (six skills); keep clarify and drop the KB-specific skill/tool.",
+   "decision_source": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-059",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "app": "Netflix"
+     },
+     "after": {}
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "app": "Netflix"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-060",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "app": "YouTube"
+     },
+     "after": {}
+    },
+    "expected_semantic_slots": {
+     "before": null,
+     "after": {
+      "app": "YouTube"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-061",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "node": "Settings"
+     },
+     "after": {
+      "target_node_label": "Settings"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-063",
+   "kind": "label",
+   "fields": {
+    "expected_action": {
+     "before": "route",
+     "after": "clarify"
+    },
+    "expected_mcp_tool": {
+     "before": "list_testcases",
+     "after": "none"
+    },
+    "expected_skill": {
+     "before": "testcase-management",
+     "after": "none"
+    }
+   },
+   "reason": "The v1 swap is catalog-valid but list_testcases returns definitions, not failure history, and the request is multi-step; clarify (planner) replaces the premature route.",
+   "decision_source": "reports/atlas-routing-benchmark/oracle-adjudication-2026-10-16/contested-decisions-2026-10-16.md",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-064",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "app": "Netflix"
+     },
+     "after": {
+      "app_package": "Netflix"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  },
+  {
+   "id": "ATLAS-086",
+   "kind": "parameter",
+   "fields": {
+    "expected_parameters": {
+     "before": {
+      "tree": "shared"
+     },
+     "after": {
+      "tree_id": "shared"
+     }
+    }
+   },
+   "reason": "P0-2: expected_parameters now holds only real ToolBridge schema arguments; target/argument labels moved to the labelled expected_semantic_slots (extractor metric is separate, P0-3).",
+   "decision_source": "P0-2 parameter-contract repair",
+   "required_model_extension": false
+  }
+ ]
+}

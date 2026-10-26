@@ -8,7 +8,7 @@ gets redeployed.
 
 One record per GitLab the VPT talks to:
 
-    {"id": "main", "name": "Customer GitLab", "base_url": "http://10.10.41.52",
+    {"id": "main", "name": "Customer GitLab", "base_url": "http://gitlab.internal",
      "token": "glpat-…", "project": "group/app", "ref": "main"}
 
 `project` is the operator's selection: with one project it is chosen implicitly, with several it

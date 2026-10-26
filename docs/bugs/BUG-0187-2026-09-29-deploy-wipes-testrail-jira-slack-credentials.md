@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High                                                         |
 | Area      | backend / deploy                                             |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `bf56ea42d`                                                  |
 
 ---

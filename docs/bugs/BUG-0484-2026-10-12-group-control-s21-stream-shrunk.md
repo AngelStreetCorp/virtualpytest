@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low                                                          |
 | Area      | frontend · rec · Group control                               |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | 632f021c9                                                    |
 
 ---

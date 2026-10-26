@@ -16,6 +16,7 @@ import {
 
 import { chrome, Mode } from './palette';
 import { RankedItem } from './topN';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 /**
  * Thin recharts wrappers, shared by every Analytics tab.
@@ -33,7 +34,7 @@ import { RankedItem } from './topN';
 export const useMode = (): Mode => (useTheme().palette.mode === 'dark' ? 'dark' : 'light');
 
 const axisStyle = (mode: Mode) => ({
-  fontSize: 10,
+  fontSize: TYPOGRAPHY.microMeta.size,
   fill: chrome(mode).muted,
 });
 
@@ -44,10 +45,10 @@ const tooltipStyle = (mode: Mode) => ({
     borderRadius: 6,
     boxShadow: '0 4px 14px rgba(0,0,0,0.35)',
     color: chrome(mode).text,
-    fontSize: 11,
+    fontSize: TYPOGRAPHY.microMeta.size,
     padding: '6px 10px',
   },
-  labelStyle: { color: chrome(mode).muted, fontSize: 10 },
+  labelStyle: { color: chrome(mode).muted, fontSize: TYPOGRAPHY.microMeta.size },
   itemStyle: { padding: 0 },
 });
 
@@ -112,7 +113,7 @@ export const HBar: React.FC<HBarProps> = ({
                 flexShrink: 0,
                 textAlign: 'right',
                 color: 'text.secondary',
-                fontSize: '0.6875rem',
+                fontSize: TYPOGRAPHY.microMeta.size,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -147,7 +148,7 @@ export const HBar: React.FC<HBarProps> = ({
                 flexShrink: 0,
                 textAlign: 'right',
                 color: 'text.secondary',
-                fontSize: '0.6875rem',
+                fontSize: TYPOGRAPHY.microMeta.size,
                 fontVariantNumeric: 'tabular-nums',
               }}
             >
@@ -219,7 +220,7 @@ export const StackedBar: React.FC<StackedBarProps> = ({
           <Legend
             iconType="square"
             iconSize={9}
-            wrapperStyle={{ fontSize: 11, color: chrome(mode).muted, paddingTop: 6 }}
+            wrapperStyle={{ fontSize: TYPOGRAPHY.microMeta.size, color: chrome(mode).muted, paddingTop: 6 }}
           />
         )}
         {series.map((s) => (
@@ -305,7 +306,7 @@ export const Donut: React.FC<DonutProps> = ({
               {centerValue}
             </Typography>
             {centerLabel && (
-              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.625rem' }}>
+              <Typography variant="caption" color="text.secondary" sx={{ fontSize: TYPOGRAPHY.microMeta.size }}>
                 {centerLabel}
               </Typography>
             )}
@@ -332,7 +333,7 @@ export const Donut: React.FC<DonutProps> = ({
               sx={{
                 flexGrow: 1,
                 color: 'text.secondary',
-                fontSize: '0.6875rem',
+                fontSize: TYPOGRAPHY.microMeta.size,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -342,7 +343,7 @@ export const Donut: React.FC<DonutProps> = ({
             </Typography>
             <Typography
               variant="caption"
-              sx={{ fontWeight: 600, fontSize: '0.6875rem', fontVariantNumeric: 'tabular-nums' }}
+              sx={{ fontWeight: 600, fontSize: TYPOGRAPHY.microMeta.size, fontVariantNumeric: 'tabular-nums' }}
             >
               {row.value.toLocaleString()}
             </Typography>
@@ -397,12 +398,12 @@ const TreemapCell: React.FC<TreemapContentProps> = ({
         strokeWidth={2}
       />
       {roomForLabel && (
-        <text x={x + 10} y={y + 20} fill="#fff" fontSize={12} fontWeight={600}>
+        <text x={x + 10} y={y + 20} fill="#fff" fontSize="0.75rem" fontWeight={600}>
           {name}
         </text>
       )}
       {roomForValue && (
-        <text x={x + 10} y={y + 36} fill="rgba(255,255,255,0.78)" fontSize={11}>
+        <text x={x + 10} y={y + 36} fill="rgba(255,255,255,0.78)" fontSize="0.6875rem">
           {(value ?? 0).toLocaleString()}
         </text>
       )}

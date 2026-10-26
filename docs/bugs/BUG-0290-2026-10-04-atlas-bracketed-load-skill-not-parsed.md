@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low                                                       |
 | Area      | backend_server/src/agent/core                                                |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | ff5f961b2                                                    |
 
 ---

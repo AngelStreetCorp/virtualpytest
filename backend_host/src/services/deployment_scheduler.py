@@ -9,15 +9,17 @@ from shared.src.lib.executors.campaign_executor import CampaignExecutor
 from shared.src.lib.database.campaign_db import get_campaign_by_name
 from shared.src.lib.utils.storage_path_utils import get_running_log_path, get_capture_folder_from_device_id
 from datetime import datetime, timezone, timedelta
+from uuid import uuid4
 import logging
 import threading
 import os
+from pathlib import Path
 import json
 import tempfile
 import time
 import requests
 from shared.src.lib.utils.build_url_utils import buildServerUrl, server_auth_headers
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 # Configure deployment logger
 deployment_logger = logging.getLogger('deployment_scheduler')
@@ -41,7 +43,45 @@ deployment_handler.setFormatter(logging.Formatter(
 ))
 deployment_logger.addHandler(deployment_handler)
 
+# How long an unfinished script_results row is left alone before the host closes it. Above the
+# longest legitimate run (90 min for game_clashofclans_llm, 1 h for everything else) so a healthy
+# but slow run is never rewritten.
+ORPHANED_SCRIPT_RESULT_GRACE_SECONDS = 7200
+# How often the host looks for them.
+ORPHANED_SCRIPT_RESULT_SWEEP_SECONDS = 300
+# How often the host closes browsers that belong to no live run. They count against the
+# host's browser-run cap, so a host that only ever leaks slowly loses the ability to start
+# browser runs at all (BUG-0837 follow-up). Off with VPT_REAP_LEAKED_BROWSERS=0.
+LEAKED_BROWSER_REAP_SECONDS = 300
+# A recurring deployment that could not start because its device was busy is retried
+# inside its own trigger window instead of waiting for the next cron trigger, which for
+# a nightly is tomorrow. The web nightlies fire on the same minute on the same device,
+# so the losers used to lose the night entirely (BUG-0898).
+BUSY_RETRY_MAX_ATTEMPTS = 3
+BUSY_RETRY_INTERVAL_SECONDS = 300
+# Stop retrying this long before the next trigger, so a retry never runs into the next
+# window.
+BUSY_RETRY_WINDOW_MARGIN_SECONDS = 600
+
+def _is_file_script(script_name: str) -> bool:
+    """True when `script_name` (with or without ".py") is a file under test_scripts/."""
+    root = Path(__file__).resolve().parents[3]
+    name = (script_name or '').replace('\\', '/').lstrip('/')
+    if name.startswith('test_scripts/'):
+        name = name[len('test_scripts/'):]
+    if not name.endswith('.py'):
+        name += '.py'
+    base = (root / 'test_scripts').resolve()
+    path = (base / name).resolve()
+    return base in path.parents and path.is_file()
+
+
 class DeploymentScheduler:
+    # True once the database has told us that campaign_executions has no `skipped`
+    # column yet (the skip-flag migration has not been applied): the skip then
+    # travels in the row metadata alone (BUG-0898).
+    _campaign_skipped_column_missing: bool = False
+
     def __init__(self, host_name):
         self.host_name = host_name
         self.scheduler = BackgroundScheduler(timezone='UTC')
@@ -51,6 +91,10 @@ class DeploymentScheduler:
         self.queued_executions = {}
         self.wait_lock_retry_timers: Dict[str, threading.Timer] = {}
         self.wait_lock_retry_lock = threading.Lock()
+        # In-window retry of a recurring deployment skipped because its device was busy:
+        # deployment_id -> {'attempt': int, 'deadline': float, 'running': bool}.
+        self.busy_retry_state: Dict[str, Dict[str, Any]] = {}
+        self.busy_retry_lock = threading.Lock()
 
     @staticmethod
     def _parse_iso_datetime(value: Optional[str]) -> Optional[datetime]:
@@ -68,6 +112,258 @@ class DeploymentScheduler:
         if value.tzinfo is None:
             return value.isoformat()
         return value.astimezone(timezone.utc).isoformat()
+
+    def _find_orphaned_script_result(self, stale_execution: Dict[str, Any]) -> Optional[str]:
+        """The script_results row this dead execution left behind, or None.
+
+        `deployment_executions.script_result_id` is scraped out of the finished run's stdout
+        (`SCRIPT_RESULT_ID:<uuid>`), so it is set only when the run got far enough to finish.
+        For exactly the runs this sweeper exists for -- the ones that died mid-flight -- the
+        column is NULL and the placeholder `script_results` row
+        (`execution_time_ms IS NULL`, `success = False`) is left with nothing to link to. It then
+        sits on the dashboard for ever as a failure with no reason.
+
+        Find it the same way the deployment reconciler does (host + script + a window around the
+        execution start) and return the single closest match, so a dead execution closes its own
+        row and nobody else's.
+        """
+        script_name = (stale_execution.get('deployments') or {}).get('script_name') or ''
+        bare_name = script_name.rsplit('/', 1)[-1].replace('.py', '')
+        started_raw = stale_execution.get('started_at') or stale_execution.get('scheduled_at')
+        if not bare_name or not started_raw:
+            return None
+        try:
+            started = datetime.fromisoformat(str(started_raw).replace('Z', '+00:00'))
+        except Exception:
+            return None
+        if started.tzinfo is None:
+            started = started.replace(tzinfo=timezone.utc)
+
+        window_start = started - timedelta(seconds=30)
+        window_end = started + timedelta(minutes=30)
+        try:
+            with self.db_lock:
+                rows = (
+                    self.supabase.table('script_results')
+                    .select('id, script_name, started_at')
+                    .eq('host_name', self.host_name)
+                    .is_('execution_time_ms', 'null')
+                    .gte('started_at', window_start.isoformat())
+                    .lte('started_at', window_end.isoformat())
+                    .order('started_at', desc=True)
+                    .execute()
+                )
+        except Exception as exc:
+            print(f"[@deployment_scheduler] Orphaned script_result lookup failed: {exc}")
+            return None
+
+        best, best_dt = None, None
+        for row in getattr(rows, 'data', None) or []:
+            if (row.get('script_name') or '').rsplit('/', 1)[-1].replace('.py', '') != bare_name:
+                continue
+            try:
+                row_dt = datetime.fromisoformat(str(row.get('started_at')).replace('Z', '+00:00'))
+            except Exception:
+                continue
+            if row_dt.tzinfo is None:
+                row_dt = row_dt.replace(tzinfo=timezone.utc)
+            if best_dt is None or abs((row_dt - started).total_seconds()) < abs((best_dt - started).total_seconds()):
+                best, best_dt = row, row_dt
+        return best.get('id') if best else None
+
+    def _mark_stale_execution_failed(self, stale_execution: Dict[str, Any], error_message: str) -> None:
+        """Close an orphaned deployment and its linked script result together."""
+        completed_at = datetime.now(timezone.utc).isoformat()
+        execution_id = stale_execution['id']
+        script_result_id = stale_execution.get('script_result_id')
+        if not script_result_id:
+            script_result_id = self._find_orphaned_script_result(stale_execution)
+            if script_result_id:
+                print(f"[@deployment_scheduler] Recovered script_result {script_result_id} for dead execution {execution_id}")
+        with self.db_lock:
+            self.supabase.table('deployment_executions').update({
+                'completed_at': completed_at,
+                'status': 'failed',
+                'success': False,
+                'error_message': error_message,
+            }).eq('id', execution_id).execute()
+            if script_result_id:
+                self.supabase.table('script_results').update({
+                    'completed_at': completed_at,
+                    'updated_at': completed_at,
+                    'success': False,
+                    'error_msg': error_message,
+                }).eq('id', script_result_id).execute()
+        self._close_campaign_execution(stale_execution, completed_at, error_message)
+
+    def _close_campaign_execution(self, stale_execution: Dict[str, Any], completed_at: str, error_message: str) -> None:
+        """Close the campaign row a dead deployment execution started (BUG-0900).
+
+        The row is found only through the link the executor wrote into its metadata, never by age.
+        It is closed only while it is still `running`, so a verdict is never overwritten, and only
+        inside the deployment's team and on this host. `executed_by` is a uuid column: never write it.
+        A failure here is logged and swallowed; the deployment repair has already happened.
+        """
+        execution_id = stale_execution.get('id')
+        try:
+            team_id = (stale_execution.get('deployments') or {}).get('team_id')
+            if not team_id and stale_execution.get('deployment_id'):
+                with self.db_lock:
+                    dep_rows = self.supabase.table('deployments').select('team_id') \
+                        .eq('id', stale_execution['deployment_id']).execute()
+                team_id = ((getattr(dep_rows, 'data', None) or [{}])[0]).get('team_id')
+            if not team_id or not execution_id:
+                return
+            with self.db_lock:
+                self.supabase.table('campaign_executions').update({
+                    'status': 'aborted',
+                    'success': False,
+                    'completed_at': completed_at,
+                    'updated_at': completed_at,
+                    'error_message': error_message,
+                }).eq('team_id', team_id) \
+                    .eq('host_name', self.host_name) \
+                    .eq('status', 'running') \
+                    .eq('metadata->>deployment_execution_id', execution_id) \
+                    .execute()
+        except Exception as exc:
+            print(f"[@deployment_scheduler] could not close campaign execution of {execution_id}: {exc}")
+            deployment_logger.error(f"Could not close campaign execution of dead execution {execution_id}: {exc}")
+
+    def _sweep_orphaned_campaign_executions(self) -> int:
+        """Close this host's campaign rows still `running` whose deployment execution is closed.
+
+        The startup recovery only sees deployment executions that are still `running`; one closed
+        by an earlier restart is never looked at again, and its campaign row read `running` for
+        ever (BUG-0900). Only the metadata link identifies the row; rows without it are left alone.
+        """
+        try:
+            with self.db_lock:
+                running = self.supabase.table('campaign_executions') \
+                    .select('id, team_id, metadata') \
+                    .eq('host_name', self.host_name) \
+                    .eq('status', 'running') \
+                    .execute()
+            linked: Dict[str, Dict[str, Any]] = {}
+            for row in getattr(running, 'data', None) or []:
+                link = (row.get('metadata') or {}).get('deployment_execution_id')
+                if link and row.get('team_id'):
+                    linked[link] = row
+            if not linked:
+                return 0
+            ids = list(linked)
+            closed = 0
+            for i in range(0, len(ids), 50):
+                with self.db_lock:
+                    executions = self.supabase.table('deployment_executions') \
+                        .select('id, status, completed_at, error_message, deployments!inner(host_name, team_id)') \
+                        .in_('id', ids[i:i + 50]).execute()
+                for execution in getattr(executions, 'data', None) or []:
+                    campaign = linked.get(execution.get('id'))
+                    dep = execution.get('deployments') or {}
+                    if (not campaign or execution.get('status') == 'running'
+                            or dep.get('team_id') != campaign['team_id']
+                            or dep.get('host_name') != self.host_name):
+                        continue
+                    when = execution.get('completed_at') or datetime.now(timezone.utc).isoformat()
+                    reason = execution.get('error_message') or 'Deployment execution ended before the campaign reported'
+                    self._close_campaign_execution(
+                        {'id': execution['id'], 'deployments': {'team_id': campaign['team_id']}}, when, reason)
+                    closed += 1
+            if closed:
+                print(f"[@deployment_scheduler] Closed {closed} orphaned campaign execution(s) on {self.host_name}")
+                deployment_logger.warning(f"Closed {closed} orphaned campaign execution(s) on {self.host_name}")
+            return closed
+        except Exception as exc:
+            print(f"[@deployment_scheduler] Orphaned campaign execution sweep failed: {exc}")
+            deployment_logger.error(f"Orphaned campaign execution sweep failed: {exc}")
+            return 0
+
+    def _sweep_orphaned_script_results(self) -> int:
+        """Finalize this host's script_results rows that no run ever closed.
+
+        `record_script_execution_start` opens every run with a placeholder row
+        (`completed_at = started_at`, `success = False`, `execution_time_ms = NULL`) and
+        `update_script_execution_result` closes it when the script finishes. When the run dies
+        first, nothing closes it: the deployment sweeper only reaches rows a dead execution can
+        link, and a run started outside the deployment path has no execution at all. The row then
+        reads on the dashboard as a failure that never happened, with no error message, for ever
+        (110 such rows had piled up by 2026-10-22).
+
+        The grace period is deliberately far above the longest legitimate run: the busiest script
+        (game_clashofclans_llm) is allowed 90 min before the deployment sweeper calls it an
+        orphan, so two hours leaves room for the sweep itself to be late.
+        """
+        grace = timedelta(seconds=ORPHANED_SCRIPT_RESULT_GRACE_SECONDS)
+        cutoff = (datetime.now(timezone.utc) - grace).isoformat()
+        message = (
+            'The run never reported a verdict: it stopped before it could write its result '
+            '(host restart, killed process, or a run that outlived its slot). Closed by the host '
+            'as an orphan, not a test failure.'
+        )
+        try:
+            with self.db_lock:
+                stale = (
+                    self.supabase.table('script_results')
+                    .select('id, script_name, started_at, completed_at, error_msg')
+                    .eq('host_name', self.host_name)
+                    .is_('execution_time_ms', 'null')
+                    .is_('error_msg', 'null')
+                    .lt('started_at', cutoff)
+                    .execute()
+                )
+        except Exception as exc:
+            print(f"[@deployment_scheduler] Orphaned script_result sweep query failed: {exc}")
+            return 0
+
+        # The sweep writes error_msg but not execution_time_ms, so execution_time_ms alone cannot tell
+        # a closed row from an open one (BUG-0901). A placeholder has no error_msg and a completed_at
+        # within microseconds of started_at (two separate now() calls, so never equal).
+        def _is_placeholder(row):
+            try:
+                started = datetime.fromisoformat(str(row['started_at']).replace('Z', '+00:00'))
+                completed = datetime.fromisoformat(str(row['completed_at']).replace('Z', '+00:00'))
+            except (KeyError, ValueError):
+                return False
+            return row.get('error_msg') is None and abs((completed - started).total_seconds()) < 1
+
+        rows = [r for r in (getattr(stale, 'data', None) or []) if _is_placeholder(r)]
+        if not rows:
+            return 0
+        closed = 0
+        now = datetime.now(timezone.utc).isoformat()
+        for row in rows:
+            try:
+                with self.db_lock:
+                    result = self.supabase.table('script_results').update({
+                        'completed_at': now,
+                        'updated_at': now,
+                        'success': False,
+                        'error_msg': message,
+                    }).eq('id', row['id']).is_('execution_time_ms', 'null').is_('error_msg', 'null').execute()
+                # Count what this write changed: a row closed meanwhile by someone else matches nothing.
+                closed += len(getattr(result, 'data', None) or [])
+            except Exception as exc:
+                print(f"[@deployment_scheduler] could not close script_result {row['id']}: {exc}")
+        if closed:
+            print(f"[@deployment_scheduler] Closed {closed} orphaned script_result row(s) on {self.host_name}")
+            deployment_logger.warning(f"Closed {closed} orphaned script_result row(s) on {self.host_name}")
+        return closed
+
+    def _reap_leaked_browsers(self) -> None:
+        """Close browsers that belong to no live run, freeing their slot back to the pool.
+
+        A run gives its slot back whether or not its Chrome died, so a corpse is invisible
+        to the cap except as a leak count, and a host that only leaks eventually refuses new
+        browser runs outright. The kill itself is the safe one: the detector names the ports,
+        `shutdown_chrome` refuses any port a live run owns, and the process group of the
+        vpt-host service is never reachable. A failure here must never stop the host.
+        """
+        try:
+            from backend_host.src.lib.utils.playwright_utils import reap_leaked_browsers
+            reap_leaked_browsers()
+        except Exception as exc:
+            print(f"[@deployment_scheduler] Leaked browser reap skipped: {type(exc).__name__}: {exc}")
 
     ONE_SHOT_QUEUE_CRON = '0 0 1 1 *'
 
@@ -159,6 +455,11 @@ class DeploymentScheduler:
                 'scheduled_at', desc=True
             ).limit(20).execute()
 
+        # Only the rows this host can still see running are reported as running: a dead
+        # row reads as "running" forever and defers every deploy of this host (E50).
+        from backend_host.src.services.execution_liveness import split_running_by_liveness
+        running_rows, stale_rows = split_running_by_liveness(running_result.data or [])
+
         return {
             'host_name': self.host_name,
             'scheduler_running': self.scheduler.running,
@@ -166,7 +467,8 @@ class DeploymentScheduler:
             'job_count': len(jobs),
             'jobs': jobs,
             'queued_executions_by_device': queue_snapshot,
-            'running_executions': running_result.data or [],
+            'running_executions': running_rows,
+            'stale_execution_rows': stale_rows,
             'queued_execution_rows': queued_result.data or [],
         }
 
@@ -366,6 +668,221 @@ class DeploymentScheduler:
             f"queued_execution_id={queued_execution_id or 'none'}"
         )
         
+    # --- BUG-0898: a deployment that never started must still be visible ----------------
+
+    def _resolve_db_campaign(self, dep: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Resolve the DB campaign of a deployment the way the run path resolves it.
+
+        A `campaign:` deployment runs a campaign file and has no DB campaign, a `.py`
+        script is not a campaign; everything else is looked up by name with the
+        deployment's own team_id.
+        """
+        script_name = dep.get('script_name') or ''
+        resolved = script_name
+        if resolved.startswith('campaign:'):
+            resolved = resolved[len('campaign:'):]
+            if '|' in resolved:
+                resolved = resolved.split('|', 1)[0]
+        if script_name.startswith('campaign:') or resolved.endswith('.py') or dep.get('virtual_script_id'):
+            return None
+        team_id = dep.get('team_id')
+        if not team_id:
+            return None
+        return get_campaign_by_name(resolved, team_id)
+
+    def _record_skipped_campaign_execution(
+        self,
+        dep: Dict[str, Any],
+        deployment_id: str,
+        start_time: datetime,
+        reason: str,
+    ) -> Optional[Dict[str, Any]]:
+        """Leave the campaign-level record of a deployment that never started (BUG-0898).
+
+        The `deployment_executions` row says "this trigger was skipped", but the nightly
+        report reads the campaign layer, where a night that never ran used to look
+        exactly like a night that found nothing. The record reads as skipped and carries
+        the reason, so the report can say that the night did not run, and why.
+
+        Only a recurring deployment leaves one: a one-off skip keeps its current
+        behaviour.
+        """
+        if not self._is_recurring_cron(dep):
+            return None
+        try:
+            campaign = self._resolve_db_campaign(dep)
+        except Exception as lookup_error:
+            print(f"[@deployment_scheduler] Campaign lookup for the skip record failed: {lookup_error}")
+            deployment_logger.warning(f"SKIP RECORD: campaign lookup failed for {deployment_id}: {lookup_error}")
+            return None
+        if not campaign:
+            return None
+        campaign_name = campaign.get('campaign_name') or campaign.get('name') or ''
+        if not campaign_name:
+            return None
+        row = {
+            'id': str(uuid4()),
+            'team_id': dep.get('team_id'),
+            'campaign_name': campaign_name,
+            'campaign_execution_id': str(uuid4()),
+            'host_name': dep.get('host_name') or '',
+            'device_name': dep.get('device_name') or '',
+            # The status column keeps its own meaning: the live CHECK constraint
+            # accepts pending/running/completed/failed/cancelled/aborted only, so a
+            # skip is written as a cancelled night and the flag says it never ran
+            # (BUG-0898).
+            'status': 'cancelled',
+            'skipped': True,
+            'started_at': start_time.isoformat(),
+            'completed_at': start_time.isoformat(),
+            'success': False,
+            'error_message': reason,
+            'script_configurations': campaign.get('script_configurations') or [],
+            'script_result_ids': [],
+            # campaign_executions.executed_by is a uuid column and every live row holds
+            # NULL; a label string is rejected (22P02) and the whole record is lost.
+            'executed_by': None,
+            'metadata': {
+                'skipped': True,
+                'skip_reason': reason,
+                'deployment_id': deployment_id,
+                'deployment_name': dep.get('name') or '',
+            },
+        }
+        if not self._insert_campaign_execution_row(row):
+            return None
+        deployment_logger.info(f"📝 SKIPPED CAMPAIGN RECORD: {campaign_name} | Reason: {reason}")
+        return row
+
+    @staticmethod
+    def _is_missing_skipped_column(error_text: str) -> bool:
+        """True when a write failed only because campaign_executions.skipped is not there yet."""
+        text = (error_text or '').lower()
+        return 'skipped' in text and (
+            'does not exist' in text
+            or 'no such column' in text
+            or 'undefined column' in text
+        )
+
+    def _insert_campaign_execution_row(self, row: Dict[str, Any]) -> bool:
+        """Store one campaign_executions row; True when the row is stored.
+
+        A database that has not run the skip-flag migration yet has no `skipped`
+        column and the insert fails on it. The record must not be lost because of
+        that: it is written without the column and the metadata flag keeps carrying
+        the skip (BUG-0898).
+        """
+        payload = row
+        if self._campaign_skipped_column_missing:
+            payload = {key: value for key, value in row.items() if key != 'skipped'}
+        try:
+            with self.db_lock:
+                self.supabase.table('campaign_executions').insert(payload).execute()
+            return True
+        except Exception as insert_error:
+            missing_column = (
+                not self._campaign_skipped_column_missing
+                and self._is_missing_skipped_column(str(insert_error))
+            )
+            if not missing_column:
+                print(f"[@deployment_scheduler] Failed to record the skipped campaign execution: {insert_error}")
+                deployment_logger.warning(f"SKIP RECORD: could not write the skipped campaign row: {insert_error}")
+                return False
+        # The column is missing: keep the record anyway, without the column.
+        self._campaign_skipped_column_missing = True
+        payload = {key: value for key, value in row.items() if key != 'skipped'}
+        try:
+            with self.db_lock:
+                self.supabase.table('campaign_executions').insert(payload).execute()
+            deployment_logger.warning(
+                "SKIP RECORD: campaign_executions.skipped is missing (migration not applied yet); "
+                "the skip was recorded in the row metadata only"
+            )
+            return True
+        except Exception as fallback_error:
+            print(f"[@deployment_scheduler] Failed to record the skipped campaign execution: {fallback_error}")
+            deployment_logger.warning(f"SKIP RECORD: could not write the skipped campaign row: {fallback_error}")
+            return False
+
+    def _busy_retry_deadline(self, dep: Dict[str, Any], start_time: datetime) -> float:
+        """When a busy retry must stop: the end of this trigger window.
+
+        The window ends at the deployment's next cron trigger minus a margin, so a
+        retry can never run into the next window.
+        """
+        deadline = start_time.timestamp() + BUSY_RETRY_INTERVAL_SECONDS * BUSY_RETRY_MAX_ATTEMPTS
+        cron_expr = dep.get('cron_expression')
+        if cron_expr:
+            try:
+                next_trigger = croniter(cron_expr, start_time).get_next(datetime)
+                deadline = min(deadline, next_trigger.timestamp() - BUSY_RETRY_WINDOW_MARGIN_SECONDS)
+            except Exception as cron_error:
+                print(f"[@deployment_scheduler] Could not compute the busy retry window: {cron_error}")
+        return deadline
+
+    def _schedule_busy_retry(
+        self,
+        dep: Dict[str, Any],
+        deployment_id: str,
+        start_time: datetime,
+        next_attempt: int,
+    ) -> bool:
+        """Retry a recurring deployment inside its own trigger window (BUG-0898).
+
+        True when a retry was scheduled, False when the budget for this window is
+        spent. The retry is bounded: at most BUSY_RETRY_MAX_ATTEMPTS attempts, all of
+        them before the window deadline, and never two attempts of the same deployment
+        at once.
+        """
+        now = time.time()
+        with self.busy_retry_lock:
+            state = self.busy_retry_state.get(deployment_id)
+            if next_attempt <= 1:
+                # A fresh trigger opens a new window, unless an attempt is running now.
+                if state and state.get('running'):
+                    return False
+                deadline = self._busy_retry_deadline(dep, start_time)
+                attempt = 1
+            else:
+                if not state:
+                    return False
+                deadline = float(state.get('deadline', 0))
+                attempt = next_attempt
+            if attempt > BUSY_RETRY_MAX_ATTEMPTS or now >= deadline:
+                self.busy_retry_state.pop(deployment_id, None)
+                deployment_logger.warning(
+                    f"BUSY RETRY BUDGET SPENT: {deployment_id} | attempts={attempt - 1} | "
+                    f"not retried again today"
+                )
+                return False
+            self.busy_retry_state[deployment_id] = {
+                'attempt': attempt,
+                'deadline': deadline,
+                'running': True,
+            }
+        delay = max(1, min(BUSY_RETRY_INTERVAL_SECONDS, int(deadline - now)))
+        timer = threading.Timer(delay, self._run_busy_retry, args=(deployment_id, attempt))
+        timer.daemon = True
+        timer.start()
+        deployment_logger.info(
+            f"⏱️ BUSY RETRY SCHEDULED: {deployment_id} | attempt={attempt}/{BUSY_RETRY_MAX_ATTEMPTS} | "
+            f"delay={delay}s | deadline={datetime.fromtimestamp(deadline, timezone.utc).isoformat()}"
+        )
+        return True
+
+    def _run_busy_retry(self, deployment_id: str, attempt: int) -> None:
+        """Run one in-window retry of a deployment that was skipped because it was busy."""
+        try:
+            self._execute_deployment(deployment_id, None, attempt)
+        except Exception as retry_error:
+            print(f"[@deployment_scheduler] Busy retry failed: {retry_error}")
+            deployment_logger.warning(f"BUSY RETRY: attempt {attempt} for {deployment_id} failed: {retry_error}")
+        finally:
+            with self.busy_retry_lock:
+                state = self.busy_retry_state.get(deployment_id)
+                if state and int(state.get('attempt', 0)) == attempt:
+                    state['running'] = False
+
     def start(self):
         """Start scheduler and sync from DB"""
         print(f"[@deployment_scheduler] Starting for {self.host_name}")
@@ -383,6 +900,27 @@ class DeploymentScheduler:
             replace_existing=True,
             max_instances=1,
         )
+        # Sweep script_results rows no run ever closed. The queue watchdog only drains rows the
+        # scheduler itself queued; a run that died left its result row behind forever (BUG-0837).
+        self.scheduler.add_job(
+            self._sweep_orphaned_script_results,
+            'interval',
+            seconds=ORPHANED_SCRIPT_RESULT_SWEEP_SECONDS,
+            id='__orphaned_script_result_sweep__',
+            replace_existing=True,
+            max_instances=1,
+        )
+        # Close browsers left behind by runs that died. Deliberate maintenance, kept out of
+        # the status read that only reports them (BUG-0760 put the kill behind a human; the
+        # safety rules it needed already exist in ChromeManager.shutdown_chrome).
+        self.scheduler.add_job(
+            self._reap_leaked_browsers,
+            'interval',
+            seconds=LEAKED_BROWSER_REAP_SECONDS,
+            id='__leaked_browser_reap__',
+            replace_existing=True,
+            max_instances=1,
+        )
         print(f"[@deployment_scheduler] Active jobs count: {len(self.scheduler.get_jobs())}")
         
     def _sync_from_db(self):
@@ -393,56 +931,45 @@ class DeploymentScheduler:
             deployment_logger.info("Cleaning up stale 'running' executions from previous session...")
             
             try:
-                # Get all deployments for this host to find their stale executions
-                print(f"[@deployment_scheduler] Querying deployments for host: {self.host_name}")
-                deployments_result = self.supabase.table('deployments').select('id').eq('host_name', self.host_name).execute()
-                deployment_ids = [d['id'] for d in deployments_result.data]
-                print(f"[@deployment_scheduler] Found {len(deployment_ids)} deployment(s) for this host")
-                deployment_logger.info(f"Found {len(deployment_ids)} deployment(s) for host {self.host_name}")
+                # Filter by host through the join, not by a list of deployment ids: a host can have
+                # ~1000 deployments and PostgREST answers a URL that long with HTTP 414, which left
+                # every orphaned 'running' row in place after a restart (BUG-0624).
+                print(f"[@deployment_scheduler] Checking for running executions on host: {self.host_name}")
+                stale_executions = self.supabase.table('deployment_executions')\
+                    .select('id, deployment_id, script_result_id, started_at, scheduled_at, deployments!inner(host_name, script_name, team_id)')\
+                    .eq('deployments.host_name', self.host_name)\
+                    .eq('status', 'running')\
+                    .execute()
+                print(f"[@deployment_scheduler] Query returned {len(stale_executions.data) if stale_executions.data else 0} running execution(s)")
                 
-                if not deployment_ids:
-                    print(f"[@deployment_scheduler] No deployments for host {self.host_name}, skipping stale execution check")
-                    deployment_logger.info(f"No deployments for host {self.host_name}")
-                
-                if deployment_ids:
-                    # Find all running executions for this host's deployments
-                    print(f"[@deployment_scheduler] Checking for running executions in {len(deployment_ids)} deployment(s)...")
-                    stale_executions = self.supabase.table('deployment_executions')\
-                        .select('id, deployment_id, started_at')\
-                        .in_('deployment_id', deployment_ids)\
-                        .eq('status', 'running')\
-                        .execute()
+                if stale_executions.data:
+                    stale_count = len(stale_executions.data)
+                    print(f"[@deployment_scheduler] Found {stale_count} stale 'running' execution(s):")
+                    for stale in stale_executions.data:
+                        print(f"[@deployment_scheduler]   - Execution {stale['id']} started at {stale.get('started_at', 'unknown')}")
+                    deployment_logger.warning(f"Found {stale_count} stale 'running' execution(s) - marking as failed")
                     
-                    print(f"[@deployment_scheduler] Query returned {len(stale_executions.data) if stale_executions.data else 0} running execution(s)")
-                    
-                    if stale_executions.data:
-                        stale_count = len(stale_executions.data)
-                        print(f"[@deployment_scheduler] Found {stale_count} stale 'running' execution(s):")
-                        for stale in stale_executions.data:
-                            print(f"[@deployment_scheduler]   - Execution {stale['id']} started at {stale.get('started_at', 'unknown')}")
-                        deployment_logger.warning(f"Found {stale_count} stale 'running' execution(s) - marking as failed")
-                        
-                        # Mark each stale execution as failed
-                        for stale_exec in stale_executions.data:
-                            try:
-                                self.supabase.table('deployment_executions').update({
-                                    'completed_at': datetime.now(timezone.utc).isoformat(),
-                                    'status': 'failed',
-                                    'success': False,
-                                    'error_message': 'Execution aborted - scheduler restarted'
-                                }).eq('id', stale_exec['id']).execute()
-                                
-                                print(f"[@deployment_scheduler] Marked stale execution {stale_exec['id']} as failed")
-                                deployment_logger.info(f"Cleaned up stale execution: {stale_exec['id']} (started: {stale_exec.get('started_at', 'unknown')})")
-                            except Exception as e:
-                                print(f"[@deployment_scheduler] Failed to clean up execution {stale_exec['id']}: {e}")
-                                deployment_logger.error(f"Failed to clean up stale execution {stale_exec['id']}: {e}")
-                    else:
-                        print(f"[@deployment_scheduler] No stale executions found")
-                        deployment_logger.info("No stale executions found - clean state")
+                    # Mark each stale execution as failed
+                    for stale_exec in stale_executions.data:
+                        try:
+                            self._mark_stale_execution_failed(
+                                stale_exec,
+                                'Execution aborted - scheduler restarted',
+                            )
+                            
+                            print(f"[@deployment_scheduler] Marked stale execution {stale_exec['id']} as failed")
+                            deployment_logger.info(f"Cleaned up stale execution: {stale_exec['id']} (started: {stale_exec.get('started_at', 'unknown')})")
+                        except Exception as e:
+                            print(f"[@deployment_scheduler] Failed to clean up execution {stale_exec['id']}: {e}")
+                            deployment_logger.error(f"Failed to clean up stale execution {stale_exec['id']}: {e}")
+                else:
+                    print(f"[@deployment_scheduler] No stale executions found")
+                    deployment_logger.info("No stale executions found - clean state")
             except Exception as e:
                 print(f"[@deployment_scheduler] Error cleaning up stale executions: {e}")
                 deployment_logger.error(f"Error during stale execution cleanup: {e}")
+
+            self._sweep_orphaned_campaign_executions()
 
             try:
                 queued_result = self.supabase.table('deployment_executions').select(
@@ -903,7 +1430,8 @@ class DeploymentScheduler:
         except Exception as e:
             print(f"[@deployment_scheduler] Queue watchdog error: {e}")
 
-    def _execute_deployment(self, deployment_id, queued_execution_id: Optional[str] = None):
+    def _execute_deployment(self, deployment_id, queued_execution_id: Optional[str] = None,
+                            busy_retry_attempt: int = 0):
         """Execute deployment with constraint checks"""
         exec_id = None
         completion_written = False  # Guard: ensures completed_at is always written if exec_id is set
@@ -992,6 +1520,7 @@ class DeploymentScheduler:
                             'status': 'skipped',
                             'skip_reason': reason
                         }).execute()
+                self._record_skipped_campaign_execution(dep, deployment_id, start_time, reason)
                 if dep.get('device_id'):
                     self._schedule_next_queued_for_device(dep['device_id'], after_error=True)
                 return
@@ -999,7 +1528,7 @@ class DeploymentScheduler:
             # Check if any execution is still running on the same device (cross-deployment)
             with self.db_lock:
                 running_check = self.supabase.table('deployment_executions')\
-                    .select('id, started_at, deployment_id, deployments!inner(host_name, device_id, name)')\
+                    .select('id, started_at, scheduled_at, deployment_id, script_result_id, deployments!inner(host_name, device_id, name, script_name, team_id)')\
                     .eq('status', 'running')\
                     .eq('deployments.host_name', self.host_name)\
                     .eq('deployments.device_id', dep['device_id'])\
@@ -1014,18 +1543,21 @@ class DeploymentScheduler:
                     started_at = datetime.fromisoformat(started_at_str.replace('Z', '+00:00'))
                     age_seconds = (datetime.now(timezone.utc) - started_at).total_seconds()
                     
-                    if age_seconds > 3600:  # 1 hour = 3600 seconds
+                    # A CoC LLM run lasts 20-60 min (60-90 model steps at ~35 s each, plus the report
+                    # upload): a row older than 30 min was a healthy run, not an orphan, and marking it
+                    # failed wrote a wrong status and let the next run start on top of it (BUG-0717).
+                    # 90 min is still well above the longest run; other scripts keep 1 h.
+                    run_script = (running_exec.get('deployments') or {}).get('script_name') or ''
+                    max_age_s = 5400 if 'game_clashofclans_llm' in run_script else 3600
+                    if age_seconds > max_age_s:
                         print(f"[@deployment_scheduler] Found stale execution (age: {age_seconds/3600:.1f} hours) - marking as failed")
                         deployment_logger.warning(f"Stale execution detected: {running_exec['id']} (age: {age_seconds/3600:.1f} hours) - marking as failed")
                         
                         # Mark stale execution as failed
-                        with self.db_lock:
-                            self.supabase.table('deployment_executions').update({
-                                'completed_at': datetime.now(timezone.utc).isoformat(),
-                                'status': 'failed',
-                                'success': False,
-                                'error_message': f'Execution timed out - ran for {age_seconds/3600:.1f} hours'
-                            }).eq('id', running_exec['id']).execute()
+                        self._mark_stale_execution_failed(
+                            running_exec,
+                            f'Execution timed out - ran for {age_seconds/3600:.1f} hours',
+                        )
                         
                         # Continue with new execution (don't skip)
                         print(f"[@deployment_scheduler] Stale execution cleaned up, proceeding with new execution")
@@ -1038,27 +1570,44 @@ class DeploymentScheduler:
                         if len(self.queued_executions[device_id]) >= 10:
                             # Already have 10 queued on this device - skip this trigger
                             print(f"[@deployment_scheduler] Device queue full, skipping trigger for {device_id} (age: {age_seconds:.0f}s)")
-                            deployment_logger.warning(f"⏭️  SKIPPED: {dep_name} | Device queue full ({device_id}, max 10)")
+                            queue_full_detail = f'Device queue full ({device_id}, max 10)'
+                            queue_full_reason = queue_full_detail
+                            if self._is_recurring_cron(dep):
+                                queue_full_reason += ' (recurring CRON, run skipped, will not be retried today)'
+                            deployment_logger.warning(f"⏭️  SKIPPED: {dep_name} | {queue_full_reason}")
                             with self.db_lock:
                                 self.supabase.table('deployment_executions').insert({
                                     'deployment_id': deployment_id,
                                     'scheduled_at': start_time.isoformat(),
                                     'status': 'skipped',
-                                    'skip_reason': f'Device queue full ({device_id}, max 10)'
+                                    'skip_reason': queue_full_reason
                                 }).execute()
+                            self._record_skipped_campaign_execution(dep, deployment_id, start_time, queue_full_detail)
                             return
                         else:
-                            # Recurring CRON jobs skip when device is busy — next trigger will retry
+                            # A recurring CRON job skipped because the device is busy is
+                            # retried inside its own trigger window: the nightlies that share
+                            # a device used to lose each other until the next cron trigger,
+                            # which for a nightly is tomorrow (BUG-0898).
                             if self._is_recurring_cron(dep):
+                                busy_detail = f'Device {device_id} busy'
+                                retry_scheduled = self._schedule_busy_retry(
+                                    dep, deployment_id, start_time, busy_retry_attempt + 1
+                                )
+                                if retry_scheduled:
+                                    busy_skip_reason = f'{busy_detail} (recurring CRON, retrying inside this trigger window)'
+                                else:
+                                    busy_skip_reason = f'{busy_detail} (recurring CRON, run skipped, will not be retried today)'
                                 print(f"[@deployment_scheduler] Recurring CRON job {dep_name} skipped (device {device_id} busy)")
-                                deployment_logger.info(f"⏭️  SKIPPED: {dep_name} | Device {device_id} busy (recurring CRON, will retry next trigger)")
+                                deployment_logger.info(f"⏭️  SKIPPED: {dep_name} | {busy_skip_reason}")
                                 with self.db_lock:
                                     self.supabase.table('deployment_executions').insert({
                                         'deployment_id': deployment_id,
                                         'scheduled_at': start_time.isoformat(),
                                         'status': 'skipped',
-                                        'skip_reason': f'Device {device_id} busy (recurring CRON, will retry next trigger)'
+                                        'skip_reason': busy_skip_reason
                                     }).execute()
+                                self._record_skipped_campaign_execution(dep, deployment_id, start_time, busy_detail)
                                 return
 
                             # Dedup: skip if this deployment_id is already queued on this device
@@ -1100,6 +1649,9 @@ class DeploymentScheduler:
                             'status': 'skipped',
                             'skip_reason': f'Device {dep["device_id"]} still running'
                         }).execute()
+                    self._record_skipped_campaign_execution(
+                        dep, deployment_id, start_time, f'Device {dep["device_id"]} still running'
+                    )
                     return
             
             lock_response = self._acquire_server_execution_lock(
@@ -1119,15 +1671,18 @@ class DeploymentScheduler:
 
                 # Recurring CRON jobs skip when device is locked — next trigger will retry
                 if not queued_execution_id and self._is_recurring_cron(dep):
+                    locked_detail = f'Device locked by {owner_type}'
+                    locked_skip_reason = f'{locked_detail} (recurring CRON, run skipped, will not be retried today)'
                     print(f"[@deployment_scheduler] Recurring CRON job {dep_name} skipped (device locked by {owner_type})")
-                    deployment_logger.info(f"⏭️  SKIPPED: {dep_name} | Device locked by {owner_type} (recurring CRON, will retry next trigger)")
+                    deployment_logger.info(f"⏭️  SKIPPED: {dep_name} | {locked_skip_reason}")
                     with self.db_lock:
                         self.supabase.table('deployment_executions').insert({
                             'deployment_id': deployment_id,
                             'scheduled_at': start_time.isoformat(),
                             'status': 'skipped',
-                            'skip_reason': f'Device locked by {owner_type} (recurring CRON, will retry next trigger)'
+                            'skip_reason': locked_skip_reason
                         }).execute()
+                    self._record_skipped_campaign_execution(dep, deployment_id, start_time, locked_detail)
                     return
 
                 print(
@@ -1229,79 +1784,7 @@ class DeploymentScheduler:
                 import traceback
                 traceback.print_exc()
             
-            # Build complete parameters in correct order:
-            # 1. userinterface_name (POSITIONAL - MUST BE FIRST)
-            # 2. script parameters (--max-iteration, --edges, etc.)
-            # 3. framework parameters (--host, --device)
-            
-            param_parts = []
-            
-            # FIRST: Add userinterface_name as positional argument (REQUIRED FIRST)
-            if dep.get('userinterface_name'):
-                param_parts.append(dep['userinterface_name'])
-            
-            # SECOND: Add script-specific parameters (filter out empty/null values).
-            # Note: for DB campaigns, dep['parameters'] is a JSON-encoded
-            # script_configurations snapshot, not a CLI string. The JSON path
-            # is consumed in the CampaignExecutor branch below; here we skip
-            # CLI parsing if the value doesn't look like CLI args, so a JSON
-            # blob can't accidentally crash shlex or pollute the command line.
-            custom_params = dep.get('parameters', '').strip()
-            looks_like_cli = bool(custom_params) and not (
-                custom_params.startswith('[') or custom_params.startswith('{')
-            )
-            if looks_like_cli:
-                # Parse parameters to filter out flags with empty values
-                # Example: "--max-iteration 10 --edges --host" should remove "--edges"
-                import shlex
-                try:
-                    tokens = shlex.split(custom_params)
-                except ValueError as shlex_error:
-                    print(f"[@deployment_scheduler] Failed to parse CLI parameters: {shlex_error}")
-                    tokens = []
-                parsed_params = []
-                i = 0
-                while i < len(tokens):
-                    token = tokens[i]
-                    if token.startswith('--'):
-                        # This is a flag
-                        if i + 1 < len(tokens) and not tokens[i + 1].startswith('--'):
-                            # Has a value
-                            value = tokens[i + 1]
-                            if value and value.strip():  # Only add if value is not empty
-                                parsed_params.append(token)
-                                parsed_params.append(value)
-                                i += 2
-                                continue
-                            else:
-                                # Skip flag with empty value
-                                print(f"[@deployment_scheduler] Skipping parameter {token} with empty value")
-                                i += 2
-                                continue
-                        else:
-                            # Flag without value - skip it (invalid)
-                            print(f"[@deployment_scheduler] Skipping parameter {token} (no value provided)")
-                            i += 1
-                            continue
-                    else:
-                        # Not a flag, keep as-is (shouldn't happen in custom_params)
-                        parsed_params.append(token)
-                        i += 1
-                
-                if parsed_params:
-                    # Re-quote each token: shlex.split above stripped the outer
-                    # quotes, so a value containing spaces (e.g. a KPI edge label
-                    # "disney_asset → disney_asset_stream") would otherwise be
-                    # rejoined bare and re-split downstream into multiple args,
-                    # leaving argparse with only the first word ("disney_asset").
-                    # Mirrors script_executor / campaign_executor quoting.
-                    param_parts.append(' '.join(shlex.quote(part) for part in parsed_params))
-            
-            # THIRD: Add framework parameters
-            param_parts.append(f"--host {dep['host_name']}")
-            param_parts.append(f"--device {dep['device_id']}")
-            
-            all_params = ' '.join(param_parts)
+            all_params = build_script_params(dep)
             
             # Resolve script name for execution: campaign:<path>|<display_name> → <path>
             resolved_script_name = dep['script_name']
@@ -1366,23 +1849,31 @@ class DeploymentScheduler:
             )
             db_campaign = None
             if is_db_campaign:
+                # POST /server/script/execute queues a run on a busy device as a
+                # deployment carrying the caller's script_name, which may be a
+                # file script without ".py" (e.g. "vpt/smoke_ui"; ScriptExecutor
+                # accepts that). Only a name that is neither a DB campaign nor a
+                # test_scripts file is an error (BUG-0672).
+                team_id = dep.get('team_id')
+                campaign_error = None
                 try:
-                    team_id = dep.get('team_id')
                     if team_id:
                         db_campaign = get_campaign_by_name(resolved_script_name, team_id)
-                    if db_campaign:
-                        print(f"[@deployment_scheduler] Found DB campaign: {resolved_script_name}, executing via CampaignExecutor")
-                        deployment_logger.info(f"📦 DB CAMPAIGN: {resolved_script_name}")
-                    if not db_campaign:
-                        raise ValueError(
-                            f"'{resolved_script_name}' is not a .py script and no DB campaign found "
-                            f"with that name (team_id={team_id})"
-                        )
-                except ValueError:
-                    raise
                 except Exception as campaign_lookup_error:
+                    campaign_error = campaign_lookup_error
+                if db_campaign:
+                    print(f"[@deployment_scheduler] Found DB campaign: {resolved_script_name}, executing via CampaignExecutor")
+                    deployment_logger.info(f"📦 DB CAMPAIGN: {resolved_script_name}")
+                elif _is_file_script(resolved_script_name):
+                    print(f"[@deployment_scheduler] '{resolved_script_name}' is a file script (no .py suffix); running as script")
+                elif campaign_error:
                     raise ValueError(
-                        f"DB campaign lookup failed for '{resolved_script_name}': {campaign_lookup_error}"
+                        f"DB campaign lookup failed for '{resolved_script_name}': {campaign_error}"
+                    )
+                else:
+                    raise ValueError(
+                        f"'{resolved_script_name}' is not a .py script and no DB campaign found "
+                        f"with that name (team_id={team_id})"
                     )
 
             if db_campaign:
@@ -1535,6 +2026,12 @@ class DeploymentScheduler:
                     virtual_script_id=virtual_script_id,
                     team_id=dep.get('team_id'),
                     environment=dep.get('environment'),
+                    # Server task opened by the 'running' notification (same id the server
+                    # derives), so each step the script posts shows live in the Deployments row.
+                    task_id=f'dep-{exec_id}',
+                    # The row this run answers to: the host ties the process to it, so it
+                    # can answer "is this row still running?" per row (E50).
+                    execution_id=exec_id,
                 )
 
                 end_time = datetime.now(timezone.utc)
@@ -1964,3 +2461,56 @@ def get_deployment_scheduler():
         _scheduler = DeploymentScheduler(host.host_name)
         _scheduler.start()
     return _scheduler
+
+
+def build_script_params(dep: dict) -> str:
+    """CLI parameters of a deployment run: userinterface_name, the script parameters, then --host/--device.
+
+    The userinterface is a positional first argument only when the parameters do not name it already: a run
+    queued by /server/script/execute keeps its `--userinterface=<ui>` in the parameters, and a bare copy in
+    front made argparse fail with "Unknown argument(s) ... <ui>" (TASK-135). `--flag=value` tokens are kept
+    whole; flags with no value are dropped. A JSON parameters blob (DB campaigns) is not CLI and is skipped.
+    """
+    import shlex
+    custom_params = (dep.get('parameters') or '').strip()
+    looks_like_cli = bool(custom_params) and not custom_params.startswith(('[', '{'))
+    try:
+        tokens = shlex.split(custom_params) if looks_like_cli else []
+    except ValueError as shlex_error:
+        print(f"[@deployment_scheduler] Failed to parse CLI parameters: {shlex_error}")
+        tokens = []
+    parsed_params = []
+    i = 0
+    while i < len(tokens):
+        token = tokens[i]
+        if token.startswith('--') and '=' in token:
+            if token.split('=', 1)[1].strip():
+                parsed_params.append(token)
+            else:
+                print(f"[@deployment_scheduler] Skipping parameter {token} with empty value")
+            i += 1
+        elif token.startswith('--'):
+            if i + 1 < len(tokens) and not tokens[i + 1].startswith('--'):
+                value = tokens[i + 1]
+                if value.strip():
+                    parsed_params += [token, value]
+                else:
+                    print(f"[@deployment_scheduler] Skipping parameter {token} with empty value")
+                i += 2
+            else:
+                print(f"[@deployment_scheduler] Skipping parameter {token} (no value provided)")
+                i += 1
+        else:
+            parsed_params.append(token)
+            i += 1
+    names_ui = any(t == '--userinterface' or t.startswith('--userinterface=') for t in parsed_params)
+    param_parts = []
+    if dep.get('userinterface_name') and not names_ui:
+        param_parts.append(dep['userinterface_name'])
+    if parsed_params:
+        # Re-quote each token: shlex.split stripped the outer quotes, so a value with spaces (a KPI edge label
+        # "disney_asset → disney_asset_stream") would be re-split downstream into several args.
+        param_parts.append(' '.join(shlex.quote(part) for part in parsed_params))
+    param_parts.append(f"--host {dep['host_name']}")
+    param_parts.append(f"--device {dep['device_id']}")
+    return ' '.join(param_parts)

@@ -1,0 +1,109 @@
+code_refs call_host | index 3106 files @6bb62f412
+defs (6):
+  tests/backend_server/test_platform_update_backup.py:50 method Fake.call_host(self, host, endpoint, method='GET', timeout=30)
+  tests/backend_server/test_platform_update_restore.py:52 method Env.call_host(self, host, endpoint, method, timeout, data)
+  tests/backend_server/test_platform_update_rollback.py:54 method Env.call_host(self, host, endpoint, method='POST', data=None, timeout=60)
+  tests/backend_server/test_platform_update_pull.py:83 method FakeEnv.call_host(self, host, endpoint, method='POST', data=None, timeout=60)
+  tests/backend_server/test_platform_update_prerequisites.py:41 function call_host(host, endpoint, method='GET', timeout=9)
+  shared/src/lib/utils/build_url_utils.py:83 function call_host(host_info: dict, endpoint: str, method: str='POST', data: dict=None, query_params: dict=None, timeout: int=30, extra_he…)
+callers: 26 files, 76 calls [import-resolved 66, name-match-ambiguous 10]
+  backend_server/scripts/heatmap_processor.py [import-resolved]: L477 HeatmapProcessor._fetch_device_capture
+  backend_server/src/lib/masterchief/ops.py [import-resolved]: L180 _exec_service_status; L212 _exec_service_restart
+  backend_server/src/lib/platform_update/backup.py [import-resolved,name-match-ambiguous]: L56 _call_host; L165 backup_host via deps
+  backend_server/src/lib/platform_update/prerequisites.py [import-resolved,name-match-ambiguous]: L82 _get_host_call; L149 Ctx._one via self.deps; L293 one via ctx.deps
+  backend_server/src/lib/platform_update/pull_deploy.py [import-resolved,name-match-ambiguous]: L95 _call_host; L178,L196 deploy_host via env
+  backend_server/src/lib/platform_update/restore.py [import-resolved,name-match-ambiguous]: L43 _call_host; L137 _restore_host via deps
+  backend_server/src/lib/utils/lock_utils.py [import-resolved]: L806 abort_running_execution
+  backend_server/src/lib/utils/route_utils.py [import-resolved]: L65 proxy_to_host; L101 proxy_to_host_with_params; L136 proxy_to_host_direct
+  backend_server/src/lib/utils/server_utils.py [import-resolved]: L136 HostManager._check
+  backend_server/src/mcp/tools/screenshot_tools.py [import-resolved]: L61 _fetch_screenshot_bytes
+  backend_server/src/routes/logs_routes.py [import-resolved]: L99,L136,L175 view_logs
+  backend_server/src/routes/server_campaign_execution_routes.py [import-resolved]: L113 abort_campaign_running; L306 execute_campaign
+  backend_server/src/routes/server_control_routes.py [import-resolved]: L184 _forward_take_control_to_host; L442 notify_host_async; L832 execute_navigation; L876 batch_execute_navigation; L1063 populate_navigation_cache_for_control
+  backend_server/src/routes/server_deployment_routes.py [import-resolved]: L233 create_deployment_record; L275 update_deployment; L332 pause_deployment; L346 resume_deployment; L363 run_deployment; L377 delete_deployment
+  backend_server/src/routes/server_platform_update_routes.py [import-resolved]: L662 _call_host
+  backend_server/src/routes/server_remote_routes.py [import-resolved]: L179 tap_coordinates_internal; L309 execute_command_group
+  backend_server/src/routes/server_script_routes.py [import-resolved]: L276 get_edge_options; L519 abort_running_script; L923 execute_async
+  backend_server/src/routes/server_settings_routes.py [import-resolved]: L357 host_config; L374 _proxy_host_monitor_profiles; L418 host_grabbers; L441 restart_host_settings_service
+  backend_server/src/routes/server_stream_proxy_routes.py [import-resolved]: L36 proxy_screenshot; L73 proxy_stream_url; L110 proxy_verification
+  backend_server/src/routes/server_system_routes.py [import-resolved]: L1933 _check_stale_locks_for_host; L2122 restart_host_service_proxy; L2146 restart_host_services_proxy; L2176 control_host_service_proxy; L2200 reboot_host_proxy; L2250 run_command_on_host_proxy; L2638 update_host_core_proxy; L2684 rollback_host_core_proxy; L2721 list_host_core_backups_proxy; L2747 restart_host_stream_service_proxy; L2769 set_stream_quality_proxy; L2789 get_stream_quality_proxy; L2820 disk_usage_diagnostics_proxy
+  backend_server/src/routes/server_translation_routes.py [import-resolved]: L41 translate_single_text; L92 translate_restart_batch
+  features/ai-test/backend_server/server_testprompt_routes.py [import-resolved] (feature): L625 _run_agent; L685 _push_running_log; L768 _publish_report; L905 _auto_screenshot; L1330 testprompt_execution_to_graph; L1550 _watch_graph_run
+  features/mobile-app/backend_server/__init__.py [import-resolved] (feature): L65 _slots_for_host; L138 create_pairing; L167 delete_pairing
+  backend_server/src/lib/platform_update/rollback.py [name-match-ambiguous]: L145 _wait_health via env; L158 _roll_host via env
+  backend_server/src/services/live/adapter.py [name-match-ambiguous]: L149 request_stop
+  tests/backend_server/test_platform_update_rollback.py [name-match-ambiguous] (test): L57 Env.call_host via super()
+depth 2: callers of the 73 enclosing functions (43 files in all)
+  HeatmapProcessor._fetch_device_capture (backend_server/scripts/heatmap_processor.py) <- no repo callers
+  _exec_service_status (backend_server/src/lib/masterchief/ops.py) <- no repo callers
+  _exec_service_restart (backend_server/src/lib/masterchief/ops.py) <- no repo callers
+  _call_host (backend_server/src/lib/platform_update/backup.py) <- no repo callers
+  backup_host (backend_server/src/lib/platform_update/backup.py) <- 1 files: backend_server/src/lib/platform_update/backup.py:242
+  _get_host_call (backend_server/src/lib/platform_update/prerequisites.py) <- no repo callers
+  Ctx._one (backend_server/src/lib/platform_update/prerequisites.py) <- no repo callers
+  one (backend_server/src/lib/platform_update/prerequisites.py) <- no repo callers
+  _call_host (backend_server/src/lib/platform_update/pull_deploy.py) <- 1 files: backend_server/src/lib/platform_update/pull_deploy.py:85
+  deploy_host (backend_server/src/lib/platform_update/pull_deploy.py) <- 2 files: backend_server/src/lib/platform_update/pull_deploy.py:335; tests/backend_server/test_platform_update_pull.py:208
+  _call_host (backend_server/src/lib/platform_update/restore.py) <- no repo callers
+  _restore_host (backend_server/src/lib/platform_update/restore.py) <- 1 files: backend_server/src/lib/platform_update/restore.py:187
+  _wait_health (backend_server/src/lib/platform_update/rollback.py) <- 1 files: backend_server/src/lib/platform_update/rollback.py:164
+  _roll_host (backend_server/src/lib/platform_update/rollback.py) <- 1 files: backend_server/src/lib/platform_update/rollback.py:274
+  abort_running_execution (backend_server/src/lib/utils/lock_utils.py) <- 2 files: backend_server/src/lib/utils/lock_utils.py:860; backend_server/src/routes/server_control_routes.py:213
+  proxy_to_host (backend_server/src/lib/utils/route_utils.py) <- 2 files: backend_server/src/routes/server_desktop_bash_routes.py:24; backend_server/src/routes/server_desktop_pyautogui_routes.py:24
+  proxy_to_host_with_params (backend_server/src/lib/utils/route_utils.py) <- 16 files: backend_server/src/routes/auto_proxy.py:150; backend_server/src/routes/server_actions_routes.py:87,109,143,181; backend_server/src/routes/server_ai_routes.py:21; backend_server/src/routes/server_builder_routes.py:77,133; backend_server/src/routes/server_campaign_execution_routes.py:78; backend_server/src/routes/server_drone_routes.py:46,71,95,136,160,180,194,214; backend_server/src/routes/server_lol_overlay_routes.py:20; backend_server/src/routes/server_monitoring_routes.py:68,88,103,190; backend_server/src/routes/server_navigation_execution_routes.py:126,151,187,220,270,294,315,441; backend_server/src/routes/server_power_routes.py:28,53; backend_server/src/routes/server_remote_routes.py:42,56,70,83,108,133,232,334; backend_server/src/routes/server_restart_routes.py:26,54,74,95,115,135,165,203,239,277,338; backend_server/src/routes/server_testcase_routes.py:154,442,464,519,622; backend_server/src/routes/server_translation_routes.py:143; backend_server/src/routes/server_web_routes.py:66,104,118,132,146,156; features/companion/backend_server/__init__.py:23
+  proxy_to_host_direct (backend_server/src/lib/utils/route_utils.py) <- 6 files: backend_server/src/routes/server_navigation_routes.py:301,417; backend_server/src/routes/server_navigation_trees_routes.py:114; backend_server/src/routes/server_script_routes.py:470; backend_server/src/routes/server_userinterface_routes.py:127,164; backend_server/src/routes/server_validation_routes.py:60; backend_server/src/routes/server_web_routes.py:47
+  HostManager._check (backend_server/src/lib/utils/server_utils.py) <- 1 files: backend_server/src/lib/utils/server_utils.py:152
+  _fetch_screenshot_bytes (backend_server/src/mcp/tools/screenshot_tools.py) <- 5 files: backend_server/src/mcp/tools/screenshot_tools.py:310; backend_server/scripts/auto_classify_unknowns.py:358; backend_server/scripts/match_runs_worker.py:175; backend_server/src/mcp/utils/screenshot_capture.py:28; tests/backend_server/test_mcp_screenshot_fetch.py:87
+  view_logs (backend_server/src/routes/logs_routes.py) is route /server/logs/view: query that URL for its callers
+  abort_campaign_running (backend_server/src/routes/server_campaign_execution_routes.py) is route /server/campaigns/abortRunning: query that URL for its callers
+  execute_campaign (backend_server/src/routes/server_campaign_execution_routes.py) is route /server/campaigns/execute: query that URL for its callers
+  _forward_take_control_to_host (backend_server/src/routes/server_control_routes.py) <- 1 files: backend_server/src/routes/server_control_routes.py:234,677
+  notify_host_async (backend_server/src/routes/server_control_routes.py) <- no repo callers
+  execute_navigation (backend_server/src/routes/server_control_routes.py) is route /server/control/navigation/execute: query that URL for its callers
+  batch_execute_navigation (backend_server/src/routes/server_control_routes.py) is route /server/control/navigationBatchExecute: query that URL for its callers
+  populate_navigation_cache_for_control (backend_server/src/routes/server_control_routes.py) <- 3 files: backend_server/src/routes/server_control_routes.py:167; backend_server/src/routes/server_navigation_execution_routes.py:138,279,386; backend_server/src/routes/server_validation_routes.py:39
+  create_deployment_record (backend_server/src/routes/server_deployment_routes.py) <- 3 files: backend_server/src/routes/server_deployment_routes.py:243; backend_server/src/routes/server_run_management_routes.py:488; backend_server/src/routes/server_script_routes.py:715
+  update_deployment (backend_server/src/routes/server_deployment_routes.py) is route /server/deployment/update/<deployment_id>: query that URL for its callers
+  pause_deployment (backend_server/src/routes/server_deployment_routes.py) is route /server/deployment/pause/<deployment_id>: query that URL for its callers
+  resume_deployment (backend_server/src/routes/server_deployment_routes.py) is route /server/deployment/resume/<deployment_id>: query that URL for its callers
+  run_deployment (backend_server/src/routes/server_deployment_routes.py) is route /server/deployment/run/<deployment_id>: query that URL for its callers
+  delete_deployment (backend_server/src/routes/server_deployment_routes.py) is route /server/deployment/delete/<deployment_id>: query that URL for its callers
+  _call_host (backend_server/src/routes/server_platform_update_routes.py) <- 1 files: backend_server/src/routes/server_platform_update_routes.py:669
+  tap_coordinates_internal (backend_server/src/routes/server_remote_routes.py) <- 1 files: backend_server/src/routes/server_remote_routes.py:170
+  execute_command_group (backend_server/src/routes/server_remote_routes.py) is route /server/remote/executeCommandGroup: query that URL for its callers
+  get_edge_options (backend_server/src/routes/server_script_routes.py) is route /server/script/get_edge_options: query that URL for its callers
+  abort_running_script (backend_server/src/routes/server_script_routes.py) is route /server/script/abortRunning: query that URL for its callers
+  execute_async (backend_server/src/routes/server_script_routes.py) <- no repo callers
+  host_config (backend_server/src/routes/server_settings_routes.py) is route /server/settings/host-config: query that URL for its callers
+  _proxy_host_monitor_profiles (backend_server/src/routes/server_settings_routes.py) <- 1 files: backend_server/src/routes/server_settings_routes.py:384,393
+  host_grabbers (backend_server/src/routes/server_settings_routes.py) is route /server/settings/host-grabbers: query that URL for its callers
+  restart_host_settings_service (backend_server/src/routes/server_settings_routes.py) is route /server/settings/restart-host-service: query that URL for its callers
+  proxy_screenshot (backend_server/src/routes/server_stream_proxy_routes.py) is route /server/stream/av/screenshot: query that URL for its callers
+  proxy_stream_url (backend_server/src/routes/server_stream_proxy_routes.py) is route /server/stream/av/streamUrl: query that URL for its callers
+  proxy_verification (backend_server/src/routes/server_stream_proxy_routes.py) is route /server/stream/verification/execute: query that URL for its callers
+  _check_stale_locks_for_host (backend_server/src/routes/server_system_routes.py) <- no repo callers
+  restart_host_service_proxy (backend_server/src/routes/server_system_routes.py) is route /server/system/restartHostService: query that URL for its callers
+  restart_host_services_proxy (backend_server/src/routes/server_system_routes.py) is route /server/system/restartHostServices: query that URL for its callers
+  control_host_service_proxy (backend_server/src/routes/server_system_routes.py) is route /server/system/controlHostService: query that URL for its callers
+  reboot_host_proxy (backend_server/src/routes/server_system_routes.py) is route /server/system/rebootHost: query that URL for its callers
+  run_command_on_host_proxy (backend_server/src/routes/server_system_routes.py) is route /server/system/runCommandOnHost: query that URL for its callers
+  update_host_core_proxy (backend_server/src/routes/server_system_routes.py) is route /server/system/updateHostCore: query that URL for its callers
+  rollback_host_core_proxy (backend_server/src/routes/server_system_routes.py) is route /server/system/rollbackHostCore: query that URL for its callers
+  list_host_core_backups_proxy (backend_server/src/routes/server_system_routes.py) is route /server/system/listHostCoreBackups: query that URL for its callers
+  restart_host_stream_service_proxy (backend_server/src/routes/server_system_routes.py) is route /server/system/restartHostStreamService: query that URL for its callers
+  set_stream_quality_proxy (backend_server/src/routes/server_system_routes.py) is route /server/system/setStreamQuality: query that URL for its callers
+  get_stream_quality_proxy (backend_server/src/routes/server_system_routes.py) is route /server/system/getStreamQuality: query that URL for its callers
+  disk_usage_diagnostics_proxy (backend_server/src/routes/server_system_routes.py) is route /server/system/diskUsage: query that URL for its callers
+  translate_single_text (backend_server/src/routes/server_translation_routes.py) is route /server/translate/text: query that URL for its callers
+  translate_restart_batch (backend_server/src/routes/server_translation_routes.py) is route /server/translate/restart-batch: query that URL for its callers
+  request_stop (backend_server/src/services/live/adapter.py) <- 1 files: backend_server/src/routes/server_live_routes.py:75
+  _run_agent (features/ai-test/backend_server/server_testprompt_routes.py) <- no repo callers
+  _push_running_log (features/ai-test/backend_server/server_testprompt_routes.py) <- 1 files: features/ai-test/backend_server/server_testprompt_routes.py:823,972,1042
+  _publish_report (features/ai-test/backend_server/server_testprompt_routes.py) <- 1 files: features/ai-test/backend_server/server_testprompt_routes.py:833,1118,1155
+  _auto_screenshot (features/ai-test/backend_server/server_testprompt_routes.py) <- 1 files: features/ai-test/backend_server/server_testprompt_routes.py:921,1047,1089
+  testprompt_execution_to_graph (features/ai-test/backend_server/server_testprompt_routes.py) is route /server/testprompt/execution/<execution_id>/to-graph: query that URL for its callers
+  _watch_graph_run (features/ai-test/backend_server/server_testprompt_routes.py) <- no repo callers
+  _slots_for_host (features/mobile-app/backend_server/__init__.py) <- 1 files: features/mobile-app/backend_server/__init__.py:104
+  create_pairing (features/mobile-app/backend_server/__init__.py) is route /server/mobile-app/pairings: query that URL for its callers
+  delete_pairing (features/mobile-app/backend_server/__init__.py) is route /server/mobile-app/pairings/<host_name>/<device_id>: query that URL for its callers
+  Env.call_host (tests/backend_server/test_platform_update_rollback.py) <- 2 files: backend_server/src/lib/platform_update/pull_deploy.py:178,196; backend_server/src/lib/platform_update/rollback.py:145,158

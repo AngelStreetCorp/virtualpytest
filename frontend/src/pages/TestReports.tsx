@@ -2,6 +2,7 @@ import {
   CheckCircle as PassIcon,
   Error as FailIcon,
   HourglassEmpty as RunningIcon,
+  Block as AbortedIcon,
   DescriptionOutlined as ReportFileIcon,
   Terminal as LogsIcon,
   Person as ManualIcon,
@@ -66,9 +67,12 @@ import { openR2Url } from '../utils/infrastructure/cloudflareUtils';
 import JevWhy, { analysisTypeLabel, getJev } from '../components/common/JevWhy';
 import { StyledDialog } from '../components/common/StyledDialog';
 import { formatScriptLabel, ensureScriptIdentityMap, buildRerunPayloadFromResult } from '../utils/executionUtils';
+import { getResultOutcome, isSkippedResult, type ResultOutcome } from '../utils/resultOutcome';
 import { useRerun } from '../hooks/script/useRerun';
 import { useToast } from '../hooks/useToast';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { neutralButtonSx } from '../components/common/PageChrome';
+import { TableRowsSkeleton, ValueSkeleton } from '../components/common/ReportSkeleton';
 import { useReportSnapshots, type ReportSnapshotConfig } from '../hooks/useReportSnapshots';
 import { ShareReportDialog } from '../components/reports/ShareReportDialog';
 import { SharedLinksTab } from '../components/reports/SharedLinksTab';
@@ -83,6 +87,7 @@ import {
   useRunGroups,
 } from '../hooks/reports/useRunManagement';
 import { QUALITY_DEFAULT_WINDOW, REPORT_ROUTES, type FlakyRow } from '../types/reports';
+import { TYPOGRAPHY } from '../constants/typography';
 
 // Target filter options are "<host_name> - <device_name>" so the dropdown
 // shows the same identifier RunTests uses for a run target. Helpers below
@@ -248,14 +253,29 @@ const TestReports: React.FC = () => {
   // Server-side filters (trigger refetch). `filterTarget` is the
   // "<host_name> - <device_name>" pair selected in the dropdown; the server
   // only filters by host_name so the device-name half is applied client-side.
-  const [filterScript, setFilterScript] = useState<string | null>(null);
-  const [filterTarget, setFilterTarget] = useState<string | null>(null);
+  // ?host=&device=&script= pre-select these (Atlas Companion deep links) and follow later changes.
+  const [filterScript, setFilterScript] = useState<string | null>(
+    () => new URLSearchParams(window.location.search).get('script'),
+  );
+  const [filterTarget, setFilterTarget] = useState<string | null>(() => {
+    const q = new URLSearchParams(window.location.search);
+    const host = q.get('host');
+    return host ? buildTargetKey(host, q.get('device')) : null;
+  });
   const [filterCampaign, setFilterCampaign] = useState<string | null>(null);
+
+  // TASK-65 G7 — project scope. `filterProject` is the project the user picked
+  // (id); `includeUntagged` controls whether projectless runs still show up.
+  // The full project-filter UI lives in G9 (project context); for G7 we ship
+  // the bare dropdown + toggle so the column chip has a working filter.
+  const [filterProject, setFilterProject] = useState<string | null>(null);
+  const [includeUntagged, setIncludeUntagged] = useState(true);
 
   // Known options for filter dropdowns (populated from initial load)
   const [knownScripts, setKnownScripts] = useState<string[]>([]);
   const [knownTargets, setKnownTargets] = useState<string[]>([]);
   const [knownCampaigns, setKnownCampaigns] = useState<string[]>([]);
+  const [projectOptions, setProjectOptions] = useState<Array<{ id: string; name: string; color: string | null }>>([]);
   const initialLoadDone = useRef(false);
   // Suppress the loading spinner on auto-refresh / filter-change refetches when
   // we already have a populated table — only show it before the first load lands.
@@ -273,6 +293,21 @@ const TestReports: React.FC = () => {
       return next;
     }, { replace: true });
   }, [setSearchParams]);
+  useEffect(() => {
+    setSearchParams((prev) => {
+      const next = new URLSearchParams(prev);
+      next.delete('host');
+      next.delete('device');
+      next.delete('script');
+      if (filterTarget) {
+        const { hostName, deviceName } = parseTargetKey(filterTarget);
+        next.set('host', hostName);
+        if (deviceName) next.set('device', deviceName);
+      }
+      if (filterScript) next.set('script', filterScript);
+      return next;
+    }, { replace: true });
+  }, [filterTarget, filterScript, setSearchParams]);
   // Deep link from the report page's Share button (?share=<script_result_id>): open the
   // dialog for that run directly, so an old run never has to be found in the list first.
   const shareParam = searchParams.get('share');
@@ -286,17 +321,27 @@ const TestReports: React.FC = () => {
       return next;
     }, { replace: true });
   }, [shareParam, shareConfig, canShare, setSearchParams, showError]);
+  // Dashboard deep links (TASK-123): ?status=passed|failed|aborted and ?range=24h|7d|30d are sent to the server (applied
+  // before the row limit, same verdict as the dashboard's counts) and re-applied client-side on the loaded rows.
+  const statusParam = searchParams.get('status');
+  const rangeParam = searchParams.get('range');
+  const deepLinkStatus = statusParam === 'passed' || statusParam === 'failed' || statusParam === 'aborted' ? statusParam : undefined;
+  const deepLinkRange = rangeParam === '24h' || rangeParam === '7d' || rangeParam === '30d' ? rangeParam : undefined;
   // Governance filters (milestone / group / label) — URL-keyed, applied server-side.
   const filterMilestoneId = searchParams.get(GOVERNANCE_PARAMS.milestone_id);
   const filterGroupId = searchParams.get(GOVERNANCE_PARAMS.run_group_id);
   const filterLabelId = searchParams.get(GOVERNANCE_PARAMS.label_id);
   const governanceFilters = useMemo(() => {
-    const filters: Pick<ScriptResultFilters, 'milestone_id' | 'run_group_id' | 'label_id'> = {};
+    const filters: Pick<ScriptResultFilters, 'milestone_id' | 'run_group_id' | 'label_id' | 'status' | 'range' | 'limit'> = {};
     if (filterMilestoneId) filters.milestone_id = filterMilestoneId;
     if (filterGroupId) filters.run_group_id = filterGroupId;
     if (filterLabelId) filters.label_id = filterLabelId;
+    if (deepLinkStatus) filters.status = deepLinkStatus;
+    if (deepLinkRange) filters.range = deepLinkRange;
+    // A dashboard count covers the whole range; the default latest-100 window would hide most of it.
+    if (deepLinkStatus || deepLinkRange) filters.limit = 1000;
     return filters;
-  }, [filterMilestoneId, filterGroupId, filterLabelId]);
+  }, [filterMilestoneId, filterGroupId, filterLabelId, deepLinkStatus, deepLinkRange]);
   const setGovernanceFilter = useCallback(
     (key: keyof typeof GOVERNANCE_PARAMS, value: string | null) => {
       setSearchParams((prev) => {
@@ -427,6 +472,23 @@ const TestReports: React.FC = () => {
     return count;
   }, [hiddenColumns, showDetailedColumns, canAssign]);
 
+  // Skeleton column widths, in the same order as the real cells below. Built from the same
+  // visibility predicates so the grey rows line up under the header whatever the user hid.
+  // `null` marks a cell that holds an icon or a button rather than text.
+  const skeletonColumnWidths = useMemo(() => {
+    const w: Array<number | string | null> = [];
+    if (canAssign) w.push(null); // selection checkbox
+    w.push('58%'); // Test — the name column takes the remaining width
+    ALL_COLUMNS.forEach((col) => {
+      if (!isColumnVisible(col.id)) return;
+      if (col.id === 'report' || col.id === 'logs' || col.id === 'rerun') w.push(null);
+      else if (col.id === 'host' || col.id === 'device' || col.id === 'uiName') w.push('62%');
+      else w.push('72%');
+    });
+    if (showDetailedColumns) w.push('72%', '72%', '58%', '45%'); // Checked/Discard/AnalyzedBy/Comment
+    return w;
+  }, [hiddenColumns, showDetailedColumns, canAssign]);
+
   // Campaign column visibility — persisted to localStorage
   const CAMPAIGN_COL_VISIBILITY_KEY = 'campaign_reports_column_visibility_v1';
   type CampaignColumnId = 'host' | 'device' | 'status' | 'scripts' | 'duration' | 'started' | 'report' | 'logs';
@@ -466,6 +528,18 @@ const TestReports: React.FC = () => {
     return count;
   }, [hiddenCampaignColumns]);
 
+  // Campaign skeleton widths — same order as the campaign cells, `null` for icon cells.
+  const campaignSkeletonWidths = useMemo(() => {
+    const w: Array<number | string | null> = ['58%']; // Campaign name
+    ALL_CAMPAIGN_COLUMNS.forEach((col) => {
+      if (!isCampaignColumnVisible(col.id)) return;
+      if (col.id === 'report' || col.id === 'logs') w.push(null);
+      else if (col.id === 'status') w.push('78%');
+      else w.push('62%');
+    });
+    return w;
+  }, [hiddenCampaignColumns]);
+
   // Load script results (refetches when server-side filters change)
   const loadScriptResults = useCallback(async (filters?: ScriptResultFilters) => {
     try {
@@ -481,12 +555,24 @@ const TestReports: React.FC = () => {
         initialLoadDone.current = true;
         const scripts = new Set<string>();
         const targets = new Set<string>();
+        const projectMap = new Map<string, { id: string; name: string; color: string | null }>();
         for (const r of results) {
           if (r.script_name) scripts.add(r.script_name);
           if (r.host_name) targets.add(buildTargetKey(r.host_name, r.device_name));
+          // TASK-65 G7 — collect every project that any row points at so the
+          // filter dropdown can show them. Backend `get_script_results` only
+          // ships a project tag for tagged scripts; projectless rows are
+          // ignored here and stay addressable through the "include untagged"
+          // toggle.
+          for (const p of r.projects ?? []) {
+            if (!projectMap.has(p.id)) projectMap.set(p.id, p);
+          }
         }
         setKnownScripts(Array.from(scripts).sort());
         setKnownTargets(Array.from(targets).sort());
+        setProjectOptions(
+          Array.from(projectMap.values()).sort((a, b) => a.name.localeCompare(b.name)),
+        );
       }
     } catch (err) {
       console.error('[@component:TestReports] Error loading script results:', err);
@@ -582,9 +668,11 @@ const TestReports: React.FC = () => {
     setKnownScripts([]);
     setKnownTargets([]);
     setKnownCampaigns([]);
+    setProjectOptions([]);
     setFilterScript(null);
     setFilterTarget(null);
     setFilterCampaign(null);
+    setFilterProject(null);
     setSelectedFolder(null);
     initialLoadDone.current = false;
     campaignLoadDone.current = false;
@@ -615,9 +703,11 @@ const TestReports: React.FC = () => {
     setKnownScripts([]);
     setKnownTargets([]);
     setKnownCampaigns([]);
+    setProjectOptions([]);
     setFilterScript(null);
     setFilterTarget(null);
     setFilterCampaign(null);
+    setFilterProject(null);
     setSelectedFolder(null);
     initialLoadDone.current = false;
     campaignLoadDone.current = false;
@@ -661,20 +751,23 @@ const TestReports: React.FC = () => {
     return items;
   }, [campaignResults, filterCampaign, filterTarget]);
 
-  // Calculate stats
+  // Calculate stats. `null` means "nothing to compute from" — true both before the first load
+  // lands and on an empty result set. That is neither a rate of zero nor a failure, so it must
+  // not fall through the rate thresholds into the error colour (UI_STYLE §10 S6).
   const totalReports = scriptResults.length;
   const passedReports = scriptResults.filter((result) => result.success).length;
-  const successRate = totalReports > 0 ? ((passedReports / totalReports) * 100).toFixed(1) : 'N/A';
+  const successRate: number | null =
+    totalReports > 0 ? (passedReports / totalReports) * 100 : null;
 
   // Calculate average duration
   const validDurations = scriptResults.filter((result) => result.execution_time_ms !== null);
-  const avgDuration =
+  const avgDuration: string | null =
     validDurations.length > 0
       ? formatDuration(
           validDurations.reduce((sum, result) => sum + (result.execution_time_ms || 0), 0) /
             validDurations.length,
         )
-      : 'N/A';
+      : null;
 
   // Extract unique script folders (tests tab only)
   const folderOptions = useMemo(() => {
@@ -702,6 +795,35 @@ const TestReports: React.FC = () => {
       );
     }
 
+    // TASK-65 G7 — project scope. When a project is picked the row must be
+    // tagged with it; the `includeUntagged` toggle adds the projectless rows
+    // back so the user can still find them. A projectless row is "no
+    // `project_ids`", or an empty `projects` list.
+    if (filterProject) {
+      results = results.filter((r) => {
+        const ids = r.project_ids ?? [];
+        if (ids.includes(filterProject)) return true;
+        if (includeUntagged && ids.length === 0) return true;
+        return false;
+      });
+    } else if (!includeUntagged) {
+      // No project picked + "hide untagged" → only show rows that belong to
+      // at least one project. This is the path the G9 project-scope will own.
+      results = results.filter((r) => (r.project_ids ?? []).length > 0);
+    }
+
+    // Dashboard deep links: verdict and time window.
+    if (statusParam === 'passed' || statusParam === 'failed') {
+      results = results.filter((r) => getExecutionStatus(r) === statusParam);
+    } else if (statusParam === 'aborted') {
+      results = results.filter((r) => !r.success && /abort/i.test(r.error_msg ?? ''));
+    }
+    const rangeMs = rangeParam ? { '24h': 86_400_000, '7d': 7 * 86_400_000, '30d': 30 * 86_400_000 }[rangeParam] : undefined;
+    if (rangeMs) {
+      const since = Date.now() - rangeMs;
+      results = results.filter((r) => new Date(r.created_at).getTime() >= since);
+    }
+
     // Folder filter
     if (selectedFolder) {
       results = results.filter((r) => {
@@ -712,7 +834,7 @@ const TestReports: React.FC = () => {
     }
 
     return results;
-  }, [scriptResults, browserTab, selectedFolder, filterTarget]);
+  }, [scriptResults, browserTab, selectedFolder, filterTarget, filterProject, includeUntagged, statusParam, rangeParam]);
 
   // Format duration helper
   function formatDuration(ms: number): string {
@@ -772,26 +894,13 @@ const TestReports: React.FC = () => {
   };
 
   // Determine execution status helper
-  function getExecutionStatus(result: ScriptResult): 'running' | 'passed' | 'failed' {
-    // If success is true, it's definitely passed
-    if (result.success) {
-      return 'passed';
-    }
-    
-    // If success is false, check if it's still running or actually failed
-    // Logic: If started_at and completed_at are very close (< 5 seconds), it's likely still running
-    // because update_script_execution_result hasn't been called yet
-    const startTime = new Date(result.started_at).getTime();
-    const completedTime = new Date(result.completed_at).getTime();
-    const timeDiff = Math.abs(completedTime - startTime);
-    
-    // If less than 5 seconds difference AND no execution time recorded, likely still running
-    if (timeDiff < 5000 && !result.execution_time_ms) {
-      return 'running';
-    }
-    
-    // Otherwise, it's actually failed
-    return 'failed';
+  //
+  // The rule lives in utils/resultOutcome.ts: a row that carries the `skipped`
+  // flag never executed, so it is a skip and not a failure — the reports have
+  // to show it as one, or a nightly campaign reads as broken for a check that
+  // never ran (BUG-0756).
+  function getExecutionStatus(result: ScriptResult): ResultOutcome {
+    return getResultOutcome(result);
   }
 
   // Note: handleDiscardToggle removed - discard status is now managed by AI analysis
@@ -972,13 +1081,6 @@ const TestReports: React.FC = () => {
     );
   };
 
-  // Loading state component
-  const LoadingState = () => (
-    <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-      <CircularProgress />
-    </Box>
-  );
-
   // Note: EmptyState component removed - now handled inline with dynamic colspan
 
   return (
@@ -988,7 +1090,7 @@ const TestReports: React.FC = () => {
         '& .MuiCard-root': { borderRadius: 3, border: `1px solid ${P.borderColor}`, boxShadow: 'none' },
         '& .MuiTableContainer-root': { borderRadius: 2, borderColor: P.borderColor },
         '& .MuiTableCell-root': { borderColor: P.borderColor },
-        '& thead .MuiTableCell-root': { fontSize: '0.75rem', color: `${P.textSecondary} !important`, bgcolor: `${P.hoverBg} !important` },
+        '& thead .MuiTableCell-root': { fontSize: TYPOGRAPHY.caption.size, color: `${P.textSecondary} !important`, bgcolor: `${P.hoverBg} !important` },
         '& tbody .MuiIconButton-colorPrimary, & tbody .MuiIconButton-colorSecondary': {
           color: P.textSecondary, '&:hover': { color: P.accentText, bgcolor: P.hoverBg },
         },
@@ -998,7 +1100,7 @@ const TestReports: React.FC = () => {
       }}
     >
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5, gap: 1, flexWrap: 'wrap' }}>
-        <Typography component="h1" sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
+        <Typography component="h1" sx={{ fontSize: TYPOGRAPHY.pageTitle.size, fontWeight: 600 }}>
           Test Reports
         </Typography>
         <ToggleButtonGroup
@@ -1010,7 +1112,7 @@ const TestReports: React.FC = () => {
             bgcolor: P.hoverBg, p: 0.375, borderRadius: 2, gap: 0.375,
             '& .MuiToggleButton-root': {
               border: '1px solid transparent !important', borderRadius: '6px !important',
-              textTransform: 'none', fontSize: 13, fontWeight: 500, color: P.textSecondary, py: 0.4, px: 2,
+              textTransform: 'none', fontSize: TYPOGRAPHY.body.size, fontWeight: 500, color: P.textSecondary, py: 0.4, px: 2,
             },
             '& .MuiToggleButton-root.Mui-selected': {
               bgcolor: P.surface, color: P.accentText, fontWeight: 600,
@@ -1033,12 +1135,28 @@ const TestReports: React.FC = () => {
       {/* Quick Stats — two tiles and the Grafana link */}
       <Box sx={{ display: 'flex', alignItems: 'stretch', gap: 1, mb: 1.5, flexWrap: 'wrap' }}>
         {[
-          { label: 'Success rate', value: `${successRate}%`, color: Number(successRate) >= 80 ? P.success : Number(successRate) >= 50 ? P.warning : P.error },
-          { label: 'Avg duration', value: avgDuration, color: P.textPrimary },
+          {
+            label: 'Success rate',
+            value: successRate === null ? '—' : `${successRate.toFixed(1)}%`,
+            color: successRate === null ? P.textMuted : successRate >= 80 ? P.success : successRate >= 50 ? P.warning : P.error,
+            skeletonWidth: 64,
+          },
+          {
+            label: 'Avg duration',
+            value: avgDuration ?? '—',
+            color: avgDuration ? P.textPrimary : P.textMuted,
+            skeletonWidth: 52,
+          },
         ].map((k) => (
           <Box key={k.label} sx={{ px: 1.5, py: 0.75, minWidth: 150, borderRadius: 2, bgcolor: P.surface, border: `1px solid ${P.borderColor}` }}>
-            <Typography sx={{ fontSize: '0.72rem', color: P.textMuted }}>{k.label}</Typography>
-            <Typography sx={{ fontSize: '1.2rem', fontWeight: 600, lineHeight: 1.3, color: k.color }}>{k.value}</Typography>
+            <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted }}>{k.label}</Typography>
+            {/* Before the first load lands the value is unknown, not wrong — a grey bar in the
+                value slot, never the red "N/A" this used to show (see ReportSkeleton.tsx). */}
+            {loading ? (
+              <ValueSkeleton width={k.skeletonWidth} height={24} />
+            ) : (
+              <Typography sx={{ fontSize: TYPOGRAPHY.pageSubtitle.size, fontWeight: 600, lineHeight: 1.3, color: k.color }}>{k.value}</Typography>
+            )}
           </Box>
         ))}
         <Box sx={{ flex: 1 }} />
@@ -1073,8 +1191,8 @@ const TestReports: React.FC = () => {
                         InputLabelProps={{ shrink: true, sx: { px: 0.5 } }}
                       />
                     )}
-                    slotProps={{ paper: { sx: { fontSize: '0.8rem' } } }}
-                    sx={{ minWidth: 340, '& .MuiInputBase-root': { height: 32, fontSize: '0.8rem' } }}
+                    slotProps={{ paper: { sx: { fontSize: TYPOGRAPHY.body.size } } }}
+                    sx={{ minWidth: 340, '& .MuiInputBase-root': { height: 32, fontSize: TYPOGRAPHY.body.size } }}
                   />
                   <Autocomplete
                     size="small"
@@ -1089,8 +1207,8 @@ const TestReports: React.FC = () => {
                         InputLabelProps={{ shrink: true, sx: { px: 0.5 } }}
                       />
                     )}
-                    slotProps={{ paper: { sx: { fontSize: '0.8rem' } } }}
-                    sx={{ minWidth: 380, '& .MuiInputBase-root': { height: 32, fontSize: '0.8rem' } }}
+                    slotProps={{ paper: { sx: { fontSize: TYPOGRAPHY.body.size } } }}
+                    sx={{ minWidth: 380, '& .MuiInputBase-root': { height: 32, fontSize: TYPOGRAPHY.body.size } }}
                   />
                 </Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -1127,7 +1245,7 @@ const TestReports: React.FC = () => {
                   '& .MuiTableCell-root': {
                     px: 1,
                     py: 0.25,
-                    fontSize: '0.875rem',
+                    fontSize: TYPOGRAPHY.body.size,
                     whiteSpace: 'nowrap',
                     overflow: 'hidden',
                     textOverflow: 'ellipsis',
@@ -1191,11 +1309,7 @@ const TestReports: React.FC = () => {
                   </TableHead>
                   <TableBody>
                     {campaignLoading ? (
-                      <TableRow sx={{ '&:hover': { backgroundColor: 'transparent !important' } }}>
-                        <TableCell colSpan={visibleCampaignColumnCount}>
-                          <LoadingState />
-                        </TableCell>
-                      </TableRow>
+                      <TableRowsSkeleton rows={8} widths={campaignSkeletonWidths} />
                     ) : filteredCampaignResults.length === 0 ? (
                       <TableRow sx={{ '&:hover': { backgroundColor: 'transparent !important' } }}>
                         <TableCell colSpan={visibleCampaignColumnCount} sx={{ textAlign: 'center', py: 4 }}>
@@ -1208,6 +1322,10 @@ const TestReports: React.FC = () => {
                       filteredCampaignResults.map((result) => {
                         const scriptCount = result.script_configurations?.length || result.script_result_ids?.length || result.script_results?.length || 0;
                         const passedCount = result.script_results?.filter((s) => s.success).length || 0;
+                        // A check that never ran is neither a pass nor a failure:
+                        // it is counted apart, so the nightly row says how many
+                        // were skipped instead of hiding them in "not passed".
+                        const skippedCount = result.script_results?.filter((s) => isSkippedResult(s)).length || 0;
                         const hasScripts = (result.script_results?.length ?? 0) > 0;
                         const isExpanded = expandedCampaignId === result.id;
                         return (
@@ -1242,7 +1360,7 @@ const TestReports: React.FC = () => {
                                       aria-label="Open run summary"
                                       sx={{ p: 0.25, flexShrink: 0 }}
                                     >
-                                      <SummaryIcon sx={{ fontSize: 16 }} />
+                                      <SummaryIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
                                     </IconButton>
                                   </Tooltip>
                                 )}
@@ -1264,6 +1382,13 @@ const TestReports: React.FC = () => {
                                 <Tooltip title="Running">
                                   <RunningIcon color="warning" fontSize="small" />
                                 </Tooltip>
+                              ) : result.status === 'aborted' || result.status === 'cancelled' ? (
+                                // An aborted or cancelled campaign never reached a
+                                // verdict: it is not a test failure, so it wears the
+                                // neutral grey of a stop, never the red of a failure.
+                                <Tooltip title={result.status === 'aborted' ? 'Aborted' : 'Cancelled'}>
+                                  <AbortedIcon color="disabled" fontSize="small" />
+                                </Tooltip>
                               ) : result.success ? (
                                 <Tooltip title="Pass">
                                   <PassIcon color="success" fontSize="small" />
@@ -1277,8 +1402,17 @@ const TestReports: React.FC = () => {
                             )}
                             {isCampaignColumnVisible('scripts') && (
                             <TableCell sx={{ py: 0.5, ...campaignResizeCols.bodyCellSx('scripts') }}>
-                              <Tooltip title={`${passedCount}/${scriptCount} passed`}>
-                                <span>{passedCount}/{scriptCount}</span>
+                              <Tooltip title={`${passedCount}/${scriptCount} passed${skippedCount ? `, ${skippedCount} skipped` : ''}`}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                                  <span>{passedCount}/{scriptCount}</span>
+                                  {skippedCount > 0 && (
+                                    <Chip
+                                      label={`${skippedCount} skipped`}
+                                      size="small"
+                                      sx={{ height: '16px', fontSize: TYPOGRAPHY.microMeta.size, flexShrink: 0 }}
+                                    />
+                                  )}
+                                </Box>
                               </Tooltip>
                             </TableCell>
                             )}
@@ -1317,8 +1451,7 @@ const TestReports: React.FC = () => {
                                   <IconButton
                                     size="small"
                                     onClick={(e) => { e.stopPropagation(); handleOpenR2Url(result.logs_r2_url!); }}
-                                    color="secondary"
-                                    sx={{ p: 0.5 }}
+                                    sx={{ ...(neutralButtonSx(P) as object),  p: 0.5 }}
                                   >
                                     <LogsIcon fontSize="small" />
                                   </IconButton>
@@ -1359,11 +1492,11 @@ const TestReports: React.FC = () => {
                                         </Tooltip>
                                         <Typography variant="body2" sx={{ opacity: 0.5, flexShrink: 0 }}>•</Typography>
                                         <Chip
-                                          icon={script.success ? <PassIcon /> : <FailIcon />}
-                                          label={script.success ? 'PASS' : 'FAIL'}
-                                          color={script.success ? 'success' : 'error'}
+                                          icon={script.skipped ? <SkippedIcon /> : (script.success ? <PassIcon /> : <FailIcon />)}
+                                          label={script.skipped ? 'SKIP' : (script.success ? 'PASS' : 'FAIL')}
+                                          color={script.skipped ? 'default' : (script.success ? 'success' : 'error')}
                                           size="small"
-                                          sx={{ height: '16px', fontSize: '0.6rem', flexShrink: 0 }}
+                                          sx={{ height: '16px', fontSize: TYPOGRAPHY.microMeta.size, flexShrink: 0 }}
                                         />
                                         <Typography variant="body2" sx={{ opacity: 0.5, flexShrink: 0 }}>•</Typography>
                                         <Typography variant="caption" sx={{ minWidth: 60, flexShrink: 0, opacity: 0.8 }}>
@@ -1388,12 +1521,12 @@ const TestReports: React.FC = () => {
                                                     size="small"
                                                     color={script.testrail_sync.status === 'published' ? 'success' : 'error'}
                                                     onClick={(e) => e.stopPropagation()}
-                                                    sx={{ height: 20, fontSize: '0.65rem' }}
+                                                    sx={{ height: 20, fontSize: TYPOGRAPHY.microMeta.size }}
                                                   />
                                                 ) : (
                                                   <Chip label={script.testrail_sync.status === 'not_mapped' ? 'Needs link' : `TR ${script.testrail_sync.status}`} size="small"
                                                     color={script.testrail_sync.status === 'publishing' ? 'info' : script.testrail_sync.status === 'not_mapped' ? 'default' : 'error'}
-                                                    sx={{ height: 20, fontSize: '0.65rem' }} />
+                                                    sx={{ height: 20, fontSize: TYPOGRAPHY.microMeta.size }} />
                                                 )}
                                               </Tooltip>
                                             ) : null}
@@ -1421,7 +1554,7 @@ const TestReports: React.FC = () => {
                                           <Box sx={{ width: 55, px: 1, textAlign: 'center', boxSizing: 'border-box' }}>
                                             {script.logs_r2_url ? (
                                               <Tooltip title="Open Logs">
-                                                <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleOpenR2Url(script.logs_r2_url!); }} color="secondary" sx={{ p: 0.5 }}>
+                                                <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleOpenR2Url(script.logs_r2_url!); }} sx={{ ...(neutralButtonSx(P) as object),  p: 0.5 }}>
                                                   <LogsIcon fontSize="small" />
                                                 </IconButton>
                                               </Tooltip>
@@ -1461,8 +1594,8 @@ const TestReports: React.FC = () => {
                     InputLabelProps={{ shrink: true, sx: { px: 0.5 } }}
                   />
                 )}
-                slotProps={{ paper: { sx: { fontSize: '0.8rem' } } }}
-                sx={{ flex: '2 1 200px', minWidth: 140, '& .MuiInputBase-root': { height: 32, fontSize: '0.8rem' } }}
+                slotProps={{ paper: { sx: { fontSize: TYPOGRAPHY.body.size } } }}
+                sx={{ flex: '2 1 200px', minWidth: 140, '& .MuiInputBase-root': { height: 32, fontSize: TYPOGRAPHY.body.size } }}
               />
               <Autocomplete
                 size="small"
@@ -1477,8 +1610,8 @@ const TestReports: React.FC = () => {
                     InputLabelProps={{ shrink: true, sx: { px: 0.5 } }}
                   />
                 )}
-                slotProps={{ paper: { sx: { fontSize: '0.8rem' } } }}
-                sx={{ flex: '2 1 200px', minWidth: 140, '& .MuiInputBase-root': { height: 32, fontSize: '0.8rem' } }}
+                slotProps={{ paper: { sx: { fontSize: TYPOGRAPHY.body.size } } }}
+                sx={{ flex: '2 1 200px', minWidth: 140, '& .MuiInputBase-root': { height: 32, fontSize: TYPOGRAPHY.body.size } }}
               />
               {folderOptions.length > 1 && (
                 <Box sx={{ display: 'flex', gap: 0.5 }}>
@@ -1514,10 +1647,66 @@ const TestReports: React.FC = () => {
                       InputLabelProps={{ shrink: true, sx: { px: 0.5 } }}
                     />
                   )}
-                  slotProps={{ paper: { sx: { fontSize: '0.8rem' } } }}
-                  sx={{ flex: '1 1 110px', minWidth: 90, '& .MuiInputBase-root': { height: 32, fontSize: '0.8rem' } }}
+                  slotProps={{ paper: { sx: { fontSize: TYPOGRAPHY.body.size } } }}
+                  sx={{ flex: '1 1 110px', minWidth: 90, '& .MuiInputBase-root': { height: 32, fontSize: TYPOGRAPHY.body.size } }}
                 />
               ))}
+              {/* TASK-65 G7 — project scope. The full picker (chips + per-project
+                  actions) lives in G9; here we just expose an `All + toggle`
+                  filter so the chip column has a working scope. */}
+              {projectOptions.length > 0 && (
+                <>
+                  <Autocomplete
+                    size="small"
+                    value={projectOptions.find((p) => p.id === filterProject) ?? null}
+                    onChange={(_e, v) => setFilterProject(v ? v.id : null)}
+                    options={projectOptions}
+                    getOptionLabel={(option) => option.name}
+                    isOptionEqualToValue={(option, current) => option.id === current.id}
+                    renderOption={(props, option) => (
+                      <li {...props} key={option.id} data-testid="project-filter-option">
+                        {option.color && (
+                          <Box
+                            component="span"
+                            sx={{
+                              display: 'inline-block',
+                              width: 10,
+                              height: 10,
+                              borderRadius: '50%',
+                              backgroundColor: option.color,
+                              marginRight: 1,
+                              flexShrink: 0,
+                            }}
+                          />
+                        )}
+                        {option.name}
+                      </li>
+                    )}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        label="Project"
+                        placeholder="All"
+                        InputLabelProps={{ shrink: true, sx: { px: 0.5 } }}
+                      />
+                    )}
+                    slotProps={{ paper: { sx: { fontSize: TYPOGRAPHY.body.size } } }}
+                    sx={{ flex: '1 1 140px', minWidth: 110, '& .MuiInputBase-root': { height: 32, fontSize: TYPOGRAPHY.body.size } }}
+                  />
+                  <FormControlLabel
+                    control={
+                      <Checkbox
+                        size="small"
+                        checked={includeUntagged}
+                        onChange={(_e, v) => setIncludeUntagged(v)}
+                        data-testid="include-untagged"
+                      />
+                    }
+                    label={<Typography variant="caption">Untagged</Typography>}
+                    sx={{ flexShrink: 0, m: 0 }}
+                  />
+                </>
+              )}
               {canAssign && (
                 <Button
                   size="small"
@@ -1569,16 +1758,17 @@ const TestReports: React.FC = () => {
               '& .MuiTableCell-root': {
                 px: 1,
                 py: 0.25,
-                fontSize: '0.875rem',
+                fontSize: TYPOGRAPHY.body.size,
                 whiteSpace: 'nowrap',
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
-              }
+              },
+              '& .MuiTableCell-paddingCheckbox': { px: 0, textAlign: 'center', overflow: 'visible' },
             }}>
               <TableHead>
                 <TableRow>
                   {canAssign && (
-                    <TableCell padding="checkbox" sx={{ width: 36 }}>
+                    <TableCell padding="checkbox" sx={{ width: 48, minWidth: 48 }}>
                       <Checkbox
                         size="small"
                         inputProps={{ 'aria-label': 'Select all results' }}
@@ -1675,11 +1865,7 @@ const TestReports: React.FC = () => {
               </TableHead>
               <TableBody>
                 {loading ? (
-                  <TableRow sx={{ '&:hover': { backgroundColor: 'transparent !important' } }}>
-                    <TableCell colSpan={visibleColumnCount}>
-                      <LoadingState />
-                    </TableCell>
-                  </TableRow>
+                  <TableRowsSkeleton rows={8} widths={skeletonColumnWidths} />
                 ) : filteredResults.length === 0 ? (
                   <TableRow sx={{ '&:hover': { backgroundColor: 'transparent !important' } }}>
                     <TableCell colSpan={visibleColumnCount} sx={{ textAlign: 'center', py: 4 }}>
@@ -1700,7 +1886,7 @@ const TestReports: React.FC = () => {
                       }}
                     >
                       {canAssign && (
-                        <TableCell padding="checkbox" sx={{ width: 36 }}>
+                        <TableCell padding="checkbox" sx={{ width: 48, minWidth: 48 }}>
                           <RowCheckbox
                             id={result.id}
                             label={`Select ${result.script_name}`}
@@ -1727,7 +1913,7 @@ const TestReports: React.FC = () => {
                                   color="warning"
                                   variant="outlined"
                                   data-testid="flaky-badge"
-                                  sx={{ height: 18, fontSize: '0.65rem', flexShrink: 0 }}
+                                  sx={{ height: 18, fontSize: TYPOGRAPHY.microMeta.size, flexShrink: 0 }}
                                 />
                               </Tooltip>
                             );
@@ -1739,7 +1925,7 @@ const TestReports: React.FC = () => {
                               size="small"
                               variant="outlined"
                               data-testid="result-label"
-                              sx={{ height: 18, fontSize: '0.65rem', flexShrink: 0, borderColor: label.color ?? undefined }}
+                              sx={{ height: 18, fontSize: TYPOGRAPHY.microMeta.size, flexShrink: 0, borderColor: label.color ?? undefined }}
                             />
                           ))}
                           {(result.labels ?? []).length > 3 && (
@@ -1747,12 +1933,36 @@ const TestReports: React.FC = () => {
                               +{(result.labels ?? []).length - 3}
                             </Typography>
                           )}
+                          {/* TASK-65 G7 — project chips. One Chip per project the
+                              run belongs to (a row can have several). Project
+                              name is data (never localized); the colour, when
+                              set, paints the chip border to match the project
+                              in the picker. */}
+                          {(result.projects ?? []).map((project) => (
+                            <Chip
+                              key={project.id}
+                              label={project.name}
+                              size="small"
+                              variant="outlined"
+                              data-testid="project-chip"
+                              data-project-id={project.id}
+                              onClick={() => setFilterProject(project.id)}
+                              sx={{
+                                height: 18,
+                                fontSize: TYPOGRAPHY.microMeta.size,
+                                flexShrink: 0,
+                                borderColor: project.color ?? undefined,
+                                borderWidth: project.color ? 1.5 : undefined,
+                                cursor: 'pointer',
+                              }}
+                            />
+                          ))}
                           {getTriggerLines(result).length > 0 && (
                             <Tooltip
                               title={<Box sx={{ whiteSpace: 'pre-line' }}>{getTriggerLines(result).join('\n')}</Box>}
                               placement="top-start"
                             >
-                              <InfoIcon sx={{ fontSize: 16, flexShrink: 0, color: 'text.secondary', cursor: 'help' }} />
+                              <InfoIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size, flexShrink: 0, color: 'text.secondary', cursor: 'help' }} />
                             </Tooltip>
                           )}
                         </Box>
@@ -1791,6 +2001,15 @@ const TestReports: React.FC = () => {
                                 return (
                                   <Tooltip title="Fail">
                                     <FailIcon color="error" fontSize="small" />
+                                  </Tooltip>
+                                );
+                              case 'skipped':
+                                // The run never executed (it was not configured):
+                                // the muted grey of a skip, never the red of a
+                                // failure.
+                                return (
+                                  <Tooltip title="Skipped">
+                                    <SkippedIcon color="disabled" fontSize="small" />
                                   </Tooltip>
                                 );
                               default:
@@ -1849,8 +2068,7 @@ const TestReports: React.FC = () => {
                               <IconButton
                                 size="small"
                                 onClick={() => { const logsRef = getLogsUrlOrPath(result); if (logsRef) handleOpenR2Url(logsRef); }}
-                                color="secondary"
-                                sx={{ p: 0.5 }}
+                                sx={{ ...(neutralButtonSx(P) as object),  p: 0.5 }}
                               >
                                 <LogsIcon fontSize="small" />
                               </IconButton>

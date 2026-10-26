@@ -350,6 +350,20 @@ def get_system_metrics(host_name: Optional[str] = None,
         return []
 
 
+def get_oldest_disk_sample(host_name: str, hours: int) -> Optional[Dict[str, Any]]:
+    """Oldest {timestamp, disk_percent} row of a host within the last `hours`; None without one (disk trend, TASK-156)."""
+    try:
+        from datetime import timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
+        result = (get_supabase().table('system_metrics').select('timestamp,disk_percent')
+                  .eq('host_name', host_name).gte('timestamp', cutoff)
+                  .order('timestamp', desc=False).limit(1).execute())
+        return result.data[0] if result.data else None
+    except Exception as e:
+        print(f"❌ [METRICS] Error reading oldest disk sample for {host_name}: {e}")
+        return None
+
+
 def get_latest_system_metrics(host_name: str) -> Optional[Dict[str, Any]]:
     """
     Get the latest system metrics for a specific host

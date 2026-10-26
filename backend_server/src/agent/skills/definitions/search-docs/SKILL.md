@@ -33,6 +33,14 @@ triggers:
   - price
   - pricing
   - license
+  # When the user asks for a video, tutorial, demo or walkthrough, prefer the
+  # video-library skill over search-docs. The library is the same videos.json
+  # used by the in-app Videos page; search-docs would only return a markdown
+  # listing, not an embeddable card.
+  - video
+  - tutorial
+  - demo
+  - walkthrough
 ---
 
 # Search Docs
@@ -54,7 +62,9 @@ WORKFLOW:
 1. If you know the relevant doc file → read_doc(path='section/FILE.md') directly
 2. If unsure which file → read_doc(path='INDEX.md') — the master index says which file
    answers which kind of question — then read_doc the file it points to
-3. search_docs(query='keyword') as fallback when the index doesn't name a file
+3. search_docs(query='keyword') as fallback when the index doesn't name a file — use 1-3 plain
+   keywords (e.g. 'IR keymap'); every word must appear in the file, so long phrases find nothing
+   A "File not found" answer lists the files with the same name: read the one it suggests
 4. If the topic spans multiple files → read up to 3 files and synthesise the answer
 5. Never guess — only state what the documentation says
 
@@ -69,12 +79,12 @@ COMMON DOC PATHS:
 - docs/api/specs/*.yaml           — OpenAPI specs per API family (script, device, campaign, navigation, ...)
 - docs/api/COVERAGE.md            — which spec covers which routes
 - docs/agent/README.md           — onboarding, domain vocabulary, architecture overview
-- docs/agent/MAP.md              — "which file handles X" directory
-- docs/agent/CONTRACTS.md        — hidden rules and constraints
-- docs/agent/PATTERNS.md         — canonical implementation patterns
-- docs/agent/INFRA.md            — VM topology, IPs, services
-- docs/agent/DEPLOY.md           — deployment guide
-- docs/agent/TESTING.md          — testing strategy, E2E, CI
+- docs/agent/navigation/MAP.md   — "which file handles X" directory
+- docs/agent/validation/CONTRACTS.md — hidden rules and constraints
+- docs/agent/navigation/PATTERNS.md — canonical implementation patterns
+- docs/agent/validation/TESTING.md — testing strategy, E2E, CI
+- docs/agent/devices/            — one doc per device / remote type (INFRARED.md, BLUETOOTH.md, DEVICE_CONTROL.md, ...)
+- docs/agent/INDEX.md            — generated list of every agent doc with keywords
 - docs/agent/ai/agent.md         — agent architecture (Atlas, Sherlock, Nightwatch)
 - docs/agent/ai/agent_memory_strategy.md — session context and memory
 - docs/user-guide/               — end-user guides
@@ -83,7 +93,22 @@ COMMON DOC PATHS:
 
 OUTPUT FORMAT:
 Answer the question directly using information from the docs.
-Always cite which file you read: "(source: docs/agent/MAP.md)"
+Always cite which file you read: "(source: docs/agent/navigation/MAP.md)"
 If something is not covered in docs, say so clearly — but ONLY after actually
 searching. Text alongside a tool call is a user-visible status note: keep it to
 "Checking the docs...", never a conclusion or "I don't have this information".
+
+VIDEO QUESTIONS:
+"how to" / "how do I" / "show me" questions often want a 90-second demo in
+addition to the answer. The video-library skill triggers on the same words
+("how to", "how do i", "show me") AND on the topic name (drone, Grafana, KPI,
+…). When you see such a question:
+
+  1. **Both this skill and video-library should fire.** Answer the question
+     from the docs (this skill), AND have video-library embed a matching
+     `[[video:<id>]]` at the end. The video is a complement, not a
+     substitute — the user wants a real answer plus a demo.
+  2. The video-library skill body documents the workflow; if both skills
+     are loaded, follow that workflow.
+  3. If the user asks for the raw list of every video, use search-docs to
+     read docs/videos/README.md and quote it.

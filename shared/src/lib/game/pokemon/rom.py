@@ -14,6 +14,9 @@ from typing import Dict, List, Optional, Tuple
 
 MOVES_SIGNATURE = bytes([0x01, 0x00, 0x28, 0x00, 0xFF, 0x23, 0x02, 0x00, 0x32])
 TYPES_SIGNATURE = bytes([0x15, 0x14, 0x14, 0x14, 0x16, 0x14, 0x14, 0x19, 0x14])
+BULBASAUR_STATS = bytes([1, 45, 49, 49, 45, 65, 0x16, 0x03, 45, 64])   # first base-stats entry (28 bytes each, by Pokédex number)
+DEX_ORDER = bytes([112, 115, 32, 35, 21, 100, 34, 80, 2, 103, 108, 102, 88, 94, 29, 31, 104, 111, 131, 59])   # internal species 1.. -> Pokédex number
+HM_SURF_BIT, HM_STRENGTH_BIT = 52, 53   # TM/HM flags: bit n = TM n+1; HM01..05 are TM51..55
 MOVE_COUNT = 165
 MOVE_NAMES_AT = 0xB0000
 
@@ -44,11 +47,21 @@ class GameData:
                     break
                 self.names[move_id] = decode(list(rom[i:end]))
                 i = end + 1
+        self.stats_at, self.dex_at = rom.find(BULBASAUR_STATS), rom.find(DEX_ORDER)
+        self.rom = rom
         self.chart: Dict[Tuple[int, int], float] = {}
         i = types_at
         while rom[i] != 0xFF:
             self.chart[(rom[i], rom[i + 1])] = rom[i + 2] / 10
             i += 3
+
+    def can_learn(self, species: int, tm_bit: int) -> bool:
+        """The TM/HM flag `tm_bit` is set in this species' base stats (species = the game's internal index)."""
+        if self.stats_at < 0 or self.dex_at < 0 or not 0 < species <= 190:
+            return False
+        dex = self.rom[self.dex_at + species - 1]
+        flags = self.rom[self.stats_at + 28 * (dex - 1) + 20: self.stats_at + 28 * (dex - 1) + 27]
+        return bool(flags[tm_bit // 8] >> (tm_bit % 8) & 1)
 
     def move_name(self, move_id: int) -> str:
         return self.names.get(move_id) or f"move {move_id}"

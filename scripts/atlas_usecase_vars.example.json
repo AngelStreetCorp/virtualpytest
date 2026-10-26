@@ -1,0 +1,3 @@
+{"device": "device1", "host": "host1", "model": "stb", "profile": "ir:stb", "tag": "lab",
+ "script": "goto_live", "campaign": "smoke", "testcase": "tc_home", "ui": "my_tv_ui",
+ "app": "YouTube", "channel": "3"}

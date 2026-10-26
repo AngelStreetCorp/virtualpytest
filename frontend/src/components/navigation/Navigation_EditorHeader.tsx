@@ -18,8 +18,9 @@ import NavigationEditorActionButtons from './Navigation_NavigationEditor_ActionB
 import NavigationEditorDeviceControls from './Navigation_NavigationEditor_DeviceControls';
 import NavigationEditorTreeControls from './Navigation_NavigationEditor_TreeControls';
 import NavigationViewingScopeChip from './Navigation_ViewingScopeChip';
-import LocalizeButton, { LocalizeCandidate } from './Navigation_LocalizeButton';
+import LocalizeButton, { LOCALIZE_OFF_TITLE, LocalizeCandidate, localizeOff } from './Navigation_LocalizeButton';
 import { ValidationButtonClient } from '../validation';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export const NavigationEditorHeader: React.FC<{
   hasUnsavedChanges: boolean;
@@ -104,11 +105,12 @@ export const NavigationEditorHeader: React.FC<{
   // Dev/prod scope. The editor shows either the dev row (editable) or its prod
   // snapshot (read-only); both share the interface name, disambiguated by mode.
   const navigateRouter = useNavigate();
-  const { getProdSnapshot, publishUserInterface } = useUserInterface();
+  const { getProdSnapshot, publishUserInterface, getDraftStatus } = useUserInterface();
   const uiModeView: 'dev' | 'prod' = userInterface?.mode === 'prod' ? 'prod' : 'dev';
   const isProdView = uiModeView === 'prod';
   const [prodVersion, setProdVersion] = React.useState<number | null>(null);
   const [hasProd, setHasProd] = React.useState<boolean>(isProdView);
+  const [hasDraft, setHasDraft] = React.useState(false);
   const [publishConfirmOpen, setPublishConfirmOpen] = React.useState(false);
   const [publishing, setPublishing] = React.useState(false);
 
@@ -134,6 +136,15 @@ export const NavigationEditorHeader: React.FC<{
       });
   }, [userInterface?.name, userInterface?.published_version, isProdView, getProdSnapshot]);
 
+  // Draft = dev holds changes newer than the published prod. Re-probed after a
+  // save (hasUnsavedChanges back to false) and after a publish.
+  React.useEffect(() => {
+    if (isProdView || !hasProd || hasUnsavedChanges || !userInterface?.id) {
+      return;
+    }
+    getDraftStatus(userInterface.id).then(setHasDraft).catch(() => setHasDraft(false));
+  }, [isProdView, hasProd, hasUnsavedChanges, prodVersion, userInterface?.id, getDraftStatus]);
+
   const handleToggleUiMode = () => {
     if (!userInterface?.name) return;
     if (!isProdView && hasUnsavedChanges) {
@@ -152,6 +163,7 @@ export const NavigationEditorHeader: React.FC<{
       clearUserInterfaceCaches();
       setHasProd(true);
       setProdVersion(result.version);
+      setHasDraft(false);
       showSuccess(`Published "${userInterface.name}" to prod (v${result.version})`);
     } catch (e) {
       showError(e instanceof Error ? e.message : 'Failed to publish');
@@ -341,7 +353,7 @@ export const NavigationEditorHeader: React.FC<{
                 sx={{
                   fontWeight: 'medium',
                   color: 'text.primary',
-                  fontSize: '1rem',
+                  fontSize: TYPOGRAPHY.navbarItem.size,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
@@ -397,7 +409,7 @@ export const NavigationEditorHeader: React.FC<{
                       disabled={
                         isLoading || !!error || !selectedHost || !selectedDeviceId || !isControlActive || !treeId
                       }
-                      sx={{ minWidth: 'auto', height: 32, whiteSpace: 'nowrap', fontSize: '0.75rem', textTransform: 'none' }}
+                      sx={{ minWidth: 'auto', height: 32, whiteSpace: 'nowrap', fontSize: TYPOGRAPHY.caption.size, textTransform: 'none' }}
                     >
                       Build Map
                     </Button>
@@ -424,18 +436,18 @@ export const NavigationEditorHeader: React.FC<{
                 <Tooltip
                   title={
                     isProdView
-                      ? 'Viewing the published prod version (read-only). Click to switch to dev.'
-                      : 'Viewing the editable dev version. Click to view prod.'
+                      ? 'Viewing the published prod version. Editing here saves to the dev draft; Publish to make it live. Click to switch to dev.'
+                      : hasDraft ? 'Dev has changes not yet published. Click to view prod.' : 'Viewing the editable dev version. Click to view prod.'
                   }
                 >
                   <Chip
-                    label={isProdView ? `PROD${prodVersion ? ` v${prodVersion}` : ''}` : 'DEV'}
+                    label={isProdView ? `PROD${prodVersion ? ` v${prodVersion}` : ''}` : hasDraft ? 'DEV · DRAFT' : 'DEV'}
                     size="small"
                     onClick={handleToggleUiMode}
                     sx={{
                       height: 24,
                       fontWeight: 600,
-                      fontSize: '0.7rem',
+                      fontSize: TYPOGRAPHY.caption.size,
                       cursor: 'pointer',
                       ...(isProdView
                         ? { bgcolor: P.gold, color: 'primary.contrastText', '&:hover': { bgcolor: `${P.gold}cc` } }
@@ -467,7 +479,7 @@ export const NavigationEditorHeader: React.FC<{
                         minWidth: 'auto',
                         height: 32,
                         whiteSpace: 'nowrap',
-                        fontSize: '0.75rem',
+                        fontSize: TYPOGRAPHY.caption.size,
                         textTransform: 'none',
                       }}
                     >
@@ -513,7 +525,7 @@ export const NavigationEditorHeader: React.FC<{
                       minWidth: 'auto',
                       height: 32,
                       whiteSpace: 'nowrap',
-                      fontSize: '0.75rem',
+                      fontSize: TYPOGRAPHY.caption.size,
                       textTransform: 'none',
                     }}
                     disabled={isLocked || !hasVersionHistory}
@@ -555,8 +567,10 @@ export const NavigationEditorHeader: React.FC<{
                 deviceId={selectedDeviceId}
                 userinterfaceName={userInterface?.name}
                 variant={viewingScope ?? null}
-                disabled={!isControlActive || !selectedHost || !selectedDeviceId}
-                disabledTitle="Take control of a device to localize"
+                disabled={!isControlActive || !selectedHost || !selectedDeviceId || localizeOff(selectedHost, selectedDeviceId)}
+                disabledTitle={
+                  localizeOff(selectedHost, selectedDeviceId) ? LOCALIZE_OFF_TITLE : 'Take control of a device to localize'
+                }
                 width={300}
                 expandedWidth={430}
                 onCandidates={(candidates: LocalizeCandidate[]) => {

@@ -1,10 +1,7 @@
+import { AppIcon, StatusText } from '../../constants/icons';
 import {
   Close as CloseIcon,
   ContentCopy as ContentCopyIcon,
-  ImageOutlined as ImageIcon,
-  AccountTreeOutlined as DomIcon,
-  Refresh as RefreshIcon,
-  CenterFocusStrong as VerifyIcon,
 } from '@mui/icons-material';
 import {
   DialogTitle,
@@ -23,8 +20,8 @@ import {
   CircularProgress,
   Menu,
   Tooltip,
-  Checkbox,
-  FormControlLabel,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 
@@ -41,8 +38,9 @@ import {
 } from '../../types/pages/Navigation_Types';
 import { getZIndex } from '../../utils/zIndexUtils';
 import { VerificationsList } from '../verification/VerificationsList';
+import { DetailsSection } from '../common/CompactListRow';
 import LocalizeCheckFooter from '../verification/LocalizeCheckFooter';
-import FingerprintBadge from './Navigation_FingerprintBadge';
+import NodeDomDialog from './Navigation_NodeDomDialog';
 import { buildServerUrl, openHostUrl } from '../../utils/buildUrlUtils';
 import { useR2Url } from '../../hooks/storage';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
@@ -52,6 +50,9 @@ import {
   Navigation_VariantToggle,
   type VariantScope,
 } from './Navigation_VariantToggle';
+import { neutralButtonSx, segmentedSx } from '../common/PageChrome';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 /** Deep clone via JSON — variant data is plain JSONB so this is safe. */
 const deepClone = <T,>(value: T): T =>
@@ -87,6 +88,7 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
   initialVariantScope = null,
   sx,
 }) => {
+  const P = useAgentChatPalette();
   // Use the focused node edit hook
   const nodeEdit = useNodeEdit({
     isOpen,
@@ -303,7 +305,10 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
   // Localize: the fingerprint is created automatically on screenshot capture;
   // this is just a manual recompute.
   const [fpBusy, setFpBusy] = useState(false);
-  const [domBusy, setDomBusy] = useState(false);
+  // "Use fingerprint" on (and a fingerprint exists): authored verifications are skipped.
+  const fingerprintMode = (nodeForm as any)?.use_fingerprint_for_verification === true;
+  const hasFingerprint = !!nodeForm?.fingerprint?.dhash;
+  const [domOpen, setDomOpen] = useState(false);
 
   // Openable R2 URLs for the screenshot and its sibling DOM image (<stem>_dom.jpg).
   const { url: screenshotUrl } = useR2Url(nodeForm?.screenshot || null);
@@ -311,52 +316,32 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
     ? nodeForm.screenshot.replace(/\.(jpe?g|png)$/i, '_dom.$1')
     : null;
   const { url: domUrl } = useR2Url(domKey);
-  const hasDom = !!(nodeForm as any)?.dom;
+  const nodeDom = (nodeForm as any)?.dom;
+  const domCount = Array.isArray(nodeDom?.focusable_elements) ? nodeDom.focusable_elements.length : 0;
 
-  const handleResetFingerprint = async () => {
+  // Regenerate = fingerprint + DOM together, from the stored screenshot (the DOM
+  // call is the slow one, ~45-60s). Taking a new screenshot does the same automatically.
+  const handleRegenerateFingerprint = async () => {
     if (!nodeForm?.screenshot) return;
     setFpBusy(true);
+    const body = JSON.stringify({ host_name: selectedHost?.host_name, screenshot_url: nodeForm.screenshot });
+    const post = (path: string) =>
+      fetch(buildServerUrl(path), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body })
+        .then((r) => r.json())
+        .catch(() => ({}));
     try {
-      const resp = await fetch(buildServerUrl('/server/av/regionFingerprint'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host_name: selectedHost?.host_name, screenshot_url: nodeForm.screenshot }),
-      });
-      const data = await resp.json();
-      if (data.success && data.fingerprint) {
-        // Reset = fingerprint ONLY. Rebuilding the DOM is done by taking a fresh
-        // screenshot (which calls both), so we never touch dom here.
-        const patch: any = { fingerprint: data.fingerprint };
-        setNodeForm({ ...nodeForm, ...patch });
-        // In a variant scope the form holds the variant view and persistence
-        // runs through handleSave's override stash — only write base directly
-        // in base scope (else we'd clobber the base fingerprint/dom).
-        if (nodeForm.id && variantScope === 'base') onUpdateNode?.(nodeForm.id, patch);
-      }
+      const [fp, dom] = await Promise.all([post('/server/av/regionFingerprint'), post('/server/av/generateDom')]);
+      const patch: any = {};
+      if (fp?.success && fp.fingerprint) patch.fingerprint = fp.fingerprint;
+      if (dom?.success && dom.dom !== undefined) patch.dom = dom.dom;
+      if (Object.keys(patch).length === 0) return;
+      setNodeForm({ ...nodeForm, ...patch });
+      // In a variant scope the form holds the variant view and persistence
+      // runs through handleSave's override stash — only write base directly
+      // in base scope (else we'd clobber the base fingerprint/dom).
+      if (nodeForm.id && variantScope === 'base') onUpdateNode?.(nodeForm.id, patch);
     } finally {
       setFpBusy(false);
-    }
-  };
-
-  const handleResetDom = async () => {
-    if (!nodeForm?.screenshot) return;
-    setDomBusy(true);
-    try {
-      // Synchronous regenerate (~45-60s, GPT-5.5). The host re-uploads the
-      // <stem>_dom.jpg overlay, so the "Open DOM" tab refreshes from the same key.
-      const resp = await fetch(buildServerUrl('/server/av/generateDom'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ host_name: selectedHost?.host_name, screenshot_url: nodeForm.screenshot }),
-      });
-      const data = await resp.json();
-      if (data.success && data.dom !== undefined) {
-        const patch: any = { dom: data.dom };
-        setNodeForm({ ...nodeForm, ...patch });
-        if (nodeForm.id && variantScope === 'base') onUpdateNode?.(nodeForm.id, patch);
-      }
-    } finally {
-      setDomBusy(false);
     }
   };
   const replicateMenuOpen = Boolean(replicateAnchor);
@@ -662,6 +647,19 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
   const { canTest } = nodeEdit.getButtonVisibility();
   const isRunningVerifications = nodeEdit.verification.loading;
   const isDialogLocked = isRunningVerifications;
+  // Which run is in flight, so only ITS control animates: a row's own play button
+  // ('single'), the fingerprint button ('fingerprint'), or the footer Run ('all').
+  const [runKind, setRunKind] = useState<'single' | 'fingerprint' | 'all' | null>(null);
+  useEffect(() => {
+    if (!isRunningVerifications) setRunKind(null);
+  }, [isRunningVerifications]);
+  const runFingerprint = () => {
+    setRunKind('fingerprint');
+    void nodeEdit.verification.handleFingerprintVerify(
+      nodeForm?.fingerprint,
+      (nodeForm as any)?.label || (nodeForm as any)?.display_name,
+    );
+  };
 
   // Check if there are verifications to run
   const hasVerifications = nodeEdit.verification.verifications.length > 0;
@@ -698,6 +696,7 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
 
   const handleRunSingleVerification = async (index: number) => {
     if (!canTest || isRunningVerifications) return;
+    setRunKind('single');
     await nodeEdit.verification.handleTestSingle(index);
   };
 
@@ -746,9 +745,8 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
   // link is unambiguously tied to the verification it belongs to.
   const renderVerificationResult = (result: any, index: number) => {
     // 'any can pass' short-circuits: once one leg passes, the executor marks the
-    // remaining legs as skipped (neutral — neither ✅ pass nor ❌ fail) so a
+    // remaining legs as skipped (neutral — neither pass nor fail) so a
     // never-needed check (e.g. no_signal) doesn't read as a real failure.
-    const prefix = result.skipped ? '⏭️' : result.success ? '✅' : '❌';
     const label = buildVerificationLineLabel(result, index);
     // Show the controller's message on success too. A passing image match can
     // still be borderline (e.g. score 0.81 vs threshold 0.80) and the only way
@@ -756,8 +754,9 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
     const detail = (result.error || result.message || '').replace(/^reference:\s*/i, '');
     // One report per verification: success report when it passed, debug report
     // when it failed. Only manual verifications generate these.
+    const lineText = `${label}${detail && !label.includes(detail) ? `: ${detail}` : ''}`;
     const reportUrl = result.success ? result.success_report_url : result.debug_report_url;
-    const reportLabel = result.success ? '🟢 View Success Report' : '📊 View Debug Report';
+    const reportLabel = result.success ? 'View Success Report' : 'View Debug Report';
 
     return (
       <Box key={index} sx={{ mb: 0 }}>
@@ -765,20 +764,25 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
           variant="caption"
           sx={{
             fontFamily: 'monospace',
-            fontSize: '0.7rem',
+            fontSize: TYPOGRAPHY.caption.size,
             lineHeight: 1.2,
             display: 'block',
           }}
         >
-          {prefix} {label}
-          {detail && !label.includes(detail) ? `: ${detail}` : ''}
+          {result.skipped ? (
+            <>
+              <AppIcon name="pending" /> {lineText}
+            </>
+          ) : (
+            <StatusText ok={!!result.success}>{lineText}</StatusText>
+          )}
         </Typography>
         {!result.skipped && reportUrl && (
           <Typography
             variant="caption"
             sx={{
               fontFamily: 'monospace',
-              fontSize: '0.65rem',
+              fontSize: TYPOGRAPHY.microMeta.size,
               lineHeight: 1.2,
               display: 'block',
               pl: 2,
@@ -786,6 +790,10 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
           >
             <a
               href={reportUrl}
+              onClick={(e) => {
+                e.preventDefault();
+                void openHostUrl(reportUrl);
+              }}
               target="_blank"
               rel="noopener noreferrer"
               style={{ color: 'inherit', textDecoration: 'underline' }}
@@ -942,182 +950,137 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
           />
         </Box>
 
-        {/* Depth, Priority and Parent below in columns */}
-        <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
-          <TextField
-            label="Depth"
-            value={nodeForm?.depth || 0}
-            fullWidth
-            InputProps={{ readOnly: true }}
-            variant="outlined"
-            margin="dense"
-            size="small"
-            autoComplete="off"
-            disabled={topologyDisabled}
-          />
-          <FormControl fullWidth margin="dense" size="small" disabled={topologyDisabled}>
-            <InputLabel>Priority</InputLabel>
-            <Select
-              value={nodeForm?.priority || 'p3'}
-              label="Priority"
-              onChange={(e) =>
-                setNodeForm({ ...nodeForm, priority: e.target.value as 'p1' | 'p2' | 'p3' })
-              }
-            >
-              <MenuItem value="p1">P1 Critical</MenuItem>
-              <MenuItem value="p2">P2 Major</MenuItem>
-              <MenuItem value="p3">P3 Minor</MenuItem>
-            </Select>
-          </FormControl>
-          <TextField
-            label="Parent"
-            value={nodeEdit.getParentNames(nodeForm?.parent || [], nodes)}
-            fullWidth
-            InputProps={{ readOnly: true }}
-            variant="outlined"
-            margin="dense"
-            size="small"
-            autoComplete="off"
-            disabled={topologyDisabled}
-          />
-        </Box>
-
-        {/* Single line description */}
-        <TextField
-          label="Description"
-          value={nodeForm?.description || ''}
-          onChange={(e) => setNodeForm({ ...nodeForm, description: e.target.value })}
-          fullWidth
-          margin="dense"
-          size="small"
-          autoComplete="off"
-          sx={{ mb: 1 }}
-        />
-
-        {/* Screenshot + artifacts + fingerprint — one compact toolbar:
-            URL (✕ delete inside) · open screenshot · open DOM · fingerprint pill
-            (badge · reset · verify=localize-only). */}
-        {(nodeForm?.type as string) !== 'entry' && (
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mb: 1 }}>
-            {/* URL — truncated; the ✕ delete stays INSIDE the field */}
+        {/* Details — depth, priority, parent, live and description are secondary:
+            collapsed by default, one summary line keeps the values readable. */}
+        <DetailsSection
+          summary={[
+            `depth ${nodeForm?.depth || 0}`,
+            (nodeForm?.priority || 'p3').toUpperCase(),
+            `parent ${nodeEdit.getParentNames(nodeForm?.parent || [], nodes) || '—'}`,
+            nodeForm?.description ? nodeForm.description : 'no description',
+          ]
+            .filter(Boolean)
+            .join(' · ')}
+        >
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
             <TextField
-              label="Screenshot"
-              value={nodeForm?.screenshot || ''}
-              onChange={(e) => setNodeForm({ ...nodeForm, screenshot: e.target.value })}
+              label="Depth"
+              value={nodeForm?.depth || 0}
+              InputProps={{ readOnly: true }}
+              variant="outlined"
               margin="dense"
               size="small"
               autoComplete="off"
-              sx={{ flexGrow: 1, mb: 0, '& input': { textOverflow: 'ellipsis' } }}
-              InputProps={{
-                endAdornment: nodeForm?.screenshot && (
-                  <IconButton
-                    size="small"
-                    sx={{ color: 'error.main' }}
-                    onClick={() => {
-                      confirm({
-                        title: 'Delete Screenshot',
-                        message: 'Are you sure you want to delete this screenshot from R2 storage?',
-                        confirmColor: 'error',
-                        onConfirm: async () => {
-                          try {
-                            await nodeEdit.handleDeleteScreenshot();
-                          } catch (error) {
-                            alert('Failed to delete screenshot: ' + error);
-                          }
-                        },
-                      });
-                    }}
-                  >
-                    <CloseIcon fontSize="small" />
-                  </IconButton>
-                ),
-              }}
+              disabled={topologyDisabled}
+              sx={{ width: 90, flexShrink: 0 }}
             />
-
-            {/* Open the screenshot / its DOM image in a new tab */}
-            <Tooltip title="Open screenshot in new tab">
-              <span>
-                <IconButton
-                  size="small"
-                  disabled={!screenshotUrl}
-                  onClick={() => screenshotUrl && void openHostUrl(screenshotUrl)}
-                >
-                  <ImageIcon fontSize="small" />
-                </IconButton>
-              </span>
-            </Tooltip>
-            <Tooltip title={hasDom ? 'Open DOM representation in new tab' : 'No DOM captured yet'}>
-              <span>
-                <IconButton
-                  size="small"
-                  disabled={!hasDom || !domUrl}
-                  onClick={() => domUrl && window.open(domUrl, '_blank')}
-                >
-                  <DomIcon fontSize="small" />
-                </IconButton>
-              </span>
-            </Tooltip>
-
-            {/* Fingerprint pill: status badge · reset · verify (localize only) */}
-            <Box
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 0.25,
-                ml: 0.5,
-                pl: 0.5,
-                border: '1px solid',
-                borderColor: 'divider',
-                borderRadius: 4,
-              }}
-            >
-              <FingerprintBadge
-                hasScreenshot={!!nodeForm?.screenshot}
-                hasFingerprint={!!nodeForm?.fingerprint?.dhash}
-              />
-              <Tooltip title="Recompute the fingerprint only (take a new screenshot to rebuild the DOM)">
-                <span>
-                  <IconButton
-                    size="small"
-                    disabled={!nodeForm?.screenshot || fpBusy}
-                    onClick={handleResetFingerprint}
-                  >
-                    {fpBusy ? <CircularProgress size={14} /> : <RefreshIcon fontSize="small" />}
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip title="Regenerate the DOM from the stored screenshot (GPT-5.5, ~45-60s)">
-                <span>
-                  <IconButton
-                    size="small"
-                    disabled={!nodeForm?.screenshot || domBusy}
-                    onClick={handleResetDom}
-                  >
-                    {domBusy ? <CircularProgress size={14} /> : <DomIcon fontSize="small" />}
-                  </IconButton>
-                </span>
-              </Tooltip>
-              <Tooltip title="Verify by the node's fingerprint (match the live frame)">
-                <span>
-                  <IconButton
-                    size="small"
-                    color="primary"
-                    disabled={nodeEdit.verification.loading || !nodeForm?.fingerprint?.dhash}
-                    onClick={() =>
-                      nodeEdit.verification.handleFingerprintVerify(
-                        nodeForm?.fingerprint,
-                        (nodeForm as any)?.label || (nodeForm as any)?.display_name,
-                      )
-                    }
-                  >
-                    {nodeEdit.verification.loading
-                      ? <CircularProgress size={14} />
-                      : <VerifyIcon fontSize="small" />}
-                  </IconButton>
-                </span>
-              </Tooltip>
-            </Box>
+            <FormControl fullWidth margin="dense" size="small" disabled={topologyDisabled}>
+              <InputLabel>Priority</InputLabel>
+              <Select
+                value={nodeForm?.priority || 'p3'}
+                label="Priority"
+                onChange={(e) =>
+                  setNodeForm({ ...nodeForm, priority: e.target.value as 'p1' | 'p2' | 'p3' })
+                }
+              >
+                <MenuItem value="p1">P1 Critical</MenuItem>
+                <MenuItem value="p2">P2 Major</MenuItem>
+                <MenuItem value="p3">P3 Minor</MenuItem>
+              </Select>
+            </FormControl>
+            <TextField
+              label="Parent"
+              value={nodeEdit.getParentNames(nodeForm?.parent || [], nodes)}
+              fullWidth
+              InputProps={{ readOnly: true }}
+              variant="outlined"
+              margin="dense"
+              size="small"
+              autoComplete="off"
+              disabled={topologyDisabled}
+            />
           </Box>
+          <TextField
+            label="Description"
+            value={nodeForm?.description || ''}
+            onChange={(e) => setNodeForm({ ...nodeForm, description: e.target.value })}
+            fullWidth
+            multiline
+            minRows={1}
+            maxRows={4}
+            margin="dense"
+            size="small"
+            autoComplete="off"
+          />
+        </DetailsSection>
+
+        {/* Screenshot — collapsible like Details: thumbnail shown directly (click = open in a new tab),
+            URL with ✕ delete underneath. Collapsed, one summary line shows the file name. */}
+        {(nodeForm?.type as string) !== 'entry' && (
+          <DetailsSection
+            title="Screenshot"
+            defaultOpen
+            summary={nodeForm?.screenshot ? String(nodeForm.screenshot).split('/').pop() || '' : 'none'}
+          >
+            <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
+              {screenshotUrl ? (
+                <Tooltip title="Open screenshot in new tab">
+                  <Box
+                    component="img"
+                    src={screenshotUrl}
+                    alt="Screenshot"
+                    onClick={() => void openHostUrl(screenshotUrl)}
+                    sx={{
+                      width: 150,
+                      aspectRatio: '16 / 9',
+                      objectFit: 'cover',
+                      borderRadius: 1,
+                      flex: 'none',
+                      cursor: 'pointer',
+                      bgcolor: 'common.black',
+                    }}
+                  />
+                </Tooltip>
+              ) : (
+                <Box
+                  sx={{ width: 150, aspectRatio: '16 / 9', borderRadius: 1, flex: 'none', border: `1px dashed ${P.borderColor}` }}
+                />
+              )}
+              <TextField
+                label="URL"
+                value={nodeForm?.screenshot || ''}
+                onChange={(e) => setNodeForm({ ...nodeForm, screenshot: e.target.value })}
+                margin="dense"
+                size="small"
+                autoComplete="off"
+                sx={{ flexGrow: 1, mt: 0, '& input': { textOverflow: 'ellipsis' } }}
+                InputProps={{
+                  endAdornment: nodeForm?.screenshot && (
+                    <IconButton
+                      size="small"
+                      sx={{ color: 'error.main' }}
+                      onClick={() => {
+                        confirm({
+                          title: 'Delete Screenshot',
+                          message: 'Are you sure you want to delete this screenshot from R2 storage?',
+                          confirmColor: 'error',
+                          onConfirm: async () => {
+                            try {
+                              await nodeEdit.handleDeleteScreenshot();
+                            } catch (error) {
+                              alert('Failed to delete screenshot: ' + error);
+                            }
+                          },
+                        });
+                      }}
+                    >
+                      <CloseIcon fontSize="small" />
+                    </IconButton>
+                  ),
+                }}
+              />
+            </Box>
+          </DetailsSection>
         )}
 
         {/* Verification Section */}
@@ -1130,45 +1093,133 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
             mb: 1,
           }}
         >
-          {/* Title and Checkbox on same line — mirrors the KPI section on the edge dialog */}
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
-            <Typography variant="h6" sx={{ fontSize: '1rem', m: 0 }}>
-              Verifications
-            </Typography>
-
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              {/* Use the node fingerprint as the verifier. Disabled until a fingerprint exists. */}
-              <Tooltip
-                title={
-                  nodeForm?.fingerprint?.dhash ? '' : 'Capture a screenshot first to create a fingerprint'
-                }
-              >
-                <span>
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={(nodeForm as any)?.use_fingerprint_for_verification || false}
-                        onChange={(e) =>
-                          setNodeForm({
-                            ...nodeForm,
-                            use_fingerprint_for_verification: e.target.checked,
-                          } as any)
-                        }
-                        size="small"
-                        disabled={!nodeForm?.fingerprint?.dhash}
-                      />
-                    }
-                    label={
-                      <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
-                        Use fingerprint for verification
-                      </Typography>
-                    }
-                    sx={{ m: 0 }}
+          {/* One mode switch: the node is verified by its authored checks OR by its
+              fingerprint; the other is hidden. Run (bottom right) runs whichever is on. */}
+          <Box sx={{ display: 'flex', alignItems: 'center', mb: 0.75 }}>
+            <ToggleButtonGroup
+              exclusive
+              size="small"
+              value={fingerprintMode ? 'fingerprint' : 'verifications'}
+              onChange={(_e, v) => {
+                if (!v) return;
+                setNodeForm({ ...nodeForm, use_fingerprint_for_verification: v === 'fingerprint' } as any);
+              }}
+              disabled={isDialogLocked}
+              sx={segmentedSx(P, 'sm')}
+            >
+              <ToggleButton value="verifications">
+                Verifications
+                <Typography component="span" sx={{ ml: 0.75, fontSize: TYPOGRAPHY.caption.size, opacity: 0.7 }}>
+                  {nodeEdit.verification.verifications.length}
+                </Typography>
+              </ToggleButton>
+              <ToggleButton value="fingerprint">
+                Fingerprint
+                <Box
+                  component="span"
+                  sx={{
+                    ml: 0.75,
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: 0.5,
+                    fontSize: TYPOGRAPHY.caption.size,
+                    color: hasFingerprint ? P.success : P.textMuted,
+                  }}
+                >
+                  <Box
+                    component="span"
+                    sx={{
+                      width: 7,
+                      height: 7,
+                      borderRadius: '50%',
+                      bgcolor: hasFingerprint ? P.success : 'transparent',
+                      border: `1px solid ${hasFingerprint ? P.success : P.textMuted}`,
+                    }}
                   />
-                </span>
-              </Tooltip>
-            </Box>
+                  {hasFingerprint ? 'ready' : 'none'}
+                </Box>
+              </ToggleButton>
+            </ToggleButtonGroup>
           </Box>
+          {fingerprintMode ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, py: 0.5 }}>
+              {screenshotUrl && (
+                <Box
+                  component="img"
+                  src={screenshotUrl}
+                  alt="Screenshot"
+                  sx={{ width: 150, aspectRatio: '16 / 9', objectFit: 'cover', borderRadius: 1, flex: 'none' }}
+                />
+              )}
+              <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+                <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textSecondary }}>
+                  {!nodeForm?.screenshot
+                    ? 'Take a screenshot first: the fingerprint is built from it.'
+                    : hasFingerprint
+                      ? `Fingerprint v${nodeForm?.fingerprint?.v ?? '?'} · DOM ${nodeDom ? `${domCount} elements` : 'not captured (optional)'}`
+                      : 'Built from the screenshot above (~1 min with the DOM).'}
+                </Typography>
+                {hasFingerprint && (
+                  <Box
+                    sx={{
+                      fontFamily: 'monospace',
+                      fontSize: TYPOGRAPHY.caption.size,
+                      color: P.textSecondary,
+                      lineHeight: 1.5,
+                      wordBreak: 'break-all',
+                    }}
+                  >
+                    {[
+                      ['dHash', (nodeForm.fingerprint as any).dhash],
+                      ['title', (nodeForm.fingerprint as any).title || '—'],
+                      ['focus', JSON.stringify((nodeForm.fingerprint as any).focus ?? null)],
+                      [
+                        'regions',
+                        Object.keys((nodeForm.fingerprint as any).regions || {}).join(', ') || '—',
+                      ],
+                      ['crop', (nodeForm.fingerprint as any).crop || '—'],
+                      ['captured', (nodeForm.fingerprint as any).captured_at || '—'],
+                    ].map(([k, v]) => (
+                      <Box key={k}>
+                        <Box component="span" sx={{ color: P.textMuted }}>
+                          {k}{' '}
+                        </Box>
+                        {v}
+                      </Box>
+                    ))}
+                  </Box>
+                )}
+                <Box sx={{ display: 'flex', gap: 1 }}>
+                  {hasFingerprint && (
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      sx={neutralButtonSx(P)}
+                      onClick={() => void navigator.clipboard.writeText(JSON.stringify(nodeForm.fingerprint, null, 2))}
+                    >
+                      Copy JSON
+                    </Button>
+                  )}
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    sx={neutralButtonSx(P)}
+                    disabled={!nodeForm?.screenshot || fpBusy || isDialogLocked}
+                    onClick={handleRegenerateFingerprint}
+                    startIcon={fpBusy ? <CircularProgress size={14} /> : undefined}
+                  >
+                    {hasFingerprint ? 'Regenerate' : 'Create'}
+                  </Button>
+                  {nodeDom && (
+                    <Button size="small" variant="outlined" sx={neutralButtonSx(P)} onClick={() => setDomOpen(true)}>
+                      Open DOM
+                    </Button>
+                  )}
+                </Box>
+              </Box>
+            </Box>
+          ) : (
+          <Box>
           <VerificationsList
             verifications={nodeEdit.verification.verifications}
             availableVerifications={nodeEdit.verification.availableVerificationTypes}
@@ -1214,7 +1265,10 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
               isControlActive ? handleRecaptureReference : undefined
             }
             recapturingIndex={recapturingIndex}
+            compact
           />
+          </Box>
+          )}
         </Box>
 
         </Box>
@@ -1222,7 +1276,7 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
 
         {/* Linear Progress - shown when running (outside locked Box so it
             doesn't shift content above it like EdgeEditDialog) */}
-        {isRunningVerifications && (
+        {runKind === 'all' && (
           <Box sx={{ mt: 1 }}>
             <LinearProgress sx={{ borderRadius: 1 }} />
           </Box>
@@ -1245,21 +1299,21 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
           const durationMs = nodeEdit.verification.lastTestDurationMs;
           const durationStr =
             typeof durationMs === 'number' ? formatVerificationDuration(durationMs) : null;
-          const summaryIcon = batchPassed ? '✅' : '❌';
           const summaryText = durationStr
-            ? `${summaryIcon} Execution ${passed}/${total} passed in ${durationStr}`
-            : `${summaryIcon} Execution ${passed}/${total} passed`;
+            ? `Execution ${passed}/${total} passed in ${durationStr}`
+            : `Execution ${passed}/${total} passed`;
 
           return (
             <Box
               sx={{
                 p: 1,
-                bgcolor: batchPassed ? 'success.light' : 'error.light',
+                bgcolor: batchPassed ? `${P.success}1f` : `${P.error}1f`,
+                color: P.textPrimary,
                 borderRadius: 1,
                 maxHeight: 200,
                 overflow: 'auto',
                 mt: 1,
-                border: '1px solid rgba(0, 0, 0, 0.12)',
+                border: `1px solid ${batchPassed ? P.success : P.error}`,
               }}
             >
               {results.map((result: any, index: number) =>
@@ -1269,12 +1323,12 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
                 variant="caption"
                 sx={{
                   fontFamily: 'monospace',
-                  fontSize: '0.7rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   lineHeight: 1.2,
                   display: 'block',
                 }}
               >
-                {summaryText}
+                <StatusText ok={batchPassed}>{summaryText}</StatusText>
               </Typography>
             </Box>
           );
@@ -1290,24 +1344,25 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
               sx={{
                 p: 1,
                 mt: 1,
-                bgcolor: 'error.light',
+                bgcolor: `${P.error}1f`,
+                color: P.textPrimary,
                 borderRadius: 1,
                 maxHeight: 200,
                 overflow: 'auto',
-                border: '1px solid rgba(0, 0, 0, 0.12)',
+                border: `1px solid ${P.error}`,
               }}
             >
               <Typography
                 variant="caption"
                 sx={{
                   fontFamily: 'monospace',
-                  fontSize: '0.7rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   lineHeight: 1.2,
                   display: 'block',
                   whiteSpace: 'pre-line',
                 }}
               >
-                {`❌ ${nodeEdit.verification.error}`}
+                {`${nodeEdit.verification.error}`}
               </Typography>
             </Box>
           )}
@@ -1319,16 +1374,16 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
 
       <DialogActions sx={{ pt: 0.5, display: 'flex', gap: 1 }}>
         {onResetNode && (
-          <Button onClick={() => onResetNode()} variant="outlined" color="warning" disabled={isDialogLocked}>
-            Reset Node
+          <Button onClick={() => onResetNode()} variant="outlined" disabled={isDialogLocked} sx={neutralButtonSx(P)}>
+            Reset node
           </Button>
         )}
         {variantScope !== 'base' && !isVariantOnlyOwned && (
           <Button
             onClick={handleResetVariant}
             variant="outlined"
-            color="warning"
             disabled={isDialogLocked}
+            sx={neutralButtonSx(P)}
           >
             Reset variant
           </Button>
@@ -1338,15 +1393,16 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
             <Button
               onClick={handleResetPosition}
               variant="outlined"
-              color="warning"
               disabled={isDialogLocked}
+              sx={neutralButtonSx(P)}
             >
               Reset position
             </Button>
           </Tooltip>
         )}
+        <Box sx={{ flex: 1 }} />
         <Button onClick={handleSave} variant="contained" disabled={!nodeEdit.isFormValid(nodeForm) || isDialogLocked || isDuplicateLabel}>
-          {nodeEdit.saveSuccess ? '✓' : 'Save'}
+          {nodeEdit.saveSuccess ? <AppIcon name="success" /> : 'Save'}
         </Button>
         {/* Replicate menu — anchor lives in the dialog header (top-right). */}
         <Menu
@@ -1370,31 +1426,36 @@ const NodeEditDialogBody: React.FC<NodeEditDialogBodyProps> = ({
             </MenuItem>
           ))}
         </Menu>
-        {/* Run button — shown for verifications OR the fingerprint toggle; the SAME button either way.
-            With the toggle on and no authored verifications, it runs the node's fingerprint check. */}
-        {(hasVerifications ||
-          ((nodeForm as any)?.use_fingerprint_for_verification && nodeForm?.fingerprint?.dhash)) && (
+        {/* Run — runs whichever mode is selected: the authored checks, or the fingerprint match. */}
+        {(hasVerifications || fingerprintMode) && (
           <Button
-            onClick={
-              hasVerifications
-                ? nodeEdit.verification.handleTest
-                : () =>
-                    nodeEdit.verification.handleFingerprintVerify(
-                      nodeForm?.fingerprint,
-                      (nodeForm as any)?.label || (nodeForm as any)?.display_name,
-                    )
-            }
-            variant="contained"
+            onClick={() => {
+              if (fingerprintMode) {
+                runFingerprint();
+              } else {
+                void nodeEdit.verification.handleTest();
+              }
+              setRunKind('all');
+            }}
+            variant="outlined"
+            sx={neutralButtonSx(P)}
             disabled={
-              isDialogLocked ||
-              nodeEdit.verification.loading ||
-              (hasVerifications ? !canTest : !nodeForm?.fingerprint?.dhash)
+              isDialogLocked || nodeEdit.verification.loading || (fingerprintMode ? !hasFingerprint : !canTest)
             }
           >
-            {isRunningVerifications || nodeEdit.verification.loading ? 'Running...' : 'Run'}
+            {runKind === 'all' ? 'Running...' : 'Run'}
           </Button>
         )}
       </DialogActions>
+
+      <NodeDomDialog
+        open={domOpen}
+        onClose={() => setDomOpen(false)}
+        nodeLabel={nodeForm?.label}
+        dom={nodeDom}
+        screenshotUrl={screenshotUrl}
+        overlayUrl={domUrl}
+      />
 
       {/* Confirmation Dialog */}
       <ConfirmDialog

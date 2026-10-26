@@ -1,0 +1,27 @@
+[Unit]
+Description=CoC Flash data runs on idle devices (TASK-164, user unit on codebox)
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=HOME=/home/jndoye
+Environment=PATH=/home/jndoye/.local/bin:/usr/local/bin:/bin:/usr/sbin:/sbin
+# Only the CoC Flash job. It runs on MiniMax M3.1 Flash (the owner's unlimited free plan), so a
+# run costs nothing. It has no end date: the gate date that ended it (2026-10-25) also turned the
+# `auto` model choice of the hourly run into the paid model (BUG-0909).
+Environment=GAME_JOBS=coc-flash
+Environment=GAME_MAX_CONCURRENT=2
+# The lane runs from its own clone, never from the shared checkout of ~/virtualpytest (whose branch
+# the other Claude Code sessions on this host switch under each other). The clone is brought back
+# to main before every tick: a clone that is not synced runs the code it was deployed with for ever.
+ExecStartPre=-/home/jndoye/.local/bin/sync_lane_clone.sh /home/jndoye/.local/share/game-dispatch/repo
+ExecStart=/home/jndoye/.local/bin/vpt-flash-games.sh
+Restart=on-failure
+RestartSec=30
+# SIGTERM ends the loop cleanly (the wrapper releases nothing it does not own and leaves no orphan).
+KillSignal=SIGTERM
+KillMode=control-group
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

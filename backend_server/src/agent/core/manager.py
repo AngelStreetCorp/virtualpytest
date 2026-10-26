@@ -21,10 +21,15 @@ import os
 from typing import Dict, Any, AsyncGenerator, Optional, List
 
 from shared.src.lib.ai import budgets as ai_budgets, router as ai_router, tracing as ai_tracing, usages as ai_usages
+from shared.src.lib.ai.budgets import CallerContext
+from shared.src.lib.ai import caller as ai_caller
 from shared.src.lib.ai.provider_client import (ModelRefusal, classify_error as ai_classify_error, is_connection_error, raise_on_refusal,
                                                 normalize_stop_reason, response_tokens, response_usage, strip_reasoning)
 from shared.src.lib.ai.secrets_store import get_secret
 from ..observability import track_generation, track_tool_call, flush
+from .. import quick_step
+from .. import faqs_step
+from .. import agent_routing_rules, memory_step
 from .session import Session, SessionManager
 from .tool_bridge import ToolBridge
 from .message_types import EventType, AgentEvent
@@ -36,6 +41,19 @@ from backend_server.src.mcp.tool_definitions.build_definitions import get_builde
 # Import shared Redis queue processor (supports both local and Upstash Redis)
 from shared.src.lib.utils.redis_queue import get_queue_processor
 
+# Cache breakpoints left for tool definitions: 4 per request minus the system block and the automatic one.
+TOOL_CACHE_BREAKPOINTS = 2
+
+# Answer budget when no skill is loaded (router mode). A skill sets its own in its frontmatter
+# (timeout_seconds, think_budget_seconds, max_tool_calls). Owner, 2026-10-21: a docs question ran
+# 220 s and 49 model rounds with no cap.
+ROUTER_TIMEOUT_S = 120
+ROUTER_THINK_BUDGET_S = 20
+ROUTER_MAX_TOOL_CALLS = 12
+
+
+class _EndpointPaused(RuntimeError):
+    """The routed endpoint is paused (no credit / unreachable): the turn moves to a fallback without a request."""
 
 class QAManagerAgent:
     """
@@ -94,9 +112,38 @@ class QAManagerAgent:
     # however many other tools outscore them on raw keywords. Observed: "show failing
     # testcases for this device" and "show degraded hosts" were offered only device and
     # testcase tools, so Atlas answered without the analytics layer.
+    # TASK-163: the same rule for the categories the everyday questions land in. Measured on
+    # the 100-prompt contract: the canonical tool was never OFFERED for "what is on the
+    # screen of X" (capture_screenshot), "is X free or in use" (get_device_info),
+    # "how many android_mobile do we have" (list_hosts), "open the TV guide on X"
+    # (navigate_to_node) and "what screens can X reach" (list_navigation_nodes).
     _ATLAS_ROUTER_CATEGORY_CORE_TOOLS = {
         'analytics': ('list_analytics_sources', 'query_analytics_data', 'render_analytics_artifact'),
+        'device': ('list_hosts', 'get_device_info', 'capture_screenshot'),
+        'screenshot': ('capture_screenshot',),
+        'navigation': ('list_navigation_nodes', 'navigate_to_node'),
+        'analysis': ('get_alerts', 'get_execution_results'),
+        'script': ('list_scripts', 'get_script_execution_status'),
+        'campaign': ('list_campaigns',),
+        'testcase': ('list_testcases',),
+        'group': ('list_device_groups',),
+        'action': ('list_actions',),
     }
+    # Words that carry no routing signal but sit in nearly every tool description
+    # ("is", "the", "of", "in", "show", ...). Matching a description on them gave every
+    # tool a score, so the 11 slots filled with tools that had nothing to do with the
+    # question and the canonical ones (capture_screenshot, list_hosts, get_device_info)
+    # were pushed out (TASK-163). They are dropped from the DESCRIPTION match only:
+    # the tool-name match and the category hints still see the raw query tokens.
+    _ATLAS_ROUTER_STOPWORDS = frozenset({
+        'a', 'an', 'and', 'are', 'as', 'at', 'be', 'been', 'but', 'by', 'can', 'could', 'did',
+        'do', 'does', 'for', 'from', 'had', 'has', 'have', 'he', 'her', 'here', 'his', 'how',
+        'i', 'if', 'in', 'into', 'is', 'it', 'its', 'me', 'my', 'no', 'not', 'of', 'on', 'or',
+        'our', 'out', 'she', 'should', 'show', 'shows', 'shown', 'so', 'some', 'than', 'that',
+        'the', 'their', 'them', 'then', 'there', 'these', 'they', 'this', 'those', 'to',
+        'up', 'us', 'was', 'we', 'were', 'what', 'when', 'where', 'which', 'who', 'why',
+        'will', 'with', 'would', 'you', 'your',
+    })
     # Tools offered only when the message asks for what they do. Observed: asked for KPI
     # regressions, Atlas wrote a Grafana draft nobody requested.
     # "Create/make/build a (Grafana) dashboard ..." loads the grafana-dashboard skill even with a single
@@ -151,6 +198,59 @@ class QAManagerAgent:
         'execute_group_action': ('list_device_groups', 'list_actions'),
     }
     _ATLAS_ROUTER_CATEGORY_HINTS = {
+        # The live-state words are the ones the FAQ guard already knows
+        # (faqs.LIVE_STATE_WORDS): "is X free or in use", "who is controlling X",
+        # "is X awake" are questions about a device and must reach the device tools.
+        # "wake", "turn" and "power" are the same family ("wake X up", "turn X on").
+        'device': {'device', 'devices', 'host', 'hosts', 'status', 'free', 'busy', 'locked',
+                   'unlocked', 'awake', 'asleep', 'online', 'offline', 'alive', 'reachable',
+                   'available', 'controlling', 'controlled', 'connected', 'wake', 'turn', 'power'},
+        'testcase': {'test', 'tests', 'testcase', 'testcases', 'case', 'cases'},
+        'campaign': {'campaign', 'campaigns'},
+        'requirements': {'requirement', 'requirements', 'coverage'},
+        'userinterface': {'interface', 'interfaces', 'ui', 'uis', 'userinterface', 'userinterfaces'},
+        # Distinct from `userinterface` above: this is the AI-learned narrative knowledge
+        # base (ai_userinterfaces tables), not the production navigation_trees system.
+        # Token "navigate" intentionally appears here AND in 'navigation' — both can be
+        # right depending on context; scoring picks the better fit.
+        'ai_userinterface': {'ai', 'learned', 'knowledge', 'verified', 'flow', 'flows', 'quirk',
+                             'quirks', 'fingerprint', 'fingerprints', 'firmware', 'about',
+                             'navigate', 'screen', 'example', 'v2', 'variant'},
+        'tree': {'node', 'nodes', 'edge', 'edges', 'tree', 'screen'},
+        # No 'open': the verb alone says nothing about the question ("open the app
+        # Chrome" is a device action, "open a report" is a page). It only made the
+        # navigation tools score on every question that starts with "open", and they
+        # then took the room of the tool the question was about (TASK-163, UC-030).
+        # "open the TV guide" is a navigation question through 'guide'.
+        'navigation': {'navigate', 'navigation', 'node', 'screen', 'guide'},
+        'docs': {'doc', 'docs', 'document', 'documentation', 'read', 'search'},
+        'script': {'script', 'scripts'},
+        'analysis': {'analysis', 'result', 'results', 'report', 'reports', 'alert', 'alerts'},
+        'analytics': {'analytics', 'data', 'database', 'kpi', 'radar', 'graph', 'chart', 'metric', 'metrics',
+                      'failing', 'failed', 'failure', 'pass', 'rate', 'compare', 'comparison', 'regression',
+                      'trend', 'duration', 'canvas', 'degraded', 'fleet', 'occupancy', 'availability', 'incident',
+                      'statistic', 'stats', 'average', 'history', 'historical', 'export', 'csv', 'grafana',
+                      'dashboard', 'panel', 'plot', 'visualize', 'latency', 'speedtest', 'ookla', 'dns',
+                      'superping', 'verdict', 'delta', 'slowest', 'usage', 'cpu', 'memory', 'disk'},
+        'logs': {'log', 'logs', 'service', 'services'},
+        'group': {'group', 'groups', 'all', 'every', 'each', 'together', 'same', 'multiple', 'boxes', 'stbs'},
+        'verification': {'verify', 'verification', 'verify_node', 'ui', 'screen'},
+        # "what is on the screen", "is it showing a black screen" and "show me what it is
+        # displaying" are screenshot questions; without these words the screenshot tools
+        # scored lower than dump_ui_elements / analyze_screen_* and were never offered.
+        'screenshot': {'screenshot', 'capture', 'image', 'screen', 'picture', 'photo',
+                       'display', 'displaying', 'showing', 'shown'},
+        'action': {'action', 'actions'},
+        'control': {'control', 'take', 'release'},
+    }
+
+    # The size of a turn's tool list is the size it had before BUG-0882: the
+    # stop-word filter and the new category words change which tools score, and
+    # the core-tool reservation adds tools. The list keeps that size — a reserved
+    # core tool is never added ON TOP of a full list, it takes the room of the
+    # tools that score lowest. These are the words and the core tools of that
+    # scoring, kept as the reference of the budget (TASK-163).
+    _ATLAS_ROUTER_BUDGET_HINTS = {
         'device': {'device', 'devices', 'host', 'hosts', 'status'},
         'testcase': {'test', 'tests', 'testcase', 'testcases', 'case', 'cases'},
         'campaign': {'campaign', 'campaigns'},
@@ -181,6 +281,9 @@ class QAManagerAgent:
         'action': {'action', 'actions'},
         'control': {'control', 'take', 'release'},
     }
+    _ATLAS_ROUTER_BUDGET_CORE_TOOLS = {
+        'analytics': ('list_analytics_sources', 'query_analytics_data', 'render_analytics_artifact'),
+    }
 
     def __init__(self, user_identifier: Optional[str] = None, agent_id: Optional[str] = None, session: Optional[any] = None, is_background: bool = False):
         self.logger = logging.getLogger(__name__)
@@ -194,6 +297,7 @@ class QAManagerAgent:
         self.turn_tokens_in = 0
         self.turn_tokens_out = 0
         self.last_trace_id: Optional[str] = None
+        self._usage_override: Optional[str] = None  # set around the quick-step model call (agent.atlas.quick)
         self._session = session  # Store session reference
         self._is_background = is_background
         self.tool_bridge = ToolBridge(session=session, is_background=is_background)
@@ -335,7 +439,27 @@ class QAManagerAgent:
         available_testcases = ctx.get('available_testcases', [])
         available_campaigns = ctx.get('available_campaigns', [])
 
+        # TASK-65 G5: Scope Atlas — the frontend sends `X-Project-Id` and the
+        # MCP proxy puts the resolved project on the context as `current_project`.
+        # We forward the project hint to the LLM so "create a script for this
+        # project" follow-ups use the right tag.
+        current_project = ctx.get('current_project') or {}
+
         context_parts = []
+
+        if current_project:
+            tag_hint = (
+                f", tag_name='{current_project.get('tag_name')}'"
+                if current_project.get('tag_name')
+                else ''
+            )
+            context_parts.append(
+                f"**Current Project (TASK-65 G5):** project_id='{current_project.get('id')}', "
+                f"name='{current_project.get('name')}'{tag_hint}. "
+                f"New scripts / testcases / campaigns you create in this session will be auto-tagged with this project's tag, "
+                f"and `list_*` calls will be filtered to the project's artefacts. "
+                f"If the user asks for a 'new script for this project' (or similar), they mean the current project — do not ask which project."
+            )
 
         if host_name or device_id:
             current_name = next((d.get('device_name') for d in available_devices
@@ -360,11 +484,23 @@ class QAManagerAgent:
             # The selected device is always listed, however long the fleet is.
             available_devices = sorted(available_devices, key=lambda d: not (
                 d.get('host_name') == host_name and d.get('device_id') == device_id))
-            device_list = [f"{d.get('device_name', 'unknown')} (host_name='{d.get('host_name', 'unknown')}', device_id='{d.get('device_id', 'unknown')}')" for d in available_devices[:10]]
+
+            # The userinterface the device runs is what navigate_to_node and
+            # list_navigation_nodes take. Without it a navigation prompt guesses the device
+            # name as the interface and fails ("User interface 'labox-mobile' not found"),
+            # then spends several tool calls looking the name up (TASK-163, UC-089/UC-090).
+            device_list = []
+            for d in available_devices[:10]:
+                ui = d.get('preferred_userinterface') or d.get('userinterface_name') or ''
+                ui_part = f", userinterface='{ui}'" if ui else ''
+                device_list.append(f"{d.get('device_name', 'unknown')} (host_name='{d.get('host_name', 'unknown')}', "
+                                   f"device_id='{d.get('device_id', 'unknown')}'{ui_part})")
             if len(available_devices) > 10:
                 device_list.append(f"... and {len(available_devices) - 10} more")
             context_parts.append(f"**Available Devices:** {', '.join(device_list)}")
             context_parts.append("device_id is scoped per host: always pass both host_name and device_id exactly as listed above (never the device name). The same device_id on different hosts refers to different physical devices — this is normal, not a duplicate.")
+            if any(d.get('preferred_userinterface') for d in available_devices):
+                context_parts.append("A device's userinterface is the tree to navigate it (pass it as userinterface_name to navigate_to_node / list_navigation_nodes); it is the device's own interface, not the one selected in the page.")
 
         if available_userinterfaces:
             interface_list = [ui.get('name', ui.get('userinterface_name', 'unknown')) for ui in available_userinterfaces[:10]]
@@ -383,6 +519,10 @@ class QAManagerAgent:
             if len(available_campaigns) > 10:
                 campaign_list.append(f"... and {len(available_campaigns) - 10} more")
             context_parts.append(f"**Available Campaigns:** {', '.join(campaign_list)}")
+
+        companion = ctx.get('companion')
+        if companion:
+            context_parts.append(f"**Page shown beside the chat (context only, never repeat it in your answer):** {companion}")
 
         if context_parts:
             return "\n".join(context_parts) + "\n\n"
@@ -475,14 +615,17 @@ class QAManagerAgent:
             rules = """## Rules
 - If input clearly matches a tool's expected parameters → use tool directly
 - Direct tools are for safe read/query operations only
+- If the request is unauthorized, targets another team or user, is destructive, or asks to bypass permissions/authorization/credentials → do NOT call a tool and do NOT ask a clarifying question; reply with one short sentence starting "I can't do that:" and the reason
 - To answer what is currently on the device screen (the title/text shown, what's playing, which menu or dialog is open, whether an error is shown) → call `capture_screenshot` for the Current Device (set vlm=true for visual/focus questions), then answer from the returned OCR/Vision text. You CAN read the screen this way — never claim you can't do visual analysis.
 - Asked to CREATE/MAKE/BUILD a dashboard (Grafana or not): respond ONLY `LOAD SKILL [grafana-dashboard]`; it builds a real Grafana dashboard. Opening or showing the app's Dashboard page is navigation, not this
+- Any request about the user's own app PAGES (custom pages built from blocks): make/create/build one ("a page with only my STBs, a node dropdown and the Localize result"), change one ("in my page X remove the Localize result and add the recent runs", "add a stream to my page", "rename my page"), share one, or ask which blocks can be used: respond ONLY `LOAD SKILL [custom-pages]`. Never answer these from the docs, with navigation or with a how-to; the skill does it for the user
 - A canvas or several charts in one request is ONE render_analytics_artifact call with panels=[...] (1-6 panels, shared filters at the top level), never one call per chart: the user sees only the latest artifact
 - Analytics, chart and canvas requests: build them with the scope and defaults you have. NEVER reply with a question about devices, userinterfaces or a time range when the Analytics scope line or a default answers it; on a tool error follow its hint, then state the assumption you made
 - If the request needs execution, mutation, control, generation, deletion, or admin actions → respond ONLY: `LOAD SKILL [name]`
 - If input doesn't match any known direct tool or skill pattern → explain you don't understand
 - Never guess or force-fit unclear input to tools
 - Text written alongside a tool call is shown to the user as a status note: keep it to a short "Checking X..." — NEVER state conclusions, answers, or claims like "I don't have access to this information" before the tool result arrives
+- Atlas Companion: after you answer from data (test results, a run, requirements coverage, incidents, heatmap, deployments, AI usage), call `show_page` to show the real page filtered the same way; `get_available_pages` lists the pages and their params. Host, device and script values must be exact names (from `list_hosts` or a `get_execution_results` row); an inexact one is refused with the closest matches. For "why did a run fail" pass the run's `id` from `get_execution_results` as `show_page('run_summary', path_args={'kind': 'script', 'id': <id>})`. The context line "Page shown beside the chat" names the page the user sees now: a follow-up is `show_page` with that page and the changed params. Set open_now=true only when the user asked to open or show the page. Once show_page ran in a turn, never offer or describe opening the page in your text (the user already has the Open companion button or the open page)
 - Any question ABOUT the VirtualPyTest platform itself (features, APIs, pricing, licensing, setup, how something works) IS answerable: `read_doc(path='INDEX.md')` or `LOAD SKILL [search-docs]`. NEVER reply "I can't answer that" or "contact support" without having read the docs first
 """
         else:
@@ -492,6 +635,7 @@ class QAManagerAgent:
             rules = """## Rules
 - Analyze the user's request and determine which skill best matches their needs
 - Always respond with: `LOAD SKILL [skill-name]`
+- EXCEPTION: an unauthorized, cross-tenant, destructive, or permission-bypass request → do NOT load a skill and do NOT ask a clarifying question; reply with one short sentence starting "I can't do that:" and the reason
 - Choose from available skills listed above
 - If unsure, ask for clarification rather than guessing
 """
@@ -533,9 +677,22 @@ Tools: {', '.join(skill.tools)}
 
 Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."""
     
+    def _turn_budget(self) -> tuple:
+        """(wall seconds, model seconds, tool calls) one answer may use."""
+        skill = self._active_skill
+        if skill:
+            return skill.timeout_seconds, skill.think_budget_seconds, skill.max_tool_calls
+        return ROUTER_TIMEOUT_S, ROUTER_THINK_BUDGET_S, ROUTER_MAX_TOOL_CALLS
+
     def _build_cached_system(self, context: Dict[str, Any] = None, message: str = "", router_tools: Optional[List[str]] = None) -> List[Dict]:
         """Build system prompt with cache control for Anthropic prompt caching"""
-        prompt_text = self.get_system_prompt(context, message, router_tools)
+        wall_s, think_s, max_tools = self._turn_budget()
+        prompt_text = self.get_system_prompt(context, message, router_tools) + (
+            f"\n\nANSWER BUDGET: at most {max_tools} tool calls and about {think_s} s of your own thinking "
+            f"for this answer. Pick the most direct tool first; do not repeat a search that found nothing, "
+            f"change the words or read the file the index names. Past the budget you must answer with what "
+            f"you found and say what is missing."
+        )
         return [{
             "type": "text",
             "text": prompt_text,
@@ -553,16 +710,13 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
             if cacheable_tools:
                 self.logger.debug(f"[cache] Cacheable tools from skill: {cacheable_tools}")
         
-        # Mark tools for Anthropic prompt caching
-        for tool in tools:
-            tool_name = tool['name']
-            if tool_name in cacheable_tools:
-                tool["cache_control"] = {"type": "ephemeral"}
-                self.logger.debug(f"[cache] 🔖 Marked {tool_name} for prompt caching")
-        
-        # Always cache the last tool (Anthropic best practice)
-        if tools and tools[-1].get('cache_control') is None:
-            tools[-1]["cache_control"] = {"type": "ephemeral"}
+        # Anthropic allows 4 breakpoints per request: the system block and the automatic conversation
+        # breakpoint take two, so tools get TOOL_CACHE_BREAKPOINTS. The last tool always gets one (it
+        # caches every tool definition); the rest go to the skill's first cacheable tools.
+        marked = [t for t in tools[:-1] if t['name'] in cacheable_tools][:TOOL_CACHE_BREAKPOINTS - 1]
+        for tool in marked + tools[-1:]:
+            tool["cache_control"] = {"type": "ephemeral"}
+            self.logger.debug(f"[cache] 🔖 Marked {tool['name']} for prompt caching")
         
         return tools
 
@@ -697,7 +851,14 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
 
         return expanded_tokens
 
+    _COMPANION_TOOLS = ('get_available_pages', 'show_page', 'get_execution_results')
+
     def _select_router_tools_for_message(self, message: str) -> list[str]:
+        """Router tools for this turn, plus the Atlas Companion tools (TASK-126) every turn."""
+        tools = self._select_router_data_tools(message)
+        return tools + [t for t in self._COMPANION_TOOLS if t not in tools]
+
+    def _select_router_data_tools(self, message: str) -> list[str]:
         """Select a query-relevant subset of Atlas direct tools for this turn.
 
         Atlas keeps a broad direct allowlist, but sending every safe tool schema in
@@ -719,47 +880,63 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                 category_by_tool[definition['name']] = category
                 description_by_tool[definition['name']] = definition.get('description', '')
 
-        scored: list[tuple[int, str]] = []
+        def score_tools(hints: dict, drop_stopwords: bool) -> list[tuple[int, str]]:
+            """The tools of this question, scored and best first.
 
-        for tool_name in safe_tools:
-            score = 0
-            name_tokens = self._tokenize_router_query(tool_name.replace('_', ' '))
-            category = category_by_tool.get(tool_name, '')
-            description_tokens = self._tokenize_router_query(description_by_tool.get(tool_name, ''))
+            ``drop_stopwords`` is the BUG-0882 fix: the small words that sit in
+            nearly every tool description are not a reason to offer a tool.
+            ``hints`` are the category words of the scoring; the size of the tool
+            list is measured with the words from before that fix.
+            """
+            scored: list[tuple[int, str]] = []
+            for tool_name in safe_tools:
+                score = 0
+                name_tokens = self._tokenize_router_query(tool_name.replace('_', ' '))
+                category = category_by_tool.get(tool_name, '')
+                description_tokens = self._tokenize_router_query(description_by_tool.get(tool_name, ''))
 
-            overlap = query_tokens & name_tokens
-            if overlap:
-                score += 8 + len(overlap) * 3
+                overlap = query_tokens & name_tokens
+                if overlap:
+                    score += 8 + len(overlap) * 3
 
-            description_overlap = query_tokens & description_tokens
-            if description_overlap:
-                score += len(description_overlap) * 2
+                description_overlap = query_tokens & description_tokens
+                if drop_stopwords:
+                    description_overlap = description_overlap - self._ATLAS_ROUTER_STOPWORDS
+                if description_overlap:
+                    score += len(description_overlap) * 2
 
-            category_hints = self._ATLAS_ROUTER_CATEGORY_HINTS.get(category, set())
-            if query_tokens & category_hints:
-                score += 5
+                if query_tokens & hints.get(category, set()):
+                    score += 5
 
-            if 'list' in query_tokens and tool_name.startswith('list_'):
-                score += 2
-            if any(token in query_tokens for token in ('get', 'show', 'status')) and tool_name.startswith('get_'):
-                score += 2
+                if 'list' in query_tokens and tool_name.startswith('list_'):
+                    score += 2
+                if any(token in query_tokens for token in ('get', 'show', 'status')) and tool_name.startswith('get_'):
+                    score += 2
 
-            if score > 0:
-                scored.append((score, tool_name))
+                if score > 0:
+                    scored.append((score, tool_name))
+            scored.sort(key=lambda item: (-item[0], item[1]))
+            return scored
 
-        scored.sort(key=lambda item: (-item[0], item[1]))
-        selected = [tool_name for _, tool_name in scored[:12]]
+        scored = score_tools(self._ATLAS_ROUTER_CATEGORY_HINTS, drop_stopwords=True)
+        scored_before = score_tools(self._ATLAS_ROUTER_BUDGET_HINTS, drop_stopwords=False)
 
-        if not selected:
-            selected = [tool for tool in self._ATLAS_ROUTER_FALLBACK_TOOLS if tool in safe_tools]
+        def core_of(core_map: dict, hints: dict) -> list[str]:
+            """The core tools of the categories this question lands in."""
+            return [tool for category, tools in core_map.items()
+                    if query_tokens & hints.get(category, set()) for tool in tools]
 
-        for tool in self._ATLAS_ROUTER_FALLBACK_TOOLS:
-            if tool in safe_tools and tool not in selected and len(selected) < 12:
-                selected.append(tool)
+        core_tools = core_of(self._ATLAS_ROUTER_CATEGORY_CORE_TOOLS, self._ATLAS_ROUTER_CATEGORY_HINTS)
+        # The core tools origin/main already reserved (the analytics layer): they keep
+        # main's behaviour. A core tool BUG-0882 added never takes the room of a tool
+        # the question names directly.
+        inherited_core = {tool for tools in self._ATLAS_ROUTER_BUDGET_CORE_TOOLS.values()
+                          for tool in tools}
+        core_tools_before = core_of(self._ATLAS_ROUTER_BUDGET_CORE_TOOLS, self._ATLAS_ROUTER_BUDGET_HINTS)
 
         # The router rules name read_doc(path='INDEX.md') as the answer path
         # for ANY platform question, so the docs tools must always be offered
-        # — even when 12 higher-scoring tools fill the quota. Observed: "what
+        # — even when 11 higher-scoring tools fill the quota. Observed: "what
         # is a navigation tree" scored only navigation tools, and the model,
         # told to read_doc but not given it, flailed into crawl_app /
         # list_navigation_nodes and errored the chat.
@@ -768,18 +945,116 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
         # ..." scored analyze_screen_for_action + execute_device_action but not
         # dump_ui_elements / list_actions, so the model sent elements=[] and
         # guessed the web command name (type_text) — BUG-0170.
-        core_tools = [tool for category, tools in self._ATLAS_ROUTER_CATEGORY_CORE_TOOLS.items()
-                      if query_tokens & self._ATLAS_ROUTER_CATEGORY_HINTS.get(category, set()) for tool in tools]
-
-        def required_for(tools: list[str]) -> list[str]:
-            required = ['read_doc', 'search_docs', *core_tools]
+        def required_for(tools: list[str], core: list[str]) -> list[str]:
+            """The tools that are always offered: the docs tools, the core tools of
+            the categories that match, and the tool that feeds a selected tool."""
+            required = ['read_doc', 'search_docs', *core]
             for tool in tools:
                 required.extend(self._ATLAS_ROUTER_TOOL_PREREQUISITES.get(tool, ()))
             return [t for t in dict.fromkeys(required) if t in safe_tools]
 
-        base = [t for t in selected if t not in required_for(selected)]
-        base = base[:12 - len(required_for(selected))]
-        selected = base + [t for t in required_for(base) if t not in base]
+        def selection_before() -> list[str]:
+            """The tool list this question had before BUG-0882 — the list of
+            origin/main: the old category words, no stop-word filter and the old
+            core tools. Its size is the budget of the turn."""
+            chosen = [tool_name for _, tool_name in scored_before[:11]]
+            if not chosen:
+                chosen = [tool for tool in self._ATLAS_ROUTER_FALLBACK_TOOLS if tool in safe_tools]
+            for tool in self._ATLAS_ROUTER_FALLBACK_TOOLS:
+                if tool in safe_tools and tool not in chosen and len(chosen) < 11:
+                    chosen.append(tool)
+            required = required_for(chosen, core_tools_before)
+            base = [t for t in chosen if t not in required]
+            base = base[:11 - len(required)]
+            return base + [t for t in required_for(base, core_tools_before) if t not in base]
+
+        # Cap: 11 data tools + 3 _COMPANION_TOOLS (_select_router_tools_for_message)
+        # = 14 total, matching the router tool-payload contract. The budget is the
+        # size of the list the model received before BUG-0882, so the fix never
+        # offers fewer tools than before and never more: a reserved core tool is
+        # never added ON TOP of a full list, it takes the room of the tools that
+        # score lowest. BUG-0882 follow-up: "open YouTube in the browser, search
+        # for ..." went from 12 tools to 13, over the ceiling of the contract.
+        # The companion tools are offered by every turn, so they are not part of
+        # the room: what the model receives is the data tools plus the companions.
+        companions = set(self._COMPANION_TOOLS)
+        budget = len(set(selection_before()) | companions)
+        room_for_data = budget - len(companions)
+
+        selected: list[str] = []
+
+        def room() -> int:
+            """The room left for the tools that are not companion tools."""
+            return room_for_data - len([t for t in selected if t not in companions])
+
+        def take(tool_name: str) -> bool:
+            """Offer a tool and the tools it needs. False when it does not fit."""
+            if tool_name in selected or tool_name not in safe_tools:
+                return False
+            needed = [p for p in self._ATLAS_ROUTER_TOOL_PREREQUISITES.get(tool_name, ())
+                      if p in safe_tools and p not in selected]
+            cost = len([t for t in [tool_name, *needed] if t not in companions])
+            if cost > room():
+                return False
+            selected.extend(needed)
+            selected.append(tool_name)
+            return True
+
+        def score_of(tool_name: str) -> int:
+            """The score of a tool in this question's scoring."""
+            return next((s for s, n in scored if n == tool_name), 0)
+
+        def named_by_the_question(tool_name: str) -> bool:
+            """True when the question names the tool: its words are in the tool's name."""
+            name_tokens = self._tokenize_router_query(tool_name.replace('_', ' '))
+            return bool(query_tokens & name_tokens)
+
+        def feeds_another(tool_name: str) -> bool:
+            """True when another offered tool needs this one (it cannot be dropped)."""
+            return any(tool_name in self._ATLAS_ROUTER_TOOL_PREREQUISITES.get(other, ())
+                       for other in selected)
+
+        # The list is built in score order. The tools the question names score the
+        # highest, so they are in before a reserved core tool can take their room
+        # (TASK-163, UC-030: "Open the app {app} on {device}" names crawl_app and
+        # get_installed_apps, and the navigation core tools took their room).
+        for tool_name in ['read_doc', 'search_docs']:
+            take(tool_name)
+        for tool_name in [name for _, name in scored]:
+            if room() <= 0:
+                break
+            take(tool_name)
+
+        # Then the core tools of the categories the question lands in: the tool that
+        # answers a category of question is always offered (BUG-0882). A core tool
+        # takes the room of the tools that score lowest — it never takes the room of
+        # a tool the question names directly, and never of a tool another offered
+        # tool needs.
+        reserved = set(core_tools) | {'read_doc', 'search_docs'}
+        for tool_name in core_tools:
+            if tool_name in selected:
+                continue
+            while True:
+                needed = [p for p in self._ATLAS_ROUTER_TOOL_PREREQUISITES.get(tool_name, ())
+                          if p in safe_tools and p not in selected]
+                cost = len([t for t in [tool_name, *needed] if t not in companions])
+                if cost <= room():
+                    selected.extend(needed)
+                    selected.append(tool_name)
+                    break
+                victims = [t for t in selected
+                           if t not in reserved
+                           and not feeds_another(t)
+                           and (tool_name in inherited_core or not named_by_the_question(t))]
+                if not victims:
+                    break
+                selected.remove(min(victims, key=score_of))
+
+        # Then the fallback tools, as far as the room goes.
+        for tool_name in self._ATLAS_ROUTER_FALLBACK_TOOLS:
+            if room() <= 0:
+                break
+            take(tool_name)
 
         return selected
 
@@ -797,11 +1072,51 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
 
     @property
     def usage_key(self) -> str:
+        if self._usage_override:
+            return self._usage_override
         return ai_usages.agent_usage(self.agent_id, self._active_skill.name if self._active_skill else None)
 
     def _resolution(self) -> "ai_router.Resolution":
         request_id = getattr(self._session, "id", None) or self._routing_request_id
+        # Per-session model pin (Atlas model picker): when the user picked a fallback
+        # from the chain, the next turn uses ONLY that profile (no auto-fallback).
+        # Empty / missing value means the chain from default routing still applies.
+        pinned = (self._session.get_context("pinned_profile_id") if self._session else None)
+        if pinned:
+            try:
+                return ai_router.resolve_profile(
+                    pinned, self.usage_key, self.user_identifier, request_id=request_id)
+            except ai_router.AIRoutingError:
+                # The pin is stale (profile removed/disabled since the user picked it):
+                # fall back to default routing rather than failing the turn silently.
+                pass
         return ai_router.resolve(self.usage_key, self.user_identifier, request_id=request_id)
+
+    def _budget_blocked(self) -> bool:
+        """Walk every AI budget bucket that may apply to this turn (TASK-87 phase 5 / BUG-0559).
+        Specificity ladder: usage > model > endpoint > user > project > team. Any matching
+        bucket with mode=block and spend over its limit refuses the turn.
+
+        The resolution must be resolved first so we know which model + endpoint the call will
+        use; the user_id and project_id come from the X-VPT-Caller context (bound by
+        ``backend_server/src/lib/ai_caller_binding.py`` for /server/*, by MCP passthrough
+        headers for host-side work).
+        """
+        try:
+            resolution = self._resolution()
+            hop = resolution.primary
+        except Exception:  # noqa: BLE001 — routing failure is logged by the resolver
+            return ai_budgets.blocked_team(self.user_identifier)  # fall back to the team bucket only
+        caller_ctx = ai_caller.current() or {}
+        ctx = CallerContext(
+            team_id=self.user_identifier,
+            user_id=caller_ctx.get('user_id') or None,
+            usage_key=self.usage_key,
+            model=hop.model,
+            endpoint=(hop.endpoint or {}).get('name') or (hop.endpoint or {}).get('id') or None,
+            project_id=caller_ctx.get('project_id') or None,
+        )
+        return ai_budgets.blocked(ctx)
 
     def _hop_client(self, hop: "ai_router.Hop"):
         key = (hop.endpoint["id"], get_secret(hop.endpoint.get("secret_name")))
@@ -925,6 +1240,15 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
         except Exception:
             pass
 
+    @staticmethod
+    def _paused_reason(hop) -> Optional[str]:
+        """Why ``hop`` must not be called now (no credit / unreachable), else None. Counts nothing: no request is made."""
+        try:
+            return (ai_router.no_credit_error(hop)
+                    or (f"{hop.endpoint_name}: unreachable" if ai_router.endpoint_down_for(hop.endpoint["id"]) else None))
+        except Exception:
+            return None
+
     def _create_turn(self, base_kwargs: Dict[str, Any]):
         """One model call for the tool loop: the routed profile, then its fallbacks on error or refusal.
 
@@ -932,16 +1256,20 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
         hop refuses, the first refusal is returned so the turn ends as it did before."""
         self._turn_attempts = []
         self._answered_hop = None
-        if ai_budgets.blocked(self.user_identifier):  # blocking monthly budget used up (TASK-87)
+        if self._budget_blocked():  # BUG-0559: per-bucket resolver (TASK-87 phase 5)
             raise RuntimeError(ai_budgets.BLOCKED_MESSAGE)
         started = time.time()
         try:
+            paused = self._paused_reason(self._resolution().primary)
+            if paused:  # BUG-0514: an endpoint without credit / unreachable gets no request, only its fallbacks
+                raise _EndpointPaused(paused)
             response = raise_on_refusal(
                 self.client.messages.create(**self._turn_kwargs(self._resolution().primary, base_kwargs)))
             self._record_turn(0, True, started, response)
             return response
         except Exception as primary_error:
-            self._record_turn(0, False, started, error=str(primary_error)[:500], exc=primary_error)
+            if not isinstance(primary_error, _EndpointPaused):
+                self._record_turn(0, False, started, error=str(primary_error)[:500], exc=primary_error)
             if is_connection_error(primary_error):
                 try:
                     ai_router.mark_down(self._resolution().hops[0])
@@ -952,7 +1280,7 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
             except Exception:
                 fallbacks = []
             for index, hop in fallbacks:
-                if hop.reach == "host":
+                if hop.reach == "host" or self._paused_reason(hop):
                     continue
                 print(f"[AGENT] ↪ {primary_error!s:.120} — falling back to {hop.profile_name} ({hop.model})")
                 started = time.time()
@@ -975,6 +1303,9 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
 
         A root turn that starts in router mode is logged to ai_decisions (routing_log):
         the skill picked, or answered_directly, and whether the turn then succeeded."""
+        if not _is_delegated:
+            session.set_context('_turn_tools', [])
+            session.set_context('_turn_offers', [])
         tracker = None
         if not self._active_skill and not _is_delegated:
             try:
@@ -987,10 +1318,16 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
             except Exception as e:
                 print(f"[AGENT] routing log disabled for this turn: {e}")
         aborted = True
+        self._turn_suggestion = None
         try:
             async for event in self._process_message(message, session, _is_delegated):
                 if tracker:
                     tracker.observe(event)
+                if self._turn_suggestion and event.type == EventType.MESSAGE and not _is_delegated:
+                    # TASK-175: a failure analysis is Sherlock's speciality: the chat shows a button
+                    # beside Atlas's answer.
+                    event.metrics = {**(event.metrics or {}), 'suggest_agent': self._turn_suggestion,
+                                     'suggest_name': agent_routing_rules.AGENT_NAMES[self._turn_suggestion]}
                 yield event
             aborted = False
         finally:
@@ -1075,10 +1412,45 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
         # always loads the right skill.
         if not self._active_skill:
             from ..skills import SkillLoader
+            atlas_route_mode = os.getenv("ATLAS_JEV_ROUTING_MODE", "off").strip().lower()
             available_skills = self.agent_config.get('available_skills', [])
             device_platform = self._detect_device_platform(session.context)
-            matched = SkillLoader.match_skill(message, available_skills, device_platform)
-            if matched:
+            ranked_skills = SkillLoader.rank_skills(message, available_skills, device_platform)
+            if atlas_route_mode in {"shadow", "gated"}:
+                # Jev is a second opinion only.  The existing trigger matcher
+                # below remains the sole authority for skill loading.
+                try:
+                    from ..atlas_routing import build_catalog, shadow_route, should_escalate_to_jev
+                    from ..skills.skill_registry import get_skill_registry
+                    if atlas_route_mode == "gated" and not should_escalate_to_jev(ranked_skills):
+                        self.logger.info("Atlas Jev skipped: decisive trigger match")
+                    else:
+                        catalog = build_catalog(
+                            SkillLoader.get_skills_for_agent(available_skills),
+                            set(get_skill_registry().get_all_skills()),
+                        )
+                        catalog_tool_names = sorted({tool for route in catalog.routes for tool in route.tool_ids})
+                        catalog_tool_defs = self.tool_bridge.get_tool_definitions(catalog_tool_names)
+                        catalog_tool_schemas = {tool['name']: tool for tool in catalog_tool_defs}
+                        route_decision = shadow_route(
+                            message, catalog=catalog, team_id=session.context.get("team_id", self.user_identifier),
+                            platform=device_platform,
+                            baseline_route=ranked_skills[0][0].name if ranked_skills else None,
+                            refs={"session_id": session.id},
+                            allowed_tools=set(self.router_tool_names), tool_schemas=catalog_tool_schemas,
+                        )
+                        # Gated mode selects only a validated read-only skill;
+                        # arguments and execution remain in the Atlas planner.
+                        if (atlas_route_mode == "gated" and route_decision.get("validated_action") == "route"
+                                and (route_decision.get("tool_proposal") or {}).get("action") == "route"):
+                            selected_skill = route_decision.get("validated_route_id", "").removeprefix("skill:")
+                            if selected_skill in available_skills and self.load_skill(selected_skill):
+                                yield AgentEvent(type=EventType.THINKING, agent=self.nickname,
+                                                 content=f"Validated route: {selected_skill}; planner will validate tool arguments")
+                except Exception as exc:
+                    self.logger.info("Atlas Jev shadow routing skipped: %s", exc)
+            matched = ranked_skills[0][0] if ranked_skills else None
+            if matched and not self._active_skill:
                 message_lower = message.lower()
                 trigger_hits = sum(1 for t in matched.triggers if t.lower() in message_lower)
                 if trigger_hits >= 2:
@@ -1094,6 +1466,88 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                 if self.load_skill(self._DASHBOARD_BUILD_SKILL):
                     yield AgentEvent(type=EventType.THINKING, agent=self.nickname,
                                      content=f"Auto-loaded skill: {self._DASHBOARD_BUILD_SKILL}")
+
+        # Daily memory (TASK-172): in front of the quick step and the FAQ, the user's own memory of
+        # this exact question. A hit either answers the turn ("recall" mode) or is injected into the
+        # system prompt ("context" mode). Off unless ATLAS_MEMORY=on; a miss falls through unchanged.
+        if not _is_delegated and not self._is_background and self.agent_id == 'assistant':
+            team_id = session.context.get('team_id') if getattr(session, 'context', None) else None
+            user_id = session.context.get('user_id') if getattr(session, 'context', None) else None
+            # "again" right after a recall: run the recalled question for real. The history gets
+            # the real question too, so the model sees what to do, not a bare "again".
+            rerun = memory_step.resolve_rerun(message, session)
+            if rerun:
+                message = rerun
+                if session.messages and session.messages[-1].get('role') == 'user':
+                    session.messages[-1]['content'] = rerun
+            decision = memory_step.step(
+                message, session,
+                team_id=team_id, user_id=user_id, session_id=getattr(session, 'id', None),
+            )
+            if decision.answer is not None:
+                for ev in memory_step.emit(decision, agent_name=self.nickname):
+                    yield ev
+                memory_step.write_session(decision, session, agent_name=self.nickname)
+                memory_step.record_log(decision, team_id=team_id, user_id=user_id)
+                self._quick_handled = True               # short-circuit; same flag as the quick step
+                print(f"[MEMORY] recall hit: {decision.entry.day if decision.entry else '?'} "
+                      f"{decision.latency_ms}ms")
+                return
+
+        # TASK-175: answered before any model call. A vague short ask ("cap 5") gets one clarifying
+        # question instead of a model that guesses and explores the lab (BUG-0914); an ops change gets a
+        # pointer to Masterchief, the agent that can make it (Atlas's system-ops is read-only).
+        self._turn_suggestion = None
+        if not _is_delegated and not self._is_background and self.agent_id == 'assistant':
+            devices = session.context.get('available_devices') or [] if getattr(session, 'context', None) else []
+            names = [d.get('device_name') for d in devices if isinstance(d, dict)]
+            fixed = None
+            if agent_routing_rules.is_vague(message, names):
+                fixed = (agent_routing_rules.clarify_text(message), {'match_source': 'clarify'})
+            elif agent_routing_rules.ops_change(message):
+                fixed = (agent_routing_rules.ops_text(), {
+                    'match_source': 'suggest', 'suggest_agent': agent_routing_rules.MASTERCHIEF,
+                    'suggest_name': agent_routing_rules.AGENT_NAMES[agent_routing_rules.MASTERCHIEF]})
+            if fixed:
+                text, metrics = fixed
+                yield AgentEvent(type=EventType.MESSAGE, agent=self.nickname, content=text,
+                                 metrics={'duration_ms': 0, **metrics})
+                yield AgentEvent(type=EventType.SESSION_ENDED, agent=self.nickname, content="Done")
+                session.add_message("assistant", text, agent=self.nickname)
+                self._quick_handled = True
+                return
+            if agent_routing_rules.failure_analysis(message):
+                self._turn_suggestion = agent_routing_rules.SHERLOCK
+
+        # Quick step (TASK-140): a short command runs as one small call + one tool, or the turn goes on unchanged.
+        if not self._active_skill and not _is_delegated and not self._is_background and self.agent_id == 'assistant':
+            self._quick_handled = False
+            async for event in self._quick_step(message, session):
+                yield event
+            if self._quick_handled:
+                return
+
+        # Prepared FAQ (TASK-152 phase 9): in front of the model loop, a hot-cache lookup answers
+        # docs questions in <10 ms and short-circuits the turn. A miss falls through to the model
+        # unchanged. Skipped when a skill is loaded (the skill brings its own context).
+        if (not self._active_skill and not _is_delegated and not self._is_background and self.agent_id == 'assistant'
+                and not quick_step.is_device_command(message, session.context.get('available_devices') or [])):
+            team_id = session.context.get('team_id') if getattr(session, 'context', None) else None
+            user_id = session.context.get('user_id') if getattr(session, 'context', None) else None
+            decision = faqs_step.step(
+                message, session,
+                team_id=team_id, user_id=user_id, session_id=getattr(session, 'id', None),
+            )
+            if decision.answer is not None:
+                for ev in faqs_step.emit(decision, agent_name=self.nickname):
+                    yield ev
+                faqs_step.write_session(decision, session, agent_name=self.nickname)
+                faqs_step.count_bump(decision)          # background bump of agent_faq.count
+                faqs_step.record_log(decision)           # append to atlas_faq_log
+                self._quick_handled = True               # short-circuit; same flag as the quick step
+                self._print_faq_decision(decision, team_id=team_id, user_id=user_id)
+                return
+            # miss: log nothing for now (the model will answer; record_log fires after the turn)
 
         mode_str = f"[{self._active_skill.name}]" if self._active_skill else "[router]"
         yield AgentEvent(type=EventType.THINKING, agent=self.nickname, content=f"Analyzing... {mode_str}")
@@ -1131,6 +1585,9 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
 
         # Track tool calls for summary
         tool_calls_this_turn = []
+        # The daily memory (TASK-172) records what the tools produced, not only what they were
+        # called. The results are kept beside the calls so the write can name the artefacts.
+        tool_results_this_turn = []
         # One-shot flag for require_tool_use enforcement (see final-answer check)
         require_tool_nudged = False
         # Bounded retries for thinking-only/empty-text responses (MiniMax glitch)
@@ -1148,6 +1605,12 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
         # Track if we've sent debug events for this turn
         debug_events_sent = False
 
+        # Answer budget: wall clock, model time (tool time excluded) and tool calls. Past any of them the
+        # model gets one last round with tool_choice none and must answer from what it found.
+        turn_started = time.time()
+        think_spent_s = 0.0
+        final_round = False
+
         # Tool loop
         while True:
             # Check for cancellation at the start of each iteration
@@ -1155,6 +1618,31 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                 print(f"[AGENT] ⚠️ Processing cancelled for session {session.id}")
                 yield AgentEvent(type=EventType.ERROR, agent=self.nickname, content="🛑 Generation stopped by user")
                 break
+
+            if not final_round:
+                # Re-read each round: a skill loaded mid-turn brings its own budget
+                budget_wall_s, budget_think_s, budget_tools = self._turn_budget()
+                over = None
+                if len(tool_calls_this_turn) >= budget_tools:
+                    over = f"{len(tool_calls_this_turn)} tool calls (limit {budget_tools})"
+                elif think_spent_s >= budget_think_s:
+                    over = f"{think_spent_s:.0f} s of thinking (limit {budget_think_s} s)"
+                elif time.time() - turn_started >= budget_wall_s:
+                    over = f"{time.time() - turn_started:.0f} s (limit {budget_wall_s} s)"
+                if over:
+                    final_round = True
+                    nudge = (f"Budget reached: {over}. No more tools. Answer the user now with what you found, "
+                             f"name the file or value you are sure of, and say plainly what you could not find.")
+                    last = turn_messages[-1] if turn_messages else None
+                    if last and last.get("role") == "user" and isinstance(last.get("content"), list):
+                        last["content"].append({"type": "text", "text": nudge})
+                    elif last and last.get("role") == "user" and isinstance(last.get("content"), str):
+                        last["content"] = last["content"] + "\n\n" + nudge
+                    else:
+                        turn_messages.append({"role": "user", "content": nudge})
+                    print(f"[AGENT] ⏱️ budget reached for session {session.id}: {over} — final round, no tools")
+                    yield AgentEvent(type=EventType.THINKING, agent=self.nickname,
+                                     content=f"Budget reached ({over}) — answering with what was found")
 
             start = time.time()
 
@@ -1167,7 +1655,7 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                     system=cached_system,
                     messages=turn_messages,
                     tools=cached_tools,
-                    tool_choice={"type": "auto", "disable_parallel_tool_use": True},
+                    tool_choice={"type": "none"} if final_round else {"type": "auto", "disable_parallel_tool_use": True},
                 ))
             except Exception as e:
                 error_msg = f"{self.usage_key} API call failed: {str(e)}"
@@ -1207,6 +1695,7 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
             cache_creation = getattr(response.usage, 'cache_creation_input_tokens', 0)
             cache_read = getattr(response.usage, 'cache_read_input_tokens', 0)
             
+            think_spent_s += time.time() - start
             metrics = {
                 "duration_ms": int((time.time() - start) * 1000),
                 "input_tokens": response.usage.input_tokens,
@@ -1285,6 +1774,17 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                 yield AgentEvent(type=EventType.ERROR, agent=self.nickname, content=user_error, error=str(e))
                 break
             
+            # Past the budget no tool runs, even if the provider ignored tool_choice none (MiniMax).
+            if final_round and tool_use:
+                response_text = strip_reasoning(text_content) or text_content
+                if not response_text.strip():
+                    tried = ", ".join(f"{c['tool_name']}({json.dumps(c['params'], default=str)[:60]})"
+                                      for c in tool_calls_this_turn[-6:])
+                    response_text = ("I reached my answer budget before finding this, so I stopped. "
+                                     f"Last lookups: {tried or 'none'}. Ask again with a narrower question.")
+                yield AgentEvent(type=EventType.MESSAGE, agent=self.nickname, content=response_text, metrics=metrics)
+                break
+
             # Some models (observed: MiniMax) emit `LOAD SKILL` as a tool_use
             # block instead of the text command the router prompt specifies.
             # Honor it as a skill load — executing it as a tool would fail and
@@ -1405,12 +1905,15 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                         f"agent={self.nickname} tool={tool_use.name} args={_args_preview}"
                     )
 
-                    result = self.tool_bridge.execute(
-                        tool_use.name,
-                        tool_use.input,
-                        allowed_tools=current_tool_names,
-                        cache_config=cache_config
-                    )
+                    # In-process tools (e.g. capture_screenshot -> vision) run outside any Flask request: bind the turn's caller
+                    from shared.src.lib.ai import caller as ai_caller
+                    with ai_caller.bound(**(getattr(self, "_call_caller", None) or {"origin": "background"})):
+                        result = self.tool_bridge.execute(
+                            tool_use.name,
+                            tool_use.input,
+                            allowed_tools=current_tool_names,
+                            cache_config=cache_config
+                        )
 
                     # Check for cancellation after tool execution (in case it was cancelled during execution)
                     if session.cancelled:
@@ -1424,6 +1927,9 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                             self.logger.warning(f"Langfuse tool tracking failed: {e}")
                             print(f"[AGENT] ⚠️ Langfuse tool tracking error (non-critical): {e}")
                     yield AgentEvent(type=EventType.TOOL_RESULT, agent=self.nickname, content="Success", tool_name=tool_use.name, tool_result=result, success=True)
+                    if tool_use.name in quick_step.POOL:
+                        quick_step.record("use", session.context.get("team_id") or self.user_identifier,
+                                          session.context.get("user_id"), tool_use.name)
                     last_tool_failure = None
                     identical_tool_failures = 0
 
@@ -1433,6 +1939,10 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                         'params': tool_use.input,
                         'success': True
                     })
+                    try:
+                        tool_results_this_turn.append(result)
+                    except Exception:  # noqa: BLE001
+                        tool_results_this_turn.append(None)
                     
                     # Forward the MCP tool result back to the LLM. Anthropic's API
                     # accepts tool_result.content as EITHER a string OR an array of
@@ -1609,7 +2119,8 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                 if (self._active_skill
                         and getattr(self._active_skill, 'require_tool_use', False)
                         and not tool_calls_this_turn
-                        and not require_tool_nudged):
+                        and not require_tool_nudged
+                        and not final_round):
                     require_tool_nudged = True
                     turn_messages.append({"role": "user", "content": (
                         "You answered without consulting any tool. This skill requires "
@@ -1628,6 +2139,25 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
         # Save assistant response to session history (clean, no tool details)
         if response_text:
             session.add_message("assistant", response_text, agent=self.nickname)
+            # TASK-152 phase 9 — self-promotion: a docs-citing answer becomes a candidate FAQ
+            # entry. Promoted rows are proposed=true; the daily review pass flips them to live.
+            try:
+                faqs_step.maybe_promote_from_model_answer(message, response_text)
+            except Exception as _exc:  # noqa: BLE001 — promotion is fire-and-forget
+                print(f"[FAQ] promote skipped: {_exc}")
+            # TASK-172 — daily memory: remember what this user asked and what came of it, so the
+            # next time they ask the same thing the answer is a lookup instead of a re-derivation.
+            # The write is deterministic (no model call), so it costs zero tokens.
+            try:
+                _team_id = session.context.get('team_id') if getattr(session, 'context', None) else None
+                _user_id = session.context.get('user_id') if getattr(session, 'context', None) else None
+                if _user_id:
+                    memory_step.record_turn(
+                        team_id=_team_id, user_id=_user_id, question=message, answer=response_text,
+                        tool_calls=tool_calls_this_turn, results=tool_results_this_turn,
+                    )
+            except Exception as _exc:  # noqa: BLE001 — the memory never breaks a turn
+                print(f"[MEMORY] write skipped: {_exc}")
         
         if ai_tracing.enabled():
             try:
@@ -1636,10 +2166,201 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
                 self.logger.warning(f"Langfuse flush failed: {e}")
                 print(f"[AGENT] ⚠️ Langfuse flush error (non-critical): {e}")
         
+        # Atlas Companion: a turn that used a page's data tool but never called show_page still gets its offer
+        if not _is_delegated:
+            try:
+                self.tool_bridge.companion_fallback()
+            except Exception as e:
+                print(f"[AGENT] companion fallback skipped: {e}")
+
         # Only root agent emits SESSION_ENDED
         if not _is_delegated:
             yield AgentEvent(type=EventType.SESSION_ENDED, agent=self.nickname, content="Done")
     
+    # ------------------------------------------------------------------ quick step (TASK-140 Q1-Q6)
+
+    def _quick_schemas(self, names: list[str]) -> dict[str, dict]:
+        """Input schemas of the quick tools. take_control / release_control are hidden from the MCP listing
+        (locking is automatic for the model) but are valid quick tools, so they come from the builder."""
+        schemas = {d['name']: d['input_schema'] for d in self.tool_bridge.get_tool_definitions(names)}
+        for name in names:
+            if name not in schemas:
+                definition = get_builder().get_tool(name)
+                if definition:
+                    schemas[name] = definition.get('inputSchema') or {'type': 'object', 'properties': {}}
+        return schemas
+
+    def _quick_call(self, message: str, session: Session, quick: list[str], schemas: dict[str, dict]):
+        """The one small model call: quick tools + the escape tool, no thinking history, ~400 tokens."""
+        tools = [{"name": n, "description": quick_step.POOL.get(n, n) + ". " + str(self._quick_description(n)),
+                  "input_schema": schemas[n]} for n in quick if n in schemas] + [quick_step.escape_tool()]
+        self._usage_override = quick_step.QUICK_USAGE
+        try:
+            return self._create_turn(dict(
+                max_tokens=400,
+                system=[{"type": "text", "text": quick_step.system_prompt(session.context)}],
+                messages=[{"role": "user", "content": message}],
+                tools=tools,
+                tool_choice={"type": "auto", "disable_parallel_tool_use": True},
+            ))
+        finally:
+            self._usage_override = None
+
+    def _print_faq_decision(self, decision, *, team_id, user_id) -> None:
+        """A single line on stdout so the live log shows what the FAQ step did (mirrors quick_step)."""
+        lat = decision.latency_ms
+        ans = "answered" if decision.answer else "miss"
+        print(f"[FAQ] team={team_id or ''} user={user_id or ''} match={decision.source} "
+              f"faq_id={decision.faq_id or '-'} {ans} ms={lat}")
+
+    def _quick_description(self, name: str) -> str:
+        for definition in self.tool_bridge.get_tool_definitions([name]):
+            return definition.get('description', '')[:300]
+        definition = get_builder().get_tool(name) or {}
+        return str(definition.get('description', ''))[:300]
+
+    async def _quick_step(self, message: str, session: Session) -> AsyncGenerator[AgentEvent, None]:
+        """Run a short command as one small call + one tool. Sets ``self._quick_handled`` when the turn is over;
+        otherwise yields nothing and the normal turn goes on."""
+        hint = session.context.pop('quick_hint', None)  # one turn only, valid or not
+        if not quick_step.enabled() or not (hint or quick_step.eligible(message)):
+            return
+        started = time.time()
+        team = session.context.get('team_id') or self.user_identifier or ''
+        user = session.context.get('user_id') or ''
+        picked, result_label, reason, quick = '-', 'atlas', '', []
+
+        def _log():
+            print(f"[QUICK] team={team} user={user} tools={quick} picked={picked} result={result_label} "
+                  f"reason={reason or '-'} ms={int((time.time() - started) * 1000)}")
+
+        try:
+            allowed = self._select_router_tools_for_message(message)
+            allowed += [t for t in quick_step.hinted_tools(message)
+                        if t not in allowed and t in self.router_tool_names]
+            quick = quick_step.quick_tools(team, user, allowed, message=message)
+            schemas = self._quick_schemas(quick)
+            quick = [t for t in quick if t in schemas]
+            devices = session.context.get('available_devices') or []
+            tool_name, tool_input, response = '', {}, None
+            if isinstance(hint, dict) and not quick_step.validate_pick(
+                    str(hint.get('tool') or ''), hint.get('args') or {}, quick, schemas, devices):
+                tool_name, tool_input, reason = hint['tool'], dict(hint.get('args') or {}), 'voice hint'
+            else:
+                response = self._quick_call(message, session, quick, schemas)
+                if session.cancelled:
+                    reason = 'cancelled'
+                    _log()
+                    return
+                kind, tool_name, tool_input = quick_step.parse_response(response)
+                if kind == 'text' or tool_name == quick_step.ESCAPE_TOOL:
+                    reason = 'text answer' if kind == 'text' else 'ask_atlas'
+                    picked = tool_name or '-'
+                    _log()
+                    return
+                picked = tool_name
+                problem = quick_step.validate_pick(tool_name, tool_input, quick, schemas, devices)
+                if not problem and not quick_step.fits(tool_name, message, devices):
+                    problem = f"{tool_name} does not fit the request"
+                if problem:
+                    result_label, reason = 'refused', problem
+                    quick_step.record('miss', team, user, tool_name)
+                    missing = quick_step.missing_device(tool_input, devices)
+                    if missing:
+                        # TASK-175: no such device: say so and list the real ones, instead of a model
+                        # that hunts for it (up to 366 k tokens in the bench).
+                        result_label, reason = 'answered', f'no device {missing}'
+                        _log()
+                        text = quick_step.missing_device_text(missing, devices)
+                        self._quick_handled = True
+                        yield AgentEvent(type=EventType.MESSAGE, agent=self.nickname, content=text)
+                        session.add_message("assistant", text, agent=self.nickname)
+                        yield AgentEvent(type=EventType.SESSION_ENDED, agent=self.nickname, content="Done")
+                        return
+                    _log()
+                    return
+            picked = tool_name
+            metrics = {"duration_ms": int((time.time() - started) * 1000)}
+            if response is not None:
+                metrics.update(input_tokens=response.usage.input_tokens, output_tokens=response.usage.output_tokens)
+                self._quick_trace(message, response, session, metrics["duration_ms"])
+        except Exception as exc:  # noqa: BLE001 - the quick step never costs the user the normal turn
+            reason = f"error {type(exc).__name__}: {str(exc)[:120]}"
+            _log()
+            return
+
+        yield AgentEvent(type=EventType.TOOL_CALL, agent=self.nickname, content=f"Calling: {tool_name}",
+                         tool_name=tool_name, tool_params=tool_input, metrics=metrics)
+        text, ok = '', True
+        try:
+            with ai_caller.bound(**(getattr(self, "_call_caller", None) or {"origin": "background"})):
+                result = self.tool_bridge.execute(tool_name, tool_input, allowed_tools=allowed, cache_config=None)
+            if ai_tracing.enabled():
+                try:
+                    track_tool_call(self.nickname, tool_name, tool_input, result, True, session.id)
+                except Exception as e:
+                    self.logger.warning(f"Langfuse tool tracking failed: {e}")
+            if isinstance(result, dict) and result.get('isError'):
+                ok, reason = False, 'tool returned an error'
+                yield AgentEvent(type=EventType.TOOL_RESULT, agent=self.nickname, content="Failed", tool_name=tool_name,
+                                 tool_result=result, success=False)
+                text = f"{tool_name} failed: {quick_step.tool_text(result)}"
+            else:
+                yield AgentEvent(type=EventType.TOOL_RESULT, agent=self.nickname, content="Success", tool_name=tool_name,
+                                 tool_result=result, success=True)
+                text = quick_step.summary_line(tool_name, tool_input, result)
+        except Exception as e:  # noqa: BLE001 - the tool's own error is the answer
+            ok, reason = False, f"tool raised {type(e).__name__}"
+            yield AgentEvent(type=EventType.ERROR, agent=self.nickname, content=f"Tool '{tool_name}' encountered an error: {e}",
+                             error=str(e), tool_name=tool_name)
+            text = f"{tool_name} failed: {str(e)[:300]}"
+        quick_step.record('hit' if ok else 'miss', team, user, tool_name)
+        result_label = 'ran' if ok else 'failed'
+        _log()
+
+        self._quick_handled = True
+        yield AgentEvent(type=EventType.MESSAGE, agent=self.nickname, content=text)
+        session.add_message("assistant", text, agent=self.nickname)
+        # TASK-172 — daily memory: the quick step answered the turn, so the model loop never ran
+        # and the end-of-turn write never happens. Remember it here, or the memory would only
+        # ever know about the turns that reached the model.
+        try:
+            if user:
+                memory_step.record_turn(
+                    team_id=team, user_id=user, question=message, answer=text,
+                    tool_calls=[{"tool_name": tool_name, "params": tool_input, "success": ok}],
+                    results=[result],
+                )
+        except Exception as _exc:  # noqa: BLE001 — the memory never breaks a turn
+            print(f"[MEMORY] write skipped: {_exc}")
+        if ai_tracing.enabled():
+            try:
+                flush()
+            except Exception as e:
+                self.logger.warning(f"Langfuse flush failed: {e}")
+        try:
+            self.tool_bridge.companion_fallback()
+        except Exception as e:
+            print(f"[AGENT] companion fallback skipped: {e}")
+        yield AgentEvent(type=EventType.SESSION_ENDED, agent=self.nickname, content="Done")
+
+    def _quick_trace(self, message: str, response: Any, session: Session, duration_ms: int) -> None:
+        if not ai_tracing.enabled():
+            return
+        try:
+            answered = getattr(self, "_answered_hop", None)
+            trace_id = track_generation(self.nickname, answered.model if answered else self.model,
+                                        [{"role": "user", "content": message}], response, session.id,
+                                        session.context.get("user_id"), duration_ms=duration_ms,
+                                        trace_name="Atlas quick step",
+                                        routing={"usage": quick_step.QUICK_USAGE,
+                                                 "profile": answered.profile_name if answered else None,
+                                                 "endpoint": answered.endpoint_name if answered else None})
+            if trace_id:
+                self.last_trace_id = trace_id
+        except Exception as e:
+            self.logger.warning(f"Langfuse tracking failed: {e}")
+
     async def handle_approval(self, session: Session, approved: bool, modifications: Dict[str, Any] = None) -> AsyncGenerator[AgentEvent, None]:
         """Handle approval response"""
         if not session.pending_approval:
@@ -1700,7 +2421,10 @@ Be direct and concise. Never modify URLs from tools. Tool errors in 1 sentence."
         
         self._queue_worker_running = False
         if self._queue_worker_thread:
-            self._queue_worker_thread.join(timeout=5)
+            # 2 s, not 5: the worker may be inside a long request, and this join
+            # runs in the exit path of the server, which has a TimeoutStopSec to
+            # respect (TASK-169).
+            self._queue_worker_thread.join(timeout=2)
         self.logger.info(f"[{self.nickname}] 🛑 Background worker stopped")
     
     @property

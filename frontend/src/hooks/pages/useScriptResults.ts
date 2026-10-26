@@ -22,6 +22,10 @@ export interface ScriptResult {
   host_name: string;
   device_name: string;
   success: boolean;
+  /** The run never executed (it was not configured): a skip, not a failure.
+   *  The flag comes from the run itself (BUG-0756); a payload that predates it
+   *  simply has no flag and keeps the pass / fail reading. */
+  skipped?: boolean;
   execution_time_ms: number | null;
   started_at: string;
   completed_at: string;
@@ -44,6 +48,12 @@ export interface ScriptResult {
   check_type?: string; // Type of check performed ('ai' | 'manual')
   discard_type?: string; // Category: 'false_positive', 'valid', etc.
   discard_comment?: string; // AI explanation for the discard decision
+
+  // TASK-65 G7 — projects this script is tagged with, joined in
+  // get_script_results via `executable_tags` → `projects_tags`. Empty list
+  // for projectless scripts (the default for legacy runs).
+  projects?: Array<{ id: string; name: string; color: string | null }>;
+  project_ids?: string[];
 }
 
 export interface ScriptResultFilters {
@@ -58,6 +68,9 @@ export interface ScriptResultFilters {
   milestone_id?: string;
   run_group_id?: string;
   label_id?: string;
+  // Dashboard deep links (TASK-123): verdict and time window, applied server-side before the limit.
+  status?: 'passed' | 'failed' | 'aborted';
+  range?: '24h' | '7d' | '30d';
 }
 
 export const useScriptResults = () => {
@@ -80,6 +93,8 @@ export const useScriptResults = () => {
         if (filters?.milestone_id) params.set('milestone_id', filters.milestone_id);
         if (filters?.run_group_id) params.set('run_group_id', filters.run_group_id);
         if (filters?.label_id) params.set('label_id', filters.label_id);
+        if (filters?.status) params.set('status', filters.status);
+        if (filters?.range) params.set('range', filters.range);
         const qs = params.toString();
         const url = buildServerUrl('/server/script-results/getAllScriptResults') + (qs ? `&${qs}` : '');
 

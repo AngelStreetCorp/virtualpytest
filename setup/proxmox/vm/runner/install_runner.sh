@@ -297,6 +297,42 @@ else
   echo "      sudo journalctl -u vpt-host.service --no-pager -n 30"
 fi
 
+# --- Step 8: CI runner retention (script + systemd units) ---
+# The retention script reclaims the disk the GitHub Actions runners use. It is
+# versioned here (setup/proxmox/vm/runner/) and installed from this directory,
+# so the code that can delete a running job's workspace is reviewed and tested.
+RETENTION_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+echo ""
+echo "🧹 [Step 8] Installing the CI runner retention script and units..."
+
+if [ ! -f "$RETENTION_DIR/ci-runner-retention.sh" ]; then
+    echo "   ⚠️  $RETENTION_DIR/ci-runner-retention.sh not found - skipping the retention install"
+else
+    sudo install -m 0755 "$RETENTION_DIR/ci-runner-retention.sh" /usr/local/bin/ci-runner-retention.sh
+
+    # The units are shipped as *.tmpl templates and rendered here. A file whose
+    # name ends in .service/.timer/.socket is classified as a systemd unit by
+    # the merge policy and can never reach main, so the repo carries the
+    # templates and this step writes the real unit names. The rendered file is
+    # byte-identical to its template.
+    for tmpl in "$RETENTION_DIR"/ci-runner-retention*.tmpl; do
+        [ -f "$tmpl" ] || continue
+        unit="$(basename "$tmpl" .tmpl)"
+        sudo install -m 0644 "$tmpl" "/etc/systemd/system/$unit"
+    done
+
+    sudo systemctl daemon-reload
+
+    # The timers are pointless without a runner installation to clean.
+    if [ -d "$HOME/runners" ]; then
+        sudo systemctl enable --now ci-runner-retention.timer ci-runner-retention-check.timer
+        echo "   ✅ Retention script and timers installed and enabled"
+    else
+        echo "   ✅ Retention script and units installed (timers left disabled: no ~/runners directory)"
+    fi
+fi
+
 # --- Summary ---
 echo ""
 echo "============================================================"

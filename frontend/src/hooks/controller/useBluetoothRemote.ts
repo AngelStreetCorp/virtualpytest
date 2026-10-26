@@ -90,6 +90,10 @@ interface UseBluetoothRemoteReturn {
   resume: () => Promise<void>;
   wake: () => Promise<void>;
   coldWake: () => Promise<void>;
+  // True while a bonded remote that was healthy once this session has lost
+  // its link (or HID): the panel keeps the buttons up with a badge — a press
+  // wakes and reconnects on the host in ~2 s. No time limit.
+  reconnecting: boolean;
   getLogs: (lines?: number) => Promise<BluetoothLogs | null>;
   logsSince: string | null;
   clearLogsSince: () => void;
@@ -202,6 +206,10 @@ export const useBluetoothRemote = (
   // Live remaining time in ms — the panel renders this to display a
   // ticking countdown under the "Waking STB…" headline. 0 = not waking.
   const [wakeRemainingMs, setWakeRemainingMs] = useState<number>(0);
+  // Set once the raw status has been fully healthy this session. Link drops
+  // after that (supervision timeouts on a busy onboard radio, often before
+  // HID resolves again) keep the remote mounted instead of unmounting it.
+  const [everHealthy, setEverHealthy] = useState(false);
 
   // Fully-healthy steady state: daemon up, bonded, paired, HID subscribed,
   // and the STB is currently connected. Once we've observed this once, the
@@ -680,6 +688,9 @@ export const useBluetoothRemote = (
   // isWaking=false, leaving the UI stuck on "Waking STB…" forever.
   useEffect(() => {
     if (!status) return;
+    if (status.connected && status.hid_ready && status.bond_present && !everHealthy) {
+      setEverHealthy(true);
+    }
     if (status.connected) {
       // Reconnected: clear the pending timer + state.
       if (wakeTimerRef.current !== null) {
@@ -709,7 +720,14 @@ export const useBluetoothRemote = (
       wakeStartRef.current = null;
       wakeTotalRef.current = 0;
     }, WAKE_WAIT_MS);
-  }, [status, isWaking, wake]);
+  }, [status, isWaking, wake, everHealthy]);
+
+  const reconnecting =
+    everHealthy &&
+    status !== null &&
+    status.daemon_active &&
+    status.bond_present &&
+    !(status.connected && status.hid_ready);
 
   // Cancel the wake + resume timers on unmount so we don't flip state
   // on an unmounted component.
@@ -775,6 +793,7 @@ export const useBluetoothRemote = (
     resume,
     wake,
     coldWake,
+    reconnecting,
     getLogs,
     logsSince,
     clearLogsSince: () => setLogsSince(null),

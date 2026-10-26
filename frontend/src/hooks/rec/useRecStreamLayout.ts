@@ -3,6 +3,7 @@ import { useState, useMemo, useEffect } from 'react';
 import { Device } from '../../types/common/Host_Types';
 import { DEFAULT_DEVICE_RESOLUTION } from '../../config/deviceResolutions';
 import { isMobileModel } from '../../config/layoutConfig';
+import { hasRemoteConfigured } from '../../utils/remoteProfileUtils';
 
 export interface StreamContainerDimensions {
   width: number;
@@ -116,5 +117,20 @@ export const useRecDeviceChecks = (device: Device | undefined) => {
     return capabilities && capabilities.power !== null && capabilities.power !== undefined;
   }, [device?.device_capabilities]);
 
-  return { isDesktopDevice, isMobileModel: isMobile, hasPowerControl };
+  // Can the user take control of this device at all?
+  //
+  // Control opens the Desktop panel (PyAutoGUI/Bash) and Web panel for host_vnc,
+  // and the Remote panel for other devices. A VNC desktop legitimately
+  // publishes remote: null; it uses its desktop capability instead.
+  //
+  // With no remote there is nothing to press: RemotePanel renders its "No
+  // remote configured" empty state, so control would lock the device and hand
+  // the user a dead panel. Disabled upstream instead (see the button in
+  // RecStreamModalHeader).
+  const canTakeControl = useMemo(
+    () => isDesktopDevice || hasRemoteConfigured(device),
+    [isDesktopDevice, device]
+  );
+
+  return { isDesktopDevice, isMobileModel: isMobile, hasPowerControl, canTakeControl };
 };

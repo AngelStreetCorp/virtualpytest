@@ -158,6 +158,36 @@ def wait_for_cdp_port(host: str, port: int, timeout_s: int = 30) -> bool:
     return False
 
 
+def resolve_local_debug_profile_dir(profile_name: str) -> str:
+    """The Chrome profile directory of a local-debug run.
+
+    One directory per profile name, and per RUN when the run has an id: two
+    Chromes can never share a user-data-dir (the second one joins the first
+    through its SingletonLock), so two concurrent runs need two directories
+    (TASK-146).
+    """
+    run_id = (os.environ.get("VPT_RUN_ID") or "").strip()
+    suffix = f"_{run_id}" if run_id else ""
+    return os.path.join(tempfile.gettempdir(), f"virtualpytest_{profile_name}{suffix}")
+
+
+def reserve_cdp_port(debug_port: int) -> int:
+    """The CDP port this run will use.
+
+    The port used to be taken by force: whatever listened on it was killed, so two
+    web runs destroyed each other's browser (BUG-0114). Now a run keeps the port it
+    was given when that port is free, and gets another free one when a concurrent
+    run holds it (TASK-146). The host's own service browser keeps 9222.
+    """
+    from shared.src.lib.utils import browser_port_allocator
+
+    reserved = browser_port_allocator.RESERVED_DEBUG_PORT
+    if debug_port and debug_port != reserved and not browser_port_allocator.is_port_listening(debug_port):
+        browser_port_allocator.reserve_debug_port(debug_port)
+        return debug_port
+    return browser_port_allocator.allocate_run_debug_port()
+
+
 def launch_chrome_for_cdp(
     debug_port: int,
     user_data_dir: str = "",
@@ -171,55 +201,12 @@ def launch_chrome_for_cdp(
         raise RuntimeError("Chrome executable not found")
 
     if not user_data_dir:
-        user_data_dir = os.path.join(tempfile.gettempdir(), f"virtualpytest_{profile_name}")
+        user_data_dir = resolve_local_debug_profile_dir(profile_name)
 
     prepare_persistent_profile(user_data_dir)
 
-    # The CDP port is exclusive — one test browser at a time. If something
-    # already listens here, name it EXPLICITLY before killing it: the elapsed
-    # time tells whether it's a CONCURRENT test's browser (seconds/minutes,
-    # that run will now fail with "browser has been closed") or a browser
-    # LEFT BEHIND by a previous test that did not close cleanly (older).
-    try:
-        if platform.system() != "Windows":
-            # -sTCP:LISTEN: match the browser only, never the Playwright node drivers
-            # connected to it (killing one aborts that run mid-flight, BUG-0114).
-            out = subprocess.run(
-                ["lsof", "-t", "-sTCP:LISTEN", "-i", f":{debug_port}"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if out.returncode == 0 and out.stdout.strip():
-                pids = [p.strip() for p in out.stdout.splitlines() if p.strip()]
-                details = []
-                for pid in pids:
-                    try:
-                        ps = subprocess.run(
-                            ["ps", "-p", pid, "-o", "pid=,etime=,comm="],
-                            capture_output=True,
-                            text=True,
-                            timeout=5,
-                        )
-                        details.append(" ".join((ps.stdout.strip() or pid).split()))
-                    except Exception:
-                        details.append(pid)
-                print(
-                    f"[local_debug_browser_helpers] ⚠️ ANOTHER BROWSER IS ALREADY RUNNING on CDP "
-                    f"port {debug_port} — killing it to keep a single test browser. "
-                    f"Owner (pid elapsed cmd): {'; '.join(details)}. "
-                    "If elapsed is small, a concurrent test owned it and that run will fail with "
-                    "'browser has been closed'; if elapsed is large, the previous test did not "
-                    "close its browser cleanly."
-                )
-                for pid in pids:
-                    try:
-                        os.kill(int(pid), 9)
-                    except Exception:
-                        pass
-                time.sleep(1)
-    except Exception:
-        pass
+    # One CDP port per run, never taken away from another run (TASK-146).
+    debug_port = reserve_cdp_port(debug_port)
 
     window_bounds = detect_primary_display_bounds()
 
@@ -266,7 +253,7 @@ def launch_chrome_for_cdp(
         except Exception:
             pass
         raise RuntimeError(f"Chrome CDP port {debug_port} did not open")
-    return process
+    return process, debug_port
 
 
 async def open_local_debug_playwright_session(
@@ -286,7 +273,7 @@ async def open_local_debug_playwright_session(
     launch_started_at = time.time()
     launch_started_iso = datetime.now(timezone.utc).isoformat()
 
-    launched_process = launch_chrome_for_cdp(
+    launched_process, debug_port = launch_chrome_for_cdp(
         debug_port=debug_port,
         user_data_dir=user_data_dir,
         chrome_executable=chrome_executable,

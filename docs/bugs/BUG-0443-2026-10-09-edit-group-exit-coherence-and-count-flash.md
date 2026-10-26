@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low                                                          |
 | Area      | frontend                                                     |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `2214de994` (merge: `c7139a030`)                             |
 
 ## Symptom

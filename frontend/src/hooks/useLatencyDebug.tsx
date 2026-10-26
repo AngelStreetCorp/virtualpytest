@@ -1,6 +1,7 @@
 import { Box, Typography } from '@mui/material';
 import { useEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { TYPOGRAPHY } from '../constants/typography';
 
 interface LatencyDebugState {
   /** Wall-clock seconds between now and the wall-clock on the last segment the player decoded. */
@@ -125,7 +126,7 @@ export const useLatencyDebug = (
             backgroundColor: 'rgba(0,0,0,0.72)',
             color: 'primary.main',
             fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-            fontSize: 12,
+            fontSize: TYPOGRAPHY.caption.size,
             lineHeight: 1.35,
             pointerEvents: 'none',
             border: '1px solid',

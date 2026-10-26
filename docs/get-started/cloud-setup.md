@@ -1,23 +1,23 @@
-# ☁️ Managed cloud (Vercel + Render) — platform hosted, host local
+# Managed cloud (Vercel + Render): platform hosted, host local
 
-> **Read [Install](install.md) first.** One Docker host on a VPS gets you the same result
-> with far fewer moving parts, and it is the path CI tests on every push. This page is a
-> reference architecture for teams that already want managed services; unlike the Docker
-> path it is **not covered by automated tests**, so treat the versions and plan names here
-> as a starting point rather than a guarantee.
+> **Read [Install](install.md) first.** One Docker host on a server is simpler, and it is the path we test on every push. This page is not covered by automated tests.
 >
-> The device controller **cannot** be hosted: a managed platform gives one container and
-> one port per service, and the controller needs two ports plus access to your hardware.
-> It stays on your own machine — see [Add a machine with devices](add-a-host.md).
+> The device controller must run on your own machine, next to your hardware. See [Add a machine with devices](add-a-host.md).
 
-This guide deploys VirtualPyTest in a hybrid setup:
+<div data-technical>
 
-- **Frontend**: Deployed on Render or Vercel (global CDN)
-- **Backend Server**: Deployed on Render (scalable API)
-- **Backend Host**: Running locally (hardware access required)
-- **Database**: Supabase (managed PostgreSQL)
+Reason: a managed platform gives one container and one port per service, and the controller needs two ports plus access to your hardware.
 
-## 🏗️ Architecture Overview
+</div>
+
+This guide splits the install:
+
+- **Frontend** (web app) on Vercel
+- **Backend Server** on Render
+- **Backend Host** on your own machine
+- **Database** on Supabase
+
+<div data-technical>
 
 ```
 ┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
@@ -41,41 +41,47 @@ This guide deploys VirtualPyTest in a hybrid setup:
                     └─────────────────┘
 ```
 
-## 📋 Prerequisites
+</div>
 
-- **Vercel account** (free tier available)
-- **Render account** (free tier available)  
-- **Supabase project** ([setup guide](./supabase.md))
-- **Local machine** for Backend Host (hardware access)
-- **GitHub repository** with your VirtualPyTest code
+## Prerequisites
 
-## 🚀 Step 1: Deploy Backend Server to Render
+- A **Vercel account**, a **Render account** and a **Supabase project** ([setup guide](./supabase.md))
+- A **local machine** for the Backend Host, with access to your hardware
+- A **GitHub repository** with your VirtualPyTest code
+
+## Step 1: Deploy Backend Server to Render
 
 ### 1.1 Deploy via the Render Blueprint
 
-The repo already ships a Render Blueprint at `backend_server/src/render.yaml` — a **Docker**
-deployment (`env: docker`, `dockerfilePath: ./backend_server/Dockerfile`), not the Python
-buildpack. Use it instead of configuring a Web Service by hand:
+1. Go to the [Render Dashboard](https://dashboard.render.com), click **"New +"**, then **"Blueprint"**.
+2. Connect your GitHub repository and point it at `backend_server/src/render.yaml`.
+3. Do not change the port; Render sets it.
 
-1. Go to [Render Dashboard](https://dashboard.render.com)
-2. Click **"New +"** → **"Blueprint"**
-3. Connect your GitHub repository and point it at `backend_server/src/render.yaml`
-4. Render creates the service with these settings already in the file:
-   - **Name**: `virtualpytest-backend-server`
-   - **Environment**: Docker (`backend_server/Dockerfile`)
-   - **Port**: Render injects the runtime `PORT`; do not set `SERVER_PORT=80` or hardcode
-     `5109` in the container Supervisor configuration. The image binds to `PORT` on Render
-     and falls back to `SERVER_PORT=5109` for local Docker/native installs.
+<div data-technical>
 
-> **Important: image-backed Render services.** If the Render service was created with an
-> image, pushing GitHub does not rebuild it. Publish the image from the public repository
-> first, then update the Render service to the new immutable tag and redeploy. A service can
-> show `RUNNING` while still failing Render's port scan if the image binds only to `5109`.
+Service name: `virtualpytest-backend-server`. Environment: Docker.
 
-### 1.2 Add the Remaining Environment Variables
+The file `backend_server/src/render.yaml` is a **Docker** deployment (`env: docker`, `dockerfilePath: ./backend_server/Dockerfile`), not the Python buildpack.
 
-`render.yaml` only checks in `PYTHONPATH`, `DEBUG`, and `RENDER`. Add the rest in
-the Render dashboard (Environment tab) — they're deliberately not in the committed file:
+Port detail: Render injects the runtime `PORT`. Do not set `SERVER_PORT=80` or hardcode `5109` in the container Supervisor configuration. The image binds to `PORT` on Render and falls back to `SERVER_PORT=5109` for local Docker/native installs.
+
+</div>
+
+> **Important: image-backed Render services.** If the service was made from an image, a GitHub push does not rebuild it. Publish the new image first, then point Render at it and redeploy.
+
+<div data-technical>
+
+Publish the image from the public repository first, then update the Render service to the new immutable tag and redeploy. A service can show `RUNNING` while still failing Render's port scan if the image binds only to `5109`.
+
+</div>
+
+### 1.2 Add the remaining environment variables
+
+Add the other settings in the Render dashboard, under the **Environment** tab.
+
+<div data-technical>
+
+`render.yaml` only checks in `PYTHONPATH`, `DEBUG`, and `RENDER`. The rest is deliberately not in the committed file:
 
 ```bash
 # Database Configuration
@@ -99,16 +105,17 @@ S3_BUCKET=virtualpytest
 GITHUB_TOKEN=your_github_token_if_needed
 ```
 
+</div>
+
 ### 1.3 Deploy
 
-Click **"Apply"** on the Blueprint (or **"Create Web Service"** if you configured it manually).
-Render will:
-- ✅ Build your application
-- ✅ Deploy to a global URL (e.g., `https://virtualpytest-backend-server.onrender.com`)
-- ✅ Provide SSL certificate automatically
-- ✅ Set up auto-deploys from your Git branch
+Click **"Apply"** on the Blueprint. Render builds the server, gives it an address with SSL, and redeploys on each push.
 
-### 1.4 Required image release order
+### 1.4 Release order for new server images
+
+For maintainers publishing new server images. Follow the steps in order.
+
+<div data-technical>
 
 For the public repository and GHCR images, use this order:
 
@@ -122,11 +129,17 @@ For the public repository and GHCR images, use this order:
 
 Do not test an older tag: the self-test must use the exact tag and image being released.
 
-## 🌐 Step 2: Deploy Frontend to Vercel
+</div>
 
-### 2.1 Prepare Frontend for Deployment
+## Step 2: Deploy the frontend to Vercel
 
-First, update your frontend environment configuration. Create `frontend/.env.production`:
+### 2.1 Prepare the frontend
+
+Tell the frontend where the server is.
+
+<div data-technical>
+
+Create `frontend/.env.production`:
 
 ```bash
 # API Endpoints (use your actual backend server URL)
@@ -134,22 +147,28 @@ VITE_SERVER_URL=https://virtualpytest-backend-server.onrender.com
 VITE_DEV_MODE=false
 ```
 
-### 2.2 Create Vercel Project
+</div>
 
-1. Go to [Vercel Dashboard](https://vercel.com/dashboard)
-2. Click **"New Project"**
-3. Import your GitHub repository
-4. Configure the project:
+### 2.2 Create the Vercel project
 
-   - **Framework Preset**: `Vite`
-   - **Root Directory**: `frontend`
-   - **Build Command**: `npm run build`
-   - **Output Directory**: `dist`
-   - **Install Command**: `npm install`
+1. Go to the [Vercel Dashboard](https://vercel.com/dashboard) and click **"New Project"**.
+2. Import your GitHub repository, with the web app in the `frontend` folder.
 
-### 2.3 Configure Environment Variables
+<div data-technical>
 
-In Vercel project settings, add environment variables:
+- **Framework Preset**: `Vite`
+- **Root Directory**: `frontend`
+- **Build Command**: `npm run build`
+- **Output Directory**: `dist`
+- **Install Command**: `npm install`
+
+</div>
+
+### 2.3 Set the environment variables
+
+In the Vercel project settings, add the server's address and the development-mode setting.
+
+<div data-technical>
 
 ```bash
 # API Endpoints
@@ -157,20 +176,19 @@ VITE_SERVER_URL=https://virtualpytest-backend-server.onrender.com
 VITE_DEV_MODE=false
 ```
 
+</div>
+
 ### 2.4 Deploy
 
-Click **"Deploy"**. Vercel will:
-- ✅ Build your React application
-- ✅ Deploy to global CDN
-- ✅ Provide custom domain (e.g., `https://virtualpytest.vercel.app`)
-- ✅ Set up automatic deployments from Git
-- ✅ Create preview deployments for pull requests
+Click **"Deploy"**. Vercel builds the app and gives it an address. Each pull request gets a preview.
 
-## 🏠 Step 3: Set Up Backend Host
+## Step 3: Set up the Backend Host
 
-The Backend Host can run locally (for hardware access) or on cloud runners (for testing).
+The Backend Host runs on your own machine, where your devices are. Install it directly, or in Docker.
 
-### 3.1 Option A: Local Installation (Hardware Access)
+### 3.1 Option A: local installation (hardware access)
+
+<div data-technical>
 
 ```bash
 # Clone repository (if not already done)
@@ -181,36 +199,43 @@ cd virtualpytest
 ./setup/local/linux/backend_host/install_host.sh
 ```
 
-### 3.2 Option B: Docker Deployment (Local or Cloud)
+</div>
 
-#### **Local Docker Deployment (host only, connects to your cloud backend server)**
+### 3.2 Option B: Docker (local or cloud)
+
+#### Local Docker deployment (host only, connects to your cloud backend server)
+
+<div data-technical>
+
 ```bash
 ./setup/docker/install_docker.sh
 # from the repo root
 ./launch.sh
 ```
+
 See `setup/docker/docker-compose.host.yml` for `.env` setup — set `SERVER_URL` to your Render backend
 server's URL, and note the `host.docker.internal` caveat there if the server ever runs on the
 same machine. (`setup/docker/` is the *full* local stack — Postgres,
 server, frontend, Grafana — not what you want here since the server's already on Render.)
 
-#### **Cloud Runner Docker Deployment**
+</div>
 
-**For Render (Docker Environment):**
+#### Cloud runner Docker deployment
 
-1. **Create Docker Web Service** on Render dashboard
-2. **Configure Service Settings**:
-   - **Environment**: Select **"Docker"** 
-   - **Root Directory**: Leave **EMPTY**
-   - **Dockerfile Path**: `backend_host/Dockerfile`
-   - **Port**: 6109
+To run the host as a cloud service, create a Docker web service on Render.
 
-3. **Configuration**:
-   - Configure your `backend_host/src/.env` file before building
-   - For minimal config: Use default .env (VNC only)
-   - For full config: Add DEVICE* variables to .env file
+1. Create a Docker web service on the Render dashboard.
+2. Set up the host's settings before you build.
 
-**Example .env for cloud deployment:**
+<div data-technical>
+
+- **Environment**: Docker
+- **Root directory**: leave it empty
+- **Dockerfile path**: `backend_host/Dockerfile`
+- **Port**: 6109
+
+Example `.env` for cloud deployment:
+
 ```bash
 # Host Configuration
 HOST_NAME=render-host-1
@@ -224,18 +249,24 @@ DEBUG=0
 # DEVICE1_VIDEO_CAPTURE_PATH=/var/www/html/stream/capture1
 ```
 
-**For AWS/GCP/Azure:**
+For AWS, GCP or Azure, build and run the container yourself:
+
 ```bash
 # Build and deploy container
 docker build -f backend_host/Dockerfile -t virtualpytest/backend_host .
 docker run -d -p 6109:6109 -p 6080:6080 virtualpytest/backend_host
 ```
 
-### 3.3 Configure Backend Host
+</div>
 
-Create `backend_host/src/.env`:
+### 3.3 Configure the Backend Host
 
-#### **Minimal Configuration (VNC Only)**
+Create the host's settings file, `backend_host/src/.env`. Use the minimal setup for remote desktop only, or the full setup if you have cameras.
+
+#### Minimal configuration (remote desktop only)
+
+<div data-technical>
+
 ```bash
 # Host Configuration
 HOST_NAME=my-host
@@ -247,7 +278,12 @@ SUPABASE_URL=your_supabase_project_url
 SUPABASE_ANON_KEY=your_supabase_anon_key
 ```
 
-#### **Full Configuration (VNC + Video + Monitor)**
+</div>
+
+#### Full configuration (remote desktop, video and monitor)
+
+<div data-technical>
+
 ```bash
 # Host Configuration
 HOST_NAME=my-host
@@ -278,13 +314,26 @@ CLOUDFLARE_R2_SECRET_ACCESS_KEY=your_secret_key
 # models and API keys are set in the web app under Settings → AI.
 ```
 
+</div>
+
+The host starts the services your settings call for.
+
+<div data-technical>
+
 **Note**: Backend Host automatically detects which services to start based on your configuration:
 - **No DEVICE variables**: Only VNC services (minimal)
 - **With DEVICE variables**: VNC + Video capture + Monitor services
 
-### 3.4 Launch Backend Host
+</div>
 
-#### **Local Launch**
+### 3.4 Launch the Backend Host
+
+Start the host with the launch script.
+
+<div data-technical>
+
+Local launch:
+
 ```bash
 # Launch only the host service
 ./setup/local/linux/backend_host/launch_host.sh
@@ -294,25 +343,28 @@ source venv/bin/activate
 python backend_host/src/app.py
 ```
 
-#### **Docker Launch**
-```bash
-# from the repo root
-./launch.sh
-```
+Docker launch: `./launch.sh` from the repo root.
 
-### 3.5 Access Backend Host Services
+</div>
 
-Once running, you can access:
+### 3.5 Check the host is running
+
+<div data-technical>
 
 - **API Endpoints**: `http://localhost:6109/host/*`
 - **NoVNC Web Desktop**: `http://localhost:6080` (virtual desktop access)
 - **Health Check**: `http://localhost:6109/host/health`
 
-### 3.6 Expose Host to Internet (Optional)
+</div>
 
-If you need to access the Backend Host from outside your local network:
+### 3.6 Reach the host from the internet (optional)
 
-#### Option A: ngrok (Recommended for testing)
+Do this only if you need to reach the host from outside your network.
+
+#### Option A: ngrok (recommended for testing)
+
+<div data-technical>
+
 ```bash
 # Install ngrok
 npm install -g ngrok
@@ -327,19 +379,33 @@ Update your frontend environment with the ngrok URL:
 VITE_SERVER_URL=https://your-ngrok-url.ngrok.io
 ```
 
-#### Option B: Port Forwarding
+</div>
+
+#### Option B: port forwarding
+
+Forward the host's ports on your router, then point the frontend at your public address.
+
+<div data-technical>
+
 Configure your router to forward ports 6109 and 6080 to your local machine:
 ```bash
 VITE_SERVER_URL=http://your-public-ip:6109
 # NoVNC available at: http://your-public-ip:6080
 ```
 
-#### Option C: Cloud Deployment (Render)
-Deploy Backend Host directly to Render using Docker (see Step 3.2 above)
+</div>
 
-## 🔧 Step 4: Configure Cross-Service Communication
+#### Option C: cloud deployment (Render)
 
-### 4.0 Supabase, Redis, and S3-compatible storage
+Run the host on Render with Docker, as described in step 3.2.
+
+## Step 4: Connect the services to each other
+
+### 4.0 Supabase, Redis and file storage
+
+Supabase provides the database, login and file storage. Add Redis as a separate service.
+
+<div data-technical>
 
 For a managed starter deployment, Supabase supplies PostgreSQL, authentication, and Storage.
 Use its S3-compatible Storage endpoint for artifacts, or substitute Cloudflare R2 or another
@@ -358,7 +424,15 @@ not apply every file in `setup/db/migrations/` to a fresh database; those files 
 already-created schema. Confirm RLS is enabled and the `anon` role has no direct application
 table grants before putting the backend online.
 
-### 4.1 Redirect a local or Pi host to Render
+</div>
+
+Set up a new database with the schema script only. Check that row-level security is on before going online.
+
+### 4.1 Point a local or Pi host at Render
+
+The host stays on the machine with the devices. Point it at the online server with the same API key. Switch only after the server's health check answers.
+
+<div data-technical>
 
 The host must remain on the machine with the devices. Set its native or Docker host
 environment to the public backend URL and the same API key used by the server:
@@ -386,7 +460,13 @@ ssh proxmox 'ssh vpt-pi4 "sudo systemctl restart vpt-host.service"'
 
 Do not redirect the host until the Render backend health endpoint returns successfully.
 
+</div>
+
 ### 4.2 CORS: only needed if the frontend calls Render directly
+
+If the web app and the server have different addresses, the server must allow the web app's address.
+
+<div data-technical>
 
 `shared/src/lib/utils/app_utils.py` already calls `CORS(app, origins=..., supports_credentials=True)`
 for you — you don't add the call, you set which origins are allowed. `CORS_ALLOWED_ORIGINS`
@@ -404,82 +484,95 @@ Whether you need to set it depends on how `VITE_SERVER_URL` is configured:
 CORS_ALLOWED_ORIGINS=https://virtualpytest.vercel.app,http://localhost:5073
 ```
 
-### 4.3 Frontend API Endpoint
+</div>
+
+### 4.3 Frontend API endpoint
+
+If requests go to the wrong address, check where the web app reads the server address.
+
+<div data-technical>
 
 `VITE_SERVER_URL` is read in `frontend/src/utils/buildUrlUtils.ts`, not a dedicated
 `apiClient.ts` — that's where to look if a request is going to the wrong URL.
 
-## 🔄 Step 5: Set Up Continuous Deployment
+</div>
 
-### 5.1 Automatic Deployments
+## Step 5: Set up continuous deployment
 
-Both Vercel and Render automatically deploy when you push to your connected Git branch:
+### 5.1 Automatic deployments
+
+Vercel and Render redeploy when you push to the connected branch.
+
+<div data-technical>
 
 - The committed `backend_server/src/render.yaml` tracks `main` on
   `github.com/AngelStreetCorp/virtualpytest`. Point `repo` and `branch` at your own fork if
   you deploy from one
 - **Pull requests** → Preview deployments (Vercel)
 
-### 5.2 Environment-Specific Configurations
+</div>
 
-Create branch-specific environment variables:
+### 5.2 Settings per environment
 
-#### Production Branch (`main`)
+Use one server address for production and another for testing.
+
+<div data-technical>
+
+Production branch (`main`):
+
 ```bash
 VITE_SERVER_URL=https://your-production-server.com
 VITE_DEV_MODE=false
 ```
 
-#### Staging Branch (`dev`)  
+Staging branch (`dev`):
+
 ```bash
 VITE_SERVER_URL=https://your-staging-server.com
 VITE_DEV_MODE=true
 ```
 
-## 📊 Step 6: Monitoring and Maintenance
+</div>
 
-### 6.1 Service Health Checks
+## Step 6: Monitoring and maintenance
 
-Monitor your deployments:
+Check each service in its own dashboard: Render, Vercel and Supabase.
 
-- **Render**: Built-in health checks and logs
-- **Vercel**: Analytics and function logs
-- **Supabase**: Database metrics and logs
+<div data-technical>
 
-### 6.2 Scaling Considerations
+- **Scaling**: Render scales up and down with traffic. Vercel edge functions scale on their own. Run more than one local host if you need a backup.
 
-- **Render**: Automatically scales based on traffic
-- **Vercel**: Edge functions scale automatically  
-- **Backend Host**: Consider multiple local instances for redundancy
+</div>
 
-## 🔍 Troubleshooting
+## Troubleshooting
 
-### Common Issues
+### Common issues
 
-#### CORS Errors
-- Verify CORS origins in backend server
-- Check environment variable URLs
-- Ensure HTTPS/HTTP protocol matching
+#### CORS errors
 
-#### Database Connection Issues
-- Verify Supabase URLs and keys
-- Check IP allowlists in Supabase
-- Test connection from each service
+- Check the allowed origins on the backend server.
+- Use the same protocol for both addresses (both `https`, or both `http`).
 
-#### Local Host Connectivity
-- Ensure Backend Host is running locally
-- Check firewall settings
-- Verify port forwarding if needed
+#### Database connection problems
 
-### Health Check URLs
+- Check the Supabase addresses and keys, and the IP allow lists in Supabase.
 
-Test your deployments:
+#### The local host is unreachable
+
+- Make sure the Backend Host is running on your machine.
+- Check your firewall, and your port forwarding if you use it.
+
+### Health check addresses
+
+Test each part once it is up:
+
+<div data-technical>
 
 ```bash
 # Backend Server (Render)
 curl https://virtualpytest-backend-server.onrender.com/server/health
 
-# Frontend (Vercel)  
+# Frontend (Vercel)
 curl https://virtualpytest.vercel.app
 
 # Backend Host (Local)
@@ -489,29 +582,36 @@ curl http://localhost:6109/host/health
 curl http://localhost:6080
 ```
 
-## 🎯 Production Checklist
+</div>
 
-Before going live:
+## Production checklist
 
-- [ ] All environment variables configured
-- [ ] CORS properly set up
-- [ ] Database schemas applied
-- [ ] SSL certificates active (automatic)
-- [ ] Health checks passing
-- [ ] Monitoring set up
-- [ ] Backup strategy in place
-- [ ] Local host service running reliably
+Before you go live:
 
-## 🔗 Next Steps
+- [ ] All environment variables are set
+- [ ] CORS is set up
+- [ ] Database schemas are applied
+- [ ] SSL certificates are active (automatic)
+- [ ] Health checks pass
+- [ ] Monitoring is set up
+- [ ] A backup plan is in place
+- [ ] The local host runs reliably
 
-1. **Custom Domain**: Set up custom domains in Vercel/Render
-2. **Monitoring**: Add application monitoring (Sentry, LogRocket)
-3. **CI/CD**: Set up testing pipelines
-4. **Scaling**: Configure auto-scaling rules
-5. **Security**: Review security settings and access controls
+## Next steps
 
-## 🔗 Related Guides
+Add a custom domain, monitoring, CI/CD, scaling and security reviews as needed.
+
+<div data-technical>
+
+1. **Custom domain**: set up a custom domain in Vercel or Render
+2. **Monitoring**: add application monitoring (Sentry, LogRocket)
+3. **CI/CD**: set up testing pipelines
+4. **Scaling**: set up auto-scaling rules
+5. **Security**: review security settings and access controls
+
+</div>
+
+## Related guides
 
 - [Supabase and authentication](./supabase.md)
 - [Developer setup](./local-dev.md)
-- Architecture Overview

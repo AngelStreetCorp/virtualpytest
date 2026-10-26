@@ -1,6 +1,8 @@
 import { OpenInNew as OpenInNewIcon } from '@mui/icons-material';
 import { Box, Link, Typography } from '@mui/material';
 import React from 'react';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export interface LocalizeCheck {
   verdict: 'true' | 'false' | 'unknown';
@@ -24,6 +26,7 @@ export interface LocalizeCheck {
  * intentionally NOT surfaced — the user captured a screenshot, they only need "match or not".
  */
 export const LocalizeCheckFooter: React.FC<{ check?: LocalizeCheck | null }> = ({ check }) => {
+  const P = useAgentChatPalette();
   if (!check) return null;
 
   const isOn = check.verdict === 'true';
@@ -34,14 +37,15 @@ export const LocalizeCheckFooter: React.FC<{ check?: LocalizeCheck | null }> = (
       sx={{
         p: 1,
         mt: 1,
-        bgcolor: isOn ? 'success.light' : 'error.light',
+        bgcolor: isOn ? `${P.success}1f` : `${P.error}1f`,
+        color: P.textPrimary,
         borderRadius: 1,
-        border: '1px solid rgba(0, 0, 0, 0.12)',
+        border: `1px solid ${isOn ? P.success : P.error}`,
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
         <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block', lineHeight: 1.3 }}>
-          {isOn ? `Localize ✓ Success — ${conf}` : 'Localize ✗ Failed'}
+          {isOn ? `Localize Success — ${conf}` : 'Localize Failed'}
         </Typography>
         {check.frame_url && (
           <Link
@@ -53,14 +57,14 @@ export const LocalizeCheckFooter: React.FC<{ check?: LocalizeCheck | null }> = (
               display: 'inline-flex',
               alignItems: 'center',
               gap: 0.25,
-              fontSize: '0.7rem',
+              fontSize: TYPOGRAPHY.caption.size,
               fontWeight: 500,
               color: 'inherit',
               flexShrink: 0,
             }}
           >
             View frame
-            <OpenInNewIcon sx={{ fontSize: '0.85rem' }} />
+            <OpenInNewIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
           </Link>
         )}
       </Box>

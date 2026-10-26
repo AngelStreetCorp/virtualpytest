@@ -148,6 +148,30 @@ export const useGlobalFocusNodes = (userInterfaceId: string | null | undefined) 
     return out;
   }, [hierarchy, groupLabelFor]);
 
+  // Deep-link lookup list: the focus nodes plus nodes that exist ONLY as a parent-reference copy
+  // inside a subtree (their owning row is missing from every tree), so `?node=<id>` still
+  // resolves for them. Owners always win over reference copies.
+  const deepLinkNodes = useMemo<GlobalFocusNode[]>(() => {
+    const seen = new Set(globalFocusNodes.map((n) => n.nodeId));
+    const extra: GlobalFocusNode[] = [];
+    hierarchy.forEach((tree) => {
+      (tree.nodes || []).forEach((node) => {
+        if (!node?.data?.isParentReference || isEntryNode(node) || seen.has(node.node_id)) return;
+        seen.add(node.node_id);
+        extra.push({
+          value: `${tree.tree_id}${VALUE_SEP}${node.node_id}`,
+          nodeId: node.node_id,
+          treeId: tree.tree_id,
+          label: node.label || node.node_id,
+          groupLabel: groupLabelFor(tree),
+          isRoot: tree.tree_info.is_root_tree,
+          depth: tree.tree_info.tree_depth,
+        });
+      });
+    });
+    return [...globalFocusNodes, ...extra];
+  }, [hierarchy, globalFocusNodes, groupLabelFor]);
+
   // Composite value for the dropdown, reflecting the currently focused node in
   // whatever tree is displayed.
   const focusSelectValue = useMemo(() => {
@@ -257,5 +281,5 @@ export const useGlobalFocusNodes = (userInterfaceId: string | null | undefined) 
     [actualTreeId, navigateToTree, navigation],
   );
 
-  return { globalFocusNodes, focusSelectValue, selectFocusNode };
+  return { globalFocusNodes, deepLinkNodes, focusSelectValue, selectFocusNode };
 };

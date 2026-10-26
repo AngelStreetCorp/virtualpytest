@@ -10,25 +10,28 @@ import {
   CircularProgress,
 } from '@mui/material';
 import React, { Suspense } from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, useParams } from 'react-router-dom';
 
 import { QualityTabRedirect, RunManagementTabRedirect } from './components/reports/TabRedirects';
 
 // Import navigation components (keep these as regular imports since they're always needed)
 import Footer from './components/common/Footer';
+import NotificationBell from './components/notifications/NotificationBell';
+import NotificationDigest from './components/notifications/NotificationDigest';
 import NavigationBar from './components/common/Navigation_Bar';
 import { NavbarInteractionTheme } from './components/common/NavbarInteractionTheme';
-import { ServerSelector } from './components/common/ServerSelector';
 import { MobileServerBar } from './components/common/MobileServerBar';
 import { MobileHeaderSlotProvider } from './contexts/MobileHeaderSlotProvider';
 import ThemeToggle from './components/common/ThemeToggle';
 
 import { HostManagerProvider } from './contexts/HostManagerProvider';
+import RunFinishedNotifier from './components/settings/RunFinishedNotifier';
 import { RunExecutionsProvider } from './contexts/RunExecutionsContext';
 import { ServerManagerProvider } from './contexts/ServerManagerProvider';
 import { ToastProvider } from './contexts/ToastContext';
 import { BuilderProvider } from './contexts/builder/BuilderContext';
 import { useAgentChatPalette } from './constants/agentChatTheme';
+import { TYPOGRAPHY } from './constants/typography';
 
 // Auth components and providers
 import { AuthProvider } from './contexts/auth/AuthContext';
@@ -42,10 +45,15 @@ import { BrandingProvider, useBranding } from './contexts/BrandingContext';
 import MobileRunNavTabs from './components/mobile/MobileTopBar';
 import MobileBottomNav from './components/mobile/MobileBottomNav';
 import { RouteErrorBoundary } from './components/common/RouteErrorBoundary';
-import { featureRoutes, matchesFeatureRoute } from './config/features';
+import { AiSettingsRedirect } from './components/common/AiSettingsRedirect';
+import { featureAppOverlays, featureRoutes, matchesFeatureRoute } from './config/features';
 
 // Lazy load all pages for better performance and to avoid loading everything at once
 const Dashboard = React.lazy(() => import('./pages/Dashboard'));
+const CustomPages = React.lazy(() => import('./pages/CustomPages'));
+const CustomPage = React.lazy(() => import('./pages/CustomPage'));
+const Projects = React.lazy(() => import('./pages/Projects'));
+const ProjectDetail = React.lazy(() => import('./pages/ProjectDetail'));
 const Rec = React.lazy(() => import('./pages/Rec'));
 const Documentation = React.lazy(() => import('./pages/Documentation'));
 const CampaignEditor = React.lazy(() => import('./pages/CampaignEditor'));
@@ -74,6 +82,7 @@ const ShareRun = React.lazy(() => import('./pages/ShareRun'));
 const MonitoringAnalytics = React.lazy(() => import('./pages/MonitoringAnalytics'));
 const MonitoringIncidents = React.lazy(() => import('./pages/MonitoringIncidents'));
 const Heatmap = React.lazy(() => import('./pages/Heatmap'));
+const Timeline = React.lazy(() => import('./pages/Timeline'));
 const UserInterface = React.lazy(() => import('./pages/UserInterface'));
 const UserInterfaceReferences = React.lazy(() => import('./pages/UserInterfaceReferences'));
 const UserInterfaceUnknown = React.lazy(() => import('./pages/UserInterfaceUnknown'));
@@ -83,18 +92,18 @@ const NavigationEditor = React.lazy(() => import('./pages/NavigationEditor'));
 const RemoteTestPage = React.lazy(() => import('./pages/RemoteTestPage'));
 const AIQueueMonitor = React.lazy(() => import('./pages/AIQueueMonitor'));
 const MonitoringAiUsage = React.lazy(() => import('./pages/MonitoringAiUsage'));
+const LocalizeMonitoring = React.lazy(() => import('./pages/LocalizeMonitoring'));
 const HLSDebugPage = React.lazy(() => import('./pages/HLSDebugPage'));
-const OpenRouterDebug = React.lazy(() => import('./pages/OpenRouterDebug'));
 const FullscreenPlayer = React.lazy(() => import('./pages/FullscreenPlayer'));
+const LolReplay = React.lazy(() => import('./pages/LolReplay'));
 const Settings = React.lazy(() => import('./pages/Settings'));
-const CodeDeployment = React.lazy(() => import('./pages/CodeDeployment'));
+const PlatformUpdate = React.lazy(() => import('./pages/PlatformUpdate'));
 const RunCommand = React.lazy(() => import('./pages/RunCommand'));
 
 const GrafanaRedirect = React.lazy(() => import('./pages/GrafanaRedirect'));
-const ApiDocumentation = React.lazy(() => import('./pages/ApiDocumentation'));
-const SecurityReports = React.lazy(() => import('./pages/SecurityReports'));
 const UserApiWorkspaces = React.lazy(() => import('./pages/UserApiWorkspaces'));
 const UserApiWorkspaceDetail = React.lazy(() => import('./pages/UserApiWorkspaceDetail'));
+const Integrations = React.lazy(() => import('./pages/Integrations'));
 const JiraIntegration = React.lazy(() => import('./pages/JiraIntegration'));
 const TestRailIntegration = React.lazy(() => import('./pages/TestRailIntegration'));
 const Teams = React.lazy(() => import('./pages/Teams'));
@@ -106,7 +115,14 @@ const DeviceInfoOverrides = React.lazy(() => import('./pages/DeviceInfoOverrides
 const AgentChat = React.lazy(() => import('./pages/AgentChat'));
 const AgentDashboard = React.lazy(() => import('./pages/AgentDashboard'));
 const Status = React.lazy(() => import('./pages/Status'));
+const Notifications = React.lazy(() => import('./pages/Notifications'));
 const Logs = React.lazy(() => import('./pages/Logs'));
+
+/** The old manager view lives in the project page's Overview now. */
+const ProjectExecutiveRedirect: React.FC = () => {
+  const { id } = useParams<{ id: string }>();
+  return <Navigate to={`/projects/${id}?tab=overview`} replace />;
+};
 
 const isRunTestsPath = (pathname: string) =>
   pathname.startsWith('/run/tests') ||
@@ -200,7 +216,7 @@ const NotFound: React.FC = () => {
       <Typography
         variant="h1"
         component="h1"
-        sx={{ fontSize: '6rem', fontWeight: 'bold', color: 'error.main' }}
+        sx={{ fontSize: TYPOGRAPHY.displayKpi.size, fontWeight: 'bold', color: 'error.main' }}
       >
         404
       </Typography>
@@ -411,13 +427,10 @@ const AppHeader: React.FC = () => {
           ) : (
             <Science sx={{ mr: 1 }} />
           )}
-          <Typography variant="h6" component="div" sx={{ mr: 1 }}>
+          <Typography variant="h6" component="div" sx={{ mr: 1, fontSize: TYPOGRAPHY.pageSubtitle.size, fontWeight: TYPOGRAPHY.pageSubtitle.weight }}>
             {branding.name}
           </Typography>
-          <ServerSelector size="small" minWidth={140} />
-          <Box sx={{ ml: 1 }}>
-            <WorkspaceSwitcher size="small" minWidth={140} />
-          </Box>
+          <ScopePicker />
         </Box>
 
         <Box sx={{ display: 'flex', alignItems: 'stretch', alignSelf: 'stretch', minWidth: 0, flex: 1, ml: 2, mr: 2 }}>
@@ -427,6 +440,9 @@ const AppHeader: React.FC = () => {
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }}>
           {/* Mods (TASK-77): e.g. Online Users' "N online" chip */}
           <ModSlot name="app.header" props={{}} />
+          <NotificationBell />
+          {/* TASK-166: the 24 h digest — one small pill per session, top right. Renders nothing itself. */}
+          <NotificationDigest />
           <UserMenu />
         </Box>
       </Toolbar>
@@ -450,9 +466,8 @@ const ResponsiveFooter: React.FC = () => {
   const location = useLocation();
   const { isMobile } = useResponsiveMode();
   const isAuthPage = location.pathname === '/login' || location.pathname === '/auth/callback';
-  const isApiDocsPage = location.pathname === '/docs/api';
 
-  if (isMobile || isAuthPage || isApiDocsPage || isShareSnapshotPath(location.pathname)) {
+  if (isMobile || isAuthPage || isShareSnapshotPath(location.pathname)) {
     return null;
   }
 
@@ -460,8 +475,11 @@ const ResponsiveFooter: React.FC = () => {
 };
 
 import { WorkspaceProvider } from './contexts/workspace/WorkspaceContext';
-import WorkspaceSwitcher from './components/common/WorkspaceSwitcher';
+import { MaintenanceProvider } from './hooks/platformUpdate/MaintenanceProvider';
+import MaintenanceBanner from './components/common/MaintenanceBanner';
+import ScopePicker from './components/common/ScopePicker';
 import { AIProvider } from './contexts/AIContext';
+import { VoiceProvider } from './contexts/VoiceContext';
 import { AgentChatProvider } from './contexts/AgentChatContext';
 import { AgentActivityProvider } from './contexts/AgentActivityContext';
 import { SocketProvider } from './contexts/SocketContext';
@@ -515,10 +533,15 @@ const App: React.FC = () => {
                     <SocketProvider>
                       <AgentChatProvider>
                       <AIProvider>
+                      <VoiceProvider>
                         <AgentActivityProvider>
                     <AIOrchestratorWrapper />
+                    <RunFinishedNotifier />
                     <BrandingTitle />
+                    {/* Components optional features mount once for the app (e.g. a dialog opened from a nav action) */}
+                    {featureAppOverlays().map((Overlay, index) => <Overlay key={index} />)}
                     <MobileHeaderSlotProvider>
+                    <MaintenanceProvider>
                     <ModsProvider>
                     <Box sx={{ height: ['100vh', '100dvh'], display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
                       {/* Split view's second page runs this app in a frame: page only, no chrome (TASK-77). */}
@@ -527,6 +550,7 @@ const App: React.FC = () => {
                           <NavbarInteractionTheme>
                             <AppHeader />
                           </NavbarInteractionTheme>
+                          <MaintenanceBanner />
                           {/* Mods (TASK-77): a band under the top bar, a right pane, a floating layer */}
                           <ModSlot name="app.band" props={{}} />
                           <ModPaneDrawer />
@@ -539,7 +563,7 @@ const App: React.FC = () => {
                       <AgentActivityBridge />
 
                       {/* Row: the page, and beside it whatever a mod puts in app.side (split view) */}
-                      <Box sx={{ flex: 1, display: 'flex', minHeight: 0 }}>
+                      <Box sx={{ flex: 1, display: 'flex', minHeight: 0, overflow: 'hidden' }}>
                       <Box sx={{ flex: 1, minWidth: 0, overflowY: 'auto', overflowX: 'hidden', scrollbarGutter: isMobile ? 'auto' : 'stable', display: 'flex', flexDirection: 'column' }}>
                       <ConditionalContainer>
                         <RouteErrorBoundary>
@@ -559,7 +583,13 @@ const App: React.FC = () => {
 
                   {/* All other routes require authentication, plus the page's permission (PAGE_PERMISSIONS) */}
                   <Route element={<ProtectedRoute />}>
+                    <Route path="/lol-replay" element={<LolReplay />} />
                     <Route path="/" element={<Dashboard />} />
+
+                  {/* Projects - TASK-65 G3 */}
+                  <Route path="/projects" element={<Projects />} />
+                  <Route path="/projects/:id" element={<RunExecutionsProvider><ProjectDetail /></RunExecutionsProvider>} />
+                  <Route path="/projects/:id/executive-summary" element={<ProjectExecutiveRedirect />} />
 
                   {/* Device Control Page */}
                   <Route path="/device-control" element={<Rec />} />
@@ -570,6 +600,8 @@ const App: React.FC = () => {
                   
                   {/* Agent Dashboard - Multi-agent control panel */}
                   <Route path="/agent-dashboard" element={<AgentDashboard />} />
+                  <Route path="/pages" element={<CustomPages />} />
+                  <Route path="/pages/:id" element={<CustomPage />} />
 
                   {/* Builder Routes */}
                   <Route path="/builder/test-builder" element={<TestCaseBuilder />} />
@@ -601,8 +633,11 @@ const App: React.FC = () => {
                   <Route path="/monitoring/analytics" element={<MonitoringAnalytics />} />
                   <Route path="/monitoring/incidents" element={<MonitoringIncidents />} />
                   <Route path="/monitoring/heatmap" element={<Heatmap />} />
+                  <Route path="/monitoring/timeline" element={<Timeline />} />
                   <Route path="/monitoring/ai-queue" element={<AIQueueMonitor />} />
                   <Route path="/monitoring/ai-usage" element={<MonitoringAiUsage />} />
+                  <Route path="/monitoring/localize" element={<LocalizeMonitoring />} />
+                  <Route path="/monitoring/localize-coverage" element={<Navigate to="/monitoring/localize?tab=coverage" replace />} />
 
                   {/* Test Results Routes */}
                   <Route path="/test-results/reports" element={<TestReports />} />
@@ -627,6 +662,7 @@ const App: React.FC = () => {
 
                   {/* System Status Page */}
                   <Route path="/status" element={<Status />} />
+                  <Route path="/notifications" element={<Notifications />} />
 
                   {/* Grafana Dashboard Route */}
                   <Route path="/grafana-dashboard" element={<GrafanaDashboard />} />
@@ -642,14 +678,11 @@ const App: React.FC = () => {
                   <Route path="/api/workspace/:workspaceId" element={<UserApiWorkspaceDetail />} />
                   
                   {/* Documentation Routes */}
-                  <Route path="/docs/api" element={<ApiDocumentation />} />
-                  <Route path="/docs/security" element={<SecurityReports />} />
-                  <Route path="/docs/:section/:subsection/:category/:page" element={<Documentation />} />
-                  <Route path="/docs/:section/:subsection/:page" element={<Documentation />} />
-                  <Route path="/docs/:section/:page" element={<Documentation />} />
-                  <Route path="/docs/:section" element={<Documentation />} />
+                  {/* One route for every docs page: the page shell stays mounted while the reader changes. */}
+                  <Route path="/docs/*" element={<Documentation />} />
 
                   {/* Integrations Routes */}
+                  <Route path="/integrations" element={<Integrations />} />
                   <Route path="/integrations/jira" element={<JiraIntegration />} />
                   <Route path="/integrations/testrail" element={<TestRailIntegration />} />
 
@@ -679,7 +712,8 @@ const App: React.FC = () => {
                   <Route path="/configuration/models" element={<Models />} />
                   <Route path="/configuration/logs" element={<Logs />} />
                   <Route path="/configuration/settings" element={<Settings />} />
-                  <Route path="/configuration/code-deployment" element={<CodeDeployment />} />
+                  <Route path="/configuration/platform-update" element={<PlatformUpdate />} />
+                  <Route path="/configuration/code-deployment" element={<Navigate to="/configuration/platform-update" replace />} />
                   <Route path="/configuration/run-command" element={<RunCommand />} />
 
                   {/* Regular configuration routes */}
@@ -693,7 +727,12 @@ const App: React.FC = () => {
                     path="/configuration/interface/:name/unknown"
                     element={<UserInterfaceUnknown />}
                   />
-                  <Route path="/configuration/openrouter" element={<OpenRouterDebug />} />
+                  {/* TASK-115: matcher history — recent runs / uncertain / transitions */}
+                  <Route path="/match-runs" element={<Navigate to="/monitoring/localize" replace />} />
+                  {/* The OpenRouter debug page was retired with the AI unification: its
+                      backend route is gone (8b4dce04b). The tool lives in Settings -> AI,
+                      where an endpoint is tested against a model (BUG-0797). */}
+                  <Route path="/configuration/openrouter" element={<AiSettingsRedirect />} />
                   {/* CI/CD Reports moved into the optional `cicd` feature
                       (Test -> Report). Keep the old Settings path working for
                       bookmarks; with the feature disabled the target 404s like any
@@ -729,15 +768,20 @@ const App: React.FC = () => {
                         </RouteErrorBoundary>
             </ConditionalContainer>
 
-            {!isEmbedded && <ResponsiveFooter />}
             </Box>
             {!isEmbedded && <ModSlot name="app.side" props={{}} />}
             </Box>
+            {/* Footer is shared across the main + app.side row, so it sits at the
+                bottom of the page and spans both panes (left main page, right
+                split view) — not duplicated in each. */}
+            {!isEmbedded && <ResponsiveFooter />}
             {!isEmbedded && <MobileBottomNav />}
             </Box>
                     </ModsProvider>
+                    </MaintenanceProvider>
                     </MobileHeaderSlotProvider>
                       </AgentActivityProvider>
+                      </VoiceProvider>
                     </AIProvider>
                       </AgentChatProvider>
                   </SocketProvider>

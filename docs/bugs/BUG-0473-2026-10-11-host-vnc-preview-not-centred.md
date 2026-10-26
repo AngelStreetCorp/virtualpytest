@@ -8,7 +8,7 @@
 | Severity  | Medium (host_vnc previews look broken; render sits off-centre with dead space) |
 | Area      | `frontend/src/components/rec/RecHostPreview.tsx`             |
 | Affected  | Every `host_vnc` device tile on `/device-control`            |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | _pending_                                                    |
 
 ## Symptom

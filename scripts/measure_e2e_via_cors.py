@@ -17,13 +17,18 @@ Setup (the user pointed out TESTING.md which I missed):
      wall / hls / target / stalls in real time
 """
 import json
+import os
 import statistics
 import sys
 import time
 from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright
 
-AUTO_SIGN = "1f36fe19e305f9b83fd97596296e2dfaa17f982b04407f2ba31f96777cad4f47"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _auto_sign import auto_sign_token, redact
+
+# The auto-sign token is a team-admin credential: read it at runtime, never store it.
+AUTO_SIGN = auto_sign_token()
 BASE = "http://127.0.0.1:5073"
 LANDING = f"{BASE}/?auto_signed={AUTO_SIGN}&latency_debug=1"
 DEVICE_URL = f"{BASE}/device-control?host=vpt-pi3&device=device1&latency_debug=1"
@@ -35,11 +40,11 @@ def main():
         ctx = browser.new_context(viewport={"width": 1400, "height": 900}, ignore_https_errors=True)
         page = ctx.new_page()
 
-        page.on("pageerror", lambda e: print(f"  [pageerror] {e}", file=sys.stderr))
-        page.on("console", lambda m: print(f"  [console.{m.type}] {m.text[:300]}", file=sys.stderr) if m.type in ("error", "warning") else None)
-        page.on("requestfailed", lambda r: print(f"  [requestfailed] {r.url[:120]} - {r.failure}", file=sys.stderr))
+        page.on("pageerror", lambda e: print(f"  [pageerror] {redact(e, AUTO_SIGN)}", file=sys.stderr))
+        page.on("console", lambda m: print(f"  [console.{m.type}] {redact(m.text[:300], AUTO_SIGN)}", file=sys.stderr) if m.type in ("error", "warning") else None)
+        page.on("requestfailed", lambda r: print(f"  [requestfailed] {redact(r.url[:120], AUTO_SIGN)} - {r.failure}", file=sys.stderr))
 
-        print(f"Landing: {LANDING}", file=sys.stderr)
+        print(redact(f"Landing: {LANDING}", AUTO_SIGN), file=sys.stderr)
         page.goto(LANDING, wait_until="domcontentloaded", timeout=30000)
         # Let React bootstrap, auto-sign, Supabase mock, host session, etc.
         page.wait_for_timeout(8000)
@@ -56,10 +61,10 @@ def main():
                 bodyPreview: document.body ? document.body.innerText.slice(0, 200) : null,
             };
         }""")
-        print(f"diag: {diag}", file=sys.stderr)
+        print(f"diag: {redact(diag, AUTO_SIGN)}", file=sys.stderr)
 
         # Navigate to device control (the URL with ?latency_debug=1 stays for the overlay)
-        print(f"Device page: {DEVICE_URL}", file=sys.stderr)
+        print(redact(f"Device page: {DEVICE_URL}", AUTO_SIGN), file=sys.stderr)
         page.goto(DEVICE_URL, wait_until="domcontentloaded", timeout=30000)
         # Let the player mount
         page.wait_for_timeout(12000)
@@ -186,4 +191,11 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as exc:
+        # A traceback would carry the ?auto_signed= URL of the page that failed.
+        print(redact(f"{type(exc).__name__}: {exc}", AUTO_SIGN), file=sys.stderr)
+        sys.exit(1)

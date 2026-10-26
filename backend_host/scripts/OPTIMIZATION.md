@@ -1,6 +1,6 @@
 # Stream & Monitor optimizations (host)
 
-What was wrong with the `vpt-stream` (`run_ffmpeg.sh`) and `vpt-monitor`
+What was wrong with the `vpt-stream` (`run_ffmpeg.sh`) and `vpt-monitor-img`
 (`capture_monitor.py`) pipelines, what was changed, and why — so it is
 understood later and not "re-optimized" in the wrong place.
 
@@ -309,7 +309,7 @@ the journal after the change.
 **Projection.** ~4 % of a core per 5 fps stream, ~2/3 of it GIL-free native
 cv2 work, GIL ~1.4 %/stream. At 20 streams: ~80 % of a core CPU, ~30 % GIL,
 so the single process is **no longer the first limit**. Heat/whole-box CPU
-is, at ~18–20 streams. Multiprocessing / `vpt-monitor@.service` shards were
+is, at ~18–20 streams. Multiprocessing / `vpt-monitor-img@.service` shards were
 weighed and **not done**: they'd add shared-state hazards (incident manager,
 chunk cache, audio/zapping caches, localize worker, shutdown flush) and
 per-process RSS (~150 MB each, too much for the 4 GB host-clone VMs) to fix a
@@ -374,16 +374,16 @@ break the centralized chunk format for every reader. Don't.
 - Existing oversized chunk files **self-heal within 24 h** as each slot
   next rotates. To reclaim immediately (per host):
   ```bash
-  sudo systemctl stop vpt-monitor
+  sudo systemctl stop vpt-monitor-img
   sudo find /var/www/html/stream/capture*/ -path '*/metadata/*' \
        -name 'chunk_10min_*.json*' -type f -delete      # NEVER touch capture_*.json
-  sudo systemctl start vpt-monitor
+  sudo systemctl start vpt-monitor-img
   ```
   Only `chunk_10min_*` aggregates — the per-frame `capture_*.json` files
   are the frontend's live source (`/server/monitoring/latest-json` reads
   the newest one) and must not be deleted.
-- `vpt-stream` and `vpt-monitor` are **separate units**. A code deploy
+- `vpt-stream` and `vpt-monitor-img` are **separate units**. A code deploy
   needs the matching service restarted; restarting `vpt-stream` does not
   reload the monitor and vice-versa.
 - Re-profile after any change to these paths:
-  `scripts/profile_remote_monitor.sh <host> vpt-monitor 30 240`.
+  `scripts/profile_remote_monitor.sh <host> vpt-monitor-img 30 240`.

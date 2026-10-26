@@ -16,6 +16,7 @@ import { useOptionalTestCaseBuilder } from '../../../contexts/testcase/TestCaseB
 import { useDeviceData } from '../../../contexts/device/DeviceDataContext';
 import { StyledDialog } from '../../common/StyledDialog';
 import { cleanVerification } from './verificationParamUtils';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface VerificationConfigDialogProps {
   open: boolean;
@@ -160,7 +161,7 @@ export const VerificationConfigDialog: React.FC<VerificationConfigDialogProps> =
                     borderRadius: 1,
                     p: 2,
                     fontFamily: 'monospace',
-                    fontSize: '0.9rem',
+                    fontSize: TYPOGRAPHY.navbarItem.size,
                     whiteSpace: 'pre-wrap',
                     wordBreak: 'break-all',
                     maxHeight: '400px',

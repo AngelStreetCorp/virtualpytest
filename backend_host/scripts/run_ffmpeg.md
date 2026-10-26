@@ -133,7 +133,7 @@ In single-device mode: kills only that device's ffmpeg → starts new one → ex
 ## Troubleshooting
 
 ### Duplicate FFmpeg processes
-**Symptom:** Two ffmpegs writing to same capture dir, vpt-monitor queue overloaded.
+**Symptom:** Two ffmpegs writing to same capture dir, vpt-monitor-img queue overloaded.
 
 **Cause:** `kill_all_ffmpeg_for_device` pattern didn't match (historically used
 `$capture_dir/hot/captures` which fails in SD mode). Fixed to use `$capture_dir/captures`.

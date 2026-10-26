@@ -936,6 +936,10 @@ class ZapExecutor:
         Returns:
             Complete zapping data dict, or error dict if not found/timeout
         """
+        from shared.src.lib.utils.monitor_profile import MONITORING_OFF_MESSAGE, monitoring_off
+        if monitoring_off(capture_folder):   # tv_lite (TASK-95): nothing writes last_zapping.json; do not wait 60 s for it
+            return {'success': False, 'zapping_detected': False, 'error': MONITORING_OFF_MESSAGE, 'monitoring_off': True}
+
         # 🔍 DEBUG: Log what we're looking for
         print(f"🔍 [ZapExecutor] _read_zapping_by_action_timestamp called:")
         print(f"    action_timestamp: {action_timestamp}")
@@ -1149,7 +1153,7 @@ class ZapExecutor:
                 'blackscreen_duration_ms': zapping_data.get('blackscreen_duration_ms', 0),
                 'total_zap_duration_ms': zapping_data.get('total_zap_duration_ms'),
                 'time_since_action_ms': zapping_data.get('time_since_action_ms'),
-                # Per-event standalone zap measurement report (R2/MinIO HTML) that vpt-monitor
+                # Per-event standalone zap measurement report (R2/MinIO HTML) that vpt-monitor-img
                 # generated for this zap — surfaced so the script report can link it.
                 'report_url': zapping_data.get('report_url'),
                 'detection_type': zapping_data.get('detection_type', 'unknown'),
@@ -1174,9 +1178,9 @@ class ZapExecutor:
             return {'success': False, 'zapping_detected': False, 'error': str(e)}
 
     def fetch_zap_measurement(self, context, action_timestamp: float):
-        """Best-effort: read the local zap measurement vpt-monitor wrote for THIS action.
+        """Best-effort: read the local zap measurement vpt-monitor-img wrote for THIS action.
 
-        vpt-monitor (capture_monitor) writes last_zapping.json the moment it detects a
+        vpt-monitor-img (capture_monitor) writes last_zapping.json the moment it detects a
         channel change — locally, before the DB write. This reads it back matched by
         action_timestamp and returns the measurement, or None if nothing was detected /
         the read failed. Never raises (a measurement is a nice-to-have, not the verdict).

@@ -47,45 +47,19 @@ def ai_votes_needed() -> int:
     return max(1, _env_int("ALERT_SCREEN_AI_VOTES", 2))
 
 
-def min_seen() -> int:
-    """Sightings a new fingerprint needs before it becomes a screen row (splash screens never get there)."""
-    return max(1, _env_int("ALERT_SCREEN_MIN_SEEN", 5))
+def keep_min_seen() -> int:
+    """Sightings that make a screen recurring: kept for good. Below that it is random and pruned once stale."""
+    return max(1, _env_int("ALERT_SCREEN_KEEP_MIN_SEEN", 5))
 
 
-PENDING_TTL_S = 3600     # a candidate not seen for this long is forgotten
-PENDING_MAX = 50         # per scope + incident type, oldest dropped first
+def prune_after_days() -> int:
+    """Days a rarely seen, unjudged screen may go unseen before it is deleted."""
+    return max(1, _env_int("ALERT_SCREEN_PRUNE_DAYS", 7))
 
 
-class PendingScreens:
-    """Candidate fingerprints seen fewer than ``min_seen()`` times, kept in memory on the host.
-
-    A fingerprint only becomes a screen row (and gets a verdict) after it has been seen repeatedly, so a splash
-    screen or a frame that drifts slightly each time never fills the table with unknown rows. A host restart
-    forgets the candidates, which only delays promotion."""
-
-    def __init__(self):
-        self._items: Dict[Tuple[str, str], List[Dict[str, Any]]] = {}
-
-    def see(self, key: Tuple[str, str], fp: Dict[str, str], now: float, sample: Optional[str] = None
-            ) -> Optional[Dict[str, Any]]:
-        """Count one sighting. Returns the candidate (with its ``count``) once it reached ``min_seen()``, else None."""
-        items = [c for c in self._items.get(key, []) if now - c["last"] < PENDING_TTL_S]
-        found = match_screen(fp, items)
-        if found:
-            cand = found[0]
-            cand["count"] += 1
-            cand["last"] = now
-        else:
-            cand = {"dhash": fp["dhash"], "region_center": fp["region_center"], "count": 1, "last": now,
-                    "sample": sample}
-            items.append(cand)
-            items = sorted(items, key=lambda c: c["last"])[-PENDING_MAX:]
-        if cand["count"] >= min_seen():
-            items = [c for c in items if c is not cand]
-            self._items[key] = items
-            return cand
-        self._items[key] = items
-        return None
+def is_recurring(row: Optional[Dict[str, Any]], seen: Optional[int] = None) -> bool:
+    """A screen seen often enough to be worth teaching (the triage worker lifts its cost rules for it)."""
+    return bool(row) and int(seen or row.get("seen_count") or 0) >= keep_min_seen()
 
 
 def audit_every() -> int:

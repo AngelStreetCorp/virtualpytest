@@ -22,6 +22,9 @@ WorkingDirectory=%PROJECT_ROOT%/backend_host/scripts
 # exit (no-RAM hosts must still start in SD fallback mode), `+` runs as root
 # regardless of User=. The script itself also always exits 0.
 ExecStartPre=-+%PROJECT_ROOT%/setup/local/linux/backend_host/ensure_hot_mounts.sh
+# Start vpt-emulator-fifo@deviceN for every adb-screencap device in .env (writes the
+# latest.png that the imagefile grabber reads). Same `-+` contract as above.
+ExecStartPre=-+%PROJECT_ROOT%/setup/local/linux/backend_host/ensure_screencap_loops.sh
 ExecStart=/bin/bash %PROJECT_ROOT%/backend_host/scripts/run_ffmpeg.sh
 Restart=always
 RestartSec=15

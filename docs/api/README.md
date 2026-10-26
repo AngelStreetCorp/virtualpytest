@@ -1,4 +1,4 @@
-# API Contracts
+# API Reference
 
 Server API contracts for VirtualPyTest.
 

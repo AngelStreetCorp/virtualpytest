@@ -11,6 +11,7 @@ import { api } from '../../utils/apiClient';
 import { getErrorMessage } from '../../utils/testcase/testCaseHelpers';
 import { waitForExecutionSocketEvent } from '../../utils/executionSocketWait';
 import { useUserSession } from '../useUserSession';
+import { useHostScopedUrl } from '../allServer/useRowServerUrl';
 
 export interface TestCaseExecutionResult {
   success: boolean;
@@ -60,6 +61,7 @@ export interface ExecutionStatus {
 }
 
 export const useTestCaseExecution = () => {
+  const hostScopedUrl = useHostScopedUrl();
   // Lets the server run under this user's Take Control instead of refusing it.
   const { userId } = useUserSession();
   /**
@@ -78,7 +80,7 @@ export const useTestCaseExecution = () => {
   ): Promise<TestCaseExecutionResponse> => {
     try {
       // Step 1: Start async execution
-      const startData = await api.post(buildServerUrl(`/server/testcase/execute`), {
+      const startData = await api.post(hostScopedUrl(hostName, `/server/testcase/execute`), {
         graph_json: graph,
         device_id: deviceId,
         host_name: hostName,
@@ -111,7 +113,7 @@ export const useTestCaseExecution = () => {
         error: getErrorMessage(error),
       };
     }
-  }, [userId]);
+  }, [userId, hostScopedUrl]);
 
   /**
    * Wait execution completion from socket updates (no polling)

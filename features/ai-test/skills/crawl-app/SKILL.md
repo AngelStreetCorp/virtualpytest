@@ -3,6 +3,8 @@ name: crawl-app
 description: Confirm target app with user, then BFS crawl to map all screens — works on web and Android native apps
 requires_device: true
 timeout_seconds: 120
+think_budget_seconds: 600
+max_tool_calls: 150
 tools:
   - get_compatible_hosts
   - capture_screenshot

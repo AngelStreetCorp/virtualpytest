@@ -155,14 +155,19 @@ echo "🔴 Installing Redis Commander (Redis Web GUI)..."
 echo "📦 Installing Redis Commander..."
 
 NODE_MAJOR=22
+
+# Load the Node.js version guard (CVE-2026-111497)
+if [ -f "$REDIS_SCRIPT_DIR/../shared/ensure_node.sh" ]; then
+    source "$REDIS_SCRIPT_DIR/../shared/ensure_node.sh"
+else
+    echo "   ❌ Shared Node.js version guard not found at $REDIS_SCRIPT_DIR/../shared/ensure_node.sh"
+    return 1
+fi
+
 if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
-    CURRENT_NODE_MAJOR=$(node --version | sed 's/^v//' | cut -d. -f1)
-    if [ "$CURRENT_NODE_MAJOR" -lt "$NODE_MAJOR" ]; then
-        echo "   🔧 Upgrading Node.js to ${NODE_MAJOR} (current: $(node --version))..."
-        sudo apt-get remove -y nodejs npm
-        curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | sudo -E bash -
-        sudo apt-get install -y nodejs
-    fi
+    # Redis Commander is a Node process: make sure the runtime is patched for
+    # CVE-2026-111497 (Brotli decoder out-of-bounds write) before installing it.
+    ensure_patched_node "$NODE_MAJOR" sudo || return 1
     echo "   📦 Installing Redis Commander via npm..."
     if sudo npm install -g redis-commander; then
         echo "   ✅ Redis Commander installed via npm"
@@ -192,8 +197,8 @@ if command -v node >/dev/null 2>&1 && command -v npm >/dev/null 2>&1; then
 elif command -v apt >/dev/null 2>&1; then
     echo "   📦 Installing Node.js and npm first..."
     sudo apt update
-    curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | sudo -E bash -
-    if sudo apt install -y nodejs npm; then
+    ensure_patched_node "$NODE_MAJOR" sudo || return 1
+    if sudo apt install -y npm; then
         echo "   📦 Installing Redis Commander via npm..."
         if sudo npm install -g redis-commander; then
             echo "   ✅ Redis Commander installed via npm"

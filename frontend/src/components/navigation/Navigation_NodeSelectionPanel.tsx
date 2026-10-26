@@ -24,7 +24,10 @@ import { Host } from '../../types/common/Host_Types';
 import { UINavigationNode, NodeForm } from '../../types/pages/Navigation_Types';
 import { NodeMetricData } from '../../types/navigation/Metrics_Types';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { neutralButtonSx, dangerButtonSx } from '../common/PageChrome';
+import { NodeVerifiedFrame } from './Navigation_NodeVerifiedFrame';
 import { getZIndex } from '../../utils/zIndexUtils';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface NodeSelectionPanelProps {
   selectedNode: UINavigationNode;
@@ -239,9 +242,11 @@ const NodeSelectionPanelInner: React.FC<NodeSelectionPanelProps> = ({
             width: 340,
             p: 1.5,
             zIndex: getZIndex('NAVIGATION_SELECTION_PANEL'),
+            // Floats over the canvas nodes: opaque like a dialog, never the translucent card surface.
+            backgroundColor: P.surfaceSolid,
             // Variant node → blue outline so the panel is unmistakably a
             // variant's (matches the canvas "v" badge colour). Base → white.
-            border: isVariantNode ? `2px solid ${P.accent}` : `1px solid ${P.surface}`,
+            border: isVariantNode ? `2px solid ${P.accent}` : `1px solid ${P.surfaceSolid}`,
             borderLeft: `4px solid ${nodeColors.border}`, // Show confidence color as left border
           }}
           onClick={handlePaperClick}
@@ -257,7 +262,7 @@ const NodeSelectionPanelInner: React.FC<NodeSelectionPanelProps> = ({
                   <Typography
                     variant="caption"
                     sx={{
-                      fontSize: '0.75rem',
+                      fontSize: TYPOGRAPHY.caption.size,
                       fontWeight: 'bold',
                       color: '#fff',
                       backgroundColor: P.accent,
@@ -273,7 +278,7 @@ const NodeSelectionPanelInner: React.FC<NodeSelectionPanelProps> = ({
                 <Typography
                   variant="caption"
                   sx={{
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                     fontWeight: 'bold',
                     color: metricsDisplay.successRateColor,
                     padding: '2px 6px',
@@ -288,7 +293,7 @@ const NodeSelectionPanelInner: React.FC<NodeSelectionPanelProps> = ({
                 <Typography
                   variant="caption"
                   sx={{
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                     fontWeight: 'bold',
                     color: P.textMuted,
                     padding: '2px 6px',
@@ -304,7 +309,7 @@ const NodeSelectionPanelInner: React.FC<NodeSelectionPanelProps> = ({
                 <Typography
                   variant="caption"
                   sx={{
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                     fontWeight: 'bold',
                     color: P.textMuted,
                     padding: '2px 6px',
@@ -321,7 +326,7 @@ const NodeSelectionPanelInner: React.FC<NodeSelectionPanelProps> = ({
                 <Typography
                   variant="caption"
                   sx={{
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                     fontWeight: 'bold',
                     color: metricsDisplay.confidenceColor,
                     padding: '2px 6px',
@@ -349,7 +354,7 @@ const NodeSelectionPanelInner: React.FC<NodeSelectionPanelProps> = ({
                 variant="body2"
                 title={selectedNode.data.label}
                 sx={{
-                  fontSize: '0.8rem',
+                  fontSize: TYPOGRAPHY.body.size,
                   fontWeight: 'bold',
                   color: P.success,
                   minWidth: 0,
@@ -365,7 +370,7 @@ const NodeSelectionPanelInner: React.FC<NodeSelectionPanelProps> = ({
                 title={`Parent: ${parentNames} - Depth: ${selectedNode.data.depth || 0}`}
                 sx={{
                   ml: 'auto',
-                  fontSize: '0.7rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   color: 'text.secondary',
                   minWidth: 0,
                   maxWidth: '60%',
@@ -379,13 +384,18 @@ const NodeSelectionPanelInner: React.FC<NodeSelectionPanelProps> = ({
               </Typography>
             </Box>
 
+            <NodeVerifiedFrame
+              verifiedFrameUrl={nodeMetrics?.verified_frame_url}
+              verifiedAt={nodeMetrics?.verified_at}
+            />
+
             <Box sx={{ mt: 0.5, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
               {/* Edit and Delete buttons */}
               <Box sx={{ display: 'flex', gap: 0.5 }}>
                 <Button
                   size="small"
                   variant="outlined"
-                  sx={{ fontSize: '0.75rem', px: 1, flex: 1 }}
+                  sx={{ fontSize: TYPOGRAPHY.caption.size, px: 1, flex: 1 }}
                   onClick={handleEdit}
                   disabled={!isControlActive || !selectedHost}
                   title={
@@ -399,8 +409,7 @@ const NodeSelectionPanelInner: React.FC<NodeSelectionPanelProps> = ({
                   <Button
                     size="small"
                     variant="outlined"
-                    color="error"
-                    sx={{ fontSize: '0.75rem', px: 1, flex: 1 }}
+                    sx={{ ...(dangerButtonSx(P) as object),  fontSize: TYPOGRAPHY.caption.size, px: 1, flex: 1 }}
                     onClick={onDelete}
                   >
                     Delete
@@ -413,8 +422,7 @@ const NodeSelectionPanelInner: React.FC<NodeSelectionPanelProps> = ({
                 <Button
                   size="small"
                   variant="outlined"
-                  color="warning"
-                  sx={{ fontSize: '0.75rem', px: 1 }}
+                  sx={{ ...(neutralButtonSx(P) as object),  fontSize: TYPOGRAPHY.caption.size, px: 1 }}
                   onClick={handleResetButtonClick}
                 >
                   Reset Node
@@ -428,7 +436,7 @@ const NodeSelectionPanelInner: React.FC<NodeSelectionPanelProps> = ({
                     size="small"
                     variant="outlined"
                     color="primary"
-                    sx={{ fontSize: '0.75rem', px: 1, flex: 1 }}
+                    sx={{ fontSize: TYPOGRAPHY.caption.size, px: 1, flex: 1 }}
                     onClick={handleScreenshotButtonClick}
                     startIcon={<CameraIcon fontSize="small" />}
                   >
@@ -453,7 +461,7 @@ const NodeSelectionPanelInner: React.FC<NodeSelectionPanelProps> = ({
                   size="small"
                   variant="outlined"
                   color="primary"
-                  sx={{ fontSize: '0.75rem', px: 1 }}
+                  sx={{ fontSize: TYPOGRAPHY.caption.size, px: 1 }}
                   onClick={handleGoToButtonClick}
                   startIcon={<RouteIcon fontSize="small" />}
                 >
@@ -477,7 +485,7 @@ const NodeSelectionPanelInner: React.FC<NodeSelectionPanelProps> = ({
           </DialogContent>
           <DialogActions>
             <Button onClick={handleResetConfirmClose}>Cancel</Button>
-            <Button onClick={handleResetConfirm} color="warning" variant="contained">
+            <Button onClick={handleResetConfirm} variant="contained" sx={neutralButtonSx(P)}>
               Confirm
             </Button>
           </DialogActions>

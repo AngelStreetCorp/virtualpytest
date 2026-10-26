@@ -12,25 +12,36 @@ on the host:
      — the SDK link check is what decides whether pairing worked. A host that
      keeps its LAN on Ethernet does not lose connectivity while wlan0 sits on
      the drone AP (measured on vpt-pi4, 2026-10-12); a Pi on Wi-Fi does.
-  2. We verify the link: ping the Tello, then send a plain-text
-     ``command`` and read the reply (Tello EDU/TT binary-mode ack is
-     accepted as well, same fix as ``shared/src/lib/drone/tello.py``).
-  3. We push the new endpoint into the device's TelloRemoteController
-     via ``configure`` so the next command re-binds on the new IP/ports.
+  2. We push the new endpoint into the device's TelloRemoteController
+     (``configure``) and let the controller open ITS OWN link (``link``):
+     ``command``, then ``streamon`` so the video reaches vpt-stream right away.
+     One socket owner on purpose: a Tello only answers the address:port that
+     sent its first ``command``, so a separate check socket here used to be the
+     only one the drone ever answered, and every flight command timed out.
+     The link stays open, so the state datagrams (battery, temperature, speed)
+     reach the tile through the status route.
+     Every nmcli call and settle wait runs off the gevent hub (``off_hub``,
+     BUG-0512): vpt-host is not monkey patched, so a 30 s `wifi connect` on the
+     request greenlet froze every other request, stream playlists included.
+  3. The controller remembers the paired SSID, so the device preview's automatic
+     scan keeps re-joining that drone and ignores any other Tello nearby. The
+     device keeps its DEVICE{i}_NAME; pairing never renames it.
 """
 
 from __future__ import annotations
 
 import logging
+import os
 import re
-import socket
 import subprocess
 import time
 from typing import Any, Dict, List, Optional
 
 from flask import Blueprint, jsonify, request
 
+from backend_host.src.lib.utils.gevent_utils import off_hub
 from backend_host.src.lib.utils.host_utils import (
+    get_device_by_id,
     get_remote_controller_by_type,
 )
 from backend_host.src.lib.utils.route_decorators import route_exception_handler
@@ -45,13 +56,21 @@ host_drone_bp = Blueprint("host_drone", __name__, url_prefix="/host/drone")
 
 TELLO_SSID_RE = re.compile(r"^TELLO-[0-9A-Fa-f]{6}$")
 
+# A Wi-Fi scan takes ~3.3 s on vpt-pi4 (measured 2026-10-13); list after it is done.
+SCAN_SETTLE_S = 4.0
+
 
 # ---------- helpers --------------------------------------------------------------
 
 def _scan_tello_ssids() -> List[Dict[str, Any]]:
     """Return the Tello-* APs visible to the host's wlan0."""
+    # `rescan` only REQUESTS a scan and returns at once; the scan itself takes ~3.3 s
+    # on vpt-pi4. Listing after 2 s read the PREVIOUS scan: a drone switched on a
+    # moment ago was missing, one switched off was still listed. `list --rescan yes`
+    # would wait for it, but unprivileged it silently skips the scan (93 ms, cached
+    # list) and the sudoers drop-in only allows `rescan` and `connect`.
     _run_nmcli(["device", "wifi", "rescan"], 15)
-    time.sleep(2)
+    time.sleep(SCAN_SETTLE_S)
     out = subprocess.run(
         ["nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY", "device", "wifi", "list"],
         capture_output=True, text=True, timeout=15,
@@ -76,31 +95,6 @@ def _scan_tello_ssids() -> List[Dict[str, Any]]:
                 sig = None
             tellos.append({"ssid": ssid, "signal": sig, "security": security or "OPEN"})
     return tellos
-
-
-def _verify_link(tello_ip: str, cmd_port: int, timeout_s: float = 5.0) -> Dict[str, Any]:
-    """Send 'command' to the Tello and confirm a non-empty reply.
-
-    A Tello in binary mode (Tello EDU/Tello Talent, or a plain Tello that
-    was put into binary by a prior client) answers with a 0xcc... packet
-    instead of the text 'ok'. Any non-empty reply is treated as success
-    (same fix as the Tello client itself). The script is not yet imported
-    here because this is a stdlib-only check; we keep it in a single
-    short-lived socket.
-    """
-    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.bind(("0.0.0.0", 0))
-    sock.settimeout(timeout_s)
-    try:
-        sock.sendto(b"command", (tello_ip, cmd_port))
-        data, _ = sock.recvfrom(2048)
-    except socket.timeout:
-        return {"ok": False, "reason": f"no reply from {tello_ip}:{cmd_port} in {timeout_s}s"}
-    finally:
-        sock.close()
-    if not data:
-        return {"ok": False, "reason": "empty reply"}
-    return {"ok": True, "bytes": len(data)}
 
 
 def _run_nmcli(args: List[str], timeout_s: float) -> subprocess.CompletedProcess:
@@ -162,13 +156,83 @@ def _join_ap(ssid: str, timeout_s: float = 30.0) -> Dict[str, Any]:
     return {"ok": False, "reason": reason}
 
 
+# ---------- two-radio hosts (tello_prio.sh) --------------------------------------
+# A host with one Wi-Fi dongle per drone (scripts/drone/tello_prio.sh) keeps each radio out of
+# NetworkManager and tells the drones apart by source address (DEVICE<i>_TELLO_LOCAL_IP). On such
+# a slot `nmcli device wifi connect` joins the wrong radio (or none) and nmcli never reports the
+# association, so pairing joins through the script and the association is read with iw.
+
+TELLO_PRIO = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "scripts", "drone", "tello_prio.sh"
+)
+DRONE_AP_IP = "192.168.10.1"
+
+
+def _radio_for(controller: Any) -> Optional[Dict[str, Any]]:
+    """The dedicated radio of a slot with its own source address, else None.
+
+    Returns ``{"iface", "index", "host_ip"}``: the interface and drone number that tello_prio.sh
+    configured for the slot's DEVICE<i>_TELLO_LOCAL_IP (read back from the kernel's policy rules).
+    """
+    host_ip = getattr(controller, "local_ip", None)
+    if not host_ip or host_ip == "0.0.0.0":
+        return None
+    try:
+        rules = subprocess.run(["ip", "-4", "rule", "show"], capture_output=True, text=True, timeout=5).stdout
+        route = subprocess.run(
+            ["ip", "-4", "route", "get", DRONE_AP_IP, "from", host_ip],
+            capture_output=True, text=True, timeout=5,
+        ).stdout
+    except (OSError, subprocess.SubprocessError):
+        return None
+    table = re.search(rf"from {re.escape(host_ip)} lookup (\d+)", rules)
+    dev = re.search(r"\bdev (\S+)", route)
+    if not table or not dev:
+        return None
+    return {"iface": dev.group(1), "index": int(table.group(1)) // 100, "host_ip": host_ip}
+
+
+def _ssid_on(iface: str) -> Optional[str]:
+    """The SSID ``iface`` is associated with right now (iw), if any."""
+    out = subprocess.run(["iw", "dev", iface, "link"], capture_output=True, text=True, timeout=10)
+    m = re.search(r"^\s*SSID: (.+)$", out.stdout, re.M)
+    return m.group(1).strip() if m else None
+
+
+def _join_radio(radio: Dict[str, Any], ssid: str, timeout_s: float = 25.0) -> Dict[str, Any]:
+    """Associate the slot's own radio with ``ssid`` through tello_prio.sh (root, via sudoers)."""
+    if _ssid_on(radio["iface"]) == ssid:
+        return {"ok": True, "already_active": True, "iface": radio["iface"]}
+    out = subprocess.run(
+        ["sudo", "-n", os.path.normpath(TELLO_PRIO), "up", str(radio["index"]), radio["iface"], ssid, radio["host_ip"]],
+        capture_output=True, text=True, timeout=timeout_s,
+    )
+    if out.returncode == 0 and _ssid_on(radio["iface"]) == ssid:
+        return {"ok": True, "already_active": False, "iface": radio["iface"]}
+    reason = (out.stderr.strip() or out.stdout.strip() or f"tello_prio.sh exited {out.returncode}")
+    return {"ok": False, "reason": reason, "iface": radio["iface"]}
+
+
+def _associated_ssid(controller: Any) -> Optional[str]:
+    """The SSID the slot's drone link rides on: its own radio, else the host's NetworkManager one."""
+    radio = _radio_for(controller)
+    return _ssid_on(radio["iface"]) if radio else _active_wifi_ssid()
+
+
+def _join_and_settle(ssid: str, controller: Any = None) -> Dict[str, Any]:
+    radio = _radio_for(controller) if controller is not None else None
+    join = _join_radio(radio, ssid) if radio else _join_ap(ssid)
+    time.sleep(3)
+    return join
+
+
 # ---------- routes ---------------------------------------------------------------
 
 @host_drone_bp.route("/tello/scan", methods=["POST"])
 @route_exception_handler()
 def tello_scan():
     """Scan for Tello-* APs visible to the host."""
-    tellos = _scan_tello_ssids()
+    tellos = off_hub(_scan_tello_ssids)
     return jsonify({"success": True, "tellos": tellos, "count": len(tellos)})
 
 
@@ -204,8 +268,47 @@ def tello_status():
         }), 200
 
     # The controller already returns {success, linked, airborne, ip, last_error,
-    # ...} — the exact contract the tile's StatusResponse expects.
-    return jsonify(controller.get_status()), 200
+    # ...} — the exact contract the tile's StatusResponse expects. Two host facts
+    # are added for the tile:
+    #   associated — the host's Wi-Fi is on this slot's drone right now. `linked`
+    #                only means the controller's UDP link is open, which happens on
+    #                the first command, so the tile used to re-pair a paired drone
+    #                every poll, and a second `command` often goes unanswered.
+    #   video_live — fresh HLS segments exist. Until then the live playlist is
+    #                missing (or a stale cold one is served) and the player shows
+    #                a black tile, so the tile keeps its placeholder.
+    status = controller.get_status()
+    paired = status.get("ssid")
+    status["associated"] = bool(paired) and off_hub(_associated_ssid, controller) == paired
+    # On the drone's Wi-Fi but no fresh link (vpt-host restarted, drone power-cycled): relink
+    # in the background so battery and temperature come back without a re-pair.
+    if status["associated"]:
+        controller.link_in_background()  # no-op while the link is fresh
+    # The tile's single truth: on the drone's Wi-Fi AND its state datagrams are fresh (or it is
+    # airborne). `linked` alone stays true after the drone is switched off (BUG-0519).
+    status["connected"] = bool(status["associated"] and status.get("link_alive"))
+    if not status["connected"] and not status.get("airborne"):
+        status["telemetry"] = {}  # last reading of a drone that is gone
+        # Off the drone's Wi-Fi: release the dead socket. (On its Wi-Fi but silent, the background
+        # relink above re-enters SDK mode instead.)
+        drop = getattr(controller, "drop_dead_link", None)
+        if not status["associated"] and drop is not None and drop():
+            status["linked"] = False
+            status["last_error"] = getattr(controller, "last_error", None)
+    status["video_live"] = _video_live(device_id)
+    return jsonify(status), 200
+
+
+def _video_live(device_id: str, max_age_s: float = 5.0) -> bool:
+    """True when the device's live playlist was written in the last few seconds."""
+    device = get_device_by_id(device_id)
+    segments = device.get_capture_dir("segments") if device is not None else None
+    if not segments:
+        return False
+    try:
+        return time.time() - os.path.getmtime(os.path.join(segments, "output.m3u8")) < max_age_s
+    except OSError:
+        return False
 
 
 @host_drone_bp.route("/tello/pair", methods=["POST"])
@@ -248,23 +351,10 @@ def tello_pair():
     #    associated, and an unprivileged service may not be able to change
     #    the connection at all while still being perfectly able to reach the
     #    drone. The link check below is the real gate.
-    join = _join_ap(ssid)
-
-    # 2) Wait for DHCP to settle.
-    time.sleep(3)
-
-    # 3) Verify the link. The Tello in binary mode answers with a 0xcc
-    # packet; the helper accepts any non-empty reply.
-    link = _verify_link(tello_ip, cmd_port)
-    if not link["ok"]:
-        return jsonify({
-            "success": False, "stage": "link",
-            "error": link["reason"], "ssid": ssid, "tello_ip": tello_ip,
-            "join": join,
-        }), 500
-
-    # 4) Push the new endpoint into the device's TelloRemoteController.
+    #    Then wait for DHCP to settle. Both block, so off the hub.
     controller = get_remote_controller_by_type(device_id, "tello")
+    if controller is not None:
+        join = off_hub(_join_and_settle, ssid, controller)
     if controller is None:
         return jsonify({
             "success": False, "stage": "controller",
@@ -272,16 +362,25 @@ def tello_pair():
             "ssid": ssid, "tello_ip": tello_ip,
         }), 404
 
-    # Use the existing _configure surface so the safety guard is rebuilt
-    # consistently. tello_ip / state_port / video_port / cmd_port are
-    # accepted by _configure and the link is released so the next
-    # command re-binds on the new endpoint.
+    # 3) Point the controller at the drone (an endpoint change releases its old link;
+    #    configure refuses while airborne) and open the link
+    #    from the controller itself: `command` + `streamon` from its fixed port.
     controller.execute_command("configure", {
         "tello_ip": tello_ip,
         "state_port": state_port,
         "video_port": video_port,
         "cmd_port": cmd_port,
     })
+    link = controller.execute_command("link", {})
+    if not link.get("success"):
+        return jsonify({
+            "success": False, "stage": "link",
+            "error": link.get("error") or "no reply from the drone",
+            "ssid": ssid, "tello_ip": tello_ip, "join": join,
+        }), 500
+
+    # 4) Remember which drone is in this slot (the tile's scan sticks to it).
+    controller.set_paired_ssid(ssid)
 
     return jsonify({
         "success": True,
@@ -381,12 +480,38 @@ def tello_flight_summary():
     })
 
 
+@host_drone_bp.route("/tello/command_history", methods=["POST"])
+@route_exception_handler()
+def tello_command_history():
+    """Driving history of a Tello: every command sent (takeoff, land, move, rotate, stick changes, refused ones), newest last.
+
+    Body: device_id, optional limit (default 100, at most 500), flight (the n-th takeoff since the controller started), since_seq.
+    """
+    payload = get_json_payload(request)
+    device_id, err = require_field(payload, "device_id")
+    if err:
+        return err
+    controller = get_remote_controller_by_type(device_id, "tello")
+    if controller is None:
+        return jsonify({"success": False, "error": f"no Tello controller for device {device_id}"}), 404
+    try:
+        limit = min(500, max(1, int(payload.get("limit", 100))))
+        flight = payload.get("flight")
+        flight = None if flight in (None, "") else int(flight)
+        since_seq = int(payload.get("since_seq", 0))
+    except (TypeError, ValueError):
+        return jsonify({"success": False, "error": "limit, flight and since_seq must be integers"}), 400
+    log = controller.command_log
+    return jsonify({"success": True, "device_id": device_id, "commands": log.history(limit, flight, since_seq),
+                    "flight": log.flight, "log_path": log.path})
+
+
 @host_drone_bp.route("/tello/last_known", methods=["POST"])
 @route_exception_handler()
 def tello_last_known():
     """Return the last seen state and pose for a Tello device.
 
-    Used by the 'Find my Tello' UI and by Atlas to locate the drone after
+    Used by Atlas (MCP) to locate the drone after
     a flight. Returns the freshest state datagram and the freshest pose
     (snapped if a Mission Pad was visible at the time, dead-reckoned
     otherwise), plus how stale they are. After a flight ends, this is

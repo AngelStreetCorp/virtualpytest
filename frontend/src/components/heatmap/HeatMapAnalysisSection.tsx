@@ -1,3 +1,4 @@
+import { DeviceMaintenanceBadge } from '../common/DeviceMaintenanceBadge';
 import { ExpandMore, ExpandLess } from '@mui/icons-material';
 import {
   Box,
@@ -20,6 +21,7 @@ import React from 'react';
 import { useHref } from 'react-router-dom';
 
 import { buildIncidentFocusUrl, IncidentFocusType } from '../../utils/incidentFocus';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface DeviceData {
   host_name: string;
@@ -56,7 +58,7 @@ const YesNoPill: React.FC<{ state: 'yes' | 'no' | 'na'; clickable?: boolean }> =
     <Box
       component="span"
       sx={{
-        display: 'inline-block', px: 1, py: 0.1, borderRadius: 999, fontSize: '0.72rem', fontWeight: 600,
+        display: 'inline-block', px: 1, py: 0.1, borderRadius: 999, fontSize: TYPOGRAPHY.caption.size, fontWeight: 600,
         color, bgcolor: `${color}1f`, border: `1px solid ${color}55`, cursor: clickable ? 'pointer' : 'default',
       }}
     >
@@ -143,11 +145,11 @@ export const HeatMapAnalysisSection: React.FC<HeatMapAnalysisSectionProps> = ({
         >
           <Typography variant="h6">Data analysis</Typography>
           <Box display="flex" alignItems="center" gap={1}>
-            <Box component="span" sx={{ px: 1.1, py: 0.1, borderRadius: 999, fontSize: '0.72rem', fontWeight: 600, color: P.textSecondary, bgcolor: P.hoverBg, border: `1px solid ${P.borderColor}` }}>
+            <Box component="span" sx={{ px: 1.1, py: 0.1, borderRadius: 999, fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, color: P.textSecondary, bgcolor: P.hoverBg, border: `1px solid ${P.borderColor}` }}>
               {totalDevices} devices
             </Box>
             {devicesWithIncidents > 0 && (
-              <Box component="span" sx={{ px: 1.1, py: 0.1, borderRadius: 999, fontSize: '0.72rem', fontWeight: 600, color: P.error, bgcolor: `${P.error}1f`, border: `1px solid ${P.error}66` }}>
+              <Box component="span" sx={{ px: 1.1, py: 0.1, borderRadius: 999, fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, color: P.error, bgcolor: `${P.error}1f`, border: `1px solid ${P.error}66` }}>
                 {devicesWithIncidents} {devicesWithIncidents === 1 ? 'incident' : 'incidents'}
               </Box>
             )}
@@ -258,6 +260,7 @@ export const HeatMapAnalysisSection: React.FC<HeatMapAnalysisSectionProps> = ({
                           >
                             <TableCell sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }} title={deviceLabel}>
                               {deviceLabel}
+                              <DeviceMaintenanceBadge hostName={image.host_name} deviceId={image.device_id} size={14} />
                             </TableCell>
                             <TableCell>
                               {(() => {

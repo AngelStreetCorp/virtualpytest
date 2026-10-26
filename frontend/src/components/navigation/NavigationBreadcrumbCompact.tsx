@@ -3,6 +3,7 @@ import { Box, Typography, Chip } from '@mui/material';
 import { ArrowBack, Home, ChevronRight } from '@mui/icons-material';
 import { useNavigationStack } from '../../contexts/navigation/NavigationStackContext';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface NavigationBreadcrumbCompactProps {
   onNavigateBack: () => void;
@@ -35,14 +36,14 @@ export const NavigationBreadcrumbCompact: React.FC<NavigationBreadcrumbCompactPr
         padding: '8px 16px',
         margin: '8px 16px 0 16px',
         boxShadow: '0 1px 3px rgba(0, 0, 0, 0.12)',
-        fontSize: '0.9rem',
+        fontSize: TYPOGRAPHY.navbarItem.size,
         maxWidth: 'fit-content',
       }}
     >
       {/* Back Button */}
       <ArrowBack
         sx={{
-          fontSize: '16px',
+          fontSize: TYPOGRAPHY.navbarItem.size,
           color: P.textMuted,
           cursor: 'pointer',
           '&:hover': { color: P.accentText },
@@ -52,7 +53,7 @@ export const NavigationBreadcrumbCompact: React.FC<NavigationBreadcrumbCompactPr
       {/* Home Icon - Clickable */}
       <Home
         sx={{
-          fontSize: '16px',
+          fontSize: TYPOGRAPHY.navbarItem.size,
           color: P.textMuted,
           mx: 0.5,
           cursor: 'pointer',
@@ -66,7 +67,7 @@ export const NavigationBreadcrumbCompact: React.FC<NavigationBreadcrumbCompactPr
         variant="caption"
         sx={{
           color: P.textMuted,
-          fontSize: '0.85rem',
+          fontSize: TYPOGRAPHY.body.size,
           fontWeight: 500,
           cursor: 'pointer',
           '&:hover': { color: P.accentText },
@@ -81,13 +82,13 @@ export const NavigationBreadcrumbCompact: React.FC<NavigationBreadcrumbCompactPr
         stack.slice(0, -1).map((level, index) => (
           <React.Fragment key={index}>
             {/* Separator */}
-            <ChevronRight sx={{ fontSize: '14px', color: P.textMuted }} />
+            <ChevronRight sx={{ fontSize: TYPOGRAPHY.body.size, color: P.textMuted }} />
             {/* Intermediate Level - Clickable */}
             <Typography
               variant="caption"
               sx={{
                 color: P.textMuted,
-                fontSize: '0.85rem',
+                fontSize: TYPOGRAPHY.body.size,
                 fontWeight: 500,
                 cursor: 'pointer',
                 '&:hover': { color: P.accentText },
@@ -100,14 +101,14 @@ export const NavigationBreadcrumbCompact: React.FC<NavigationBreadcrumbCompactPr
           </React.Fragment>
         ))}
       {/* Final Separator */}
-      <ChevronRight sx={{ fontSize: '14px', color: P.textMuted }} />
+      <ChevronRight sx={{ fontSize: TYPOGRAPHY.body.size, color: P.textMuted }} />
       {/* Current Level */}
       <Chip
         label={currentLevel.parentNodeLabel}
         size="small"
         sx={{
           height: '22px',
-          fontSize: '0.8rem',
+          fontSize: TYPOGRAPHY.body.size,
           fontWeight: 600,
           backgroundColor: P.hoverBg,
           color: P.accentText,

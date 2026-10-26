@@ -26,6 +26,21 @@ const hook = vi.hoisted(() => ({
   clearError: vi.fn(),
 }));
 const noGroups = vi.hoisted(() => ({ groups: [], loading: false }));
+// The screenshot of the current sample. The real hook fetches it through the
+// app's API (the browser cannot read the training bucket itself, BUG-0775).
+const picture = vi.hoisted(() => ({ url: null as string | null, error: null as string | null }));
+
+vi.mock('../../features/ai-dataset/frontend/hooks/useTrainingSampleImage', async (importActual) => ({
+  ...(await importActual<object>()),
+  useTrainingSampleImage: () => ({
+    url: picture.url,
+    error: picture.error,
+    loading: false,
+    reload: vi.fn(),
+    reportBroken: vi.fn(),
+  }),
+  loadTrainingSampleImage: vi.fn(),
+}));
 
 vi.mock('../../features/ai-dataset/frontend/hooks/useTrainingSamples', async (importActual) => ({
   ...(await importActual<object>()),
@@ -49,6 +64,8 @@ const pick = async (label: string, option: string) => {
 const lastSplit = () => hook.load.mock.calls[hook.load.mock.calls.length - 1][0].split;
 
 beforeEach(() => {
+  picture.url = 'blob:fake-picture';
+  picture.error = null;
   hook.load.mockResolvedValue({ returned: 0, added: 0 });
   hook.countSamples.mockResolvedValue(48);
   hook.loadEvalCounts.mockResolvedValue(undefined);
@@ -95,7 +112,7 @@ const screenSample = (over: Record<string, unknown> = {}) => ({
   id: 's1', family: 'screen-id', object_key: 'k', device_model: 'm', userinterface: 'ui', node_id: 'n-home-rec',
   focus_label: null, prompt: null, model_answer: null, ground_truth: null, proposed_label: HOME, guess_source: 'run',
   label_source: 'run', is_failure: false, label_conflict: false, split: 'eval', eval_version: null, source_ref: null,
-  created_at: '2026-09-30T00:00:00Z', image_url: null, triage: null, ...over,
+  created_at: '2026-09-30T00:00:00Z', image_path: null, triage: null, ...over,
 });
 
 const acceptButton = () => screen.getByRole('button', { name: /^✓/ });
@@ -187,13 +204,18 @@ describe('TrainingReview review flow', () => {
   });
 
   it('shows the question only once the image has loaded', async () => {
-    (hook as { samples: unknown[] }).samples = [screenSample({ image_url: 'https://example.test/a.jpg' })];
-    render(<TrainingReview />);
-    const img = await screen.findByAltText('Screenshot 1');
+    picture.url = null;
+    picture.error = null;
+    (hook as { samples: unknown[] }).samples = [screenSample({ image_path: '/server/training-samples/s1/image' })];
+    const { rerender } = render(<TrainingReview />);
+    await screen.findByAltText('Screenshot 1');
     // Hidden until the image is there: no question or answer of a sample before its image.
     expect(screen.queryByRole('button', { name: /^✓/ })).not.toBeInTheDocument();
-    fireEvent.load(img);
-    expect(acceptButton()).toBeEnabled();
+
+    // The picture arrives.
+    picture.url = 'blob:fake-picture';
+    rerender(<TrainingReview />);
+    expect(await screen.findByRole('button', { name: /^✓/ })).toBeEnabled();
   });
 
   it('a pending save never blocks the answers (the next sample comes from the list at once)', async () => {
@@ -216,6 +238,56 @@ describe('TrainingReview review flow', () => {
   });
 });
 
+// BUG-0775: the screenshot could not be loaded (the training bucket answers 403 to
+// the browser). The page used to show a broken-image glyph and nothing else, and
+// the answer buttons were live — the reviewer judged a picture they never saw.
+describe('TrainingReview missing screenshot', () => {
+  beforeEach(() => {
+    hook.label.mockReset();
+    hook.label.mockResolvedValue(undefined);
+    picture.url = null;
+    picture.error = 'HTTP 403';
+  });
+  afterEach(() => {
+    (hook as { samples: unknown[] }).samples = [];
+    picture.url = 'blob:fake-picture';
+    picture.error = null;
+  });
+
+  const showBroken = async () => {
+    (hook as { samples: unknown[] }).samples = [
+      screenSample({ id: 's1', image_path: '/server/training-samples/s1/image' }),
+      screenSample({ id: 's2', image_path: '/server/training-samples/s2/image' }),
+    ];
+    render(<TrainingReview />);
+    await screen.findByText(/This screenshot could not be loaded/);
+  };
+
+  it('says the picture is missing instead of showing a broken image', async () => {
+    await showBroken();
+
+    expect(screen.getByText(/HTTP 403/)).toBeInTheDocument();
+    // No broken-image glyph, and no empty picture frame either.
+    expect(screen.queryByAltText('Screenshot 1')).not.toBeInTheDocument();
+  });
+
+  it('never asks for an answer on a screenshot that is not there', async () => {
+    await showBroken();
+
+    const accept = screen.getByRole('button', { name: /^\u2713/ });
+    expect(accept).toBeDisabled();
+    fireEvent.keyDown(window, { key: 'y' });
+    expect(hook.label).not.toHaveBeenCalled();
+  });
+
+  it('lets the reviewer move on', async () => {
+    await showBroken();
+
+    const skip = screen.getByRole('button', { name: 'Skip (j)' });
+    expect(skip).toBeEnabled();
+  });
+});
+
 // A freeze strip: frames labelled during/after the freeze, one question, three answers.
 const STRIP_ANSWER = {
   incident_type: 'freeze', evidence: 'strip', duration_ms: 26000, diffs: [],
@@ -223,7 +295,7 @@ const STRIP_ANSWER = {
 };
 const stripSample = (over: Record<string, unknown> = {}) => screenSample({
   family: 'av-fault', node_id: null, model_answer: STRIP_ANSWER, proposed_label: { incident_type: 'freeze' },
-  image_url: 'https://example.test/strip.jpg', ...over,
+  image_path: '/server/training-samples/s1/image', ...over,
 });
 
 describe('TrainingReview freeze strip', () => {
@@ -237,7 +309,7 @@ describe('TrainingReview freeze strip', () => {
   const showStrip = async (over: Record<string, unknown> = {}) => {
     (hook as { samples: unknown[] }).samples = [stripSample(over)];
     render(<TrainingReview />);
-    fireEvent.load(await screen.findByAltText('Screenshot 1'));  // the answers wait for the image
+    await screen.findByAltText('Screenshot 1');  // the answers wait for the image
     await screen.findByText(/Was that a problem\?|Still correct\?/);
   };
 

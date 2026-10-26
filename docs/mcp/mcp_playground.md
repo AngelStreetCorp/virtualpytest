@@ -4,49 +4,33 @@
 
 ---
 
-## 🎤 MCP Playground - Web Interface (NEW!)
+## MCP Playground - Web Interface
 
 ### Overview
 
-The **MCP Playground** is a mobile-first web interface for executing MCP commands through natural language prompts with voice support. It provides a simplified, user-friendly alternative to the Test Case Builder for quick device automation.
+The **MCP Playground** controls a device with plain-language requests, typed or spoken. It works well on a phone. It is a quicker alternative to the Test Case Builder for simple tasks.
 
 **URL**: `https://dev.virtualpytest.com/builder/mcp-playground`
 
 ### Key Features
 
-✅ **Voice-First Design**
-- Web Speech API integration
-- Real-time voice transcription
-- Hold-to-speak button
-- Automatic text-to-prompt conversion
+- **Voice first**: speak your request, and the words appear as you talk.
+- **Works on phones**: the page fits the screen, with large buttons.
+- **Run requests with AI**: your request becomes a command. If it could mean more than one thing, you choose.
+- **Command history**: the last 50 requests, ready to run again.
 
-✅ **Mobile-First Responsive**
-- Single-column layout on mobile (< 768px)
-- Two-column layout on tablet (768px - 1024px)
-- Three-column layout on desktop (> 1024px)
-- Large touch targets (56px on mobile, 40px on desktop)
-- Collapsible sections for mobile
+<div data-technical>
 
-✅ **Discovery & Suggestions**
-- Browse available actions, verifications, and navigation nodes
-- Quick-action buttons for common commands
-- Real-time device capability detection
+Layout breakpoints: below 768px one column, 768px to 1024px two columns, above 1024px three columns. Touch targets are 56px on mobile and 40px on desktop. History is stored in `localStorage` (see below).
 
-✅ **AI-Powered Execution**
-- Natural language prompt to executable command
-- Automatic disambiguation handling
-- Real-time execution progress
-- Success/failure feedback
-
-✅ **Command History**
-- Persistent history (localStorage)
-- Replay previous commands
-- Success/failure indicators
-- Last 50 commands stored
+</div>
 
 ### User Interface Layout
 
-#### Mobile Layout (< 768px)
+One column on a phone, three on a computer. A phone shows the sections one under another.
+
+<div data-technical>
+
 ```
 ┌─────────────────────────┐
 │ 🎤 MCP Playground       │ ← Header
@@ -60,7 +44,6 @@ The **MCP Playground** is a mobile-first web interface for executing MCP command
 └─────────────────────────┘
 ```
 
-#### Desktop Layout (> 1024px)
 ```
 ┌───────────────────────────────────────────────────┐
 │ 🎤 MCP Playground                                 │
@@ -78,46 +61,31 @@ The **MCP Playground** is a mobile-first web interface for executing MCP command
 └─────────────┴───────────────────┴─────────────────┘
 ```
 
+</div>
+
 ### Workflow
 
-1. **Select Device**
-   - Choose host, device ID, and interface from dropdowns
-   - Device selector collapses on mobile, persistent on desktop
+1. **Select a device**: pick the host, the device and the interface.
+2. **Take control**: the button locks the device to you. Green means locked.
+3. **Enter a request**: type it, or hold the voice button and speak.
+4. **Run it**: click "Execute", or press Cmd/Ctrl + Enter.
+5. **See the result**: whether it worked, and a link to the full report.
+6. **Run an earlier request again**: click it in the history.
 
-2. **Take Control**
-   - Single button to lock device
-   - Clear visual feedback (green = locked, gray = unlocked)
-   - Control state persists across commands
+<div data-technical>
 
-3. **Enter Prompt**
-   - Type in large text area (4 rows on mobile, 2 on desktop)
-   - OR hold voice button to speak
-   - Real-time voice transcription display
+- Step 1: host, device and interface are drop-down lists. On a phone the device picker folds away.
+- Step 2: the lock stays in place across commands.
+- Step 3: the text box has 4 rows on a phone and 2 on a computer.
+- Step 4: the platform builds a test from your request. A progress bar shows while it runs. Quick actions are grouped as Navigation, Actions and Verification, with counts.
+- Step 5: each step shows its status, and errors are shown if it failed.
+- Step 6: each entry shows whether it worked, and when it ran (for example "5 minutes ago"). Clear the history with the "Clear history" button.
 
-4. **Quick Actions (Optional)**
-   - Browse available commands by category (Navigation, Actions, Verification)
-   - Click to auto-fill prompt
-   - Stats chips show available counts
-
-5. **Execute**
-   - Click "Execute" button (or Cmd/Ctrl + Enter)
-   - AI generates test graph from prompt
-   - Handles disambiguation automatically (modal popup)
-   - Shows real-time progress bar during execution
-
-6. **View Result**
-   - Success/failure alert with duration
-   - Step-by-step block status
-   - Error messages if failed
-   - Link to detailed report
-
-7. **Replay from History**
-   - Click any previous command to reload
-   - Success/failure indicators
-   - Timestamps (relative time)
-   - Clear history button
+</div>
 
 ### Component Architecture
+
+<div data-technical>
 
 ```
 MCPPlayground.tsx (Main Page)
@@ -157,26 +125,23 @@ MCPPlayground.tsx (Main Page)
     └── Relative timestamps
 ```
 
-### Voice Input Details
+</div>
 
-**Supported Browsers:**
-- ✅ Chrome/Edge (desktop & mobile)
-- ✅ Safari (iOS & macOS)
-- ❌ Firefox (limited support)
+### Voice Input
 
-**Usage:**
-1. Click "Voice" button
-2. Allow microphone access (browser will prompt)
-3. Speak your command clearly
-4. Watch real-time transcription
-5. Click "Stop" to finish
-6. Transcript auto-appends to prompt text
+Works in Chrome, Edge and Safari. Firefox has limited support.
 
-**Tips:**
-- Speak slowly and clearly
-- Use natural language (e.g., "Navigate to home and take a screenshot")
-- Pause between phrases for better accuracy
-- Background noise may affect accuracy
+1. Click the "Voice" button and allow microphone access.
+2. Speak your request. Watch the words appear.
+3. Click "Stop". The transcript is added to the request text.
+
+<div data-technical>
+
+Browsers: Chrome and Edge (computer and phone), Safari (iPhone, iPad and Mac). The voice input uses the browser's built-in speech feature (the Web Speech API).
+
+Tips: speak slowly and clearly, use everyday language (for example "Navigate to home and take a screenshot"), pause between phrases, and avoid background noise.
+
+</div>
 
 ### Keyboard Shortcuts
 
@@ -188,7 +153,11 @@ MCPPlayground.tsx (Main Page)
 
 ### Local Storage
 
-The MCP Playground stores data locally in your browser:
+The history is saved in your browser only. Nothing is sent to the server. It is still there after you close the browser. Clear it with the "Clear" button.
+
+<div data-technical>
+
+Saved: the last 50 requests, when each one ran, whether it worked, and a short summary of the result. The history is stored under the key `mcp-playground-history`, as a JSON list:
 
 ```javascript
 localStorage.setItem('mcp-playground-history', JSON.stringify([
@@ -201,42 +170,44 @@ localStorage.setItem('mcp-playground-history', JSON.stringify([
 ]))
 ```
 
-**Data Stored:**
-- Last 50 commands
-- Timestamps
-- Success/failure status
-- Result summaries
-
-**Privacy:**
-- Data stored locally only (not sent to server)
-- Clear history anytime with "Clear" button
-- Data persists across browser sessions
+</div>
 
 ### Mobile Optimizations
 
-✅ **Touch Targets:**
-- Minimum 56px height on mobile
-- Large button spacing (16px gaps)
-- Full-width buttons on mobile
+Buttons are large and nothing depends on hovering the mouse.
 
-✅ **Font Sizes:**
-- Body text: 16px (mobile) → 14px (desktop)
-- Headers: 20px (mobile) → 16px (desktop)
-- Inputs: 16px minimum (prevents iOS zoom)
+<div data-technical>
 
-✅ **Gestures:**
-- Tap to expand/collapse sections
-- Swipe-friendly dropdowns
-- No hover states (click-only)
+**Touch targets:**
+- At least 56px tall on a phone
+- 16px gaps between large buttons
+- Buttons fill the width on a phone
 
-✅ **Performance:**
-- Lazy-loaded components
-- Debounced voice input
-- Cached available options
+**Text sizes:**
+- Body text: 16px on a phone, 14px on a computer
+- Headings: 20px on a phone, 16px on a computer
+- Input boxes: at least 16px, so iPhones do not zoom in when you tap
+
+**Touch:**
+- Tap to open and close sections
+- Dropdowns are easy to swipe through
+- Hovering does nothing. Everything works with a click or tap.
+
+**Speed:**
+- Parts of the page load only when they are needed
+- Voice input is debounced
+- Available options are cached
+
+</div>
 
 ### Use Cases
 
-#### 1. Quick Smoke Test
+#### 1. Quick smoke test
+
+Take control, type a request, then run it.
+
+<div data-technical>
+
 ```
 1. Take control
 2. Type: "Navigate to home and verify Replay button"
@@ -244,7 +215,14 @@ localStorage.setItem('mcp-playground-history', JSON.stringify([
 4. Done in seconds!
 ```
 
-#### 2. Voice-Driven Testing (Mobile)
+</div>
+
+#### 2. Voice-driven testing on a phone
+
+Useful when you are away from your desk.
+
+<div data-technical>
+
 ```
 1. Take control
 2. Hold voice button
@@ -254,7 +232,14 @@ localStorage.setItem('mcp-playground-history', JSON.stringify([
 6. Perfect for on-the-go testing!
 ```
 
-#### 3. Exploratory Testing
+</div>
+
+#### 3. Exploratory testing
+
+Browse the quick actions and try things quickly.
+
+<div data-technical>
+
 ```
 1. Browse Quick Actions
 2. Click "Navigate to settings"
@@ -265,7 +250,14 @@ localStorage.setItem('mcp-playground-history', JSON.stringify([
 7. Iterate quickly!
 ```
 
-#### 4. Regression from History
+</div>
+
+#### 4. Repeat an earlier request
+
+Run an earlier request that worked. If it still works, the feature is stable.
+
+<div data-technical>
+
 ```
 1. Open History
 2. Replay previous successful command
@@ -273,24 +265,28 @@ localStorage.setItem('mcp-playground-history', JSON.stringify([
 4. Fast regression testing!
 ```
 
-### Comparison: MCP Playground vs Test Case Builder
+</div>
+
+### MCP Playground vs Test Case Builder
 
 | Feature | MCP Playground | Test Case Builder |
 |---------|----------------|-------------------|
 | **Focus** | Quick commands | Full test cases |
 | **Interface** | Text prompt | Visual canvas |
 | **Input** | Type or speak | Drag & drop blocks |
-| **Mobile** | Optimized ✅ | Desktop-only |
-| **Voice** | Built-in ✅ | Not available |
+| **Mobile** | Made for phones | Desktop only |
+| **Voice** | Built in | Not available |
 | **History** | Last 50 commands | Saved test cases |
 | **Complexity** | Simple | Advanced |
 | **Use Case** | Quick testing | Complex workflows |
 | **Save** | Local history | Database |
-| **Target** | Mobile-first | Desktop power users |
+| **Target** | Phone-first | Desktop power users |
 
 ### Integration with MCP Tools
 
-The MCP Playground uses the same backend MCP tools:
+The playground uses the same MCP tools as the rest of the platform. It needs no new server code.
+
+<div data-technical>
 
 ```
 User Types Prompt
@@ -314,54 +310,34 @@ Returns: Success/failure
 Display result + update history
 ```
 
-**No new backend code needed!** The playground reuses all existing MCP tools and execution infrastructure.
+</div>
 
 ### Best Practices
 
-✅ **Discovery First:**
-- Use `list_actions`, `list_verifications`, `list_navigation_nodes` to see what's available
-- Browse Quick Actions before typing
+- **Look around first.** Browse Quick Actions before you type.
+- **Write requests the way you would say them.** "Navigate to home and verify the Replay button exists", not "nav home verify Replay".
 
-✅ **Natural Language:**
-- Write prompts as you would speak them
-- Example: "Navigate to home and verify the Replay button exists"
-- Not: "nav home verify Replay"
+<div data-technical>
 
-✅ **Voice Tips:**
-- Use in quiet environment
-- Speak clearly and slowly
-- Review transcript before executing
+Discovery tools: `list_actions`, `list_verifications`, `list_navigation_nodes`.
 
-✅ **Mobile Usage:**
-- Collapse sections you're not using (saves screen space)
-- Use voice input for hands-free testing
-- Landscape mode recommended for tablets
+Keep the history tidy: clear failed requests, and run the working ones again to check for regressions. On a phone, fold away the sections you are not using. Landscape mode is recommended on tablets. Read the voice transcript before you run it, and use voice in a quiet place.
 
-✅ **History Management:**
-- Review history periodically
-- Clear failed commands
-- Replay successful commands for regression
+</div>
 
 ### Troubleshooting
 
-**Voice Not Working:**
-- Check browser supports Web Speech API (Chrome/Safari)
-- Allow microphone access in browser settings
-- Check microphone not muted
-- Try Safari if Chrome fails on iOS
+**Voice does not work:** use Chrome or Safari, and allow microphone access.
 
-**Prompt Not Executing:**
-- Ensure device control is active (green button)
-- Check host/device/interface selected
-- Verify backend server running
-- Check network connectivity
+**The request does not run:** check that device control is on (the green button) and that a host, device and interface are selected.
 
-**Disambiguation Modal Won't Close:**
-- Select resolution from dropdown
-- Click "Resolve" button
-- Or click "Cancel" to abort
+**The choice pop-up will not close:** pick a result and click "Resolve", or click "Cancel".
 
-**History Not Saving:**
-- Check browser allows localStorage
-- Check not in Private/Incognito mode
-- Try clearing browser cache
+<div data-technical>
+
+- Voice: on an iPhone, try Safari if Chrome fails. Check that the microphone is not muted.
+- Requests: check that the backend server is running and that your network connection works.
+- Choice pop-up: pick a result from the drop-down, click "Resolve", or click "Cancel" to stop.
+- History is not saved: check that your browser allows local storage, that you are not in a private or incognito window, and try clearing the browser cache.
+
+</div>

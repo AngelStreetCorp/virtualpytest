@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — a recovered device still read as degraded           |
 | Area      | `backend_server/src/lib/analytics/catalog.py` (fleet health) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `8ee5bd2bc`                                                       |
 
 ---

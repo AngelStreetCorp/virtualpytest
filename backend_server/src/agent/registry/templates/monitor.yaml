@@ -62,14 +62,16 @@ metadata:
 subagents: []
 
 # Micro-skills (2-4 tools each)
+# TASK-175: 'incident-response' / 'health-check' / 'alert-triage' never existed; the device-health skill
+# that does exist is check-system-health.
 available_skills:
-  - incident-response
-  - health-check
-  - alert-triage
+  - check-system-health
 
 # Router mode tools (minimal)
 skills:
   - list_hosts
+  - get_alerts
+  - get_device_info
 
 permissions:
   devices:

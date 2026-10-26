@@ -98,7 +98,7 @@ FINAL VIDEO: window 123.0s wall | media 138.7s | missing 0.0s
 ## Not a bug: the "Permission denied" lines alongside it
 
 The same log showed `Failed to delete local file capture_*.jpg: [Errno 13] Permission denied`.
-That was an artifact of running the script by hand as `jndoye`: `captures/` is `755
+That was an artifact of running the script by hand as `<operator>`: `captures/` is `755
 vpt_user:vpt_user`, and unlinking needs write permission on the directory. `vpt-host` runs as
 `User=vpt_user`; the same run through the normal path logged zero permission errors. Run
 scripts as `sudo -u vpt_user` when reproducing by hand.

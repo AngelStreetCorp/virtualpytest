@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — the documented KPI "flags" filter could not be used |
 | Area      | `backend_server/src/lib/analytics/service.py` (flag filter)  |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `8ee5bd2bc`                                                       |
 
 ---

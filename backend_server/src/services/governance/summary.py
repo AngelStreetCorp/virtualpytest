@@ -25,7 +25,24 @@ TREND_MAX_DAYS = 90
 
 
 def campaign_status(row: Dict[str, Any]) -> str:
-    """Verdict of one campaign_executions row (status column + success)."""
+    """Verdict of one campaign_executions row (skip flag, then status column + success)."""
+
+    def flag_on(value: Any) -> bool:
+        """A skip flag as the database and the API spell it: true, 1 or 'true'."""
+        if isinstance(value, str):
+            return value.strip().lower() in {'true', '1', 'yes'}
+        return value is True or value == 1
+
+    # A campaign whose deployment never started (device busy, device locked by another
+    # owner, device queue full) is skipped, not broken: the platform's own health must
+    # not read it as a failure. The flag is the authority — the status column keeps its
+    # own meaning, so a cancelled campaign reads as cancelled unless the flag says the
+    # night never ran (BUG-0898).
+    metadata = row.get('metadata') or {}
+    if not isinstance(metadata, dict):
+        metadata = {}
+    if flag_on(row.get('skipped')) or flag_on(metadata.get('skipped')):
+        return 'skipped'
     status = str(row.get('status') or '').lower()
     if status in ('running', 'pending'):
         return status

@@ -17,16 +17,11 @@ Cloudflare Worker that:
    email when it clears), but `ok` stays true so the site is not swapped for
    the error page — e.g. the storage VM froze for 5.5 h on 2026-10-12 with
    Redis gone and no alert ([BUG-0475](../../../docs/bugs/BUG-0475-2026-10-12-server-health-slow-when-redis-unreachable.md)).
-3. **Smart 5xx page** — when an HTTP request to the zone gets `status >= 500`
-   OR the upstream `fetch` itself throws (TCP/DNS/timeout), the Worker
-   renders a branded HTML page that includes:
-   - the headline for the upstream code (`Connection timed out`,
-     `Origin took too long`, `Origin error (HTTP 5xx)`),
-   - the latest `Origin: healthy / unreachable — last healthy Nmin ago`,
-   - the last probe error if any,
-   - the `cf-ray` request id, the upstream status code and the last probe
-     timestamp, so a human can grep the CF Events log with it,
-   - a `Retry` button.
+3. **Outage page** — only when Cloudflare cannot reach proxmox (`fetch`
+   throws, or status 520–524). A Flask or nginx 5xx is passed through, so
+   a dead server process does not replace the frontend. The page says the
+   service is temporarily unavailable and offers **Try again**. No host,
+   status code, or request id.
 
    Without this Worker, users see Cloudflare's generic "Connection timed out
    / Error 522" page; with it they see the same brand as the rest of the
@@ -91,8 +86,14 @@ npx wrangler secret put RESEND_TO_ADDRESS    # comma-separated, e.g. you@x.com,o
 npx wrangler deploy
 
 # 5. Bind the route (Workers & Pages → vpt-status-worker → Triggers →
-#    Add route): virtualtest.angelstreet.io/*  zone: angelstreet.io
+#    Add route): virtualpytest.angelstreet.io/*  zone: angelstreet.io
 #    OR uncomment [[routes]] in wrangler.toml and re-deploy.
+#
+#    The pattern MUST be the real public hostname. A typo here
+#    (`virtualtest.angelstreet.io/*` — missing "py") made the Worker never
+#    fire on the real domain, so users saw the CF generic 522 page instead
+#    of the branded one (see BUG-NNNN). If you copy this from an old doc,
+#    double-check.
 ```
 
 The CF API token in `.env` (`CLOUDFLARE_API_TOKEN`) needs scope **Account >
@@ -136,14 +137,13 @@ overrides it whenever it is bound.
 
 - The KV namespace holds at most one record (`origin-status`) with a 24 h
   expiration; nothing else is written. Safe to delete and recreate.
-- `cf-ray` is the Cloudflare request id — copy it from the rendered error
-  page and grep CF → Security → Events for the matching event.
+- The public error page does not show a request id. Look up the incident
+  in the alert email, or in CF → Security → Events by time.
 - The cron probe has an 8 s `AbortSignal.timeout`; anything slower counts
   as a failure.
 - Resend free tier: 100 emails/day, 3k/month — way above any
   realistic incident rate. If you ever blow past it, you'll get a `429`
   from `/emails` and the Worker just logs and continues.
 - The Worker does **not** cache anything — it forwards every request to
-  the origin and only intercepts the response on 5xx / fetch failure.
-  The existing `snippets/cloudflare-only.conf` on the origin still applies
-  and is unaffected.
+  the origin and only substitutes the outage page when Cloudflare cannot
+  reach proxmox (connection failure or status 520–524).

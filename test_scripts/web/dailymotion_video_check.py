@@ -54,6 +54,10 @@ from shared.src.lib.utils.local_debug_playwright_js import (
     DAILYMOTION_JS_GET_FIRST_FRAME as _JS_GET_FIRST_FRAME,
 )
 from shared.src.lib.utils.web_video_playback import calc_playback_progress
+from shared.src.lib.utils.web_video_legibility import (
+    build_playback_verdict,
+    format_legibility_lines,
+)
 
 import re
 
@@ -411,6 +415,8 @@ async def _run_local_playwright_flow(
         playing = False
         monitor_error = None
         video_load_time_ms = None
+        play_attempts = []
+        probe_context = None
 
         while elapsed < monitor_duration:
             try:
@@ -426,8 +432,9 @@ async def _run_local_playwright_flow(
                             video_load_time_ms = int((time.time() - video_play_start) * 1000)
                     elif sample.get('paused', True):
                         print("[PW] page.evaluate(_JS_FORCE_PLAY)")
-                        await page.evaluate(_JS_FORCE_PLAY)
+                        play_attempts.append(await page.evaluate(_JS_FORCE_PLAY))
                 else:
+                    probe_context = sample
                     print(f"[PW] video element not found at elapsed={elapsed}s")
                 await page.wait_for_timeout(poll_interval * 1000)
                 elapsed += poll_interval
@@ -450,6 +457,15 @@ async def _run_local_playwright_flow(
         except Exception as ff_exc:
             print(f"[PW] first-frame probe read failed: {ff_exc}")
 
+        verdict = build_playback_verdict(
+            samples,
+            play_attempts=play_attempts,
+            playing=playback_confirmed,
+            monitor_error=monitor_error,
+            stages_completed=['navigation'],
+            probe_context=probe_context,
+        )
+
         video_result = {
             'success': playback_confirmed,
             'playing': playback_confirmed,
@@ -458,6 +474,13 @@ async def _run_local_playwright_flow(
             'video_load_time_ms': video_load_time_ms,
             'first_frame_method': first_frame_method,
             'error': None if playback_confirmed else (monitor_error or 'Video did not play during monitoring window'),
+            'stage': verdict['stage'],
+            'reason': verdict['reason'],
+            'play_outcome': verdict['play_outcome'],
+            'play_error': verdict['play_error'],
+            'diagnostics': verdict['diagnostics'],
+            'hypotheses': verdict['hypotheses'],
+            'legibility': verdict,
         }
         video_end_shot = ""
         try:
@@ -700,6 +723,8 @@ def main():
     elapsed = 0
     playing = False
     video_load_time_ms = None
+    play_attempts = []
+    probe_context = None
     while elapsed < monitor_duration:
         status = asyncio.run(web_controller.execute_javascript(_JS_VIDEO_STATUS))
         if status.get('success') and (status.get('result') or {}).get('found'):
@@ -711,7 +736,9 @@ def main():
                 if video_load_time_ms is None:
                     video_load_time_ms = int((time.time() - video_play_start) * 1000)
             elif sample.get('paused', True):
-                asyncio.run(web_controller.execute_javascript(_JS_FORCE_PLAY))
+                play_attempts.append(asyncio.run(web_controller.execute_javascript(_JS_FORCE_PLAY)))
+        else:
+            probe_context = status.get('result') or {}
         time.sleep(5)
         elapsed += 5
 
@@ -737,9 +764,20 @@ def main():
         'details': {'progress_seconds': progress_seconds, 'sample_count': len(samples)},
     }], screenshot_path=monitor_step_shot)
 
+    verdict = build_playback_verdict(
+        samples,
+        play_attempts=play_attempts,
+        playing=playback_confirmed,
+        stages_completed=['navigation'],
+        probe_context=probe_context,
+    )
+
     context.overall_success = playback_confirmed
     if not playback_confirmed and not context.error_message:
-        context.error_message = "Video playback not confirmed during monitoring window"
+        context.error_message = (
+            f"Video playback not confirmed during monitoring window "
+            f"(stage: {verdict['stage']}; {verdict['reason']})"
+        )
     context.metadata = {
         'url': video_url,
         'page_load_time_ms': page_load_time_ms,
@@ -751,6 +789,13 @@ def main():
             'sample_count': len(samples),
             'video_load_time_ms': video_load_time_ms,
             'first_frame_method': first_frame_method,
+            'stage': verdict['stage'],
+            'reason': verdict['reason'],
+            'play_outcome': verdict['play_outcome'],
+            'play_error': verdict['play_error'],
+            'diagnostics': verdict['diagnostics'],
+            'hypotheses': verdict['hypotheses'],
+            'outcome': verdict['outcome'],
         },
     }
     context.step_results = step_results
@@ -801,6 +846,10 @@ main._target_rules = {
     "target_type": "host",
     "host_os": "all",
     "device_model": "all",
+    # This script drives its OWN Chrome (its own debug port and its own profile), so it
+    # does not need the host to itself: two of these can run on one host at the same
+    # time instead of queueing behind each other (TASK-146).
+    "browser_isolated": True,
 }
 
 

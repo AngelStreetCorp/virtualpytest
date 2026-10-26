@@ -22,13 +22,13 @@ unified password-reset integration end-to-end against prod.
 
 ```bash
 curl -X POST -H "X-API-Key: $KEY" -H 'Content-Type: application/json' \
-  -d '{"email":"pwreset.probe@angelstreet.io","password":"…",
+  -d '{"email":"pwreset.probe@example.com","password":"…",
        "full_name":"Password Reset Probe","group":"probe-team","grafana":true}' \
   http://192.168.x.103:5109/server/users
 ```
 
 ```json
-{"status":"ok","action":"created","email":"pwreset.probe@angelstreet.io",
+{"status":"ok","action":"created","email":"pwreset.probe@example.com",
  "platform":{"role":"viewer","team":null},
  "grafana":{"user_id":3,"org_role":"Viewer"}}
 ```

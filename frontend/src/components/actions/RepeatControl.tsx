@@ -20,6 +20,7 @@ import type {
   Verifications,
 } from '../../types/verification/Verification_Types';
 import { VerificationsList } from '../verification/VerificationsList';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface RepeatControlProps {
   action: Action;
@@ -45,8 +46,8 @@ const DEFAULT_REPEAT_UNTIL: RepeatUntil = {
 };
 
 const fieldSx = {
-  '& .MuiInputBase-input': { padding: '3px 6px', fontSize: '0.75rem' },
-  '& .MuiSelect-select': { padding: '3px 6px', fontSize: '0.75rem' },
+  '& .MuiInputBase-input': { padding: '3px 6px', fontSize: TYPOGRAPHY.caption.size },
+  '& .MuiSelect-select': { padding: '3px 6px', fontSize: TYPOGRAPHY.caption.size },
 };
 
 type RepeatMode = 'count' | 'until_appears' | 'until_disappears';
@@ -130,13 +131,13 @@ export const RepeatControl: React.FC<RepeatControlProps> = ({
           onChange={(e) => handleModeChange(e.target.value as RepeatMode)}
           sx={fieldSx}
         >
-          <MenuItem value="count" sx={{ fontSize: '0.75rem' }}>
+          <MenuItem value="count" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
             Count
           </MenuItem>
-          <MenuItem value="until_appears" sx={{ fontSize: '0.75rem' }}>
+          <MenuItem value="until_appears" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
             Until appears
           </MenuItem>
-          <MenuItem value="until_disappears" sx={{ fontSize: '0.75rem' }}>
+          <MenuItem value="until_disappears" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
             Until disappears
           </MenuItem>
         </Select>
@@ -172,10 +173,10 @@ export const RepeatControl: React.FC<RepeatControlProps> = ({
               }
               sx={fieldSx}
             >
-              <MenuItem value="node" sx={{ fontSize: '0.75rem' }}>
+              <MenuItem value="node" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                 Node
               </MenuItem>
-              <MenuItem value="verifications" sx={{ fontSize: '0.75rem' }}>
+              <MenuItem value="verifications" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                 Verifs
               </MenuItem>
             </Select>
@@ -194,7 +195,7 @@ export const RepeatControl: React.FC<RepeatControlProps> = ({
                   sx={fieldSx}
                 >
                   {nodes.length === 0 && (
-                    <MenuItem disabled value="" sx={{ fontSize: '0.75rem', fontStyle: 'italic' }}>
+                    <MenuItem disabled value="" sx={{ fontSize: TYPOGRAPHY.caption.size, fontStyle: 'italic' }}>
                       No nodes
                     </MenuItem>
                   )}
@@ -206,7 +207,7 @@ export const RepeatControl: React.FC<RepeatControlProps> = ({
                         .localeCompare((b.data?.label || b.id).toLowerCase()),
                     )
                     .map((n) => (
-                      <MenuItem key={n.id} value={n.id} sx={{ fontSize: '0.75rem' }}>
+                      <MenuItem key={n.id} value={n.id} sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                         {n.data?.label || n.id}
                       </MenuItem>
                     ))}
@@ -223,10 +224,10 @@ export const RepeatControl: React.FC<RepeatControlProps> = ({
                   onChange={(e) => patchRu({ match: e.target.value as 'all' | 'any' })}
                   sx={fieldSx}
                 >
-                  <MenuItem value="all" sx={{ fontSize: '0.75rem' }}>
+                  <MenuItem value="all" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                     All must pass
                   </MenuItem>
-                  <MenuItem value="any" sx={{ fontSize: '0.75rem' }}>
+                  <MenuItem value="any" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                     Any passes
                   </MenuItem>
                 </Select>
@@ -243,11 +244,11 @@ export const RepeatControl: React.FC<RepeatControlProps> = ({
                     onClick={(e) => setAnchorEl(e.currentTarget)}
                     sx={{ p: 0.5, width: 28, height: 28 }}
                   >
-                    <SettingsIcon sx={{ fontSize: '1rem' }} />
+                    <SettingsIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
                   </IconButton>
                 </span>
               </Tooltip>
-              <Box sx={{ fontSize: '0.7rem', color: 'text.secondary', whiteSpace: 'nowrap' }}>
+              <Box sx={{ fontSize: TYPOGRAPHY.caption.size, color: 'text.secondary', whiteSpace: 'nowrap' }}>
                 {verifCount} verif{verifCount === 1 ? '' : 's'}
               </Box>
 

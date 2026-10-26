@@ -1,0 +1,154 @@
+Starting VirtualPyTest deployment...
+Targets: server=true frontend=true hosts=true hosts-windows=true restart=false
+Branch: <current branch>
+
+=== Lease check (node1-vpt: *) ===
+no lease registry configured — skipping
+
+=== Step 1: Git pull ===
+offline bundle (no git): /tmp/run/bundle/virtualpytest
+  bundle: t
+VERSION.txt: current:main-1
+
+=== Step 2: Deploy to target VMs ===
+bundle mode: frontend config re-included from the bundle: 
+
+--- Server ---
+
+==> [proxmox -> srv] rsync push
+VPT_PROGRESS {"host":"srv","role":"server","phase":"rsync","state":"start","ts":"2026-10-14T08:00:00Z","detail":""}
+VPT_PROGRESS {"host":"srv","role":"server","phase":"rsync","state":"ok","ts":"2026-10-14T08:00:12Z","detail":""}
+
+==> [srv] sudo -n find /opt/virtualpytest     -path /opt/virtualpytest/frontend/public/docs -prune -o     -path /opt/virtualpytest/frontend/public/brand -prune -o     -not -path '*/.env' -not -path '*/venv/*'     -exec chown -h vpt_user:vpt_user {} +
+
+==> [srv] sudo -n chmod +x     /opt/virtualpytest/backend_host/src/controllers/remote/bluetooth/start.sh     /opt/virtualpytest/backend_host/src/controllers/remote/bluetooth/resume.sh     2>/dev/null || true
+VPT_PROGRESS {"host":"srv","role":"server","phase":"restart","state":"start","ts":"2026-10-14T08:00:12Z","detail":"vpt-server.service"}
+
+==> [srv] sudo -n systemctl restart "vpt-server.service"
+VPT_PROGRESS {"host":"srv","role":"server","phase":"restart","state":"ok","ts":"2026-10-14T08:00:15Z","detail":"vpt-server.service"}
+VPT_PROGRESS {"host":"srv","role":"server","phase":"health","state":"start","ts":"2026-10-14T08:00:15Z","detail":"vpt-server.service"}
+==> [srv] vpt-server.service state: ActiveState=active SubState=running Result=success ExecMainStatus=0
+VPT_PROGRESS {"host":"srv","role":"server","phase":"health","state":"ok","ts":"2026-10-14T08:00:24Z","detail":"vpt-server.service"}
+
+==> [srv] sudo -n systemctl status --no-pager "vpt-server.service"
+
+==> [srv] Restarting aux services (only those already active): vpt-heatmap vpt-discard-incidents vpt-discard-scripts
+
+==> [srv] sudo -n systemctl is-active --quiet "vpt-heatmap"
+==> [srv] vpt-heatmap not active -> skipping
+
+==> [srv] sudo -n systemctl is-active --quiet "vpt-discard-incidents"
+==> [srv] vpt-discard-incidents not active -> skipping
+
+==> [srv] sudo -n systemctl is-active --quiet "vpt-discard-scripts"
+==> [srv] vpt-discard-scripts not active -> skipping
+
+--- Frontend ---
+
+==> [proxmox -> fe] rsync push
+VPT_PROGRESS {"host":"fe","role":"frontend","phase":"rsync","state":"start","ts":"2026-10-14T08:00:24Z","detail":""}
+VPT_PROGRESS {"host":"fe","role":"frontend","phase":"rsync","state":"ok","ts":"2026-10-14T08:00:30Z","detail":""}
+
+==> [fe] sudo -n find /opt/virtualpytest     -path /opt/virtualpytest/frontend/public/docs -prune -o     -path /opt/virtualpytest/frontend/public/brand -prune -o     -not -path '*/.env' -not -path '*/venv/*'     -exec chown -h vpt_user:vpt_user {} +
+
+==> [fe] sudo -n chmod +x     /opt/virtualpytest/backend_host/src/controllers/remote/bluetooth/start.sh     /opt/virtualpytest/backend_host/src/controllers/remote/bluetooth/resume.sh     2>/dev/null || true
+
+==> [fe] sudo -n diff -q '/opt/virtualpytest/frontend/config/services/linux/frontend_prod.service' '/etc/systemd/system/vpt-frontend-prod.service' >/dev/null 2>&1
+
+==> [fe] Building frontend bundle (previous bundle stays served)
+VPT_PROGRESS {"host":"fe","role":"frontend","phase":"install","state":"start","ts":"2026-10-14T08:00:30Z","detail":"frontend build"}
+
+==> [fe] sudo -n -H -u vpt_user bash /opt/virtualpytest/frontend/scripts/ensure_dist.sh
+VPT_PROGRESS {"host":"fe","role":"frontend","phase":"install","state":"ok","ts":"2026-10-14T08:02:05Z","detail":"frontend build"}
+VPT_PROGRESS {"host":"fe","role":"frontend","phase":"restart","state":"start","ts":"2026-10-14T08:02:05Z","detail":"vpt-frontend-prod.service"}
+
+==> [fe] sudo -n systemctl restart "vpt-frontend-prod.service"
+VPT_PROGRESS {"host":"fe","role":"frontend","phase":"restart","state":"ok","ts":"2026-10-14T08:02:08Z","detail":"vpt-frontend-prod.service"}
+VPT_PROGRESS {"host":"fe","role":"frontend","phase":"health","state":"start","ts":"2026-10-14T08:02:08Z","detail":"vpt-frontend-prod.service"}
+==> [fe] vpt-frontend-prod.service state: ActiveState=active SubState=running Result=success ExecMainStatus=0
+VPT_PROGRESS {"host":"fe","role":"frontend","phase":"health","state":"ok","ts":"2026-10-14T08:02:20Z","detail":"vpt-frontend-prod.service"}
+
+==> [fe] sudo -n systemctl status --no-pager "vpt-frontend-prod.service"
+
+--- Host VMs ---
+
+==> [proxmox -> h1] rsync push
+VPT_PROGRESS {"host":"h1","role":"host","phase":"rsync","state":"start","ts":"2026-10-14T08:02:20Z","detail":""}
+VPT_PROGRESS {"host":"h1","role":"host","phase":"rsync","state":"ok","ts":"2026-10-14T08:02:30Z","detail":""}
+
+==> [h1] sudo -n find /opt/virtualpytest     -path /opt/virtualpytest/frontend/public/docs -prune -o     -path /opt/virtualpytest/frontend/public/brand -prune -o     -not -path '*/.env' -not -path '*/venv/*'     -exec chown -h vpt_user:vpt_user {} +
+
+==> [h1] sudo -n chmod +x     /opt/virtualpytest/backend_host/src/controllers/remote/bluetooth/start.sh     /opt/virtualpytest/backend_host/src/controllers/remote/bluetooth/resume.sh     2>/dev/null || true
+VPT_PROGRESS {"host":"h1","role":"host","phase":"restart","state":"start","ts":"2026-10-14T08:02:30Z","detail":"vpt-host.service"}
+
+==> [h1] sudo -n systemctl restart "vpt-host.service"
+VPT_PROGRESS {"host":"h1","role":"host","phase":"restart","state":"ok","ts":"2026-10-14T08:02:33Z","detail":"vpt-host.service"}
+VPT_PROGRESS {"host":"h1","role":"host","phase":"health","state":"start","ts":"2026-10-14T08:02:33Z","detail":"vpt-host.service"}
+==> [h1] vpt-host.service state: ActiveState=active SubState=running Result=success ExecMainStatus=0
+VPT_PROGRESS {"host":"h1","role":"host","phase":"health","state":"ok","ts":"2026-10-14T08:02:41Z","detail":"vpt-host.service"}
+
+==> [h1] sudo -n systemctl status --no-pager "vpt-host.service"
+VPT_PROGRESS {"host":"h1","role":"host","phase":"install","state":"start","ts":"2026-10-14T08:02:41Z","detail":"feature units"}
+
+==> [h1] sudo -n test -f /opt/virtualpytest/setup/proxmox/node/reconcile_feature_units.sh
+
+==> [h1] sudo -n bash /opt/virtualpytest/setup/proxmox/node/reconcile_feature_units.sh --project-root /opt/virtualpytest
+VPT_PROGRESS {"host":"h1","role":"host","phase":"install","state":"ok","ts":"2026-10-14T08:02:51Z","detail":"feature units"}
+
+==> [h1] sudo -n test -f /opt/virtualpytest/setup/proxmox/node/migrate_monitor_units.sh
+
+==> [h1] sudo -n bash /opt/virtualpytest/setup/proxmox/node/migrate_monitor_units.sh --project-root /opt/virtualpytest
+
+==> [proxmox -> h2] rsync push
+VPT_PROGRESS {"host":"h2","role":"host","phase":"rsync","state":"start","ts":"2026-10-14T08:02:51Z","detail":""}
+==> [h2] rsync FAILED
+VPT_PROGRESS {"host":"h2","role":"host","phase":"rsync","state":"failed","ts":"2026-10-14T08:02:55Z","detail":"rsync push failed"}
+==> [h2] SKIPPED (unreachable or sync failed)
+
+--- Runner VMs ---
+
+
+
+
+
+
+
+
+
+
+--- Docker stacks (backend_server frontend backend_host) ---
+
+==> [proxmox -> dk] rsync push (docker: /home/virtualpytest/virtualpytest)
+VPT_PROGRESS {"host":"dk","role":"docker","phase":"rsync","state":"start","ts":"2026-10-14T08:02:55Z","detail":""}
+VPT_PROGRESS {"host":"dk","role":"docker","phase":"rsync","state":"ok","ts":"2026-10-14T08:02:59Z","detail":""}
+VPT_PROGRESS {"host":"dk","role":"docker","phase":"install","state":"start","ts":"2026-10-14T08:02:59Z","detail":"docker compose build (background)"}
+
+==> [dk] bash -s
+build started in the background
+VPT_PROGRESS {"host":"dk","role":"docker","phase":"install","state":"ok","ts":"2026-10-14T08:03:00Z","detail":"build started in the background"}
+VPT_PROGRESS {"host":"dk","role":"docker","phase":"restart","state":"skipped","ts":"2026-10-14T08:03:00Z","detail":"docker: recreated by the background build"}
+VPT_PROGRESS {"host":"dk","role":"docker","phase":"health","state":"skipped","ts":"2026-10-14T08:03:00Z","detail":"docker: recreated by the background build"}
+
+--- Windows Host VMs ---
+
+==> [proxmox -> win1] rsync push (Windows)
+VPT_PROGRESS {"host":"win1","role":"windows","phase":"rsync","state":"start","ts":"2026-10-14T08:03:00Z","detail":""}
+VPT_PROGRESS {"host":"win1","role":"windows","phase":"rsync","state":"ok","ts":"2026-10-14T08:03:05Z","detail":""}
+
+==> [win1] Restarting Windows scheduled task 'vpt-host'
+VPT_PROGRESS {"host":"win1","role":"windows","phase":"install","state":"skipped","ts":"2026-10-14T08:03:05Z","detail":"windows: nothing to install"}
+VPT_PROGRESS {"host":"win1","role":"windows","phase":"restart","state":"start","ts":"2026-10-14T08:03:05Z","detail":"vpt-host"}
+
+==> [win1] powershell.exe -Command "Stop-ScheduledTask -TaskName 'vpt-host' -ErrorAction SilentlyContinue; Start-ScheduledTask -TaskName 'vpt-host'"
+VPT_PROGRESS {"host":"win1","role":"windows","phase":"restart","state":"ok","ts":"2026-10-14T08:03:10Z","detail":"vpt-host"}
+VPT_PROGRESS {"host":"win1","role":"windows","phase":"health","state":"skipped","ts":"2026-10-14T08:03:10Z","detail":"windows: scheduled task state is printed in the log"}
+
+==> [win1] powershell.exe -Command "Get-ScheduledTask -TaskName 'vpt-host' | Select-Object TaskName, State | Format-Table -AutoSize"
+
+========== DEPLOY SUMMARY ==========
+  OK (5):     srv fe h1 r1 win1
+  FAILED (1): h2
+  DOCKER BUILD STARTED (1): dk  (log there: ~/build-logs/update_core-<version>.log)
+====================================
+
+Done (with failures).

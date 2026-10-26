@@ -18,7 +18,10 @@ class BaseController:
         self.controller_type = controller_type
         self.device_name = device_name
         self.is_connected = False
-    
+        # Why the last connect() failed, in words an operator can act on. Take Control
+        # shows it in the toast instead of a generic "Failed to connect".
+        self.connect_error = None
+
     def connect(self) -> bool:
         """Connect to the device/service. Optional - override if needed."""
         self.is_connected = True
@@ -300,6 +303,14 @@ class FFmpegCaptureController(AVControllerInterface):
             self.screenshot_fps = 2
         else:
             self.screenshot_fps = 5  # Default for HDMI/hardware
+        # tv_lite (TASK-95): run_ffmpeg.sh writes captures at TV_LITE_CAPTURE_FPS (default 2), not 5
+        try:
+            import os
+            from shared.src.lib.utils.monitor_profile import is_lean_capture_folder
+            if is_lean_capture_folder(video_capture_path):
+                self.screenshot_fps = int(os.getenv('TV_LITE_CAPTURE_FPS', '2') or '2')
+        except Exception:  # noqa: BLE001
+            pass
         
         # Video capture state (timestamp-based, no FFmpeg)
         self.is_capturing_video = False
@@ -329,10 +340,48 @@ class FFmpegCaptureController(AVControllerInterface):
             self._monitoring_helpers = VideoMonitoringHelpers(self, self.real_device_name)
         return self._monitoring_helpers
 
+    def set_quality(self, quality: str = 'sd') -> bool:
+        """Soft per-device quality change: rewrite this device's line in
+        active_captures.conf. The (already running) vpt-stream loop detects the
+        change and recycles just this device's ffmpeg. Does NOT restart the
+        service. Shared by every capture controller (HDMI, VNC, RTSP)."""
+        try:
+            import os
+            from shared.src.lib.utils.storage_path_utils import get_active_captures_conf_path
+
+            config_file = get_active_captures_conf_path()
+            if not os.path.exists(config_file):
+                print(f"[{self.capture_source}] {self.device_id}: no active_captures.conf")
+                return False
+            with open(config_file, 'r') as f:
+                entries = [line.strip() for line in f if line.strip()]
+
+            # Normalized path match so separator / trailing-slash / case differences still hit.
+            target = os.path.normcase(os.path.normpath(self.video_capture_path))
+            found = False
+            for i, entry in enumerate(entries):
+                sep = ',' if ',' in entry else '|'
+                parts = entry.split(sep)
+                if len(parts) == 3 and os.path.normcase(os.path.normpath(parts[0])) == target:
+                    entries[i] = f"{parts[0]}{sep}{parts[1]}{sep}{quality}"
+                    found = True
+                    break
+            if not found:
+                print(f"[{self.capture_source}] {self.device_id}: not running yet")
+                return False
+
+            with open(config_file, 'w') as f:
+                f.write('\n'.join(entries) + '\n')
+            print(f"[{self.capture_source}] {self.device_id}: quality -> {quality}")
+            return True
+        except Exception as e:
+            print(f"[{self.capture_source}] Error updating quality: {e}")
+            return False
+
     def get_quality(self) -> str:
         """Return this device's current stream quality from active_captures.conf.
 
-        This is the inverse of set_quality (defined per-subclass): it reads the
+        This is the inverse of set_quality: it reads the
         CSV (capture_dir,PID,quality) and matches this controller's capture
         directory using the same normalized-path comparison. Falls back to 'sd'
         (the ffmpeg default) when the device has no line yet."""

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High — a passing run read as an error and kept its device locked |
 | Area      | `backend_host/src/controllers/verification/`, `backend_host/src/services/verifications/verification_executor.py`, `backend_host/src/lib/utils/execution_event_utils.py`, `shared/src/lib/utils/app_utils.py` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `9d3bd5b79`, `5f53a098a`                                     |
 
 ---

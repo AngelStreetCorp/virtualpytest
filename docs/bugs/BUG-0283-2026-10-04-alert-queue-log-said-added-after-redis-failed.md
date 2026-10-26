@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low — misleading log; no alert analysis was lost (see Root cause) |
 | Area      | `shared/src/lib/database/alerts_db.py`, `shared/src/lib/database/script_results_db.py`, `docs/agent/ai/agent.md` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---

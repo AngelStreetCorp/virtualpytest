@@ -8,6 +8,7 @@ Extracted from PlaywrightWebController to improve maintainability.
 Uses Playwright sync_api for simplicity and thread safety (no async complexity).
 """
 
+import json
 import os
 import signal
 import time
@@ -20,6 +21,7 @@ from typing import Dict, Any, Optional, Tuple
 _SIGKILL = getattr(signal, 'SIGKILL', 9)
 
 from shared.src.lib.utils.browser_window_utils import build_window_flags, detect_primary_display_bounds
+from shared.src.lib.utils import browser_port_allocator
 
 # Import the cookie utils from shared library
 try:
@@ -150,7 +152,11 @@ class ChromeManager:
     @classmethod
     def shutdown_chrome(cls, debug_port: int = 9222, chrome_process=None, timeout: float = 5.0) -> bool:
         """Take the debug port back. Terminates the browser this process launched (if any),
-        then whatever is still listening on the port, and returns True once nothing is."""
+        then whatever is still listening on the port, and returns True once nothing is.
+
+        The listener is only terminated when it is a leftover: a browser owned by another
+        LIVE run is left alone, so a run's cleanup can never kill a concurrent run's
+        browser (TASK-146)."""
         if chrome_process is not None and chrome_process.poll() is None:
             print(f'[ChromeManager] Terminating launched Chrome (PID {chrome_process.pid})')
             cls._terminate_pid(chrome_process.pid, timeout, lambda: chrome_process.poll() is None)
@@ -158,6 +164,11 @@ class ChromeManager:
             print(f'[ChromeManager] Launched Chrome (PID {chrome_process.pid}) already exited (code {chrome_process.returncode})')
 
         pid = cls.listener_pid(debug_port)
+        owner_pid = browser_port_allocator.port_owner_pid(debug_port)
+        if pid is not None and owner_pid is not None and owner_pid != os.getpid():
+            print(f'[ChromeManager] Port {debug_port} is held by the live run {owner_pid} - '
+                  f'leaving its browser alone')
+            return False
         if pid is not None:
             print(f'[ChromeManager] Port {debug_port} still has a listener (PID {pid}) - terminating it')
             cls._terminate_pid(pid, timeout, lambda: cls.listener_pid(debug_port) == pid)
@@ -173,37 +184,48 @@ class ChromeManager:
         print(f'[ChromeManager] Port {debug_port} is free')
         return True
 
-    @staticmethod
-    def _fix_preferences(user_data_dir: str):
+    # Profile prefs that stop the host's Chrome from filling a saved login into a page. --disable-autofill is not a
+    # Chrome switch: the password manager kept typing another account into the SSO form of a web app under test,
+    # so an agent built its tree logged in as that account (TASK-135).
+    NO_AUTOFILL_PREFS = {
+        ('credentials_enable_service',): False,
+        ('credentials_enable_autosignin',): False,
+        ('profile', 'password_manager_enabled'): False,
+        ('autofill', 'profile_enabled'): False,
+        ('autofill', 'credit_card_enabled'): False,
+    }
+
+    @classmethod
+    def _fix_preferences(cls, user_data_dir: str):
         """
-        Fix Chrome preferences to prevent 'Restore pages' popup by resetting exit_type.
-        This modifies the 'Preferences' file directly to set exit_type to 'Normal'.
+        Fix Chrome preferences before a launch: exit_type 'Normal' (no 'Restore pages' popup) and the password
+        manager / autofill off (NO_AUTOFILL_PREFS). Chrome rewrites Preferences on exit, so this runs while it is down.
         """
-        try:
-            # Try Default profile first, then root
-            paths_to_check = [
-                os.path.join(user_data_dir, 'Default', 'Preferences'),
-                os.path.join(user_data_dir, 'Preferences')
-            ]
-            
-            for pref_path in paths_to_check:
-                if os.path.exists(pref_path):
-                    try:
-                        with open(pref_path, 'r', encoding='utf-8') as f:
-                            content = f.read()
-                        
-                        # Replace exit_type "Crashed" with "Normal" to suppress restore bubble
-                        if '"exit_type":"Crashed"' in content:
-                            print(f'[ChromeManager] Fixing crashed exit_type in {pref_path}')
-                            content = content.replace('"exit_type":"Crashed"', '"exit_type":"Normal"')
-                            with open(pref_path, 'w', encoding='utf-8') as f:
-                                f.write(content)
-                                
-                    except Exception as e:
-                        print(f'[ChromeManager] Warning: Failed to fix Preferences file {pref_path}: {e}')
-                        
-        except Exception as e:
-            print(f'[ChromeManager] Warning: Error during preferences fix: {e}')
+        for pref_path in (os.path.join(user_data_dir, 'Default', 'Preferences'),
+                          os.path.join(user_data_dir, 'Preferences')):
+            if not os.path.exists(pref_path):
+                continue
+            try:
+                with open(pref_path, 'r', encoding='utf-8') as f:
+                    prefs = json.load(f)
+                changed = False
+                profile = prefs.setdefault('profile', {})
+                if profile.get('exit_type') == 'Crashed':
+                    print(f'[ChromeManager] Fixing crashed exit_type in {pref_path}')
+                    profile['exit_type'] = 'Normal'
+                    changed = True
+                for keys, value in cls.NO_AUTOFILL_PREFS.items():
+                    node = prefs
+                    for k in keys[:-1]:
+                        node = node.setdefault(k, {})
+                    if node.get(keys[-1]) != value:
+                        node[keys[-1]] = value
+                        changed = True
+                if changed:
+                    with open(pref_path, 'w', encoding='utf-8') as f:
+                        json.dump(prefs, f, separators=(',', ':'))
+            except Exception as e:
+                print(f'[ChromeManager] Warning: Failed to fix Preferences file {pref_path}: {e}')
 
     @staticmethod
     def is_port_in_use(port: int) -> bool:
@@ -358,10 +380,17 @@ class ChromeManager:
             memory_max: Maximum memory limit (e.g., "1G", "512M")
             memory_high: Memory high limit for early pressure (e.g., "768M")
         """
-        # Whatever still listens on the debug port is an orphan (the device lock guarantees
-        # no other run is driving it): take the port, listener only, never a CDP client (BUG-0114).
+        # Whatever still listens on the debug port: take it ONLY when it is a leftover
+        # from a dead run. A browser that belongs to a LIVE run is never touched - two
+        # web scripts used to kill each other's browser over this one port (BUG-0114).
         if cls.listener_pid(debug_port) is not None:
-            print(f'[ChromeManager] Port {debug_port} has a listener - taking it over')
+            owner_pid = browser_port_allocator.port_owner_pid(debug_port)
+            if owner_pid is not None and owner_pid != os.getpid():
+                raise RuntimeError(
+                    f'Debug port {debug_port} belongs to the live run {owner_pid}; '
+                    f'refusing to touch its browser (TASK-146)'
+                )
+            print(f'[ChromeManager] Port {debug_port} has an orphaned listener - taking it over')
             from shared.src.lib.utils.phase_timing import t0 as _phase_t0, log_phase as _log_phase
             _t = _phase_t0()
             cls.shutdown_chrome(debug_port)
@@ -614,9 +643,9 @@ class PlaywrightConnection:
 class PlaywrightUtils:
     """Main utility class combining Chrome management, Playwright operations, and cookie management using SYNC API."""
     
-    def __init__(self, auto_accept_cookies: bool = True, user_data_dir: str = "./config/user_data",
+    def __init__(self, auto_accept_cookies: bool = True, user_data_dir: Optional[str] = None,
                  use_cgroup: bool = False, cpu_quota: str = "100%", memory_max: str = "4G", memory_high: str = "3G",
-                 debug_port: int = 9222):
+                 debug_port: Optional[int] = None):
         """
         Initialize PlaywrightUtils with auto-sizing browser.
 
@@ -633,8 +662,8 @@ class PlaywrightUtils:
         self.connection = PlaywrightConnection()
         self.cookie_manager = CookieManager() if auto_accept_cookies else None
         self.auto_accept_cookies = auto_accept_cookies
-        self.user_data_dir = resolve_user_data_dir(user_data_dir)
-        self.debug_port = debug_port
+        self.user_data_dir = self._resolve_profile_dir(user_data_dir)
+        self.debug_port = self._resolve_debug_port(debug_port)
         
         # Cgroup v2 resource limits
         self.use_cgroup = use_cgroup
@@ -646,7 +675,51 @@ class PlaywrightUtils:
         if use_cgroup:
             cgroup_status += f" (CPU={cpu_quota}, Mem={memory_max}/{memory_high})"
         
-        print(f'[PlaywrightUtils] Initialized with auto_accept_cookies={auto_accept_cookies}, viewport=auto (browser default), user_data_dir={self.user_data_dir}, {cgroup_status}, SYNC API')
+        print(f'[PlaywrightUtils] Initialized with auto_accept_cookies={auto_accept_cookies}, viewport=auto (browser default), user_data_dir={self.user_data_dir}, debug_port={self.debug_port}, {cgroup_status}, SYNC API')
+
+    @staticmethod
+    def _resolve_profile_dir(user_data_dir: Optional[str]) -> str:
+        """The Chrome profile directory of this process.
+
+        Two Chromes can never share a user-data-dir (the second one joins the first
+        through its SingletonLock), so a script run gets a directory of its own
+        (TASK-146). The host's own service browser keeps the persistent profile, so
+        its cookies and its logged-in session survive.
+        """
+        base = resolve_user_data_dir(user_data_dir or "./config/user_data")
+        explicit = (os.environ.get('VPT_CHROME_PROFILE_DIR') or '').strip()
+        if explicit:
+            return os.path.abspath(explicit)
+        run_id = (os.environ.get('VPT_RUN_ID') or '').strip()
+        if run_id:
+            return browser_port_allocator.run_profile_dir(base, run_id)
+        return base
+
+    def _resolve_debug_port(self, debug_port: Optional[int]) -> int:
+        """The Chrome debug port of this process.
+
+        The host's service browser keeps 9222 (the agent tree, the web worker and the
+        KPI executor attach to it). A script run takes a free port from the run range,
+        so two runs never fight over one port (TASK-146).
+
+        A process that is neither a script run nor the service (a script started by hand
+        on a host) takes the first free port from 9222 upwards: the service has 9222 by
+        then, so it gets one of its own.
+        """
+        if debug_port is not None:
+            browser_port_allocator.reserve_debug_port(debug_port)
+            return int(debug_port)
+        run_id = (os.environ.get('VPT_RUN_ID') or '').strip()
+        if run_id:
+            return browser_port_allocator.allocate_run_debug_port()
+        try:
+            return browser_port_allocator.allocate_debug_port(
+                browser_port_allocator.RESERVED_DEBUG_PORT,
+                max_scan=16,
+                allow_reserved=True,
+            )
+        except RuntimeError:
+            return browser_port_allocator.allocate_run_debug_port()
     
     def normalize_url(self, url: str) -> str:
         """
@@ -676,22 +749,54 @@ class PlaywrightUtils:
         # For all other URLs, default to https
         return f'https://{url}'
     
-    def launch_chrome(self, debug_port: Optional[int] = None) -> subprocess.Popen:
-        """Launch Chrome with remote debugging and persistent data."""
-        # Launch Chrome maximized with persistent user data directory and optional cgroup limits
-        return self.chrome_manager.launch_chrome_with_remote_debugging(
-            debug_port if debug_port is not None else self.debug_port,
-            user_data_dir=self.user_data_dir,
-            use_cgroup=self.use_cgroup,
-            cpu_quota=self.cpu_quota,
-            memory_max=self.memory_max,
-            memory_high=self.memory_high
+    def _allocate_fallback_port(self) -> int:
+        """A fresh free port of the same class as ours, after a conflict."""
+        if (os.environ.get('VPT_RUN_ID') or '').strip():
+            return browser_port_allocator.allocate_run_debug_port()
+        return browser_port_allocator.allocate_debug_port(
+            browser_port_allocator.RESERVED_DEBUG_PORT,
+            allow_reserved=False,
         )
-    
+
+    def launch_chrome(self, debug_port: Optional[int] = None) -> subprocess.Popen:
+        """Launch Chrome with remote debugging and persistent data.
+
+        The port was reserved when this instance was built. If another run took it in
+        the meantime, take a fresh free port instead of touching that run's browser
+        (TASK-146).
+
+        The host's own service browser keeps its reserved port: the agent tree, the
+        web worker and the KPI executor attach to it, so it must not silently move.
+        """
+        port = debug_port if debug_port is not None else self.debug_port
+        is_run = bool((os.environ.get('VPT_RUN_ID') or '').strip())
+        attempts = 3 if is_run else 1
+        last_error: Optional[Exception] = None
+        for _attempt in range(attempts):
+            try:
+                return self.chrome_manager.launch_chrome_with_remote_debugging(
+                    port,
+                    user_data_dir=self.user_data_dir,
+                    use_cgroup=self.use_cgroup,
+                    cpu_quota=self.cpu_quota,
+                    memory_max=self.memory_max,
+                    memory_high=self.memory_high
+                )
+            except RuntimeError as exc:
+                if 'belongs to the live run' not in str(exc):
+                    raise
+                last_error = exc
+                print(f'[PlaywrightUtils] {exc} - taking another free port')
+                port = self._allocate_fallback_port()
+                self.debug_port = port
+        raise last_error if last_error else RuntimeError('Chrome could not be launched')
+
     def kill_chrome(self, chrome_process=None) -> bool:
         """Terminate the browser on the debug port: the one we launched, or whatever we attached to.
         Returns True once the port has no listener."""
-        return self.chrome_manager.shutdown_chrome(self.debug_port, chrome_process=chrome_process)
+        result = self.chrome_manager.shutdown_chrome(self.debug_port, chrome_process=chrome_process)
+        browser_port_allocator.release_debug_port(self.debug_port)
+        return result
 
     async def connect_to_chrome(self, cdp_url: Optional[str] = None, target_url: str = None):
         """
@@ -752,19 +857,21 @@ class PlaywrightUtils:
 
 
 # Convenience functions for external use
-def create_playwright_utils(auto_accept_cookies: bool = True, user_data_dir: str = "./config/user_data",
+def create_playwright_utils(auto_accept_cookies: bool = True, user_data_dir: Optional[str] = None,
                            use_cgroup: bool = False, cpu_quota: str = "100%", memory_max: str = "4G", memory_high: str = "3G") -> PlaywrightUtils:
     """Create a PlaywrightUtils instance."""
     return PlaywrightUtils(auto_accept_cookies=auto_accept_cookies, user_data_dir=user_data_dir,
                           use_cgroup=use_cgroup, cpu_quota=cpu_quota, memory_max=memory_max, memory_high=memory_high)
 
 
-def launch_chrome_for_debugging(debug_port: int = 9222, user_data_dir: str = "./config/user_data",
+def launch_chrome_for_debugging(debug_port: Optional[int] = None, user_data_dir: Optional[str] = None,
                                use_cgroup: bool = False, cpu_quota: str = "100%", memory_max: str = "4G", memory_high: str = "3G") -> subprocess.Popen:
     """Quick function to launch Chrome with remote debugging and persistent data."""
-    resolved_user_data_dir = resolve_user_data_dir(user_data_dir)
+    if debug_port is None:
+        debug_port = browser_port_allocator.allocate_run_debug_port()
+    resolved_user_data_dir = resolve_user_data_dir(user_data_dir or "./config/user_data")
     return ChromeManager.launch_chrome_with_remote_debugging(debug_port, user_data_dir=resolved_user_data_dir,
-                                                            use_cgroup=use_cgroup, cpu_quota=cpu_quota, 
+                                                            use_cgroup=use_cgroup, cpu_quota=cpu_quota,
                                                             memory_max=memory_max, memory_high=memory_high)
 
 
@@ -790,3 +897,69 @@ def get_playwright_context_with_cookies(target_url: str = None):
     """
     utils = PlaywrightUtils(auto_accept_cookies=True)
     return utils.connect_to_chrome(target_url=target_url) 
+
+
+# Reaping a leaked browser is deliberate work, not something a status read may do
+# (see browser_run_slots.leaked_browser_ports and BUG-0760). This is that deliberate
+# work: the detector names the ports, ChromeManager.shutdown_chrome takes exactly one
+# port back, and the kill stays inside the safety rules already proven there.
+#
+#   - only ports the detector calls leaked, which are run ports with a listener and no
+#     live owner (browser_run_slots only ever scans the run range, never 9222),
+#   - shutdown_chrome refuses a port whose owner is a live run, so a run that starts
+#     between the scan and the kill is never touched,
+#   - _terminate_pid signals a process group only when the target leads one, so the
+#     vpt-host service's group is unreachable. Killing a shared group took a lab host's
+#     SSH down on 2026-10-22; that must not be reachable from a periodic job.
+#
+# VPT_REAP_LEAKED_BROWSERS=0 turns it off (operator escape hatch, same shape as the
+# monitoring probe modes).
+def reap_leaked_browsers(enabled: Optional[bool] = None) -> list:
+    """Close browsers that belong to no live run. Returns the ports reclaimed."""
+    if enabled is None:
+        flag = (os.environ.get('VPT_REAP_LEAKED_BROWSERS') or '1').strip().lower()
+        enabled = flag not in ('0', 'off', 'false', 'no')
+    if not enabled:
+        return []
+
+    try:
+        from shared.src.lib.utils.browser_run_slots import leaked_browser_ports
+        from shared.src.lib.utils.browser_port_allocator import RESERVED_DEBUG_PORT
+        ports = leaked_browser_ports()
+    except Exception as e:
+        print(f'[reap_leaked_browsers] leak scan unavailable: {type(e).__name__}: {e}')
+        return []
+
+    reaped = []
+    for port in ports:
+        try:
+            port = int(port)
+        except (TypeError, ValueError):
+            continue
+        if port == RESERVED_DEBUG_PORT:
+            # Defence in depth: the service browser is not a leak by definition.
+            continue
+        try:
+            if ChromeManager.shutdown_chrome(port):
+                reaped.append(port)
+        except Exception as e:
+            print(f'[reap_leaked_browsers] could not close port {port}: {type(e).__name__}: {e}')
+    if reaped:
+        print(f'[reap_leaked_browsers] reclaimed leaked browser port(s): {reaped}')
+
+    # The driver half: a Playwright driver holds no port, so the scan above never sees it.
+    # A run that ended without stopping its driver leaves it behind for ever (BUG-0842).
+    try:
+        from shared.src.lib.utils.leaked_browser_reaper import reap_orphaned_drivers
+        drivers = reap_orphaned_drivers()
+        if drivers.get('reaped'):
+            print(f'[reap_leaked_browsers] reclaimed orphaned Playwright driver(s): '
+                  f'{[d["pid"] for d in drivers["reaped"]]}')
+        # A driver nobody could signal is not a reclaimed driver: it is reported as not
+        # reaped, with the reason, so the operator sees what is still running.
+        for entry in drivers.get('skipped', []):
+            print(f'[reap_leaked_browsers] orphaned Playwright driver {entry.get("pid")} '
+                  f'was NOT reaped: {entry.get("reason")}')
+    except Exception as e:
+        print(f'[reap_leaked_browsers] driver reclaim unavailable: {type(e).__name__}: {e}')
+    return reaped

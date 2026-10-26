@@ -9,6 +9,7 @@ import {
   Card,
   CardContent,
   CircularProgress,
+  IconButton,
   Table,
   TableBody,
   TableCell,
@@ -16,6 +17,7 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import React, { useEffect, useState } from 'react';
@@ -29,6 +31,17 @@ import {
   UnknownScreenType,
   useUserInterfaceUnknown,
 } from '../hooks/pages/useUserInterfaceUnknown';
+import { TYPOGRAPHY } from '../constants/typography';
+
+/**
+ * A header cell never runs into its neighbour: it ellipsises on purpose and
+ * the full text stays in the title (UI_STYLE S9).
+ */
+const headCellSx = {
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+} as const;
 
 const thumbSx = (borderColor: string, textMuted: string) => ({
   width: 64,
@@ -45,7 +58,7 @@ const thumbSx = (borderColor: string, textMuted: string) => ({
 
 /** Small muted caption under a value — the "signal" / "what it is" lines. */
 const subSx = (P: ReturnType<typeof useAgentChatPalette>) => ({
-  fontSize: '0.72rem',
+  fontSize: TYPOGRAPHY.caption.size,
   color: P.textMuted,
   mt: 0.25,
   lineHeight: 1.45,
@@ -60,7 +73,7 @@ const pillBaseSx = {
   display: 'inline-flex',
   alignItems: 'center',
   gap: 0.5,
-  fontSize: '0.7rem',
+  fontSize: TYPOGRAPHY.caption.size,
   fontWeight: 500,
   px: 1,
   py: 0.2,
@@ -180,7 +193,7 @@ const UserInterfaceUnknown: React.FC = () => {
       ) : (
         // A still exists but no image URL came back — keep the frame.
         <Box component="span" sx={thumbSx(P.borderColor, P.textMuted)}>
-          <ImageIcon sx={{ fontSize: 16 }} />
+          <ImageIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
         </Box>
       )
     ) : null;
@@ -190,7 +203,7 @@ const UserInterfaceUnknown: React.FC = () => {
       return (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, py: 4, justifyContent: 'center' }}>
           <CircularProgress size={24} />
-          <Typography sx={{ fontSize: '0.8rem', color: P.textMuted }}>
+          <Typography sx={{ fontSize: TYPOGRAPHY.body.size, color: P.textMuted }}>
             Scanning captures for unknown screens…
           </Typography>
         </Box>
@@ -200,7 +213,7 @@ const UserInterfaceUnknown: React.FC = () => {
     if (data.needsName.length === 0) {
       return (
         <Box sx={{ py: 4, textAlign: 'center' }}>
-          <Typography sx={{ fontSize: '0.8rem', color: P.textMuted }}>
+          <Typography sx={{ fontSize: TYPOGRAPHY.body.size, color: P.textMuted }}>
             Every screen this device shows has a node in its tree.
           </Typography>
         </Box>
@@ -209,25 +222,34 @@ const UserInterfaceUnknown: React.FC = () => {
 
     return (
       <TableContainer>
-        <Table size="small" sx={{ tableLayout: 'fixed' }}>
+        {/* Column widths follow the content, not a percentage of the screen
+            (UI_STYLE S3): the name column takes the rest, the others get the
+            width their content needs. Below the table's own width the container
+            scrolls sideways, so on a phone the headers no longer run into their
+            neighbour (BUG-0813). */}
+        <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 560 }}>
+          <colgroup>
+            <col style={{ width: 96 }} />
+            <col />
+            <col style={{ width: 96 }} />
+            <col style={{ width: 64 }} />
+            <col style={{ width: 116 }} />
+          </colgroup>
           <TableHead>
             <TableRow>
-              <TableCell sx={{ width: '9%' }}>
+              <TableCell align="center" sx={headCellSx} title="Screen">
                 <strong>Screen</strong>
               </TableCell>
-              <TableCell sx={{ width: '28%' }}>
+              <TableCell align="center" sx={headCellSx} title="Proposed name">
                 <strong>Proposed name</strong>
               </TableCell>
-              <TableCell sx={{ width: '10%' }}>
+              <TableCell align="center" sx={headCellSx} title="Type">
                 <strong>Type</strong>
               </TableCell>
-              <TableCell sx={{ width: '7%' }}>
+              <TableCell align="center" sx={headCellSx} title="Frames">
                 <strong>Frames</strong>
               </TableCell>
-              <TableCell sx={{ width: '22%' }}>
-                <strong>Signal</strong>
-              </TableCell>
-              <TableCell align="center" sx={{ width: '24%' }}>
+              <TableCell align="center" sx={headCellSx} title="Actions">
                 <strong>Actions</strong>
               </TableCell>
             </TableRow>
@@ -242,7 +264,7 @@ const UserInterfaceUnknown: React.FC = () => {
               const isBusy = pendingAction === screen.id;
               const busy = pendingAction !== null;
               const outlinedSx = {
-                fontSize: '0.72rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 py: 0.4,
                 borderColor: P.borderColor,
                 color: 'text.secondary',
@@ -251,7 +273,7 @@ const UserInterfaceUnknown: React.FC = () => {
 
               return (
                 <TableRow key={screen.id}>
-                  <TableCell>{renderThumb(screen)}</TableCell>
+                  <TableCell align="center">{renderThumb(screen)}</TableCell>
                   <TableCell>
                     {editingId === screen.id ? (
                       <TextField
@@ -274,7 +296,7 @@ const UserInterfaceUnknown: React.FC = () => {
                         }}
                         sx={{
                           '& .MuiInputBase-root': { height: '30px' },
-                          '& .MuiInputBase-input': { fontSize: '0.75rem', p: '4px 6px' },
+                          '& .MuiInputBase-input': { fontSize: TYPOGRAPHY.caption.size, p: '4px 6px' },
                         }}
                       />
                     ) : (
@@ -286,31 +308,24 @@ const UserInterfaceUnknown: React.FC = () => {
                         <Typography
                           sx={{
                             fontFamily: 'monospace',
-                            fontSize: '0.75rem',
+                            fontSize: TYPOGRAPHY.caption.size,
                             fontWeight: 600,
                             wordBreak: 'break-word',
                             color: displayName(screen) ? undefined : P.textMuted,
                           }}
                         >
-                          {displayName(screen) || 'no proposed name'}
+                          {displayName(screen) || 'No name'}
                         </Typography>
                       </Box>
                     )}
                     {screen.summary && <Typography sx={subSx(P)}>{screen.summary}</Typography>}
                   </TableCell>
-                  <TableCell>
+                  <TableCell align="center">
                     <Box component="span" sx={{ ...pillBaseSx, ...typePillSx(P, screen.type) }}>
                       {screen.type}
                     </Box>
                   </TableCell>
-                  <TableCell sx={{ fontSize: '0.8rem' }}>{screen.frames}</TableCell>
-                  <TableCell>
-                    {blockedReason ? (
-                      <Typography sx={{ ...subSx(P), color: P.warning }}>{blockedReason}</Typography>
-                    ) : (
-                      <Typography sx={subSx(P)}>{screen.signal}</Typography>
-                    )}
-                  </TableCell>
+                  <TableCell align="center" sx={{ fontSize: TYPOGRAPHY.body.size }}>{screen.frames}</TableCell>
                   <TableCell align="center">
                     <Box
                       sx={{
@@ -320,38 +335,56 @@ const UserInterfaceUnknown: React.FC = () => {
                         flexWrap: 'wrap',
                       }}
                     >
-                      <Button
-                        size="small"
-                        variant="contained"
-                        disabled={busy}
-                        onClick={() => handleAccept(screen, crossDevice ? 'create_ui' : 'accept')}
-                        startIcon={
-                          isBusy ? <CircularProgress size={11} color="inherit" /> : undefined
+                      <Tooltip
+                        title={
+                          crossDevice
+                            ? 'Create the navigation tree for this other device, then add the screen.'
+                            : 'Add this screen to the tree under the proposed name (capture fingerprint).'
                         }
-                        sx={{ ...(goldButtonSx(P) as object), fontSize: '0.72rem', py: 0.4 }}
                       >
-                        {crossDevice ? 'Create UI' : 'Accept'}
-                      </Button>
+                        <span>
+                          <Button
+                            size="small"
+                            variant="contained"
+                            disabled={busy}
+                            onClick={() => handleAccept(screen, crossDevice ? 'create_ui' : 'accept')}
+                            startIcon={
+                              isBusy ? <CircularProgress size={11} color="inherit" /> : undefined
+                            }
+                            sx={{ ...(goldButtonSx(P) as object), fontSize: TYPOGRAPHY.caption.size, py: 0.4 }}
+                          >
+                            {crossDevice ? 'Create UI' : 'Accept'}
+                          </Button>
+                        </span>
+                      </Tooltip>
                       {!crossDevice && (
-                        <Button
-                          size="small"
-                          variant="outlined"
-                          disabled={busy}
-                          onClick={() => handleAccept(screen, 'merge')}
-                          sx={outlinedSx}
-                        >
-                          Merge…
-                        </Button>
+                        <Tooltip title="Merge this screen into an existing node that already fingerprints the same view.">
+                          <span>
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              disabled={busy}
+                              onClick={() => handleAccept(screen, 'merge')}
+                              sx={outlinedSx}
+                            >
+                              Merge
+                            </Button>
+                          </span>
+                        </Tooltip>
                       )}
-                      <Button
-                        size="small"
-                        variant="outlined"
-                        disabled={busy}
-                        onClick={() => handleDismiss(screen)}
-                        sx={outlinedSx}
-                      >
-                        Dismiss
-                      </Button>
+                      <Tooltip title="Mark this screen as not a screen we care about. It will not be reported again.">
+                        <span>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            disabled={busy}
+                            onClick={() => handleDismiss(screen)}
+                            sx={outlinedSx}
+                          >
+                            Dismiss
+                          </Button>
+                        </span>
+                      </Tooltip>
                     </Box>
                   </TableCell>
                 </TableRow>
@@ -366,24 +399,25 @@ const UserInterfaceUnknown: React.FC = () => {
   return (
     <Box sx={pageSurfaceSx(P)}>
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1, mb: 1.5 }}>
-        <Button
-          onClick={() => navigate('/configuration/interface')}
-          startIcon={<ArrowBackIcon />}
-          size="small"
-          sx={{ color: 'text.secondary', textTransform: 'none', mt: 0.25 }}
-        >
-          Interfaces
-        </Button>
+        <Tooltip title="Back to Interfaces">
+          <IconButton
+            onClick={() => navigate('/configuration/interface')}
+            size="small"
+            aria-label="Back to Interfaces"
+            sx={{ color: 'text.secondary', mt: 0.25 }}
+          >
+            <ArrowBackIcon />
+          </IconButton>
+        </Tooltip>
         <Box sx={{ minWidth: 0 }}>
           <Typography
             component="h1"
-            sx={{ fontSize: '1.5rem', fontWeight: 600, lineHeight: 1.3 }}
+            sx={{ fontSize: TYPOGRAPHY.pageTitle.size, fontWeight: 600, lineHeight: 1.3 }}
           >
-            Unknown screens — {decodedName}
+            Unknown screens
           </Typography>
-          <Typography sx={{ fontSize: '0.8rem', color: P.textMuted }}>
-            Screens this device shows that have no node in its tree. Accepting one captures its
-            fingerprint and adds the node; nothing enters the tree without you.
+          <Typography sx={{ fontSize: TYPOGRAPHY.body.size, color: P.textMuted }}>
+            {decodedName} — screens this device shows that have no node in its tree.
           </Typography>
         </Box>
       </Box>
@@ -400,6 +434,10 @@ const UserInterfaceUnknown: React.FC = () => {
         </Alert>
       )}
 
+      {/* A failed load is not an empty report: an interface that does not exist
+          must not read as "every screen has a node in its tree" (BUG-0795). */}
+      {error ? null : (
+        <>
       <StatTiles
         tiles={[
           {
@@ -407,63 +445,22 @@ const UserInterfaceUnknown: React.FC = () => {
             value: data.needsName.length,
             color: data.needsName.length > 0 ? P.warning : P.success,
           },
-          { label: 'Content, filtered', value: data.contentFilteredCount, color: P.textMuted },
-          { label: 'From captures', value: data.capturesProcessed.toLocaleString() },
+          { label: 'Filtered out', value: data.contentFilteredCount, color: P.textMuted },
+          { label: 'Captures', value: data.capturesProcessed.toLocaleString() },
           { label: 'Last scan', value: data.lastScan },
         ]}
       />
 
-      <Box
-        sx={{
-          bgcolor: P.surface,
-          border: `1px solid ${P.borderColor}`,
-          borderLeft: `3px solid ${P.accent}`,
-          borderRadius: '10px',
-          px: 2,
-          py: 1.25,
-          mb: 1.5,
-        }}
-      >
-        {data.needsName.length === 0 ? (
-          <>
-            <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, mb: 0.35 }}>
-              No screen is waiting on a name
-            </Typography>
-            <Typography sx={{ fontSize: '0.78rem', color: P.textSecondary, lineHeight: 1.55 }}>
-              {data.contentFilteredCount > 0
-                ? `The last scan found ${data.contentFilteredCount} distinct screen(s), all of them broadcast or game footage. Nothing here needs a name.`
-                : 'The last scan found nothing this device shows that lacks a node. Run a scan after the device visits a new screen.'}
-            </Typography>
-          </>
-        ) : (
-          <>
-            <Typography sx={{ fontSize: '0.8rem', fontWeight: 600, mb: 0.35 }}>
-              These {data.needsName.length} are the ones that matter
-            </Typography>
-            <Typography sx={{ fontSize: '0.78rem', color: P.textSecondary, lineHeight: 1.55 }}>
-              The captures collapse to {data.needsName.length + data.contentFilteredCount} distinct
-              screens. {data.contentFilteredCount} are broadcast or game footage, and a content test
-              removes them before this page is built — they stay listed below so the filter can be
-              audited. What is left is genuinely unknown UI, and it is small enough to read in a
-              minute.
-            </Typography>
-          </>
-        )}
-      </Box>
-
-      <Card sx={{ mb: 1.5 }}>
+      <Card sx={{ mb: 1.5, textAlign: 'center' }}>
         <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
           <Typography variant="h6" sx={{ mb: 0.5 }}>
             Needs a name
           </Typography>
-          <Typography sx={{ fontSize: '0.75rem', color: P.textMuted, mb: 1.5 }}>
-            Names come from <Box component="span" sx={{ fontFamily: 'monospace' }}>vision.dom</Box>,
-            which already reads <Box component="span" sx={{ fontFamily: 'monospace' }}>screen_summary</Box>{' '}
-            and <Box component="span" sx={{ fontFamily: 'monospace' }}>screen_type</Box>. Editable in
-            place — click a proposed name to change it.
+          <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted, mb: 1.5 }}>
+            Names come from <Box component="span" sx={{ fontFamily: 'monospace' }}>vision.dom</Box> — click a proposed name to change it.
           </Typography>
           {needsNameRows()}
-          <Typography sx={{ fontSize: '0.72rem', color: P.textMuted, mt: 1.5, lineHeight: 1.6 }}>
+          <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted, mt: 1.5, lineHeight: 1.6 }}>
             Names follow the existing{' '}
             <Box component="span" sx={{ fontFamily: 'monospace' }}>menu_submenu</Box> /{' '}
             <Box component="span" sx={{ fontFamily: 'monospace' }}>popup_A</Box> /{' '}
@@ -474,25 +471,31 @@ const UserInterfaceUnknown: React.FC = () => {
         </CardContent>
       </Card>
 
-      <Card sx={{ mb: 1.5 }}>
+      <Card sx={{ mb: 1.5, textAlign: 'center' }}>
         <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
           <Typography variant="h6" sx={{ mb: 1.5 }}>
             Excluded as content
           </Typography>
           <TableContainer>
-            <Table size="small" sx={{ tableLayout: 'fixed' }}>
+            <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 520 }}>
+              <colgroup>
+                <col style={{ width: 96 }} />
+                <col />
+                <col style={{ width: 140 }} />
+                <col style={{ width: 64 }} />
+              </colgroup>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ width: '12%' }}>
+                  <TableCell sx={headCellSx} title="Screen">
                     <strong>Screen</strong>
                   </TableCell>
-                  <TableCell sx={{ width: '50%' }}>
+                  <TableCell sx={headCellSx} title="What it is">
                     <strong>What it is</strong>
                   </TableCell>
-                  <TableCell sx={{ width: '24%' }}>
+                  <TableCell sx={headCellSx} title="Classification">
                     <strong>Classification</strong>
                   </TableCell>
-                  <TableCell sx={{ width: '14%' }}>
+                  <TableCell sx={headCellSx} title="Frames">
                     <strong>Frames</strong>
                   </TableCell>
                 </TableRow>
@@ -505,14 +508,14 @@ const UserInterfaceUnknown: React.FC = () => {
                         // No still was kept for this content cluster.
                         <Typography
                           component="span"
-                          sx={{ fontSize: '0.8rem', color: P.textMuted }}
+                          sx={{ fontSize: TYPOGRAPHY.body.size, color: P.textMuted }}
                         >
                           —
                         </Typography>
                       )}
                     </TableCell>
                     <TableCell>
-                      <Typography sx={{ fontSize: '0.8rem' }}>{row.what}</Typography>
+                      <Typography sx={{ fontSize: TYPOGRAPHY.body.size }}>{row.what}</Typography>
                     </TableCell>
                     <TableCell>
                       <Box
@@ -526,7 +529,7 @@ const UserInterfaceUnknown: React.FC = () => {
                         content · excluded
                       </Box>
                     </TableCell>
-                    <TableCell sx={{ fontSize: '0.8rem' }}>{row.frames}</TableCell>
+                    <TableCell sx={{ fontSize: TYPOGRAPHY.body.size }}>{row.frames}</TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -535,13 +538,15 @@ const UserInterfaceUnknown: React.FC = () => {
         </CardContent>
       </Card>
 
-      <Typography sx={{ fontSize: '0.72rem', color: P.textMuted, lineHeight: 1.6 }}>
+      <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted, lineHeight: 1.6 }}>
         Rows come from the scan, read live from{' '}
         <Box component="span" sx={{ fontFamily: 'monospace' }}>
           /server/userinterface/getUnknownScreens
         </Box>
         . The scan runs in the background, so this list fills in on its own.
       </Typography>
+        </>
+      )}
     </Box>
   );
 };

@@ -49,14 +49,15 @@ def _ts(row: dict, key: str) -> datetime:
 
 
 def evaluate(rows: Iterable[dict], now: Optional[datetime] = None, skipped: Optional[dict] = None,
-             limits: Optional[dict] = None) -> dict:
+             limits: Optional[dict] = None, all_failures: bool = False) -> dict:
     """``{causes, backup}`` for the banner of Monitoring → AI usage, from ``ai_calls_rollup`` rows (last 24 h).
 
     One *cause* = a provider (endpoint) and a reason (``error_type``), listing every feature it hit, however few
     requests, with when it started and when it was last seen. A provider cause is *active* until the endpoint
     answers a request again; a feature cause only while that feature's last-hour error rate is above the
     threshold. ``skipped`` maps endpoint name -> timestamps of calls held back by a no-credit pause.
-    Worst first.
+    Worst first. ``all_failures`` (an Errors tab filtered on one reason) lists every failed cause of the period,
+    active or not, and never calls one an error: the filter hides the answered calls that say what is still active.
     """
     limits = limits or thresholds()
     now = now or datetime.now(timezone.utc)
@@ -85,9 +86,9 @@ def evaluate(rows: Iterable[dict], now: Optional[datetime] = None, skipped: Opti
         provider_level = reason in PROVIDER_CAUSES
         ended = last_ok.get((endpoint,) if provider_level else (endpoint, usage))
         last, first = _ts(r, "last_ts"), _ts(r, "first_ts")
-        if ended and last <= ended:
+        if ended and last <= ended and not all_failures:
             continue  # answered since: fixed
-        if not provider_level:
+        if not provider_level and not all_failures:
             h = hourly.get(usage)
             if not h or h["calls"] < limits["min_requests"] or h["errors"] / h["calls"] <= limits["error_rate"] \
                     or last < hour_ago:
@@ -95,8 +96,9 @@ def evaluate(rows: Iterable[dict], now: Optional[datetime] = None, skipped: Opti
         c = causes.setdefault((endpoint, reason), {"errors": 0, "first_ts": first, "last_ts": last, "features": {}})
         c["errors"] += errors
         c["first_ts"], c["last_ts"] = min(c["first_ts"], first), max(c["last_ts"], last)
-        f = c["features"].setdefault(usage, {"usage": usage, "errors": 0})
+        f = c["features"].setdefault(usage, {"usage": usage, "errors": 0, "last": last})
         f["errors"] += errors
+        f["last"] = max(f["last"], last)
     out = []
     for (endpoint, reason), c in causes.items():
         ended = last_ok.get((endpoint,))
@@ -105,9 +107,10 @@ def evaluate(rows: Iterable[dict], now: Optional[datetime] = None, skipped: Opti
         started = c["first_ts"]
         from .usage_report import parse_ts
         held = [t for t in (skipped or {}).get(endpoint, []) if parse_ts(t) >= started] if reason == "no_credit" else []
-        out.append({"endpoint": endpoint, "reason": reason, "severity": "error" if all_failed else "warning",
+        out.append({"endpoint": endpoint, "reason": reason, "severity": "error" if all_failed and not all_failures else "warning",
                     "errors": c["errors"], "since": started.isoformat(), "last": c["last_ts"].isoformat(),
-                    "features": sorted(c["features"].values(), key=lambda f: -f["errors"]),
+                    "features": sorted(({**f, "last": f["last"].isoformat()} for f in c["features"].values()),
+                                       key=lambda f: -f["errors"]),
                     "skipped": len(held)})
     out.sort(key=lambda c: (c["severity"] != "error", -c["errors"]))
     backup = [{"usage": u, "calls": h["calls"], "fallbacks": h["fallbacks"],

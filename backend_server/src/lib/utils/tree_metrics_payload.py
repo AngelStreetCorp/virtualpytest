@@ -6,7 +6,8 @@ into the JSON the frontend's useMetrics hook consumes, whether the metrics
 ride along the combined tree endpoint (`include_metrics=true`) or come from
 `GET /server/metrics/tree/<tree_id>`. Both routes must emit the same shape:
 
-    nodes: {node_id: {volume, success_rate, avg_verification_time, confidence}}
+    nodes: {node_id: {volume, success_rate, avg_verification_time, confidence,
+                      verified_frame_url, verified_at}}
     edges: {edge_id#action_set_id: {volume, success_rate, avg_action_time,
                                     avg_kpi_ms, kpi_volume, kpi_report_url, confidence}}
     global_confidence, confidence_distribution {high, medium, low, untested}
@@ -26,9 +27,10 @@ def calculate_confidence(volume: int, success_rate: float) -> float:
 
 
 def build_tree_metrics_payload(team_id: str, node_ids: List[str], edge_ids: List[str],
-                               variant: Optional[str] = None) -> Dict:
+                               variant: Optional[str] = None,
+                               tree_ids: Optional[List[str]] = None) -> Dict:
     """Fetch metrics for the given ids in one run scope and add confidence fields."""
-    metrics = get_tree_metrics(team_id, node_ids, edge_ids, variant)
+    metrics = get_tree_metrics(team_id, node_ids, edge_ids, variant, tree_ids)
 
     processed_nodes = {}
     for node_id, node_metric in metrics['nodes'].items():
@@ -37,6 +39,8 @@ def build_tree_metrics_payload(team_id: str, node_ids: List[str], edge_ids: List
             'success_rate': node_metric['success_rate'],
             'avg_verification_time': node_metric['avg_verification_time'],
             'confidence': calculate_confidence(node_metric['volume'], node_metric['success_rate']),
+            'verified_frame_url': node_metric.get('verified_frame_url'),
+            'verified_at': node_metric.get('verified_at'),
         }
 
     processed_edges = {}

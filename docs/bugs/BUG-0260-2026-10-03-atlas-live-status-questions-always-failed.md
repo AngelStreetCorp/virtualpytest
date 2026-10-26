@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — the live-status half of Atlas analytics never returned data |
 | Area      | `backend_server/src/lib/analytics/service.py` (live status adapter) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `8ee5bd2bc`                                                       |
 
 ---

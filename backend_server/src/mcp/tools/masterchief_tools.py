@@ -111,6 +111,15 @@ class MasterchiefTools:
             logger.exception("masterchief propose: audit insert failed")
             return self._error(f"audit insert failed: {type(e).__name__}")
 
+        blast_radius = op.blast_radius
+        if op_name == "host.disk_cleanup":
+            # Dry-run size preview on the card; the delete itself waits for the user's click.
+            from backend_server.src.lib.masterchief.ops import OpContext, _exec_disk_preview
+            pre = _exec_disk_preview(clean_params, OpContext(
+                team_id=team_id, requester_user_id=user_id, requester_email=user_email,
+                requester_role=user_role, audit_id=row["id"]))
+            blast_radius = f"Preview: {pre.summary}. {blast_radius}"
+
         # The card shape the front end renders.
         card = {
             "audit_id": row["id"],
@@ -119,7 +128,7 @@ class MasterchiefTools:
             "mutates": op.mutates,
             "required_permission": op.required_permission,
             "platform_admin_only": op.platform_admin_only,
-            "blast_radius": op.blast_radius,
+            "blast_radius": blast_radius,
             "params": clean_params,
             "requester_email": user_email,
         }

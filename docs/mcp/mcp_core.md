@@ -1,6 +1,12 @@
 # VirtualPyTest MCP Server
 
+This page is the reference for the MCP server. It lets an AI assistant such as Claude or ChatGPT control your devices over a standard web connection.
+
+The details below are for the people who set it up and build with it: tool names, settings, examples and error codes.
+
 ## Overview
+
+<div data-technical>
 
 **MCP (Model Context Protocol) Server** for VirtualPyTest enables external LLMs (Claude, ChatGPT, etc.) to control and automate physical devices through a standardized HTTP protocol.
 
@@ -8,28 +14,55 @@
 **Authentication**: Bearer token (required)  
 **Transport**: HTTP/HTTPS
 
----
+</div>
 
-## 🎯 Core Capabilities
+## Core Capabilities
+
+<div data-technical>
 
 The MCP server exposes **77 tools** for complete device automation:
 
-### 🔐 **Control Tools** (CRITICAL - MUST BE FIRST)
+</div>
+
+### **Control Tools** (CRITICAL - MUST BE FIRST)
+
+<div data-technical>
+
 - **`take_control`** - Lock device & generate navigation cache (REQUIRED FIRST)
 
-### 🎮 **Action Tools**
+</div>
+
+### **Action Tools**
+
+<div data-technical>
+
 - **`list_actions`** - List available actions for a device
 - **`execute_device_action`** - Execute remote/ADB/web/desktop commands (async; MCP waits for completion)
 
-### 🗺️ **Navigation Tools**
+</div>
+
+### **Navigation Tools**
+
+<div data-technical>
+
 - **`list_navigation_nodes`** - List available navigation nodes in a tree
 - **`navigate_to_node`** - Navigate through UI trees with pathfinding (async; MCP waits for completion)
 
-### ✅ **Verification Tools**
+</div>
+
+### **Verification Tools**
+
+<div data-technical>
+
 - **`list_verifications`** - List available verification types for a device
 - **`verify_device_state`** - Verify UI elements, video, text, ADB states (async; MCP waits for completion)
 
-### 🧪 **TestCase Tools**
+</div>
+
+### **TestCase Tools**
+
+<div data-technical>
+
 - **`save_testcase`** - Save test case graph to database
 - **`list_testcases`** - List all saved test cases
 - **`load_testcase`** - Load saved test case by ID
@@ -37,18 +70,38 @@ The MCP server exposes **77 tools** for complete device automation:
 - **`get_testcase_execution_status`** - Read a test case run; waits up to `wait_seconds` (max 50) for it to end
 - **`execute_testcase_by_id`** - Load and start a saved test case in one call (deprecated wrapper)
 
-### 🐍 **Script Tools**
+</div>
+
+### **Script Tools**
+
+<div data-technical>
+
 - **`list_scripts`** - List all available Python scripts
 - **`execute_script`** - Start a Python script with CLI parameters; returns its `execution_id` at once (does not wait)
 - **`get_script_execution_status`** - Read a script run; waits up to `wait_seconds` (max 50) for it to end
 
-### 🤖 **AI Tools**
+</div>
+
+### **AI Tools**
+
+<div data-technical>
+
 - **`generate_test_graph`** - Generate tests from natural language (handles disambiguation)
 
-### 📸 **Screenshot Tools**
+</div>
+
+### **Screenshot Tools**
+
+<div data-technical>
+
 - **`capture_screenshot`** - Capture screenshots for AI vision analysis (returns base64)
 
-### 📝 **Transcript Tools**
+</div>
+
+### **Transcript Tools**
+
+<div data-technical>
+
 - **`get_transcript`** - Transcript of a device for the last `minutes` (default 10, max 120) or an
   `hour` [+ `chunk_index`], and **why it is empty** when it is. `device_id` + `host_name` required.
   Returns a summary line + JSON: `status` (`ok` | `unavailable` | `empty` | `error`), `reason`,
@@ -62,13 +115,23 @@ The MCP server exposes **77 tools** for complete device automation:
   `/host/transcript/status` (`backend_host/src/lib/utils/transcript_status.py`). No translation
   (the former `target_language` never worked, BUG-0293).
 
-### ℹ️ **Device & System Tools**
+</div>
+
+### **Device & System Tools**
+
+<div data-technical>
+
 - **`get_device_info`** - Get device capabilities and status
 - **`get_execution_status`** - Compatibility fallback status lookup for async executions
 - **`list_services`** - List available systemd services
 - **`view_logs`** - View systemd service logs via journalctl
 
-### 🔧 **Primitive Tools** (NEW - For AI-Driven Exploration)
+</div>
+
+### **Primitive Tools** (NEW - For AI-Driven Exploration)
+
+<div data-technical>
+
 - **`create_node`** - Create node in navigation tree
 - **`update_node`** - Update node properties
 - **`delete_node`** - Delete node from tree
@@ -81,7 +144,12 @@ The MCP server exposes **77 tools** for complete device automation:
 - **`get_edge`** - Get specific edge by ID
 - **`execute_edge`** - Execute edge actions directly (NEW)
 
-### 🎨 **UserInterface Management Tools** (NEW - For App Model Creation)
+</div>
+
+### **UserInterface Management Tools** (NEW - For App Model Creation)
+
+<div data-technical>
+
 - **`create_userinterface`** - Create new app UI model (e.g., Netflix, YouTube)
 - **`list_userinterfaces`** - List all app models for the team
 - **`get_userinterface_complete`** - Get complete tree with all nodes/edges
@@ -89,10 +157,20 @@ The MCP server exposes **77 tools** for complete device automation:
 - **`list_edges`** - List all edges in a navigation tree
 - **`delete_userinterface`** - Delete a userinterface model
 
-### ✅ **Node Verification Tools** (NEW)
+</div>
+
+### **Node Verification Tools** (NEW)
+
+<div data-technical>
+
 - **`verify_node`** - Execute node verifications without navigation (NEW)
 
-### 📋 **Requirements Management Tools** (NEW - Phase 2025-11)
+</div>
+
+### **Requirements Management Tools** (NEW - Phase 2025-11)
+
+<div data-technical>
+
 - **`create_requirement`** - Create new requirement with app_type/device_model
 - **`list_requirements`** - List all requirements with filters
 - **`get_requirement`** - Get requirement details by ID
@@ -104,25 +182,44 @@ The MCP server exposes **77 tools** for complete device automation:
 - **`get_coverage_summary`** - Get overall coverage metrics and breakdowns
 - **`get_uncovered_requirements`** - Get requirements without test coverage
 
----
+</div>
 
-## 🌐 MCP Integration Options
+## MCP Integration Options
+
+<div data-technical>
 
 VirtualPyTest MCP tools can be accessed in **3 ways**:
 
-### 1️⃣ **Cursor IDE (Native MCP)**
+</div>
+
+### 1. **Cursor IDE (Native MCP)**
+
+<div data-technical>
+
 Direct integration via `~/.cursor/mcp.json` - Claude calls MCP tools directly.
 
-### 2️⃣ **Claude Desktop / MCP Clients (Native MCP)**
+</div>
+
+### 2. **Claude Desktop / MCP Clients (Native MCP)**
+
+<div data-technical>
+
 Any MCP-compatible client that supports HTTP transport.
 
-### 3️⃣ **MCP Playground (OpenRouter Function Calling)** ⭐ NEW
+</div>
+
+### 3. **MCP Playground (OpenRouter Function Calling)** NEW
+
+<div data-technical>
+
 Web interface using OpenRouter (Qwen/Phi-3) with function calling to simulate MCP.
 
----
-## 📋 Prerequisites
+</div>
 
+## Prerequisites
 ### Important: Action Wait Times
+
+<div data-technical>
 
 All device actions require proper wait times to prevent timing issues and ensure reliable automation.
 
@@ -137,9 +234,11 @@ All device actions require proper wait times to prevent timing issues and ensure
 
 **See:** [Action Tools - Wait Time Guidelines](mcp_tools_action.md#⏱️-action-wait-time-guidelines) for complete standards and examples.
 
----
+</div>
 
 ### Installation
+
+<div data-technical>
 
 ```bash
 cd backend_server
@@ -152,7 +251,11 @@ pip install -r requirements.txt
 - `requests>=2.31.0` - HTTP client
 - `flask>=2.3.0` - Web framework
 
+</div>
+
 ### Security Configuration
+
+<div data-technical>
 
 **1. Generate a secure secret:**
 ```bash
@@ -181,17 +284,18 @@ MCP_SECRET_KEY=<your-mcp-secret-key>
 }
 ```
 
-**⚠️ Important:** Secret must match in both `.env` and `mcp.json`!
+** Important:** Secret must match in both `.env` and `mcp.json`!
 
 **4. Restart:**
 - Restart backend_server (to load project root `.env`)
 - Restart Cursor (Cmd+Q, reopen)
 
----
+</div>
 
-## 🚀 Quick Start
-
+## Quick Start
 ### 1. Verify MCP Endpoint
+
+<div data-technical>
 
 The MCP server runs as an HTTP endpoint on your backend_server:
 
@@ -204,7 +308,11 @@ curl -H "Authorization: Bearer <your-mcp-secret-key>" \
 # {"status": "healthy", "mcp_version": "1.0.0", "tools_count": 75}
 ```
 
+</div>
+
 ### 2. Discover Available Commands (NEW!)
+
+<div data-technical>
 
 Before executing commands, discover what's available on your device:
 
@@ -239,7 +347,11 @@ list_navigation_nodes({
 # Now you know exactly what commands/verifications/nodes are available!
 ```
 
+</div>
+
 ### 3. Example LLM Workflow (via Cursor)
+
+<div data-technical>
 
 **Simplified workflow with discovery:**
 ```python
@@ -302,11 +414,12 @@ verify_device_state({"userinterface_name": "...", "verifications": [...]})
 release_control({})
 ```
 
----
+</div>
 
-## 🔑 Smart Defaults & Configuration
-
+## Smart Defaults & Configuration
 ### Default Values (NEW in 2025)
+
+<div data-technical>
 
 The MCP server now provides smart defaults for common parameters, making tool calls more convenient:
 
@@ -317,14 +430,22 @@ DEFAULT_HOST_NAME = os.getenv('DEFAULT_HOST_NAME', 'host1')
 DEFAULT_DEVICE_ID = os.getenv('DEFAULT_DEVICE_ID', 'device_1')
 ```
 
+</div>
+
 ### Optional Parameters
+
+<div data-technical>
 
 These parameters are now **optional** in most tool calls:
 - `team_id` (defaults to `team_1` or `$DEFAULT_TEAM_ID`)
 - `host_name` (defaults to `host1` or `$DEFAULT_HOST_NAME`)
 - `device_id` (defaults to `device_1` or `$DEFAULT_DEVICE_ID`)
 
+</div>
+
 ### Example: Simplified Tool Calls
+
+<div data-technical>
 
 **Before (verbose):**
 ```python
@@ -343,7 +464,11 @@ take_control({
 })
 ```
 
+</div>
+
 ### Custom Defaults
+
+<div data-technical>
 
 Override defaults via environment variables:
 
@@ -354,20 +479,21 @@ DEFAULT_HOST_NAME=my_host
 DEFAULT_DEVICE_ID=my_device
 ```
 
----
+</div>
 
-## ✅ Input Validation
-
+## Input Validation
 ### JSON Schema Validation (NEW)
+
+<div data-technical>
 
 All tool inputs are validated against JSON Schema **before** execution:
 
 **Benefits:**
-- ❌ Invalid data rejected immediately
-- 📋 Clear validation error messages
-- 🛡️ Type safety (string, integer, boolean, etc.)
-- 🔒 Required field enforcement
-- 📊 Array/object structure validation
+-  Invalid data rejected immediately
+-  Clear validation error messages
+-  Type safety (string, integer, boolean, etc.)
+-  Required field enforcement
+-  Array/object structure validation
 
 **Example Validation Error:**
 ```json
@@ -380,7 +506,11 @@ All tool inputs are validated against JSON Schema **before** execution:
 }
 ```
 
+</div>
+
 ### Error Categories
+
+<div data-technical>
 
 The MCP server categorizes errors for better handling:
 
@@ -411,7 +541,11 @@ class ErrorCategory(str, Enum):
 }
 ```
 
-## 🔄 Async Execution Completion
+</div>
+
+## Async Execution Completion
+
+<div data-technical>
 
 Actions, navigation and verifications are short: their tools wait for the end of the run.
 
@@ -436,9 +570,11 @@ Status shape and rules: [TestCase Tools](mcp_tools_testcase.md#get_testcase_exec
 
 `get_execution_status` remains for other async operations (`operation_type`: `action`, `ai`).
 
----
+</div>
 
-## 📁 Architecture
+## Architecture
+
+<div data-technical>
 
 ```
 backend_server/src/mcp/
@@ -465,32 +601,37 @@ backend_server/src/mcp/
     └── input_validator.py # JSON Schema validation
 ```
 
+</div>
+
 ### Architecture Principles (2025 Update)
 
-**✅ Clean Separation of Concerns:**
+<div data-technical>
+
+** Clean Separation of Concerns:**
 - **API Client** - Returns raw responses, reusable outside MCP
 - **MCPFormatter** - Converts raw responses to MCP format
 - **InputValidator** - Validates all inputs against JSON Schema
 - **Tool Classes** - Pure business logic, minimal boilerplate
 
-**✅ Production-Ready Quality:**
+** Production-Ready Quality:**
 - **Synchronous Execution** - No asyncio overhead
 - **Input Validation** - All parameters validated before execution
 - **Error Categorization** - 7 error types (validation, timeout, network, backend, not_found, unauthorized, unknown)
 - **Smart Defaults** - Optional `team_id`, `host_name`, `device_id` with sensible fallbacks
 - **No Legacy Code** - Clean implementation, no backward compatibility cruft
 
-**✅ Composable Primitives (v4.0.0):**
+** Composable Primitives (v4.0.0):**
 - **Stateless Tools** - No complex state management
 - **Atomic Operations** - Each tool does ONE thing
 - **LLM Orchestration** - LLM decides workflow, not hardcoded
 - **Reusable Everywhere** - Same primitives for exploration, debugging, refactoring
 
----
+</div>
 
-## 🌐 Architecture & API Flow
-
+## Architecture & API Flow
 ### HTTP MCP Architecture
+
+<div data-technical>
 
 ```
 Cursor (Your Mac)
@@ -504,7 +645,11 @@ Backend Host (remote)
 Physical Devices
 ```
 
+</div>
+
 ### API Flow Example
+
+<div data-technical>
 
 ```
 1. Cursor makes HTTP POST request:
@@ -534,11 +679,12 @@ Physical Devices
    }
 ```
 
----
+</div>
 
-## 🔒 Security
-
+## Security
 ### Bearer Token Authentication
+
+<div data-technical>
 
 All MCP endpoints require Bearer token authentication:
 
@@ -568,23 +714,35 @@ Authorization: Bearer <your_secret_key>
 
 No encryption, no JWT, no database - just a **shared secret** with HTTPS transport security.
 
+</div>
+
 ### Security Features
 
-✅ **Bearer Token Required** - All endpoints protected  
-✅ **Environment Variable** - Secret stored in `.env`, not hardcoded  
-✅ **401 Unauthorized** - Missing auth header  
-✅ **403 Forbidden** - Invalid token  
-✅ **Team-based Access** - All operations require `team_id`  
-✅ **Device Locking** - Prevents concurrent access  
-✅ **Session Tracking** - Audit trail for all operations  
+<div data-technical>
+
+ **Bearer Token Required** - All endpoints protected  
+ **Environment Variable** - Secret stored in `.env`, not hardcoded  
+ **401 Unauthorized** - Missing auth header  
+ **403 Forbidden** - Invalid token  
+ **Team-based Access** - All operations require `team_id`  
+ **Device Locking** - Prevents concurrent access  
+ **Session Tracking** - Audit trail for all operations  
+
+</div>
 
 ### Protected Endpoints
+
+<div data-technical>
 
 - `POST /mcp` - Tool execution
 - `GET /mcp/tools` - List available tools
 - `GET /mcp/health` - Health check
 
+</div>
+
 ### Rotating Secrets
+
+<div data-technical>
 
 ```bash
 # 1. Generate new secret
@@ -601,17 +759,23 @@ MCP_SECRET_KEY=<new_secret>
 # 5. Restart Cursor
 ```
 
+</div>
+
 ### Best Practices
 
-1. ✅ **Never commit secrets** to git
-2. ✅ **Use strong random secrets** (32+ characters)
-3. ✅ **Different secrets per environment** (dev/prod)
-4. ✅ **Rotate secrets periodically** (every 90 days)
-5. ✅ **Keep Cursor config local** (~/.cursor/mcp.json is not synced)
+<div data-technical>
 
----
+1.  **Never commit secrets** to git
+2.  **Use strong random secrets** (32+ characters)
+3.  **Different secrets per environment** (dev/prod)
+4.  **Rotate secrets periodically** (every 90 days)
+5.  **Keep Cursor config local** (~/.cursor/mcp.json is not synced)
 
-## 📊 Monitoring
+</div>
+
+## Monitoring
+
+<div data-technical>
 
 MCP server logs all operations:
 
@@ -633,11 +797,12 @@ Available tools on startup:
   ...
 ```
 
----
+</div>
 
-## 🐛 Troubleshooting
-
+## Troubleshooting
 ### Authentication Errors
+
+<div data-technical>
 
 **"Missing Authorization header"**
 - Add `headers` section to Cursor MCP config
@@ -653,14 +818,22 @@ Available tools on startup:
 - Ensure format is: `Bearer <token>` (space after "Bearer")
 - Check for extra spaces or newlines
 
+</div>
+
 ### MCP Tools Not Showing in Cursor
+
+<div data-technical>
 
 - Restart Cursor completely (Cmd+Q, then reopen)
 - Check `~/.cursor/mcp.json` exists and is valid JSON
 - Verify URL is correct: `https://dev.virtualpytest.com/server/mcp`
 - Test health endpoint manually with curl
 
+</div>
+
 ### Device Operation Errors
+
+<div data-technical>
 
 **"Device not found"**
 - Ensure `take_control` was called first
@@ -675,9 +848,11 @@ Available tools on startup:
 - Another user/LLM has control
 - Wait for release or use different device
 
----
+</div>
 
-## 📝 Complete Example
+## Complete Example
+
+<div data-technical>
 
 ```python
 # Full automation workflow
@@ -737,3 +912,5 @@ client.call_tool("release_control", {
     "team_id": "team_abc123"
 })
 print("Control released")
+
+</div>

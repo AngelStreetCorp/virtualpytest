@@ -43,6 +43,10 @@ on:
       - 'scripts/ai-smoke/**'
       - 'scripts/atlas_chat.py'
       - '.github/workflows/atlas-smoke.yml'
+  # Nightly, for the same reason as regression.yml: the night gate defers everything outside
+  # 00:00-07:00 UTC, so without a scheduled run a day with no in-window push would go untested.
+  schedule:
+    - cron: '7 0 * * *'
   workflow_dispatch:
 
 permissions:
@@ -67,12 +71,61 @@ env:
   # Default to the public deployment; a workflow_dispatch can override.
   SERVER_URL: ${{ vars.ATLAS_SMOKE_SERVER_URL || 'https://virtualpytest.angelstreet.io' }}
   CICD_DATABASE_URL: ${{ secrets.CICD_DATABASE_URL }}
+  # ---- Night window (docs/agent/infra/CICD.md -> "Night window") --------------------------
+  # Same window as regression.yml, so a commit is never half-tested by one suite and not the
+  # other. UTC hours: 0 = midnight, 7 = 07:00.
+  VPT_NIGHT_START_UTC: '0'
+  VPT_NIGHT_END_UTC: '7'
 
 jobs:
+  # ---- Night gate ---------------------------------------------------------------------------
+  # The smoke runs ONLY between VPT_NIGHT_START_UTC and VPT_NIGHT_END_UTC (00:00-07:00 UTC).
+  # Outside the window every other job in this file is SKIPPED and the run finishes green
+  # without testing anything -- that is deferred CI, not a pass. Read CICD.md's
+  # "Reading a run" trap 5 before trusting a green result during the day.
+  #
+  # Why a gate job and not a narrower trigger: `on: push` always creates a run, and workflow
+  # expressions cannot read a clock, so the window can only be evaluated at run time. A push
+  # that lands during the night still runs immediately; a push during the day waits for the
+  # next window. Six self-hosted runners are the reason -- they are otherwise busy every
+  # working hour.
+  #
+  # workflow_dispatch ALWAYS runs, whatever the clock says: it is the operator escape hatch,
+  # and what the integration lane uses when it needs an answer before the next window.
+  #
+  # Deliberately on ubuntu-latest: deciding not to use the fleet must not itself take a slot on
+  # the fleet. The step is two seconds; a self-hosted slot would queue behind the real work.
+  night-gate:
+    name: Night gate (suite runs 00:00-07:00 UTC)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.window.outputs.run }}
+    steps:
+      - name: Decide whether now is inside the window
+        id: window
+        run: |
+          if [ '${{ github.event_name }}' = 'workflow_dispatch' ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Night gate::Manual dispatch - running the suite now."
+            exit 0
+          fi
+          hour="$(date -u +%-H)"
+          start="$VPT_NIGHT_START_UTC"
+          end="$VPT_NIGHT_END_UTC"
+          if [ "$hour" -ge "$start" ] && [ "$hour" -lt "$end" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Night gate::${hour}:00 UTC is inside ${start}:00-${end}:00 UTC - running the suite."
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=Night gate::Suite DEFERRED - ${hour}:00 UTC is outside ${start}:00-${end}:00 UTC. THIS RUN TESTS NOTHING: green here means 'not run', not 'passed'. It runs at the next window, or now via workflow_dispatch."
+          fi
   atlas-smoke:
     name: Atlas smoke (unit + ${{ github.event_name == 'pull_request' && 'unit-only' || 'live' }})
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: ${{ github.event_name == 'pull_request' && 2 || 5 }}
+    needs: [night-gate]
+    if: ${{ needs.night-gate.outputs.run == 'true' }}
 
     steps:
       - uses: actions/checkout@v7

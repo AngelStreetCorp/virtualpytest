@@ -4,7 +4,7 @@ import { useDeviceData } from '../../contexts/device/DeviceDataContext';
 import { useToastContext } from '../../contexts/ToastContext';
 import { Verification } from '../../types/verification/Verification_Types';
 
-import { buildServerUrl, buildServerUrlWithParams } from '../../utils/buildUrlUtils';
+import { buildHostServerUrl, buildHostServerUrlWithParams } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
 import { ExecutionSocketEvent, waitForExecutionSocketEvent } from '../../utils/executionSocketWait';
 // Define interfaces for verification data structures
@@ -210,7 +210,9 @@ export const useVerification = ({
       const value =
         verification.command === 'waitForTitleToAppear'
           ? verification.params?.title
-          : verification.params?.search_term;
+          : verification.command === 'waitForUrlToMatch'
+            ? verification.params?.url_pattern
+            : verification.params?.search_term;
       if (!value || value.trim() === '') {
         console.log(`[useVerification] Verification ${index}: No ${verification.command === 'waitForTitleToAppear' ? 'title' : 'search term'} specified`);
         return false;
@@ -310,7 +312,7 @@ export const useVerification = ({
           })),
         );
 
-        const result = await api.post(buildServerUrl('/server/verification/executeBatch'), {
+        const result = await api.post(buildHostServerUrl(currentHost, '/server/verification/executeBatch'), {
           host_name: currentHost?.host_name,
           device_id: currentDeviceId,
           ...batchPayload,
@@ -359,7 +361,8 @@ export const useVerification = ({
             // timing out never delays the answer.
             const deadline = Date.now() + socketTimeoutMs + 30000;
             const terminalStatuses = new Set(['completed', 'error', 'failed', 'aborted']);
-            const statusUrl = buildServerUrlWithParams(
+            const statusUrl = buildHostServerUrlWithParams(
+              currentHost,
               `/server/verification/execution/${executionId}/status`,
               {
                 host_name: currentHost?.host_name,

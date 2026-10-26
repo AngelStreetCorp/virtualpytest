@@ -1,80 +1,89 @@
 # Requirements Setup Guide
 
-**External services setup for VirtualPyTest - Complete this before installation.**
+**Set up the external services before you install VirtualPyTest.**
 
-VirtualPyTest requires 3 external services to function properly, plus one optional AI provider. This guide walks you through setting up each one and obtaining the necessary credentials.
+You need three outside services and one AI provider.
 
-**⏱️ Estimated time: 15 minutes**
+**Estimated time: 15 minutes**
 
 ---
 
-## 🗄️ **1. Supabase - Database & Authentication**
+## 1. Supabase: database and sign-in
 
-Supabase provides the PostgreSQL database and authentication system for VirtualPyTest.
+Supabase holds the database and handles sign-in.
 
-### Step 1: Create Supabase Project
+### Step 1: Create a Supabase project
 
 1. **Sign up** at [supabase.com](https://supabase.com)
-2. **Create new project**:
-   - Project name: `virtualpytest` (or your preferred name)
-   - Database password: Generate a strong password and **save it**
-   - Region: Choose closest to your location
-3. **Wait for project creation** (~2 minutes)
+2. **Create a new project**. Save the database password it asks for.
+3. **Wait** about 2 minutes for the project to be ready.
 
-### Step 2: Get Supabase Credentials
+<div data-technical>
 
-Once your project is ready:
+Project name: `virtualpytest` (or any name you like). Database password: generate a strong password and save it. Region: the one closest to you.
 
-1. Go to **Settings** → **API**
-2. Copy these values:
-   ```
-   Project URL: https://your-project-id.supabase.co
-   Anon (public) key: <your-anon-key>
-   Service role key: <your-service-role-key>
-   ```
+</div>
 
-### Step 3: Database Setup
+### Step 2: Get the Supabase keys
 
-VirtualPyTest will automatically create the required tables on first run, but you can also run the setup manually:
+Go to **Settings**, then **API**. Copy the Project URL and the two keys: the anon (public) key and the service role key.
 
-1. Go to **SQL Editor** in Supabase dashboard
-2. Run the initialization scripts from `setup/db/` in your VirtualPyTest project
+<div data-technical>
 
-### ✅ Supabase Complete
-Save these credentials - you'll add them to your `.env` files later.
+Example format:
+
+```
+Project URL: https://your-project-id.supabase.co
+Anon (public) key: <your-anon-key>
+Service role key: <your-service-role-key>
+```
+
+</div>
+
+### Step 3: Set up the database
+
+<div data-technical>
+
+VirtualPyTest creates the tables it needs on the first run. To set them up by hand: go to **SQL Editor** in the Supabase dashboard and run the setup scripts from the `setup/db/` folder of the VirtualPyTest project.
+
+</div>
+
+### Supabase is ready
+
+Keep these keys for your `.env` files later.
 
 ---
 
-## ☁️ **2. Cloudflare R2 - Cloud Storage**
+## 2. Cloudflare R2: file storage
 
-R2 stores video recordings, screenshots, and test artifacts with S3-compatible API.
+R2 stores video recordings, screenshots and other test files.
 
-### Step 1: Create Cloudflare Account
+### Step 1: Create a Cloudflare account
 
-1. **Sign up** at [cloudflare.com](https://cloudflare.com)
-2. **Verify your email** and complete account setup
+**Sign up** at [cloudflare.com](https://cloudflare.com) and verify your email.
 
-### Step 2: Create R2 Bucket
+### Step 2: Create a bucket
 
-1. Go to **R2 Object Storage** in Cloudflare dashboard
-2. **Create bucket**:
-   - Bucket name: `virtualpytest-storage` (must be globally unique)
-   - Location: Choose closest region
-3. **Create bucket**
+In **R2 Object Storage**, click **Create bucket** and name it `virtualpytest-storage`. The name must be unique worldwide.
 
-### Step 3: Generate R2 API Token
+### Step 3: Create an access token
 
-1. Go to **Manage R2 API tokens**
-2. **Create API token**:
-   - Token name: `VirtualPyTest Access`
-   - Permissions: `Object Read and Write`
-   - Specify bucket: Select your bucket
-   - TTL: No expiry (or set as needed)
-3. **Create API token**
+In **Manage R2 API tokens**, click **Create API token**. Give it the permission `Object Read and Write` and select your bucket.
 
-### Step 4: Get R2 Credentials
+<div data-technical>
 
-After creating the token, copy:
+Token name: `VirtualPyTest Access`. Expiry: no expiry, or what you prefer.
+
+</div>
+
+### Step 4: Copy the R2 keys
+
+Copy the Access Key ID, the Secret Access Key, the bucket name and your Account ID.
+
+<div data-technical>
+
+The Account ID is on the R2 dashboard. Example format:
+
 ```
 Access Key ID: abc123...
 Secret Access Key: xyz789...
@@ -82,31 +91,37 @@ Bucket Name: virtualpytest-storage
 Account ID: your-account-id (from R2 dashboard)
 ```
 
-### ✅ R2 Complete
-Your bucket is ready for storing test artifacts.
+</div>
+
+### R2 is ready
+
+<div data-technical>
+
+Your bucket can now hold test files.
+
+</div>
 
 ---
 
-## 🚀 **3. Upstash Redis - Queue Management (Optional / Legacy)**
+## 3. Upstash Redis: job queue (optional, legacy)
 
-Upstash Redis was used for queue management. It's marked `DISCARD REDIS` in the project's `.env.example` — it is being phased out and is **not required** for core functionality. Skip this section unless a specific feature you're using still depends on it.
+Upstash Redis is being phased out and is **not needed** for the core features. Skip this unless a feature you use needs it.
 
-### Step 1: Create Upstash Account
+<div data-technical>
 
-1. **Sign up** at [upstash.com](https://upstash.com)
-2. **Verify email** and complete registration
+Marked `DISCARD REDIS` in the project's `.env.example`. Once set up, your Redis queue is ready for jobs.
 
-### Step 2: Create Redis Database
+**Create an Upstash account:** sign up at [upstash.com](https://upstash.com) and verify your email.
 
-1. **Create database**:
-   - Name: `virtualpytest-queue`
-   - Region: Choose closest to your location
-   - Type: Regional (recommended for better performance)
-2. **Create database**
+**Create a Redis database:** click **Create database** with these settings:
+- Name: `virtualpytest-queue`
+- Region: the one closest to you
+- Type: Regional (recommended for speed)
 
-### Step 3: Get Redis Credentials
+**Copy the Redis keys:** from your database page, copy the endpoint, the port, the password, the REST URL and the REST token.
 
-From your database dashboard, copy:
+Example format:
+
 ```
 Endpoint: redis-12345.upstash.io
 Port: 12345
@@ -115,35 +130,53 @@ REST URL: https://redis-12345.upstash.io
 REST Token: your-rest-token
 ```
 
-### ✅ Upstash Complete
-Your Redis queue is ready for job management.
+</div>
 
 ---
 
-## 🤖 **4. AI Provider - Test Analysis & Agent (Optional)**
+## 4. AI provider: test analysis and the agent (optional)
 
-VirtualPyTest's AI agent, vision, and text analysis features need at least one AI provider API key. A fresh install routes the agents to **Anthropic** and vision / text analysis to **OpenRouter**; OpenAI, MiniMax, Google and any OpenAI-compatible server (LM Studio, Ollama, vLLM — no key needed) are supported too.
+You need at least one AI provider key. Anthropic is the recommended default. Local servers such as LM Studio or Ollama need no key.
 
-### Step 1: Get an API Key
+<div data-technical>
 
-Pick one provider to start:
-- **Anthropic** (recommended default): sign up at [console.anthropic.com](https://console.anthropic.com), create an API key.
-- **OpenRouter** (alternate, useful for a wider model catalog): sign up at [openrouter.ai](https://openrouter.ai), add credits (minimum $5 recommended for testing), and create a key under **Keys**.
+A fresh install sends the agents to **Anthropic**, and vision and text analysis to **OpenRouter**. OpenAI, MiniMax, Google and any OpenAI-compatible server are also supported.
 
-### Step 2: Enter it in the app
+</div>
 
-After the install, open **Settings → AI → Endpoints**, paste the key into the matching endpoint and press **Test**. The key is stored on the server only (never in `.env`, never on hosts). You can add several providers and choose, per use case (each agent, each vision / text analysis), which model serves it under **Settings → AI → Routing**.
+### Step 1: Get an API key
 
-### ✅ AI Provider Complete
+- **Anthropic** (recommended): sign up at [console.anthropic.com](https://console.anthropic.com) and create an API key.
+- **OpenRouter**: sign up at [openrouter.ai](https://openrouter.ai), add credits (at least $5 is a good start for testing), and create a key under **Keys**.
+
+### Step 2: Enter the key in the app
+
+Open **Settings**, then **AI**, then **Endpoints**. Paste the key into the matching endpoint and press **Test**. Then choose which model handles each use case under **Routing**.
+
+<div data-technical>
+
+The key is stored on the server only, never in `.env` and never on the hosts. You can add several providers.
+
+</div>
+
+### AI provider is ready
+
+<div data-technical>
+
 Your AI analysis service is ready.
 
+</div>
+
 ---
 
-## 📝 **5. Configure Environment Files**
+## 5. Set the environment files
 
-After setting up all services, you'll configure these credentials in your VirtualPyTest environment files:
+Add the keys to your environment files.
 
-### Main Configuration (`.env`)
+### Main settings (`.env`)
+
+<div data-technical>
+
 ```bash
 # Supabase
 SUPABASE_URL=https://your-project-id.supabase.co
@@ -166,7 +199,14 @@ R2_ACCOUNT_ID=your-account-id
 # the "OpenAI-compatible" preset, e.g. http://10.10.10.10:8000/v1 (Ollama: http://<host>:11434/v1).
 ```
 
-### Host Configuration (`backend_host/src/.env`)
+</div>
+
+The AI keys are not in this file. You set them in the web app.
+
+### Host settings (`backend_host/src/.env`)
+
+<div data-technical>
+
 ```bash
 # Copy relevant credentials here for host services
 SUPABASE_URL=https://your-project-id.supabase.co
@@ -176,95 +216,139 @@ R2_SECRET_ACCESS_KEY=xyz789...
 # ... other host-specific settings
 ```
 
-### Frontend Configuration (`frontend/.env`)
+Add the other host-specific settings here too.
+
+</div>
+
+Copy the credentials the hosts need into this file.
+
+### Frontend settings (`frontend/.env`)
+
+<div data-technical>
+
 ```bash
 # Public keys only (never put secret keys in frontend)
 VITE_SUPABASE_URL=https://your-project-id.supabase.co
 VITE_SUPABASE_ANON_KEY=<your-anon-key>
 ```
 
+</div>
+
+Only public keys go in this file. Never put a secret key here.
+
 ---
 
-## 💰 **Cost Estimation**
+## Cost estimate
 
-Here's what you can expect to spend:
-
-| Service | Free Tier | Typical Monthly Cost |
+| Service | Free tier | Typical monthly cost |
 |---------|-----------|---------------------|
 | **Supabase** | 500MB DB, 1GB bandwidth | $0-25 (depending on usage) |
 | **Cloudflare R2** | 10GB storage, 1M requests | $0-10 (pay per use) |
-| **AI Provider** (Anthropic/OpenRouter/etc.) | Varies by provider | $5-50 (depending on AI usage) |
-| **Upstash Redis** (optional/legacy) | 10K requests/day | $0-20 if used |
+| **AI provider** (Anthropic, OpenRouter, etc.) | Varies by provider | $5-50 (depending on AI usage) |
+| **Upstash Redis** (optional, legacy) | 10K requests/day | $0-20 if used |
 
-**Total estimated cost: $5-85/month** (most users spend $10-30/month; Redis is optional)
-
----
-
-## 🔐 **Security Best Practices**
-
-- **Never commit** API keys or secrets to version control
-- **Use environment files** (`.env`) for all credentials
-- **Rotate keys regularly** (every 3-6 months)
-- **Use least-privilege access** - only grant necessary permissions
-- **Monitor usage** - set up billing alerts for unexpected costs
+**Total: about $5-85 a month.** Most users spend $10-30 a month. Redis is optional.
 
 ---
 
-## ✅ **Verification Checklist**
+## Security
 
-Before proceeding to VirtualPyTest installation, ensure you have:
+- **Never commit** API keys or secrets to version control.
+- **Keep credentials in the environment files** (`.env`).
+- **Change the keys every 3 to 6 months.**
+- **Give only the access you need.**
+- **Set up billing alerts** to catch unexpected costs.
 
-- [ ] **Supabase project** created with URL and API keys
-- [ ] **R2 bucket** created with access credentials
-- [ ] **AI provider account** with API key (Anthropic recommended)
-- [ ] **Upstash Redis** database with connection details (optional/legacy — skip if unused)
-- [ ] **All credentials** saved securely for environment configuration
 
 ---
 
-## 🆘 **Troubleshooting**
+## Checklist
 
-### Common Issues
+Before you install VirtualPyTest, check that you have:
+
+- [ ] **Supabase project** created, with its URL and API keys
+- [ ] **R2 bucket** created, with access keys
+- [ ] **AI provider account** with an API key
+
+<div data-technical>
+
+- [ ] **All the keys saved** somewhere safe
+
+</div>
+
+<div data-technical>
+
+- [ ] **Upstash Redis** database with its details (optional, legacy: skip if unused)
+
+</div>
+
+---
+
+## Troubleshooting
+
+### Common problems
 
 **Supabase connection fails:**
-- Verify project URL format: `https://your-project-id.supabase.co`
-- Check if project is fully initialized (wait 2-3 minutes after creation)
-- Ensure API keys are copied correctly (they're very long)
+- Check the project URL format: `https://your-project-id.supabase.co`
+
+<div data-technical>
+
+- Wait 2 to 3 minutes after you create the project, then try again.
+- Check that the API keys were copied in full. They are very long.
+
+</div>
 
 **R2 upload errors:**
-- Verify bucket name is globally unique
-- Check API token has correct permissions (Object Read and Write)
-- Ensure Account ID is correct (found in R2 dashboard)
+- Check that the bucket name is unique worldwide.
+- Check that the token has the right permissions.
 
-**Redis connection timeout (if you're using it):**
-- Verify endpoint format matches your Upstash dashboard
-- Check if database is in same region as your server
-- Ensure the REST token is copied correctly
+<div data-technical>
+
+- Check that the token has the Object Read and Write permission.
+- Check that the Account ID is on the R2 dashboard.
+
+</div>
+
+<div data-technical>
+
+**Redis connection timeout (only if you use it):**
+- Check that the endpoint matches your Upstash dashboard.
+- Check that the database is in the same region as your server.
+- Check that the REST token was copied in full.
+
+</div>
 
 **AI provider errors:**
-- Settings → AI → Routing shows which profile and endpoint serve the failing use case; press
-  **Test** on that endpoint (key, reachability, model list) and on the profile (model name,
-  vision / tool support)
-- Check the account has sufficient credits/quota
-- Ensure the profile's model name is exactly what the endpoint lists (case-sensitive)
-- Server logs show one `[AI] usage=… profile=… endpoint=… ok=…` line per call
+- Under **Settings**, then **AI**, then **Routing**, press **Test** on the endpoint and profile for the failing use case.
+- Check the account has enough credit and the model name matches exactly.
 
-### Getting Help
+<div data-technical>
+
+The endpoint test checks the key, the connection and the model list. The profile test checks the model name and whether vision or tools are supported. The model name is case-sensitive. The server log shows one line per AI call, like `[AI] usage=… profile=… endpoint=… ok=…`.
+
+</div>
+
+### Where to get help
 
 - **Supabase**: [docs.supabase.com](https://docs.supabase.com)
-- **Cloudflare R2**: [developers.cloudflare.com/r2](https://developers.cloudflare.com/r2)
 - **Anthropic**: [docs.anthropic.com](https://docs.anthropic.com)
+
+<div data-technical>
+
+- **Cloudflare R2**: [developers.cloudflare.com/r2](https://developers.cloudflare.com/r2)
 - **OpenRouter**: [openrouter.ai/docs](https://openrouter.ai/docs)
-- **Upstash** (optional/legacy): [docs.upstash.com](https://docs.upstash.com)
+- **Upstash** (optional, legacy): [docs.upstash.com](https://docs.upstash.com)
+
+</div>
 
 ---
 
-## 🎯 **Next Steps**
+## Next steps
 
-Once you've completed all requirements setup:
+Once all the services are set up:
 
-1. **Return to** [Getting Started Guide](getting-started.md)
-2. **Continue with** the Quick Start installation
-3. **Configure** your `.env` files with the credentials you just obtained
+1. **Go back to** the [Getting Started Guide](getting-started.md).
+2. **Follow** the quick start installation.
+3. **Add the keys you just collected** to your `.env` files.
 
-**🎉 Ready to install VirtualPyTest!**
+**Ready to install VirtualPyTest.**

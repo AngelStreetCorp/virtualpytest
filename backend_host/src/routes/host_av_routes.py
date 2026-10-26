@@ -304,24 +304,33 @@ def switch_list_route():
 @route_exception_handler()
 def get_stream_url():
     device_id = request.args.get('device_id', 'device1')
-    
+
     av_controller = get_controller(device_id, 'av')
-    
+
     if not av_controller:
         return controller_missing_for_device('AV', device_id)
-    
-    from shared.src.lib.utils.build_url_utils import buildStreamUrl
+
+    from shared.src.lib.utils.build_url_utils import buildStreamUrl, buildAudioStreamUrl
     from  backend_host.src.lib.utils.host_utils import get_host_instance as get_host
-    
+
     host = get_host()
-    stream_url = buildStreamUrl(host.to_dict(), device_id)
-    
-    return jsonify({
+    host_info = host.to_dict()
+    stream_url = buildStreamUrl(host_info, device_id)
+    # Audio stream is optional: a host_vnc device may have no audio_stream_path
+    # configured, in which case buildAudioStreamUrl returns None and the dashboard
+    # falls back to the silent VNC view. The audio pipeline (vpt-windows-audio on
+    # Windows, the Linux pulse source on Linux) is owned by the run_*_audio.* and
+    # run_ffmpeg.* scripts, not by the controller; we just expose the URL.
+    audio_stream_url = buildAudioStreamUrl(host_info, device_id)
+
+    response = {
         'success': True,
         'stream_url': stream_url,
-        'device_id': device_id
-    })
-        
+        'device_id': device_id,
+    }
+    if audio_stream_url:
+        response['audio_stream_url'] = audio_stream_url
+    return jsonify(response)
 @host_av_bp.route('/getSegmentCapture', methods=['POST'])
 @route_exception_handler()
 def get_segment_capture():
@@ -420,6 +429,32 @@ def get_segment_capture():
         'capture_number': capture_number
     })
     
+def _fingerprint_of_frame(img_bgr, device_id: str, helpers):
+    """Localize fingerprint of a captured frame. A web device's frame is the whole desktop (taskbar, clock, tab strip and
+    address bar around the page): its fingerprint is computed on the page area, whose box is stored as fp['viewport']
+    [x, y, w, h] so a recompute from the stored frame crops the same way (FINGERPRINT.md "Web fingerprints")."""
+    from backend_host.src.lib.utils.device_identity import fingerprint_frame
+    frame, box = fingerprint_frame(img_bgr, get_device_by_id(device_id))
+    fp = helpers.compute_fingerprint(frame)
+    if fp is not None and box:
+        fp['viewport'] = list(box)
+    return fp
+
+
+def _attach_identity(fingerprint, device_id: str) -> None:
+    """TASK-107 goal 4: an android / web device also says WHERE it is (activity + UI texts, URL +
+    title). Stored with the fingerprint, matched before the pixels by Localize. Never fails a capture."""
+    if not fingerprint:
+        return
+    try:
+        from backend_host.src.lib.utils.device_identity import read_identity
+        identity = read_identity(get_device_by_id(device_id), with_texts=True)
+        if identity:
+            fingerprint['identity'] = identity
+    except Exception as e:
+        print(f"[@route:host_av] identity not read (non-fatal): {e}")
+
+
 @host_av_bp.route('/takeScreenshot', methods=['POST'])
 @route_exception_handler()
 def take_screenshot():
@@ -531,9 +566,10 @@ def take_screenshot():
                 import cv2
                 from backend_host.src.controllers.verification.image_helpers import ImageHelpers
                 img_bgr = cv2_io.imread(screenshot_path)
-                fingerprint = ImageHelpers(None, av_controller).compute_fingerprint(img_bgr)
+                fingerprint = _fingerprint_of_frame(img_bgr, device_id, ImageHelpers(None, av_controller))
             except Exception as fp_err:
                 print(f"[@route:host_av:takeScreenshot] fingerprint failed (non-fatal): {fp_err}")
+            _attach_identity(fingerprint, device_id)
 
         print(f"[@route:host_av:takeScreenshot] === SUCCESS ===")
 
@@ -684,11 +720,12 @@ def save_screenshot():
         fingerprint = None
         try:
             from backend_host.src.controllers.verification.image_helpers import ImageHelpers
-            fingerprint = ImageHelpers(None, av_controller).compute_fingerprint(img_bgr)
+            fingerprint = _fingerprint_of_frame(img_bgr, device_id, ImageHelpers(None, av_controller))
             if fingerprint is None:
                 print("[@route:host_av:saveScreenshot] fingerprint is None (frame unreadable or empty)")
         except Exception as fp_err:
             print(f"[@route:host_av:saveScreenshot] fingerprint failed (non-fatal): {fp_err}")
+        _attach_identity(fingerprint, device_id)
 
         return jsonify({
             'success': True,
@@ -736,7 +773,15 @@ def region_fingerprint():
                                          f"({dl.get('error', 'unknown')})"}), 500
         if img is None:
             return jsonify({'success': False, 'error': 'Failed to download/read screenshot'}), 500
-        fp = ih.compute_fingerprint(img)
+        box = data.get('viewport')  # [x, y, w, h] stored with a web fingerprint: the page area of the stored frame
+        if isinstance(box, (list, tuple)) and len(box) == 4:
+            from shared.src.lib.utils.web_viewport import crop_to_box
+            box = tuple(int(v) for v in box)
+            fp = ih.compute_fingerprint(crop_to_box(img, box))
+            if fp is not None:
+                fp['viewport'] = list(box)
+        else:
+            fp = ih.compute_fingerprint(img)
         return jsonify({'success': True, 'fingerprint': fp})
     except Exception as e:
         return jsonify({'success': False, 'error': f'Region fingerprint failed: {str(e)}'}), 500

@@ -17,22 +17,43 @@ heuristic). Every decision and milestone is logged in `self.log` for the report 
 
 import random
 import time
-from typing import Callable, Dict, List, Optional
+from collections import Counter
+from typing import Callable, Dict, List, Optional, Tuple
 
-from . import battle, gym, hm, learn, names, overworld, shop, strategy
-from .memory import ADDR, busy, decode, screen_rows, text_box, text_box_open
+from . import battle, gym, hm, learn, names, overworld, shop, strategy, strength
+from .memory import ADDR, busy, decode, dex_page_open, screen_rows, text_box, text_box_open
 from .milestones import (CERULEAN_MART, FUCHSIA_CENTER, GAME_CORNER, LAVENDER_CENTER, OAKS_LAB, PEWTER_MART, POKE_FLUTE, ROCKET_B4F,
-                         ROCKET_HIDEOUT, ROCKET_LIFT, ROUTE2, ROUTE4, ROUTE24, TOWER_6F, TOWER_7F, VERMILION_GYM, VIRIDIAN_FOREST,
-                         VIRIDIAN_MART, badges, bag, current)
-from .rom import GameData
-from .world import ANY_MAP, OPPOSITE, World, hop_target, links
+                         HM03_SURF, HM04_STRENGTH, MART_ROOF, ROUTE7_GATE, ROCKET_HIDEOUT, ROCKET_LIFT, SAFARI_ZONE, SURF, ROUTE2, ROUTE4, ROUTE24, TOWER_6F, TOWER_7F, VERMILION_GYM, VIRIDIAN_FOREST,
+                         VIRIDIAN_MART, badges, bag, current, party_knows, MT_MOON_B2F, CELADON, SAFFRON,
+                         DEFERRED_BY, FUCHSIA, GOOD_ROD, GOOD_ROD_HOUSE, ROAD_TO_FUCHSIA, STRENGTH, CINNABAR_ISLAND, MANSION, MANSION_1F, MANSION_2F, MANSION_3F, MANSION_B1F,
+                         CARD_KEY, CARD_KEY_DOORS, CARD_KEY_DOOR_11F, SILPH_CO, SILPH_CO_11F, SILPH_3F, SILPH_5F, SILPH_7F, SAFFRON_GYM)
+from .strength import CINNABAR_GYM
+from .rom import HM_STRENGTH_BIT, HM_SURF_BIT as SURF_BIT, GameData
+from .world import ANY_MAP, INERT_WARPS, OPPOSITE, World, hop_target, links, pad_route
+
+# Surf-learner gifts that pre-empt the Safari Zone hunt (TASK-105). The Magikarp on Mt. Moon B2F is
+# the lowest-risk option (the long-play visits Mt. Moon B2F on the way to Cerulean, so the world graph
+# already knows the path back from `surf`). The Silph Co. 7F Lapras is mid-game but the long-play's
+# milestone flow skips Silph Co. entirely (the world graph does not learn its maps unless visited),
+# so in practice only the Magikarp source is reachable from a `surf` milestone — the Lapras is kept
+# for completeness. Silph Co. 7F's map id is pokered BLUE: MAP_SILPH_CO_7F EQU $6E
+# (pokered/constants/map_constants.asm); the French ROM should match (verified on deploy).
+SILPH_CO_7F = 0x6E
+MAGIKARP, LAPRAS, GOLDEEN, HORSEA, KRABBY, STARYU = 129, 131, 118, 116, 98, 120   # species ids (Gen 1 internal order)
+SURF_LEARNERS = (MAGIKARP, LAPRAS, GOLDEEN, HORSEA, KRABBY, STARYU)                # any party member that can learn Surf
+MT_MOON_MAGIKARP_GIFT = (3, 8)   # Mt. Moon B2F: the fisherman's square next to TM08 (to be verified on a save)
+SILPH_LAPRAS_GIFT = (3, 3)        # Silph Co. 7F: the scientist's square after Team Rocket is cleared
+SURF_GIFT_SOURCES = (("Mt. Moon", MT_MOON_B2F, MT_MOON_MAGIKARP_GIFT, MAGIKARP),
+                     ("Silph Co.", SILPH_CO_7F, SILPH_LAPRAS_GIFT, LAPRAS))
 
 OAK_PICTURE = 3
 MOM_PICTURE = 51          # in the player's house, ground floor (map 0x25); heals the party
 PLAYERS_HOUSE_1F = 0x25
 BILLS_PC_SPOT = (1, 5)  # Bill's house: below the PC (1, 4), facing up, starts the cell separator
 STARTER_BALL = (8, 3)   # Oak's lab: Bulbasaur's Poké Ball
-POKEMON_CENTERS = (0x29, 0x3A, 0x44, 0x40, 0x59, 0x51, 0x85, LAVENDER_CENTER, FUCHSIA_CENTER)  # Viridian, Pewter, Mt. Moon (Route 4), Cerulean, Vermilion, Route 10, Celadon, Lavender, Fuchsia: the nurse heals behind the counter
+CINNABAR_CENTER, SAFFRON_CENTER = 0xAB, 0xB6   # BUG-0698: without Cinnabar's, `prepare` for the Mansion walked back to Viridian
+POKEMON_CENTERS = (0x29, 0x3A, 0x44, 0x40, 0x59, 0x51, 0x85, LAVENDER_CENTER, FUCHSIA_CENTER,
+                   CINNABAR_CENTER, SAFFRON_CENTER)  # Viridian, Pewter, Mt. Moon (Route 4), Cerulean, Vermilion, Route 10, Celadon, Lavender, Fuchsia, Cinnabar, Saffron: the nurse heals behind the counter
 MARTS = (VIRIDIAN_MART, PEWTER_MART, CERULEAN_MART)   # Poké Marts; known once a town's door was seen from outside
 SHOP_BELOW_PARTY = 3      # shop for balls while the party has fewer Pokémon than this and none are in the bag
 SHOP_MIN_MONEY = 1000     # ... with at least this much money
@@ -44,13 +65,58 @@ HEAL_FORCED_BELOW = 0.15  # below this HP share (or with 0 attacking PP) healing
 MONEY = 0xD347 + 5        # 3 bytes BCD; a blackout halves it (a defeat)
 PARTY_NICKS = 0xD2B5 + 5  # 11 bytes per Pokémon; the species name unless nicknamed
 BLOCKER_TALKS_MAX = 3     # after this many talks to the same blocker square, treat it as a wall
+# BUG-0895: how many presses a square of rock may cost. The game moves the rock one square and
+# swallows the presses that land in the animation of the push (pokered's `AnimateBoulderDust` runs
+# eight steps of `Delay3` and `DoBoulderDustAnimation` discards the button press), during which the
+# player cannot step into the square the rock left: a square of rock costs about four presses.
+PUSH_PRESSES_MAX = 6
+PUSH_SHORT_TRIES = 3       # ... and how often a push that does not move the rock is tried again
+# BUG-0872: how many blank reads in a row mean the emulator page is gone for good. A blank read is the page
+# answering nothing (its JavaScript call timed out) and the runner being handed 8 KB of zeros (game_pokemon.py:
+# VptGameIO.wram). One is a hiccup, three in a row is a dead page: the run ends there instead of spinning.
+BLANK_READ_LIMIT = 3
+# BUG-0875: how many ticks in a row with a work-RAM snapshot that does not change at all mean the emulator
+# is not running. The game writes its OAM shadow every frame, so a snapshot that never moves is a game
+# whose keys go nowhere: its loop is dead or the page is wedged (the second lane's new game of
+# 2026-10-23 stood at the title menu for 450 s while the runner pressed A and START into a frozen game).
+FROZEN_TICKS = 4
 GRIND_MAPS = (VIRIDIAN_FOREST, ROUTE2, ROUTE24, ROUTE4)   # after Misty the party is at Cerulean: Route 24 (wild level 8-14), else Route 4
 GRIND_STALL_S = 240      # seconds of training without experience gained before the target is dropped as hopeless
 RECRUIT_PARTY = 2         # a `prepare` milestone wants this many Pokémon first
 RECRUIT_GIVE_UP_TICKS = 700
 CUT_TRIES = 3               # attempts to teach HM01 before it is given up
+SURF_HUNT_GIVE_UP = 600     # ticks spent hunting a Surf learner in the Safari Zone before the story moves on. 600 ticks ~ 7 min of game time; the stall detector does not count hunt time (`Runner.self_guarded`), so `surf_deferred = True` is what ends a hopeless hunt. (Was 2400: at ~80 ticks/min that was 30-40 min, past the stall; the runner looped on RUN-only Safari Zone encounters and never set the defer flag — TASK-33 stall 20261015-021503, diagnosis in ~/vpt-private/pokemon/stalls/surf_20261015-021503.diagnosis.md.)
+VENDING_SPOT = (12, 3)       # Celadon Mart roof: below the machine at (12, 2) (verified: "Un distributeur!", EAU FRAICHE 200 / SODA COOL 300 / LIMONADE 350)
+BAG_SLOTS = 20               # the bag's capacity (the vending machine refuses when it is full)
+DRINKS = (0x3C, 0x3D, 0x3E)  # Fresh Water, Soda Pop, Lemonade (item ids)
+PRESIDENT_PICTURE = 43      # Silph Co.'s president (read on 11F: the sprite at (7, 5))
+BALL_PICTURE = 61           # an item ball's sprite (verified: the Safari Zone's west area shows four)
+GYM_TRAINER_WORD = "veut"   # a trainer's battle line in the French ROM: "GIOVANNI veut se battre!" (gym.py knows it too)
+# BUG-0719: a gym leader's speech is followed by his battle line ("GIOVANNI veut se battre!") and the battle starts
+# right after it: the answer is only settled after a quiet while (the box is closed and no battle started).
+GYM_ANSWER_QUIET_S = 18.0   # seconds without a new page before the answer counts as settled
+GYM_ANSWER_MAX_S = 40.0     # seconds after the talk before the answer counts as settled, whatever happens
+# BUG-0723: how many times the runner steps into the leader's line of sight before he is judged "not the
+# leader": the step is the last thing tried (the fight comes from the leader's own script, ~13 s after the talk).
+GYM_CHALLENGE_TRIES = 3
+GOLD_TEETH = 0x40           # item id (verified: the ball in the Safari Zone's west area added it to the bag)
+SAFARI_ORDER = (0xDB, 0xDA, 0xD9, 0xDC)   # where to look for items: west, north, east, centre
+HUNT_TICKS_PER_AREA = 120   # Safari Zone: ticks spent wandering one area before the next
 GUIDE = "guide_i"
 POSTER_GUARD, POSTER_SPOT = (9, 5), (9, 5)   # Game Corner: the guard stands on the square in front of the poster (9, 4)
+MANSION_2F_NW_STAIRS = (6, 1)   # BUG-0697: the Mansion 2F stairs into 3F's hole part (the others lead to dead ends)
+MANSION_HOLES = ((16, 14), (17, 14), (19, 14))   # 3F's holes: tried in turn until one drops into 1F ((16, 14) does)
+MANSION_3F_SWITCH_SPOT = (10, 6)   # below 3F's switch statue: one press opens the gates to the holes (emulator)
+MANSION_B1F_SWITCH_SPOTS = ((18, 26), (20, 4))   # below the basement's two statue switches (south, north)
+MANSION_B1F_STAIRS = (23, 22)   # the basement's only way out, up to 1F
+MANSION_1F_B1F_STAIRS = (21, 23)   # 1F's stairs down to the basement, in the part the 3F hole drops into
+# BUG-0705: Blaine's gym is six rooms shut by gates; a quiz machine (faced from the square below) opens the next gate on a
+# right answer, a wrong one brings the trainer behind it to fight, and beating him opens it too. Answers: the French ROM's
+# questions in machine order (Chenipan -> Papilusion yes, 9 badges no, Ptitard 3 evolutions no, Electric on Ground no,
+# same kind and level not identical yes, TM28 no)
+CINNABAR_QUIZ = ((15, 7), (10, 1), (9, 7), (9, 13), (1, 13), (1, 7))
+CINNABAR_QUIZ_YES = (True, False, False, False, True, False)
+QUIZ_IDLE_TICKS = 10   # ticks with no machine in reach and Blaine shut off before they are all asked again
 LIFT_KEY_BALL, LIFT_KEY_GUARD = (10, 2), (11, 2)   # B4F's north-west room: the ball with the Lift Key and the Rocket next to it
 NO_ROUTE_TICKS = 8   # ticks without any route before the map entered is taken for a dead end
 SNORLAX_PICTURE = 67   # the sleeping Snorlax's sprite on Route 12 (Route 16's looks the same)
@@ -125,6 +191,21 @@ class SnapshotIO:
     def refresh(self):
         self.mem = None
 
+    def snapshot(self):
+        """The raw work-RAM snapshot of this tick (8 KB). The runner compares it with the previous one to
+        see whether the emulator is still running (BUG-0875): the game writes its OAM shadow every frame,
+        so a snapshot that never changes is a game whose keys go nowhere."""
+        if self.mem is None:
+            self.mem = self.io.wram()
+        return self.mem
+
+    def reboot(self):
+        """Restart the emulator in the page (the ROM, and the save with it, are loaded again). False when
+        the page does not answer: the game is then really gone (BUG-0875)."""
+        self.mem = None
+        reboot = getattr(self.io, "reboot", None)
+        return bool(reboot()) if reboot else False
+
 
 class Runner:
     learn_choice: Optional[Dict] = None         # the decision on the current forget-a-move question
@@ -133,6 +214,19 @@ class Runner:
     lift_floor_set = False                      # the elevator's floor was chosen on this ride
     mat_map, mat = None, {}                     # warps stepped off so far on this map: {warp: tries}
     catch_target: Optional[Dict] = None         # the wild Pokémon they went to: species, name, party size before
+    stuck = 0                                   # ticks since the last successful step (class default so tests can `object.__new__`)
+    busy_ticks = 0                              # consecutive ticks with the input-ignore flag set (BUG-0648)
+    blank_reads = 0                             # consecutive blank reads of the game's memory (BUG-0872)
+    frozen_ticks = 0                            # consecutive ticks with a game that does not move at all (BUG-0875)
+    last_snapshot = None                        # the work-RAM snapshot of the previous tick (BUG-0875)
+    intro_now = False                           # the runner is in the intro of a new game (BUG-0875)
+    text_ticks = 0                              # consecutive ticks with a text box open (BUG-0653)
+    last_pos = None                             # where the player was at the start of the last tick (BUG-0718)
+    last_map = None                             # the map he was on at the start of the last tick (BUG-0738)
+    step_dir = None                             # the direction of the last step the runner made (BUG-0718)
+    answer_texts: tuple = ()                    # the lines the game showed since the last talk (BUG-0718)
+    answer_at = 0.0                              # when the game showed the last page of the answer (BUG-0719)
+    answer_since = 0.0                           # when the runner talked to the leader candidate (BUG-0719)
 
     def __init__(self, io, rom: bytes, choose: Optional[Callable] = None, memo: Optional[Dict] = None,
                  world: Optional[World] = None, complete: Optional[Callable] = None,
@@ -145,6 +239,18 @@ class Runner:
         self.world = world or World()
         self.log: List[Dict] = []
         self.stuck = 0
+        self.busy_ticks = 0
+        self.blank_reads = 0
+        self.text_ticks = 0
+        self.answer_texts: List[str] = []   # the lines the game showed since the last talk (BUG-0718)
+        self.answer_at = 0.0               # when the game showed the last page of the answer (BUG-0719)
+        self.answer_since = 0.0            # when the runner talked to the leader candidate (BUG-0719)
+
+        self.last_pos = None    # where the player was at the start of the last tick (BUG-0718: the game moved him)
+        self.last_map = None    # the map he was on then (BUG-0738: a hop that changes map is not a hop)
+        self._hop_unwalkable = False   # BUG-0891: the hop of the route could not be walked to
+        self.step_dir = None    # the direction of the last step the runner made
+        self.step_to = None     # the square that step was to land on
         self._last_tick = 0.0   # play-time accounting (a stop between runs does not count)
         self.disabled = None     # the move hit by Disable in the current battle
         # the in-progress battle lives in the memo so a run that ends mid-battle saves it with
@@ -214,7 +320,20 @@ class Runner:
         self.io.press(direction, 180)
         self.io.wait(150)
         after = (self.read(ADDR["map"])[0],) + self.pos()
-        return before != after
+        if before != after:
+            # BUG-0738: the press that moved the player is the one the game pushes him back from: remember
+            # its direction, or a move the runner made itself (the gym leader's "step aside", BUG-0723) is
+            # read as the game's push-back and seals the square for ever (the "same_spot" stall of run
+            # 20261020-175235: the only way out of the player's pocket in the Viridian gym was sealed).
+            self.step_dir = direction
+            return True
+        # BUG-0740: the key did not move the player (a gym's chevron blocks it and the game carries him
+        # later). The direction of the last step says nothing about the move the game is about to make: a
+        # stale one made the runner read the carry as a push-back and close the square as a one-way hop
+        # tile. The gym's corridor was closed for good, the leader behind it was unreachable, and the run
+        # walked between two squares for five minutes (the "no_progress" stall 20261020-213314).
+        self.step_dir = None
+        return False
 
     def party_hp(self):
         n = self.read(ADDR["party_count"])[0]
@@ -294,25 +413,150 @@ class Runner:
         """The current map's grid, with `memo["walls"]` squares (beaten trainers that never move)
         marked unwalkable. Sprites block by default; pass `sprites_block=False` for the layout."""
         walk = overworld.full_grid(self.read, self.rom, sprites_block=sprites_block, cut=hm.cut_user(self.read) is not None)
+        if hm.surf_user(self.read) is not None:
+            walk.update({sq: True for sq in getattr(walk, "water", ())})   # BUG-0681: Surf known, water is a way (A* charges the menu trip)
         here = self.read(ADDR["map"])[0]
+        # BUG-0886: a boulder is not a wall. The runner used to talk to the boulders of Victory Road 1F
+        # (the fallback that talks to "the nearest person in the way"), and the three talks marked them
+        # as walls for good. The boulder at (2, 10) stands in the one-wide corridor to the stairs
+        # (1, 1): with its square walled the floor is cut in two (measured on the stalled save: the
+        # player's part drops from 190 squares to 129 and the stairs to Victory Road 2F are out of
+        # reach), so the guide walked the runner back to Route 23, whose guide asked for Victory Road 1F
+        # again, and the two maps took turns for ever (the same_spot stall of the run 20261024-003359).
+        # A boulder is pushed with Strength, not walled: the marks on it are dropped.
+        boulders = set(strength.live_boulders(self.read))
+        # BUG-0889: a wall mark on a square the floor's puzzle names belonged to a boulder, and the mark
+        # outlived the rock: the runner had talked to the boulders of Victory Road 1F until they were
+        # walled (the bug of BUG-0885), and when the boulder was pushed away its square stayed walled.
+        # The corridor boulder (2, 10) stands in the one-wide passage to the stairs (1, 1): with its
+        # square walled the floor is cut in two, the stairs are out of reach, the guide walks the runner
+        # back to Route 23 and the lane stalls with "no_progress" on map 108 (the run 20261024-093928:
+        # 23 minutes of play, 37 boulder pushes and no new square). A boulder is a rock, not a person:
+        # the marks on the squares it stands on - and on the squares it has left - are dropped.
+        puzzle = strength.puzzle_for(here)
+        rocks = {tuple(w[0]) for w in puzzle.plan} if puzzle else set()
+        # BUG-0893: the barrier of a floor is the game's business, not the runner's. BUG-0892
+        # opened the barrier on the rocky ridge of Victory Road 1F as soon as the runner's own
+        # chain counter said the boulder of the pressure switch was on the switch tile. The game
+        # does not open it: measured on the live save, the boulder the chain pushes onto
+        # (17, 13) falls into the hole that tile is (it is gone from the sprite list), the map's
+        # block table stays the one of the ROM and the barrier on the ridge stays closed for ever
+        # (the game's own tile-pair collision says (5, 8) and (5, 9) cannot be walked between).
+        # A grid that believes the barrier is open plans a path into a wall the game refuses: the
+        # player ping-pongs in the grass of the floor and the stall detector writes "no_progress"
+        # (the run 20261024-134917: 22 wild battles, no new square in 11 minutes, the save locked).
+        # The grid follows the game's own collision data now: when the game opens a barrier, the
+        # tiles of the floor change and the wall pairs go with them. The pressure switch's plan
+        # and its tile are unchanged - the chain still pushes the boulder to (17, 13); only the
+        # runner's guess about what the game does with it is gone.
         for sq in self.memo.get("walls", {}).get(str(here), []):
             t = (sq[0], sq[1]) if isinstance(sq, (list, tuple)) else sq
+            if t in boulders or t in rocks:
+                continue
             if t in walk:
                 walk[t] = False
+        for sq in self.memo.get("hops", {}).get(str(here), []):   # BUG-0718: the game's one-way hop tiles
+            t = (sq[0], sq[1]) if isinstance(sq, (list, tuple)) else sq
+            if len(sq) > 3:      # BUG-0741: the mark remembers where the carry lands: the tile is a passage
+                self.hop_jump(walk, t, (sq[2], sq[3]))
+            if t in walk and t != self.pos() and not self.plain_floor(walk, t):
+                walk[t] = False
         return walk
+
+    def hop_jump(self, walk, tile, land) -> None:
+        """BUG-0741: a chevron the game carries the player over is a passage, not a trap: the grid jumps over it
+        the way it jumps over the ledges. `tile` is the square the player stood on and `land` is where the game
+        carried him. From the square before the tile, the key in the carry's direction moves him onto the tile and
+        the game carries him over to `land`; from the tile itself, the same key carries him on. Closing the tile
+        for ever (the old model) cut the only way out of the Viridian gym and the runner stood still for 300 ticks
+        (the same_spot stall of run 20261020-223419)."""
+        dx, dy = land[0] - tile[0], land[1] - tile[1]
+        if abs(dx) + abs(dy) == 0 or (dx and dy):
+            return     # no carry, or a diagonal one: nothing to model
+        step = ((dx > 0) - (dx < 0), (dy > 0) - (dy < 0))
+        d = {(-1, 0): "LEFT", (1, 0): "RIGHT", (0, -1): "UP", (0, 1): "DOWN"}[step]
+        jumps = getattr(walk, "jumps", None)
+        if jumps is None:
+            return
+        for sq in ((tile[0] - step[0], tile[1] - step[1]), tile):
+            jumps.setdefault(sq, []).append((d, land))
+
+    def plain_floor(self, walk, square) -> bool:
+        """True when the square carries the plain floor of the map (the tile most of its walkable squares share).
+        BUG-0738: a one-way hop tile is never the plain floor, so a hop mark on it is a wrong one - the runner's
+        own step was read as the game's push-back - and it must not close the square: the stall 20261020-175235
+        sealed the only way out of the player's pocket in the Viridian gym with such a mark. A grid without tile
+        data (a layout) trusts every mark."""
+        tiles = getattr(walk, "tiles", None)
+        if not tiles:
+            return False
+        floor = Counter(t for sq, t in tiles.items() if walk.get(sq)).most_common(1)
+        return bool(floor) and tiles.get(square) == floor[0][0]
+
+    def note_hop(self, here: int, pos_now) -> None:
+        """The game carried the player: the square he stood on is a one-way hop tile (the chevron squares of a
+        gym) and the mark remembers where the carry landed him (BUG-0741), so the runner can cross the tile the way
+        the game carries him instead of having it closed for ever.
+        BUG-0738: only the game pushes the player back. The runner's own step (the gym leader's "step aside")
+        moves him one square the other way, and it was read as a push-back: the square was closed for ever and
+        the player was sealed in the pocket it was the only way out of. The press that moved the player is the
+        direction the game would push him back from, so the runner's own step is never a hop.
+        A hop that changes map is not a hop either: the square he came from is on the map he left."""
+        if self.last_pos is None or pos_now == self.last_pos or not self.step_dir:
+            return
+        if self.last_map is not None and here != self.last_map:
+            return
+        step = overworld.STEP.get(self.step_dir, (0, 0))
+        if (pos_now[0] - self.last_pos[0], pos_now[1] - self.last_pos[1]) == (-step[0], -step[1]):
+            hops = self.memo.setdefault("hops", {}).setdefault(str(here), [])
+            mark = [self.last_pos[0], self.last_pos[1], pos_now[0], pos_now[1]]
+            if not any(h[:2] == mark[:2] for h in hops):
+                hops.append(mark)   # BUG-0741: with the landing square: the tile is a passage, not a dead end
+                self.event("hop", map=here, at=list(self.last_pos), to=list(pos_now))
+            self.step_dir = None   # the hop plays over several squares: only the first one is the hop tile
 
     # --- one tick ----------------------------------------------------------------------------
     def tick(self) -> str:
         if hasattr(self.io, "refresh"):
             self.io.refresh()  # one fresh snapshot per tick, whatever the previous tick did
         now = time.time()
+        if self.game_is_frozen():
+            # BUG-0875: the emulator is not running (its loop is dead or the page is wedged): the keys go
+            # nowhere. Restart the emulator in the page, so the run goes on from the save; when the page
+            # does not answer at all the game is gone: the run ends there, before the detector sees it, so
+            # no stall and no lock are written and the dispatcher keeps playing (as BUG-0872 wanted).
+            if self.reboot_emulator():
+                self.event("emulator_restarted", ticks=self.frozen_ticks)
+                self.frozen_ticks = 0
+                self.last_snapshot = None
+                return "emulator restart"
+            self.event("emulator_gone", ticks=self.frozen_ticks)
+            return "emulator gone"
+        # BUG-0718: the game moved the player (a one-way hop tile in a gym): the runner had stepped onto it
+        here = self.read(ADDR["map"])[0]
+        pos_now = self.pos()
+        self.note_hop(here, pos_now)
+        self.last_pos = pos_now
+        self.last_map = here
         if self.memo.get("grinding") and self._last_tick:
             self.memo["grind_s"] = self.memo.get("grind_s", 0.0) + min(5.0, now - self._last_tick)   # play time only
         self._last_tick = now
         if "starter" in self.memo.get("done", []) and not self.read(ADDR["party_count"])[0]:
             # a blank memory read (seen on a host: no Pokémon, money 0): it would look like a defeat
+            # BUG-0872: the emulator page died (the host's journal: "Page screenshot timed out after 20s",
+            # then no live page) and every read of the game's memory waits out its 15 s timeout and answers
+            # with nothing: `VptGameIO.wram()` hands the runner 8 KB of zeros (game_pokemon.py) that look
+            # like an empty game. The runner used to wait 300 ms and read again for ever: the run of
+            # 20261023-132854 spun 9 min 35 s with no event at all, the detector then called it
+            # "no_progress" at map 0, pos (0, 0) - a map the game is not on - and the LOCK stopped every
+            # later run. The game is gone: end the run there instead of spinning on it.
+            self.blank_reads += 1
+            if self.blank_reads >= BLANK_READ_LIMIT:
+                self.event("emulator_gone", reads=self.blank_reads)
+                return "emulator gone"
             self.io.wait(300)
             return "bad read"
+        self.blank_reads = 0   # the game answered: the count of blank reads starts again
         if self.battle_turns and self.read(ADDR["in_battle"])[0] and self.party_hp()[0] == 0:
             self.battle_wiped = True   # a blackout warps to a Pokémon Center and heals: remember the wipe now
         if self.battle_turns and not self.read(ADDR["in_battle"])[0]:
@@ -341,7 +585,9 @@ class Runner:
             self.memo.pop("stalled_target", None)    # after a defeat, training is worth a new try
             self.rethink(f"defeat at {current(self.read, self.memo).id}")
         self.memo["money"] = money
-        if self.in_intro():
+        intro = self.in_intro()
+        self.intro_now = intro
+        if intro:
             # a new game: title screen, NEW GAME, Oak's speech, then the player's and the rival's names
             # (A on the keyboard types letters up to the limit, then confirms). START gets past the title
             self.intro_presses = getattr(self, "intro_presses", 0) + 1
@@ -352,6 +598,8 @@ class Runner:
         if learning:
             return learning
         if self.read(ADDR["in_battle"])[0]:
+            self.answer_texts = []       # BUG-0719: the battle's text is not an answer to a talk
+            self.forget_not_leader()     # BUG-0719: the game has proven him a trainer
             return self.battle_tick()
         self.disabled = None
         here = self.read(ADDR["map"])[0]
@@ -359,14 +607,39 @@ class Runner:
             shopped = self.shop(here)   # the clerk's boxes are answered on purpose, not with a blind A
             if shopped:
                 return shopped
+        if dex_page_open(self.read):
+            self.io.press("A", 90)   # BUG-0643: the prize Pokémon's dex page waits for A, walking keys do nothing
+            self.io.wait(250)
+            return "dex page"
         if text_box_open(self.read):
             t = text_box(self.read)
+            self.answer_texts = list(self.answer_texts) + [t]   # BUG-0718: a trainer answers with a battle line
+            self.answer_at = time.time()   # BUG-0719: the answer is only settled after a quiet while
+            self.text_ticks += 1
+            if self.text_ticks >= 60:   # BUG-0653: NPC lines cycle with no move (about 15 s): B twice closes the box
+                self.event("text_stuck", ticks=self.text_ticks, pos=list(self.pos()), map=self.read(ADDR["map"])[0])
+                self.io.press("B", 90)
+                self.io.wait(250)
+                self.io.press("B", 90)
+                self.io.wait(250)
+                self.text_ticks = 0
+                return "text stuck"
             self.io.press("B" if "surnom" in t.lower() else "A", 90)
             self.io.wait(250)
             return "text"
+        self.text_ticks = 0   # BUG-0653: any tick that is not a text tick starts the count again
         if busy(self.read):
+            self.busy_ticks += 1
+            if self.busy_ticks % 20 == 0:   # BUG-0648: no text box and the controls stay locked (about 5 s): press A once
+                self.event("cutscene_stuck", ticks=self.busy_ticks)
+                self.io.press("A", 90)
             self.io.wait(250)
             return "cutscene"
+        self.busy_ticks = 0
+        if self.stuck >= 3 and hm.menu_open(screen_rows(self.read)):
+            hm.close_menus(self)   # a menu trip cut short (the bag left open) would swallow every walking key press
+            self.stuck = 0
+            return "close menu"
         return self.overworld_tick()
 
     def learn_tick(self) -> Optional[str]:
@@ -454,6 +727,8 @@ class Runner:
         return "battle struggle"
 
     def battle_tick(self) -> str:
+        if self.read(ADDR["map"])[0] in SAFARI_ZONE:
+            return self.safari_tick()
         if battle.party_select(self.read):
             return self.send_out_next()
         if not (battle.main_menu_open(self.read) and self.read(ADDR["menu_cursor_x"])[0] in (7, 13)):
@@ -479,9 +754,11 @@ class Runner:
         state_text = battle.describe(self.read)
         option_texts = [{"id": o["id"], "facts": battle.option_text(o)} for o in opts]
         instructions = "Pick the option that wins this battle while keeping our Pokémon healthy."
+        must_catch = st["kind"] == "wild" and self.surf_wanted(st["enemy"]["species"])   # BUG-0673: the Surf learner
         out = {"choice": battle.heuristic_choice(opts, share, self.memo.get("last_move"),
-                                                 travelling=not self.memo.get("grinding") and not self.must_fight()), "by": "heuristic"}
-        if self.choose:
+                                                 travelling=not self.memo.get("grinding") and not self.must_fight(),
+                                                 must_catch=must_catch), "by": "heuristic"}
+        if self.choose and not must_catch:
             got = self.choose(state_text, option_texts, instructions) or {}
             if got.get("choice") in {o["id"] for o in opts}:
                 out = {**got, "by": got.get("model", "chooser")}
@@ -516,6 +793,37 @@ class Runner:
             self.io.press(k, 90); self.io.wait(200)
         self.io.press("A", 90); self.io.wait(500)
         return "battle move"
+
+    def safari_tick(self) -> str:
+        """Safari battles have no fight: BALL / BAIT / ROCK / RUN. Run from everything, except a species that can
+        learn Surf while nobody in the party can: Safari Balls are thrown at it until it is caught."""
+        rows = screen_rows(self.read)
+        if not battle.safari_menu_open(rows):
+            self.io.press("B", 90)   # B advances a text too, and does nothing on a menu still being drawn (A there throws a ball)
+            self.io.wait(300)
+            return "battle text"
+        enemy = battle.state(self.read)["enemy"]
+        want = self.surf_wanted(enemy["species"])
+        for key in ["UP", "LEFT"] if want else ["UP", "LEFT", "DOWN", "RIGHT"]:   # the cursor is remembered: start from BALL
+            self.io.press(key, 90)
+            self.io.wait(150)
+        if want and not self.thrown:
+            self.catch_target = {"species": enemy["species"], "name": battle.names(self.read)["enemy"],
+                                 "party": self.read(ADDR["party_count"])[0]}
+        self.thrown += 1 if want else 0
+        self.last_choice_kind = "catch" if want else "run"
+        if not self.battle_turns:
+            self.event("safari_battle", map=self.read(ADDR["map"])[0], pokemon=battle.names(self.read)["enemy"], types=sorted(set(enemy["types"])), throw=want)
+        self.battle_turns += 1
+        self.io.press("A", 90)
+        self.io.wait(600)
+        return "safari ball" if want else "safari run"
+
+    def surf_wanted(self, species: int) -> bool:
+        """`species` can learn Surf, nobody in the party can, and there is room for it (ROM TM/HM flags)."""
+        n = self.read(ADDR["party_count"])[0]
+        mine = self.read(ADDR["party_species"], min(n, 6))
+        return n < 6 and self.data.can_learn(species, SURF_BIT) and not any(self.data.can_learn(m, SURF_BIT) for m in mine)
 
     def must_fight(self) -> bool:
         """Pokémon Tower's 6F: the Marowak ghost stands on the way to the stairs and comes back each time the
@@ -586,7 +894,19 @@ class Runner:
             self.io.press(key, 90)
             self.io.wait(200)
 
+    def lift_defers(self) -> None:
+        """BUG-0673: a defer flag whose move the party knows now (a learner joined later) is cleared, and the
+        milestones it let through are taken out of `done`: they are played, not skipped."""
+        for flag, move in (("surf_deferred", SURF), ("strength_deferred", STRENGTH)):
+            if self.memo.get(flag) and party_knows(self.read, move):
+                self.memo.pop(flag)
+                done = self.memo.setdefault("done", [])
+                reopened = [m for m in DEFERRED_BY[flag] if m in done]
+                self.memo["done"] = [m for m in done if m not in reopened]
+                self.event("deferred_cleared", flag=flag, reopened=reopened)
+
     def overworld_tick(self) -> str:
+        self.lift_defers()
         ms = current(self.read, self.memo)
         if ms.id in self.memo.get("done", []):
             # every milestone is done: the story as written ends here (no endless talk to the last gym leader)
@@ -598,16 +918,38 @@ class Runner:
         if self.memo.get("milestone") != ms.id:
             if self.memo.get("milestone"):
                 self.event("milestone_done", **self.facts(self.memo["milestone"]))
+            if self.memo.get("milestone") == "silph_co":
+                # BUG-0711: Giovanni beaten, the Rockets below Saffron's doors are gone: their squares (the gym's (34, 4)
+                # among them) are no walls any more
+                self.memo.get("walls", {}).pop(str(SAFFRON), None)
             self.memo["milestone"], self.memo[GUIDE] = ms.id, 0
             self.memo.pop("story_done", None)   # a milestone was added since the story ended
             self.event("milestone", id=ms.id, goal=ms.goal)
             self._attach_heal_outcomes({"result": "milestone reached"})
             self.rethink(f"new milestone {ms.id}")
         here = self.read(ADDR["map"])[0]
+        # BUG-0886: the game puts the boulders of a floor back where they were when the player leaves
+        # it and comes back, so the pushes of a floor start over on the second visit (the stalled save
+        # of 20261024-003359 had seven pushes of the pressure switch logged and the boulder of the
+        # switch back at (5, 15), where it started). The counter of the floor's plan is reset when the
+        # map the player stands on changes.
+        if self.memo.get("pokemon_map") not in (None, here):
+            self.memo["seafoam_pushes_done"] = 0
+            # BUG-0896: the game puts the boulders of a floor back where they were, so a floor
+            # whose plan was given up can be solved again on the next visit.
+            self.memo.pop("seafoam_plan_given_up", None)
+            # BUG-0890: another floor, another chance: the pushes the game refused there do not
+            # apply here.
+            self.memo.pop("push_refused", None)
+            # BUG-0891: another floor, another chance: the hop that a boulder sealed on that floor
+            # is walkable here (the game put the boulders of that floor back where they were).
+            self.memo.pop("hop_blocked", None)
+        self.memo["pokemon_map"] = here
         info = self.world.learn(self.read, self.grid(sprites_block=False))
         self.note_entry(here)
         # advance the guide pointer to the furthest guide map we are on
-        maps, i = ms.maps, self.memo.get(GUIDE, 0)
+        maps = ms.maps
+        i = min(self.memo.get(GUIDE, 0), len(maps) - 1)   # BUG-0690: a saved pointer past a milestone whose route got shorter
         if maps[i] != here and here in maps:
             # moving on along the route, or back on an earlier map (backtracking, a blackout)
             ahead = [j for j in range(i, len(maps)) if maps[j] == here]
@@ -622,7 +964,14 @@ class Runner:
             asked = (self.choose and not self.memo.get("healing") and cur / tot >= HEAL_FORCED_BELOW
                      and attack_pp > 0)
             if not asked or self._decide_heal(cur, tot, attack_pp, here) != "push":
-                return self.heal(here, cur, tot)
+                healing = self.heal(here, cur, tot)
+                if healing != "no route to heal":
+                    return healing
+                # BUG-0877: the way to a healing place is not known: the trip waits and the runner
+                # goes on playing the story instead of spinning on "no route to heal" for ever.
+                if not self.memo.get("heal_waiting"):
+                    self.memo["heal_waiting"] = True
+                    self.event("heal_waiting", map=here, hp=cur, max_hp=tot)
         if ms.prepare and ms.id not in self.memo.setdefault("prepared", []):
             visited = self.prepare(ms, here)
             if visited:
@@ -635,8 +984,11 @@ class Runner:
             shopped = self.shop(here)
             if shopped:
                 return shopped
-        if hm.has_hm01(self.read) and hm.cut_user(self.read) is None and self.memo.get("cut_tries", 0) < CUT_TRIES:
-            return self.teach_cut()
+        if self.memo.get("hm_party") != n:
+            self.memo["hm_party"], self.memo["hm_tries"] = n, {}   # a new Pokémon may be able to learn what the others could not
+        todo = hm.pending_hm(self.read, self.memo.setdefault("hm_tries", {}), CUT_TRIES)
+        if todo:
+            return self.teach_hm(*todo)
         want = strategy.memory(self.memo)["rules"].get("train_to_level")
         top = max((p["level"] for p in self.party()), default=0)
         if want and top < want and self.memo.get("stalled_target") != want:
@@ -653,16 +1005,43 @@ class Runner:
             return self.go_to_map(here, maps[-1], info, goal_part=goal_part, explore=ms.area, anywhere=True)
         if here == maps[-1]:
             return self.goal_action(ms)
-        if maps[i] == here:
-            nxt = maps[i + 1] if i + 1 < len(maps) else maps[-1]
-        elif here in ms.area:
-            nxt = maps[min(i + 1, len(maps) - 1)]   # inside a detour the route leads through (Cerulean's house): on, not back
+        goal_part = None
+        if maps[i] == here or here in ms.area:
+            j = min(i + 1, len(maps) - 1)   # inside a detour the route leads through (Cerulean's house): on, not back
+            nxt = maps[j]
+            if j + 1 < len(maps):
+                # BUG-0689: into the part of the next map that holds the way on. Seafoam B1F's nearest ladder lands in a
+                # dead-end corner of B2F, whose only way on to B3F is back up: the runner went up and down that ladder
+                goal_part = self.world.part_with_warp_to(nxt, maps[j + 1])
+                if goal_part is not None and not self.world.route(here, nxt, start_part=(info.get("parts") or {}).get("player"),
+                                                                  goal_part=goal_part):
+                    goal_part = None
+            # BUG-0880: the waypoint the guide asks for can be a map the runner cannot reach from where it
+            # stands. On Route 23 the next waypoint was Victory Road 2F (194) and the only warp to 194
+            # sits in another part of the map, so every tick answered "no route", the player never moved
+            # and the stall detector wrote "same_spot" (the run of 20261023-213300). When there is no way
+            # on, the runner walks back to the waypoint it came from instead of standing still.
+            # BUG-0891: a hop the player cannot walk to is no way on either (the boulder that seals the
+            # corridor to the stairs of Victory Road 1F): the runner walks back to Route 23, the game
+            # puts the boulders of the floor back where they were, and the floor can be solved.
+            if maps[i] == here and (self.hop_blocked(here, nxt)
+                                    or not self.world.route(here, nxt, start_part=(info.get("parts") or {}).get("player"))):
+                back = next((m for m in reversed(maps[:i])
+                             if not self.hop_blocked(here, m)
+                             and self.world.route(here, m, start_part=(info.get("parts") or {}).get("player"))), None)
+                if back is not None:
+                    if self.memo.get("waypoint_unreachable") != [here, nxt, back]:
+                        self.memo["waypoint_unreachable"] = [here, nxt, back]
+                        self.event("waypoint_unreachable", map=here, wanted=nxt, back=back)
+                    nxt, goal_part = back, None
+                else:
+                    self.memo.pop("waypoint_unreachable", None)
         else:
             # off the route (a detour to heal, a building): back to the route map last reached,
             # or the closest route map we know a way to
             reachable = [m for m in [maps[i]] + maps if self.world.route(here, m)]
             nxt = reachable[0] if reachable else maps[-1]
-        return self.go_to_map(here, nxt, info, explore=ms.area, anywhere=True)   # `area`: maps to visit when no route is known yet
+        return self.go_to_map(here, nxt, info, goal_part=goal_part, explore=ms.area, anywhere=True)   # `area`: maps to visit when no route is known yet
 
     def story_step(self, ms, here: int, info: Dict) -> Optional[str]:
         """The places where the story is more than "walk to the next map": None when the guide is enough."""
@@ -672,21 +1051,896 @@ class Runner:
             self.lift_floor_set = False
         if here in ROCKET_HIDEOUT:
             return self.hideout_step(ms, here, info)
+        if ms.id == "silph_co" and here in SILPH_CO:
+            return self.silph_step(here, info)
+        if ms.id == "secret_key" and here in MANSION:
+            return self.mansion_step(here)
+        if here in (MANSION_1F, MANSION_B1F):
+            return self.mansion_way_out(here)
         if ms.id == "poke_flute" and here == TOWER_7F:
             return self.talk_to_topmost()
+        if ms.id == "surf" and self.needs_surf_learner():
+            # TASK-105: pre-empt the Safari Zone hunt with a guaranteed gift (Mt. Moon Magikarp /
+            # Silph Co. Lapras) before falling back. The gift method returns None when no source is
+            # reachable from `here`, on a party-full rejection, or after six failed talk attempts;
+            # in any of those cases the Safari Zone hunt runs as before.
+            gift = self.catch_surf_learner(here, info)
+            if gift is not None:
+                return gift
+            return self.hunt_surf_learner(here, info)
+        if ms.id == "surf_learner":
+            return self.surf_rod_step(here, info)
+        if ms.id == "strength":
+            return self.strength_step(here, info)
+        if ms.id == "saffron":
+            return self.saffron_step(here, info)
+        if ms.id == "hall_of_fame" and here in strength.VICTORY_ROAD:
+            return self.strength_puzzle_step(here, info)
         return None
+
+    def saffron_step(self, here: int, info: Dict) -> Optional[str]:
+        """A drink from the roof's vending machine first (once), then the gate guard takes it. None: walk on.
+
+        When the drink is in the bag and the runner is NOT at ROUTE7_GATE, the saffron_area's A* is
+        `first_hop_ok`-filtered by the runner's current part of the current map. The runner can be
+        in a part of Celadon that doesn't include any saffron-area edge (the saffron area covers
+        Route 7 (0x12), the gates around Saffron, the underground path, and the path gates to
+        Route 5/6). When the runner's part is stuck in the south-east of Celadon (e.g. (39, 20),
+        stall 20261015-091504, stall 20261015-121504), the A* picks a south-gate warp as the first
+        hop and the runner stalls at `warp_unusable` on (39, 19). Walk the runner to the closest
+        saffron-edge square before letting the A* route, so `first_hop_ok` is satisfied for the
+        direct edge to Route 7 (or any other saffron-area map).
+
+        BUG-0607: when the runner is on a saffron-area map OTHER than Celadon (already past Celadon),
+        filter saffron-edges to only those whose destination is closest to SAFFRON via the world
+        graph. Without this, on Route 7 (0x12) the runner at the west edge (e.g. (0, 3) — entered
+        from Celadon, host run 20261017-174506) can pick the south edge to PATH_ROUTE7 (0x4D)
+        over the east edge to ROUTE7_GATE (0x4C) by Manhattan distance (both roughly tied). The
+        runner then walks into PATH_ROUTE7 → Route 8 west → PATH_ROUTE8 → Route 7 east →
+        ROUTE7_GATE and ends up back on Celadon's east side at (48, 11) (host run 20261017-194505:
+        `lost: [77, 18]` = PATH_ROUTE7 (0x4D = 77) at y=18, then re-entry to Celadon at (48, 11)).
+        The world-graph hop-distance to SAFFRON identifies the correct saffron-edge: ROUTE7_GATE
+        is 1 hop from SAFFRON; PATH_ROUTE7 is 5+ hops. Pick the saffron-edge with the minimum
+        hop distance to SAFFRON.
+        """
+        self.note_items()
+        if here == CELADON and self.memo.get("drink_bought") and not any(d in bag(self.read) for d in DRINKS):
+            # BUG-0634: the flag says a drink was bought, but none is in the bag (given away or lost). Without
+            # this, the MART_ROOF buy below is skipped for ever and the runner heads for the roof with no drink.
+            self.memo["drink_bought"] = False
+            self.event("drink_missing", map=here)
+        if any(d in bag(self.read) for d in DRINKS):
+            had_drink_before = bool(self.memo.get("drink_bought"))
+            self.memo["drink_bought"] = True
+            if here == ROUTE7_GATE:
+                return self.talk_to_nearest()
+            # the runner is on a saffron-area map but not at the gate: route the runner to a part
+            # of the current map that has a saffron-area connection. The saffron area covers:
+            # Route 7 (0x12), ROUTE7_GATE (0x4C), and the gate/path maps to the north, east, and
+            # south of Saffron. The runner's own `reachable` partition is the source of truth for
+            # what the A* can route to — if the runner's part has no saffron edge, the A* would
+            # pick a south-gate warp as the only valid first hop and stall.
+            saffron_maps = (0x12, 0x4C, 0x47, 0x4A, 0x4D, 0x50, 0x57, 0x79)   # Route 7, ROUTE7_GATE, path/gate maps around Saffron
+            # Group saffron-edge squares by their destination map; the BUG-0607 filter (below)
+            # removes destinations that would loop the runner back through PATH_ROUTE7/PATH_ROUTE8
+            # south of Cycling Road instead of progressing east toward ROUTE7_GATE.
+            saffron_edges_by_dest: Dict[int, List[Tuple[int, int]]] = {}
+            for side, dest in (info.get("edges") or {}).items():
+                if dest in saffron_maps:
+                    saffron_edges_by_dest[dest] = saffron_edges_by_dest.get(dest, []) + \
+                        overworld.edge_squares(
+                            self.grid(sprites_block=False), side, info.get("spans", {}).get(side))
+            # BUG-0607: when not on Celadon, prefer saffron-edges whose destination is closest to
+            # SAFFRON via the world graph. On Celadon the runner might be in a wrong partition
+            # and need to walk to ANY saffron-edge (not necessarily the closest-to-Saffron one);
+            # the BUG-0589/0596 logic handles that. Once past Celadon, the runner is committed to
+            # the saffron path and must not detour back through PATH_ROUTE7/PATH_ROUTE8.
+            saffron_edges: List[Tuple[int, int]]
+            if here != CELADON and saffron_edges_by_dest:
+                world = getattr(self, "world", None)
+                if world is not None and hasattr(world, "route"):
+                    def dist_to_saffron(d: int) -> int:
+                        if d == SAFFRON:
+                            return 0
+                        r = world.route(d, SAFFRON)
+                        if r:
+                            return len(r)
+                        # BUG-0629: SAFFRON is not in the graph until the runner has been there, so every
+                        # route is unknown and the tie went to the closest edge (PATH_ROUTE7, the loop).
+                        # ROUTE7_GATE is the gate to Saffron: it is the one edge that is never far.
+                        return 1 if d == ROUTE7_GATE else 10 ** 6   # other unknown routes: far (never picked over a known shorter one)
+                    best_dist = min(dist_to_saffron(d) for d in saffron_edges_by_dest)
+                    saffron_edges = [sq for d, sqs in saffron_edges_by_dest.items()
+                                     if dist_to_saffron(d) == best_dist for sq in sqs]
+                else:
+                    saffron_edges = [sq for sqs in saffron_edges_by_dest.values() for sq in sqs]
+            else:
+                saffron_edges = [sq for sqs in saffron_edges_by_dest.values() for sq in sqs]
+            # BUG-0632: Route 7's east edge leads to SAFFRON (10), not to ROUTE7_GATE, so it is no saffron-edge
+            # and the list above is empty here. The gate house is a warp in the middle of Route 7, reached
+            # from the west part. Until the runner has learned it, go_to_map would take the known route to
+            # SAFFRON (world.route, 16 hops via PATH_ROUTE7 and Route 8) before any explore toward the gate.
+            if not saffron_edges and here in saffron_maps and ROUTE7_GATE not in self.world.maps \
+                    and self.world.route(here, ROUTE7_GATE):
+                return self.go_to_map(here, ROUTE7_GATE, info)
+            if saffron_edges:
+                part = overworld.reachable(self.grid(sprites_block=False), self.pos())
+                if not any(sq in part for sq in saffron_edges):
+                    target = min(saffron_edges, key=lambda s: abs(s[0] - self.pos()[0]) + abs(s[1] - self.pos()[1]))
+                    # BUG-0597: also bump GUIDE on the same call before walking one step.
+                    # The walk moves the runner toward the saffron-edge; the bump ensures the next
+                    # observe's GUIDE pointer is past MART_ROOF (so go_to_map does not detour back
+                    # to the vending machine while the runner is walking).
+                    if had_drink_before:
+                        self._saffron_skip_drink_detour(here)
+                    return self.walk(target)
+            # BUG-0596: also when the runner IS on a partition that already has a saffron-edge, walk
+            # toward it explicitly. The earlier check ('part includes saffron-edge ⇒ return None')
+            # skipped the walk, but the host then sat on (39, 20) for the whole 2000-s budget because
+            # `go_to_map` cannot start a one-step A* to a far edge from a position right next to a
+            # celadon-mart warp (the runner's own part technically owns the edge, but the A* picks
+            # the south-gate warp at (39, 19) as the first hop and stalls — same shape as the BUG-0589
+            # stall, just on a different partition). Walk to the saffron-edge on every CELADON observe
+            # while the drink is in the bag; once the runner is on the edge, the next observe lets A*
+            # cross east to Route 7. BUG-0597: also bump GUIDE on this same call (so the runner
+            # doesn't wait many ticks for the bump to happen — the bump fires in the SAME tick that
+            # saffron_step issues the first walk, instead of being delayed until the runner reaches
+            # the edge many ticks later).
+            if saffron_edges:
+                target = min(saffron_edges, key=lambda s: abs(s[0] - self.pos()[0]) + abs(s[1] - self.pos()[1]))
+                if self.pos() != target:
+                    if had_drink_before:
+                        self._saffron_skip_drink_detour(here)
+                    return self.walk(target)
+            if had_drink_before:
+                self._saffron_skip_drink_detour(here)
+            return None
+        if here == MART_ROOF and not self.memo.get("drink_bought"):
+            items = list(bag(self.read))
+            if len(items) >= BAG_SLOTS and self.memo.get("toss_failed") != items:   # "L'inventaire est plein": make room first
+                item = hm.toss_item(self)
+                self.memo["toss_failed"] = None if item else items   # the same bag is not tried twice
+                self.event("tossed" if item else "toss_failed", item=item)
+                return "toss item"
+            return self.buy_drink()
+        return None
+
+    def _saffron_skip_drink_detour(self, here: int) -> None:
+        """The saffron milestone lists MART_ROOF between two CELADON entries: `[..., ROUTE7,
+        CELADON, MART_ROOF, CELADON, ROUTE7, SAFFRON]`. When the runner is on CELADON and the
+        drink is already in the bag, the GUIDE pointer can still be parked on the first CELADON
+        — the overworld_tick would then ask go_to_map to route the runner back to MART_ROOF
+        (a redundant detour to a vending machine it doesn't need). Bump GUIDE to the second
+        CELADON so the route uses the saffron area directly.
+
+        Idempotent and safe on a runner built via `object.__new__` (no `world`, no `current()` —
+        those are test-only constructions): guard on what we need.
+        """
+        if here != CELADON or not self.memo.get("drink_bought"):
+            return
+        memo = getattr(self, "memo", None)
+        if not isinstance(memo, dict):
+            return
+        i = memo.get(GUIDE, 0)
+        # `current()` reads from the save (moneymap, milestone predicates); cheap, but only use it
+        # when the read callback exists — the test-only Runner has it as a plain function.
+        try:
+            ms = current(self.read, memo)
+        except Exception:
+            return
+        if ms.id != "saffron":
+            return
+        maps = getattr(ms, "maps", None)
+        if not isinstance(maps, (list, tuple)) or not maps or maps[i] != here:
+            return
+        # Skip over the MART_ROOF detour: bump GUIDE to the next occurrence of `here` in the maps.
+        later = [j for j in range(i + 1, len(maps)) if maps[j] == here]
+        if later:
+            memo[GUIDE] = later[0]
+            self.event("guide_skip", milestone=ms.id, from_=i, to=later[0], map=here)
+            # Reset the same-spot stall counter: the GUIDE bump means the runner is on a
+            # NEW route (the saffron-area edge way, not the MART_ROOF detour), and the
+            # runner's current position is a temporary waypoint shared with the old route.
+            # The same_spot stall would otherwise trigger instantly because the memo
+            # carried a 600+ spot_ticks from earlier failing runs on the same square;
+            # the bump alone does not move the player on the screen, so the detector
+            # sees another same-spot tick and stalls.
+            stall = memo.get("stall")
+            if isinstance(stall, dict):
+                stall["spot"] = None
+                stall["spot_ticks"] = 0
+                stall["progress_s"] = 0.0
+
+    def buy_drink(self) -> str:
+        """Stand below the first machine, face it, A: its list opens (the texts are answered by the tick; the first
+        entry, the cheapest drink, is under the cursor)."""
+        if self.pos() != VENDING_SPOT:
+            return self.walk(VENDING_SPOT)
+        self.io.press("UP", 60); self.io.wait(200)
+        self.io.press("A", 90); self.io.wait(500)
+        return "vending machine"
+
+    def strength_step(self, here: int, info: Dict) -> Optional[str]:
+        """Until the Gold Teeth are in the bag: take every item ball in the Safari Zone's areas, west first. None once
+        they are (the Warden's house is the goal then)."""
+        if GOLD_TEETH in bag(self.read) or HM04_STRENGTH in bag(self.read):
+            # HM04 may be in the bag with no party member that can learn Strength (Gen-1 Strength
+            # learners: Mankey, Machop, Geodude, Onix, Cubone, Rhyhorn, Graveler, etc. — the
+            # Venusaur-line party has none). When the teach has been tried `CUT_TRIES` times the
+            # runner would otherwise loop on the Warden at the Warden's House pressing A; set
+            # `strength_deferred = True` so the milestone predicate fires and the guide walks the
+            # runner on. The Boulder puzzles in Seafoam and Victory Road will fail without a real
+            # Strength-learner — that's a follow-up (mirror of TASK-35 for Surf). Clear the
+            # `hm_tries["Strength"]` counter so a future new party member is a fresh attempt.
+            if HM04_STRENGTH in bag(self.read) and not self.memo.get("strength_deferred"):
+                n = self.read(ADDR["party_count"])[0]
+                party = self.read(ADDR["party_species"], min(n, 6))
+                if not any(self.data.can_learn(m, HM_STRENGTH_BIT) for m in party):
+                    self.memo["strength_deferred"] = True
+                    self.memo.get("hm_tries", {}).pop("Strength", None)
+                    self.event("strength_deferred", party=n, reason="no learner in party",
+                               tries=str(self.memo.get("hm_tries", {})))
+            return None
+        self.note_items()
+        if here in SAFARI_ZONE:
+            ball = self.next_ball(here)
+            if ball:
+                return self.take_ball(here, ball)
+            todo = [m for m in SAFARI_ORDER if m not in self.memo.setdefault("balls_done", [])]
+            if here in todo:
+                self.memo["balls_done"].append(here)   # every ball in sight is taken: the next area
+            todo = [m for m in SAFARI_ORDER if m not in self.memo["balls_done"]]
+            return self.go_to_map(here, todo[0], info, anywhere=True) if todo else None
+        return self.go_to_map(here, SAFARI_ORDER[0], info, anywhere=True)
+
+    def strength_puzzle_step(self, here: int, info: Dict) -> Optional[str]:
+        """Plan and execute one Strength boulder push on a Seafoam / Victory Road puzzle map.
+
+        The solver (`strength.plan_strength_puzzle`) returns the canonical push list when the floor's
+        boulder sprite count is at its open threshold; once one boulder has been pushed into a hole
+        the count drops and the solver returns None. The runner caches the plan in `memo` on its
+        first successful read and tracks per-map progress in `memo["seafoam_pushes_done"]`, so the
+        remaining pushes are still executed across subsequent ticks of the same visit. When all
+        pushes in the plan are done, the floor's drain flag (`seafoam_drained_b3f` /
+        `seafoam_drained_b4f`) is set so the `seafoam` milestone predicate can fire.
+
+        Returns None when no plan is available (non-puzzle map, or floor is no longer "open" and
+        no plan was cached): the regular guide walks the runner off the floor. Memo is left
+        untouched in that case.
+        """
+        # Ask the solver for a plan; fall back to the cached plan when the boulder sprite count
+        # has dropped below the open threshold (the solver stops returning a plan mid-floor).
+        plan = strength.plan_strength_puzzle(self.read, here)
+        if plan is None and self.memo.get("seafoam_puzzle_map") == here:   # BUG-0690: never another floor's plan
+            plan = self.memo.get("seafoam_plan")
+        if plan is None:
+            return None
+
+        # Map-change reset: only after confirming we have a plan, so a non-puzzle map leaves memo
+        # untouched and we never carry a half-done counter onto a new puzzle floor.
+        if self.memo.get("seafoam_puzzle_map") != here:
+            self.memo["seafoam_puzzle_map"] = here
+            self.memo["seafoam_pushes_done"] = 0
+
+        # BUG-0881: a plan that changed starts its pushes over: the counter of the old plan would skip
+        # the pushes of the new one. The memo of the run that gave Victory Road 1F up (with the old,
+        # impossible plan of that floor) kept its closed counter, so the corrected plan was never run.
+        # The key is a string, so it survives the save/load round trip of the memo unchanged.
+        key = "|".join(f"{p[0][0]},{p[0][1]}:{p[1]}:{p[2]}" for p in plan)
+        if self.memo.get("seafoam_plan_key") != key:
+            self.memo["seafoam_plan_key"] = key
+            self.memo["seafoam_pushes_done"] = 0
+            self.memo.pop("seafoam_plan_given_up", None)
+
+        # Cache the (canonical) plan: the runner may need it for the rest of the floor even after
+        # the live boulder sprite count has dropped below the open threshold.
+        self.memo["seafoam_plan"] = list(plan)
+
+        done = self.memo["seafoam_pushes_done"]
+        if self.memo.get("seafoam_plan_given_up"):
+            # BUG-0896: the floor's plan was given up (a push that cannot be set up): the guide
+            # walks the runner on. The plan is run again when the player comes back (the game puts
+            # the boulders of a floor back where they were).
+            return None
+        # BUG-0896: the rock's real place is the truth about the chain. The counter was the
+        # runner's own guess, and it lied: a push that did not move the rock was counted all the
+        # same, so the chain went on with a rock that stood somewhere else (the run of
+        # 20261024-225457: the rock stood at (7, 16) while the chain believed it was on (9, 16),
+        # (9, 14), (16, 14)... - the six pushes after the second one pushed air, the switch was
+        # never pressed, the floor was given up and the lane ping-ponged between the floor and
+        # Route 23 until the stall detector wrote no_progress). The rock says which push is next.
+        #
+        # BUG-0891: the rock may only pull the chain BACK: a rock that is out of sight is not gone,
+        # so the chain never jumps to a later push of the plan because another rock happens to be
+        # in sight (the chain of Victory Road 1F jumped from its second push to the corridor
+        # boulder and the floor was given up again).
+        live = set(strength.live_boulders(self.read))
+        state = strength.chain_step(plan, live, upto=min(done, len(plan) - 1))
+        if state is not None:
+            done, rock_xy, target_xy, direction, steps = state
+        elif done >= len(plan):
+            # All pushes in the plan were already done on a previous tick: nothing more to execute.
+            return None
+        else:
+            # the rock is not in sight: the chain is on the step the counter says
+            boulder, direction, steps = plan[done]
+            rock_xy = (int(boulder[0]), int(boulder[1]))
+            dx, dy = overworld.STEP[direction]
+            target_xy = (rock_xy[0] + dx * steps, rock_xy[1] + dy * steps)
+        dx, dy = overworld.STEP[direction]
+        boulder_xy = rock_xy        # the rock's real square: the chain is read from it
+
+        # Walk to the boulder. The boulder sprite blocks its own square, so A* parks the player on
+        # an adjacent square; the `step` below then faces the boulder correctly.
+        #
+        # BUG-0874: the player has to walk to the square the push starts from, not to the boulder: A*
+        # parks him on an arbitrary side of the boulder (it blocks its own square), and when that is
+        # not the side the push needs, the runner walks to the boulder again and again - the "no
+        # path" spin of the run of 20261023-132854 on map 108 (612 no-path ticks in a local replay).
+        stand = (boulder_xy[0] - dx, boulder_xy[1] - dy)
+        if self.pos() != stand:
+            walked = self.walk(stand)
+            if walked != "no path":
+                # BUG-0879: `walk` does not answer "no path" for a square that cannot be reached: it
+                # talks the blocker away (the boulder) and, once the talks are used up, steps greedily
+                # towards it (`overworld.toward` ignores the walls). The give-up below therefore never
+                # ran on Victory Road 1F: the runner asked for (2, 9) on every tick, ping-ponged
+                # between (2, 11) and (2, 12) - the grass of the floor, a wild battle every step -
+                # and the stall detector wrote "no_progress" (the run of 20261023-194719, 42 wild
+                # battles and no square beyond the two it could reach). The reachability is asked of
+                # the grid itself, not of the walk.
+                if overworld.astar(self.grid(), self.pos(), stand) is not None:
+                    return walked
+            # BUG-0877: the square the push starts from cannot be walked to: on Victory Road 1F the
+            # boulder at (2, 10) seals the one-wide corridor to the stairs at (1, 1) and the player is
+            # on the wrong side of it, so the north side (2, 9) is out of reach (nor can the boulder
+            # be pushed from there: pushed the other way it only goes as far as (2, 9), which seals
+            # the corridor just as well). Asking for the square again was a "no path" on every tick
+            # and the run stood still for 300 ticks (the same_spot stall of run 20261023-173029).
+            # The push is given up for this floor and the guide walks the runner on.
+            #
+            # BUG-0896: but the rock may seal the PLAYER in: on Victory Road 1F the rock of the
+            # pressure switch stood at (9, 14), the doorway to the pocket with the stairs, and the
+            # player was east of it - the plan's push (east) needs the player west of the rock,
+            # which it could not reach (its part of the floor was 24 squares, the floor 159). The
+            # rock is then pushed out of the way, when that opens the plan's push: the player steps
+            # into the square the rock leaves and stands where the plan needs it.
+            aside = self.push_rock_aside(boulder_xy, direction)
+            if aside:
+                return aside
+            # BUG-0948: the rock that seals the player in is not always the rock of the plan's
+            # push. On Victory Road 1F the plan starts with the rock west of the entrance
+            # (5, 15) and ends with the rock in the corridor to the stairs (2, 10). A player who
+            # comes down the stair from Victory Road 2F stands in the pocket with the stairs:
+            # the plan's first push cannot be set up there (its stand (5, 14) is across the
+            # corridor rock) and the corridor rock is the one that seals him in. The floor's plan
+            # was given up, the player could not leave the pocket by any other way, and the lane
+            # ping-ponged between the two floors until the detector wrote same_spot (the run of
+            # 20261026-125130). The rock that seals the player in is pushed aside, whatever rock
+            # of the floor it is: the corridor opens and the plan can be run from the side it needs.
+            aside = self.push_sealing_rock_aside(direction)
+            if aside:
+                return aside
+            self.event("push_unreachable", map=here, boulder=list(boulder_xy), stand=list(stand),
+                       pos=list(self.pos()))
+            self.memo["seafoam_pushes_done"] = len(plan)     # the floor's plan is done with
+            self.memo["seafoam_plan_given_up"] = True        # BUG-0896: and it stays given up
+            self.memo.pop("seafoam_plan", None)
+            # BUG-0896: the floor's state changed (the plan is closed, the rocks are where they
+            # are now): the hops that a rock stood in the way of are walkable again.
+            self.memo.pop("hop_blocked", None)
+            return None
+
+        # The push of the plan: the rock moves one square and the player has to step into the square
+        # it left before it can push it again, so a square of rock costs several presses.
+        #
+        # BUG-0895: the runner pressed the plan's `steps` times and believed the rock had moved
+        # `steps` squares. It had not. Measured on the stalled save of Victory Road 1F: the rock of
+        # the chain stands on (5, 16) and the four presses of the second push of the plan moved it
+        # to (6, 16) and not to (9, 16) - the first press moves the rock, the next three are
+        # swallowed by the animation of the push (pokered's `AnimateBoulderDust` runs eight steps
+        # of `Delay3` and `DoBoulderDustAnimation` discards the button press), during which the
+        # player cannot step into the square the rock left. The six pushes after that pushed air
+        # (the rock was not on the square the plan named any more), the chain never ended on the
+        # pressure switch (17, 13) - the game opens the barrier of the floor only while a rock lies
+        # on that switch - and the runner walked the floor for ever (the run of 20261024-152049:
+        # 24 boulder pushes, 390 ticks, no new map).
+        # The push is checked now: the runner presses until the rock has really moved, and it
+        # watches the rock from the first press on (a press that finds the rock in front of the
+        # player moves it when the field move of the last push is still in use).
+        #
+        # BUG-0896: the push ends when the rock has really reached the square the step of the plan
+        # wants, and not after a count of presses. The presses the game swallowed (the dust of the
+        # push) were counted as squares of rock, so the chain went on with a rock that stood
+        # somewhere else: the six pushes after the second one of the run of 20261024-225457 pushed
+        # air (the rock stood at (7, 16) and the chain believed it was on (9, 16), (9, 14),
+        # (16, 14)...), the switch was never pressed, the floor was given up and the lane
+        # ping-ponged between the floor and Route 23 until the stall detector wrote no_progress.
+        before = set(strength.live_boulders(self.read))
+        rock_pos = boulder_xy
+        presses = 0
+        strength_ready = False
+        gone = False
+        moved = False
+        while presses < PUSH_PRESSES_MAX * steps and rock_pos != target_xy:
+            presses += 1
+            self.step(direction)           # the first press of the push also faces the boulder
+            live = set(strength.live_boulders(self.read))
+            if not strength_ready:
+                # BUG-0874: the boulder only moves when Strength is the field move in use: the runner
+                # used to press A on the boulder and walk into it, and the game answered "the boulder
+                # won't budge" - the push never happened (the Seafoam floors were never drained
+                # either: `seafoam_drained_b3f` was never set). Use the field move the way Surf and
+                # Cut are used: START, POKéMON, the Strength user, FORCE.
+                if not hm.use_strength(self):
+                    self.event("no_strength", map=here, boulder=list(boulder_xy))
+                    return "no strength"
+                strength_ready = True
+            if live == before:
+                continue                    # the press did not move the rock: press again
+            gone = len(live) < len(before)
+            before = live
+            moved = True
+            # where the rock is now: one square further along the push, or nowhere (it fell into a
+            # hole or it lies on the switch)
+            nxt = (rock_pos[0] + dx, rock_pos[1] + dy)
+            if nxt in live:
+                rock_pos = nxt
+            elif rock_pos not in live:
+                rock_pos = None              # the rock is out of sight (a hole, or off the screen)
+            if gone or rock_pos is None:
+                break                       # the rock fell into a hole or it lies on the switch
+
+        # Post-step current correction (Seafoam B4F). The runner does not integrate currents into
+        # the grid; if the player's new square has a current, log it and step in the push direction.
+        # Integration into `Runner.grid()` is a separate PR.
+        layout = strength.puzzle_for(here)
+        if layout is not None and layout.currents:
+            pos = self.pos()
+            shift = layout.currents.get(pos)
+            if shift is not None:
+                cdx, cdy = shift
+                self.event("current_push", square=list(pos), to=[pos[0] + cdx, pos[1] + cdy])
+                corr = {(1, 0): "RIGHT", (-1, 0): "LEFT", (0, 1): "DOWN", (0, -1): "UP"}.get((cdx, cdy))
+                if corr:
+                    self.step(corr)
+
+        # Where the rock ended: what the game did, not what the plan asked for (BUG-0895: the event
+        # that reported the plan's claim is what hid the lost chain of the floor).
+        next_xy = (boulder_xy[0] + dx * steps, boulder_xy[1] + dy * steps)
+        reached = rock_pos == target_xy
+        self.event("boulder_push", map=here, boulder=list(boulder_xy), to=list(rock_pos or next_xy),
+                   direction=direction, steps=steps, plan_index=done, reached=reached, moved=moved)
+
+        if not reached and not gone and not moved:
+            # BUG-0896: the rock did not move at all: the push is not set up (the game refuses it
+            # or the player is not in front of the rock). The chain does not move on - the rock's
+            # real place is the truth about the chain, and the next tick reads it again.
+            key = self.push_key(boulder_xy, direction)
+            tries = int(self.memo.setdefault("push_short", {}).get(key, 0)) + 1
+            self.memo["push_short"][key] = tries
+            self.event("push_short", map=here, boulder=list(boulder_xy), want=list(target_xy),
+                       direction=direction, presses=presses, tries=tries)
+            self.memo.pop("hop_blocked", None)
+            if tries >= PUSH_SHORT_TRIES:
+                # the game will not move that rock that way: the floor's plan is given up and the
+                # guide walks the runner on (the plan is run again when the player comes back).
+                self.memo.setdefault("push_refused", {})[key] = True
+                self.memo["seafoam_pushes_done"] = len(plan)
+                self.memo["seafoam_plan_given_up"] = True
+                self.memo.pop("seafoam_plan", None)
+                self.memo.pop("hop_blocked", None)
+                self.event("push_refused", map=here, boulder=list(boulder_xy), direction=direction,
+                           tries=tries)
+                return None
+            return "boulder push"
+
+        self.memo["seafoam_pushes_done"] = done + 1
+        # BUG-0896: a rock that moved changes the floor: the hops the rock stood in the way of are
+        # walkable again (the marks of the blocked hops of a floor are only dropped when the player
+        # leaves it, and a floor whose every way out is marked blocked is a floor the player cannot
+        # leave).
+        self.memo.pop("hop_blocked", None)
+        # Mark the floor drained the moment the last push completes, so the `seafoam` milestone
+        # predicate fires on the next `current()` lookup instead of after a follow-up tick.
+        if done + 1 >= len(plan):
+            if here == strength.SEAFOAM_B3F:
+                self.memo["seafoam_drained_b3f"] = True
+            elif here == strength.SEAFOAM_B4F:
+                self.memo["seafoam_drained_b4f"] = True
+            self.memo.pop("seafoam_plan", None)
+        return "boulder push"
+
+    def next_ball(self, here: int) -> Optional[tuple]:
+        """The nearest item ball of this map not taken yet and on land we can walk to (some lie on islands)."""
+        taken = self.memo.setdefault("balls_taken", [])
+        px, py = self.pos()
+        walk = self.grid(sprites_block=False)
+        balls = [p for pic, p in overworld.sprite_list(self.read) if pic == BALL_PICTURE and [here, *p] not in taken
+                 and overworld.astar(walk, (px, py), p) is not None]
+        return min(balls, key=lambda q: abs(q[0] - px) + abs(q[1] - py)) if balls else None
+
+    def take_ball(self, here: int, ball: tuple) -> str:
+        """Walk to the ball and press A on it; once taken it is not a target any more."""
+        done = self.talk_at(ball)
+        if done == "talk":
+            self.memo["balls_taken"].append([here, *ball])
+        return done
+
+    def note_items(self) -> None:
+        """Log items that newly came into the bag (what the balls held)."""
+        now, seen = bag(self.read), self.memo.setdefault("bag_seen", [])
+        new = [i for i in now if i not in seen]
+        if seen and new:
+            self.event("found_items", items=new, map=self.read(ADDR["map"])[0])
+        self.memo["bag_seen"] = list(now)
+
+    def needs_surf_learner(self) -> bool:
+        """HM03 is in the bag but nobody in the party can learn Surf."""
+        n = self.read(ADDR["party_count"])[0]
+        return (HM03_SURF in bag(self.read) and not party_knows(self.read, SURF)
+                and not any(self.data.can_learn(m, SURF_BIT) for m in self.read(ADDR["party_species"], min(n, 6))))
+
+    def catch_surf_learner(self, here: int, info: Dict) -> Optional[str]:
+        """Pre-empt the Safari Zone hunt with a guaranteed Surf-learner gift (TASK-105).
+
+        Tries the lowest-cost source first (Mt. Moon B2F Magikarp on the way to Cerulean, then the
+        mid-game Silph Co. 7F Lapras). On each tick the method either walks one step closer to the
+        gift map/square, talks to the gift NPC, or confirms the post-gift party has grown by 1 with a
+        Surf-learner species in the new slot. When confirmed, sets `memo["surf_learner"]` to the
+        species id and returns a status string ("got Magikarp at Mt. Moon" / "got Lapras at Silph
+        Co."). On miss (party full, NPC not present, no source reachable from `here`), logs a
+        `surf_gift_missed` event and returns None — `hunt_surf_learner` then takes over.
+
+        The dispatch in `story_step` calls this method before `hunt_surf_learner` when `ms.id ==
+        "surf"` and `needs_surf_learner()` is True; the Safari Zone hunt stays the fallback for
+        runs that already missed the gifts.
+        """
+        if self.memo.get("surf_learner"):
+            return None   # already have a learner in hand; the milestone predicate does the rest
+
+        before_party_count = self.read(ADDR["party_count"])[0]
+        if before_party_count >= 6:
+            self.memo["surf_gift_missed"] = True
+            self.event("surf_gift_missed", reason="party_full", here=here)
+            return None
+
+        source = self._pick_surf_gift_source(here)
+        if source is None:
+            self.memo["surf_gift_missed"] = True
+            self.event("surf_gift_missed", reason="no_reachable_source", here=here)
+            return None
+
+        label, gift_map, gift_square, _expected = source
+
+        if here != gift_map:
+            return self.go_to_map(here, gift_map, info, anywhere=True)
+
+        if self.pos() != gift_square:
+            return self.walk(gift_square)
+
+        # On the gift square; the gift NPC is the only person in sight. Talk and check whether the
+        # party grew: the dialogue takes a few ticks, so the post-gift state is only visible after
+        # the last A press has dismissed the final text box.
+        self.event("surf_gift_try", source=label, map=gift_map, square=list(gift_square))
+        self.talk_to_nearest()
+        after_party_count = self.read(ADDR["party_count"])[0]
+        if after_party_count > before_party_count:
+            species = self.read(ADDR["party_species"] + (after_party_count - 1), 1)[0]
+            if species in SURF_LEARNERS:
+                self.memo["surf_learner"] = species
+                self.memo["surf_taught"] = False
+                self.event("surf_learner", source=label, species=species, map=gift_map)
+                name = {MAGIKARP: "Magikarp", LAPRAS: "Lapras"}.get(species, "fish")
+                return f"got {name} at {label}"
+            # a party member was added but it isn't a Surf learner (a different gift?): keep talking
+            self.memo["surf_gift_unknown"] = self.memo.get("surf_gift_unknown", 0) + 1
+            if self.memo["surf_gift_unknown"] > 6:   # six tries: the NPC wasn't a gift-giver after all
+                self.memo["surf_gift_missed"] = True
+                self.event("surf_gift_missed", reason="wrong_species", source=label, species=species)
+                return None
+            return "surf gift dialogue"
+
+        # No Pokémon added yet: still mid-dialogue. The next call will detect the gift.
+        return "surf gift dialogue"
+
+    def _pick_surf_gift_source(self, here: int):
+        """The first reachable Surf-learner gift source, in priority order.
+
+        A source is only "reachable" once the runner has visited its map (the world graph is built
+        lazily from the player's visits); for the long-play this means Mt. Moon B2F is known by the
+        time `surf` fires (the runner passed through Mt. Moon B2F on the way to Cerulean — it's in
+        the `area` of the `mt_moon_exit` milestone), but Silph Co. 7F is not (no milestone visits
+        Silph Co.). Returns None when no source's map is in `world.maps` or no route from `here`.
+        """
+        for source in SURF_GIFT_SOURCES:
+            label, gift_map, _square, _species = source
+            if gift_map not in self.world.maps:
+                continue
+            if here == gift_map or self.world.route(here, gift_map):
+                return source
+        return None
+
+    def surf_rod_step(self, here: int, info: Dict) -> Optional[str]:
+        """BUG-0673: the fishing guru in Fuchsia gives the Good Rod (his question's cursor starts on OUI: the tick's
+        A answers it); with the rod, fish from the nearest shore of this map, or of Fuchsia. A bite is a wild
+        battle with a Surf learner, caught by `must_catch`; `pending_hm` teaches HM03 next. None: the guide walks."""
+        if not self.needs_surf_learner():
+            return None
+        if GOOD_ROD not in bag(self.read):
+            if here == GOOD_ROD_HOUSE:
+                return self.talk_to_nearest()
+            return self.to_fuchsia(here, info) if here != FUCHSIA else None
+        fished = self.fish()
+        if fished:
+            return fished
+        return self.to_fuchsia(here, info) if here != FUCHSIA else "no shore"
+
+    def to_fuchsia(self, here: int, info: Dict) -> str:
+        """On the long play's road to Fuchsia: its next map; elsewhere (a tunnel floor, a house) the world graph's way."""
+        road = ROAD_TO_FUCHSIA
+        return self.go_to_map(here, road[road.index(here) + 1] if here in road else FUCHSIA, info, anywhere=True)
+
+    def fish(self) -> Optional[str]:
+        """Walk to the nearest square next to water, face it and cast the Good Rod. None: no shore on this map."""
+        walk, here = self.grid(), self.pos()
+        shore = {sq: d for sq, ok in walk.items() if ok for d, (dx, dy) in overworld.STEP.items()
+                 if (sq[0] + dx, sq[1] + dy) in walk.water}
+        if here not in shore:
+            near = sorted(shore, key=lambda q: abs(q[0] - here[0]) + abs(q[1] - here[1]))[:12]
+            paths = [(len(p), sq) for sq in near if (p := overworld.astar(walk, here, sq)) is not None]
+            return self.walk(min(paths)[1]) if paths else None
+        d = shore[here]
+        if overworld.FACING.get(self.read(overworld.FACING_ADDR)[0]) != d:
+            self.io.press(d, 60)   # a press toward water only turns
+            self.io.wait(200)
+        used = hm.use_item(self, GOOD_ROD)
+        self.event("fished", map=self.read(ADDR["map"])[0], at=list(here), facing=d, used=used,
+                   bite=bool(self.read(ADDR["in_battle"])[0]))
+        return "fish"
+
+    def hunt_surf_learner(self, here: int, info: Dict) -> str:
+        """Back into the Safari Zone (the gate charges the fee again), wandering its grass: safari_tick throws balls
+        at the first species that can learn Surf (Kangaskhan, Nidoking...) that shows up."""
+        area = SAFARI_ZONE[self.memo.get("hunt_i", 0) % len(SAFARI_ZONE)]   # each area has its own wild Pokémon
+        if self.memo.get("hunt_area") != area:
+            self.memo["hunt_area"] = area
+            self.event("safari_area", map=area, here=here)
+        if here == area:
+            self.memo["hunt_total"] = self.memo.get("hunt_total", 0) + 1
+            if self.memo["hunt_total"] >= SURF_HUNT_GIVE_UP:
+                # a Surf learner is rare in the Safari Zone: the story goes on, the HM is taught when one turns up
+                self.memo["surf_deferred"] = True
+                self.event("surf_deferred", ticks=self.memo["hunt_total"], party=self.read(ADDR["party_count"])[0])
+            self.memo["hunt_ticks"] = self.memo.get("hunt_ticks", 0) + 1   # only time spent in the area counts, not the walk there
+            if self.memo["hunt_ticks"] >= HUNT_TICKS_PER_AREA:
+                self.memo.update(hunt_i=self.memo.get("hunt_i", 0) + 1, hunt_ticks=0)
+            return self.wander(here, info, (area,))
+        return self.go_to_map(here, area, info, anywhere=True)
+
+    def mansion_step(self, here: int) -> Optional[str]:
+        """BUG-0697: the Mansion's basement stairs are in a part of 1F the entrance does not reach: 2F's north-west
+        stairs lead to the part of 3F with the holes, and one hole drops into that part of 1F. The holes are no warps,
+        so the world graph does not know them. A landing on 2F (not on a stairs square) was the wrong hole: the next.
+        On B1F the key is one of the item balls. None: the guide walks on (1F to 2F, 1F to B1F)."""
+        k = self.memo.get("mansion_hole", 0)
+        if here == MANSION_3F:
+            self.memo["mansion_on_3f"] = True
+            hole = MANSION_HOLES[k % len(MANSION_HOLES)]
+            if overworld.astar(self.grid(sprites_block=False), self.pos(), hole) is None:
+                return self.mansion_switch(MANSION_3F_SWITCH_SPOT)   # the gates around the holes are shut
+            return self.walk(hole)
+        fell = self.memo.pop("mansion_on_3f", False) and \
+            tuple(self.pos()) not in [tuple(w[:2]) for w in self.world.maps.get(here, {}).get("warps", [])]
+        if fell:
+            self.event("mansion_hole", hole=list(MANSION_HOLES[k % len(MANSION_HOLES)]), landed=here, pos=list(self.pos()))
+        if here == MANSION_2F:
+            if fell:
+                self.memo["mansion_hole"] = k + 1
+            return self.walk(MANSION_2F_NW_STAIRS)
+        if here == MANSION_B1F:
+            took = self.ball_step(here)
+            if took:
+                if took != "toss item":
+                    self.memo["mansion_presses"] = 0
+                return took
+            taken = self.memo["balls_taken"]
+            left = [p for pic, p in overworld.sprite_list(self.read) if pic == BALL_PICTURE and [here, *p] not in taken]
+            return self.mansion_switch_toward(here, left)
+        return None
+
+    def ball_step(self, here: int) -> Optional[str]:
+        """One step of taking this map's item balls, room made in a full bag first. None: no ball left in reach."""
+        self.note_items()
+        # BUG-0699: with 20 kinds of items in the bag the key's ball answers "no room" and stays on the floor: a slot is
+        # made first, and a ball still on the floor is not taken (its A press was marked all the same)
+        room = self.make_room()
+        if room:
+            return room
+        # BUG-0703: only a ball in the visible window tells taken from not: off screen a taken ball reads as still there,
+        # and dropping its mark sent the runner to it and back at the screen's edge (18, 20) <-> (18, 21)
+        seen = [(tuple(p), hidden) for pic, p, hidden in overworld.screen_sprites(self.read) if pic == BALL_PICTURE]
+        taken = [b for b in self.memo.setdefault("balls_taken", [])
+                 if b[0] != here or (tuple(b[1:]), False) not in seen]
+        self.memo["balls_taken"] = taken + [[here, *p] for p, hidden in seen if hidden and [here, *p] not in taken]
+        ball = self.next_ball(here)
+        return self.take_ball(here, ball) if ball else None
+
+    def make_room(self) -> Optional[str]:
+        """A full bag: toss one kind of item (a gift or a ball is refused without room). None: room enough, or the toss
+        failed for this bag already. BUG-0711: the mark names what would be tossed, so a new tossable kind is tried."""
+        items = list(bag(self.read))
+        mark = items + [hm.tossable(items)]
+        if len(items) < BAG_SLOTS or self.memo.get("toss_failed") == mark:
+            return None
+        item = hm.toss_item(self)
+        self.memo["toss_failed"] = None if item else mark
+        self.event("tossed" if item else "toss_failed", item=item)
+        return "toss item"
+
+    def silph_step(self, here: int, info: Dict) -> Optional[str]:
+        """BUG-0711: 11F's stairs end in a part with no way to Giovanni. The Card Key (a ball on 5F) first; then 11F's
+        part the 7F teleporter lands in (7F's own teleporter part is 3F's, behind a Card Key gate on 3F); there the gate
+        to Giovanni's room is opened. None: the guide's goal action (talk to the president) or the guide."""
+        if CARD_KEY not in bag(self.read):
+            if here != SILPH_5F:
+                return self.go_to_map(here, SILPH_5F, info, explore=SILPH_CO, anywhere=True)
+            return self.ball_step(here)
+        if here == SILPH_CO_11F and overworld.astar(self.grid(sprites_block=False), self.pos(), self.sprite_position(PRESIDENT_PICTURE)
+                                                    or (7, 5)) is not None:
+            return None
+        part = (info.get("parts") or {}).get("player")
+        goal = self.world.part_with_warp_to(SILPH_CO_11F, SILPH_7F)
+        if here == SILPH_CO_11F and part == goal:
+            return self.card_key_door(here)
+        if self.world.route(here, SILPH_CO_11F, start_part=part, goal_part=goal):
+            return self.go_to_map(here, SILPH_CO_11F, info, goal_part=goal)
+        if here != SILPH_3F:
+            return self.go_to_map(here, SILPH_3F, info, explore=SILPH_CO, anywhere=True)
+        return self.card_key_door(here)
+
+    def card_key_door(self, here: int) -> Optional[str]:
+        """BUG-0711: walk next to the nearest shut Card Key gate in reach, face it and press A (the gate opens, its blocks
+        turn to floor and the map's parts are learned anew). None: no gate left to try here (the tried ones are tried again)."""
+        walk = self.grid(sprites_block=False)
+        pos = tuple(self.pos())
+        tiles = CARD_KEY_DOORS + ((CARD_KEY_DOOR_11F,) if here == SILPH_CO_11F else ())
+        tried = self.memo.setdefault("card_key_tried", [])
+        best = None
+        for sq, t in getattr(walk, "tiles", {}).items():
+            if t not in tiles or walk.get(sq) or [here, *sq] in tried:
+                continue
+            for d, (dx, dy) in overworld.STEP.items():
+                stand = (sq[0] - dx, sq[1] - dy)
+                path = [] if stand == pos else overworld.astar(walk, pos, stand) if walk.get(stand) else None
+                if path is not None and (best is None or len(path) < len(best[0])):
+                    best = (path, stand, d, sq)
+        if best is None:
+            self.memo["card_key_tried"] = [t for t in tried if t[0] != here]
+            return None
+        _, stand, d, sq = best
+        if stand != pos:
+            return self.walk(stand)
+        self.io.press(d, 60)
+        self.io.wait(200)
+        self.io.press("A", 90)
+        self.io.wait(400)
+        tried.append([here, *sq])
+        self.event("card_key_door", map=here, door=list(sq))
+        return "card key door"
+
+    def mansion_way_out(self, here: int) -> Optional[str]:
+        """Key in the bag, the way out of the Mansion. Every switch flips the gates of all floors: the presses on B1F can
+        leave the hole's part of 1F shut off from the doors, and that part has no switch. Then the gates are flipped
+        once more on B1F (its south switch is in reach of the stairs) and the way out is tried again."""
+        if here == MANSION_1F:
+            doors = [tuple(w[:2]) for w in self.world.maps.get(here, {}).get("warps", []) if w[2] == CINNABAR_ISLAND]
+            walk, pos = self.grid(sprites_block=False), self.pos()
+            open_doors = [d for d in doors if overworld.astar(walk, pos, d) is not None]
+            if tuple(pos) in doors:
+                self.step("DOWN")   # the doors are mats on the bottom row: a step down leaves
+                return "exit mat"
+            if open_doors:   # walked straight to: the world graph's parts of the Mansion do not follow the gates
+                return self.walk(min(open_doors, key=lambda d: abs(d[0] - pos[0]) + abs(d[1] - pos[1])))
+            if not doors or overworld.astar(walk, self.pos(), MANSION_1F_B1F_STAIRS) is None:
+                return None
+            self.memo["mansion_flip"] = True
+            return self.walk(MANSION_1F_B1F_STAIRS)
+        if self.memo.get("mansion_flip"):
+            walk = self.grid(sprites_block=False)
+            spots = [p for p in MANSION_B1F_SWITCH_SPOTS if overworld.astar(walk, self.pos(), p) is not None]
+            if not spots:
+                self.memo.pop("mansion_flip")
+                return None
+            done = self.mansion_switch(spots[0])
+            if done == "switch":
+                self.memo.pop("mansion_flip")
+            return done
+        if overworld.astar(self.grid(sprites_block=False), self.pos(), MANSION_B1F_STAIRS) is not None:
+            self.memo["mansion_presses"] = 0
+            return self.walk(MANSION_B1F_STAIRS)
+        return self.mansion_switch_toward(here, [MANSION_B1F_STAIRS])   # a gate shuts the way to the stairs
+
+    def mansion_switch_toward(self, here: int, goals: List[tuple]) -> Optional[str]:
+        """B1F's goals (the balls left, the stairs) behind gates: every switch flips all of the floor's gates, so the
+        switch in reach nearest a goal is pressed (the north one opens the key's west room, the south one the way back
+        to the stairs). None when a goal is in reach, or after three presses that opened none."""
+        walk, pos = self.grid(sprites_block=False), self.pos()
+        if not goals or any(overworld.astar(walk, pos, g) is not None for g in goals):
+            self.memo["mansion_presses"] = 0
+            return None
+        spots = [s for s in MANSION_B1F_SWITCH_SPOTS if overworld.astar(walk, pos, s) is not None]
+        if not spots or self.memo.get("mansion_presses", 0) >= 3:
+            return None
+        return self.mansion_switch(min(spots, key=lambda s: min(abs(s[0] - g[0]) + abs(s[1] - g[1]) for g in goals)))
+
+    def mansion_switch(self, spot: tuple) -> str:
+        """A statue below the spot hides a switch; A on it (and A on "L'actionner?") flips the floor's gates."""
+        if tuple(self.pos()) != spot:
+            return self.walk(spot)
+        self.step("UP")   # the statue blocks: the press only turns the player toward it
+        texts = self.read_texts("A")
+        self.memo["mansion_presses"] = self.memo.get("mansion_presses", 0) + 1
+        self.event("mansion_switch", map=self.read(ADDR["map"])[0], text=" | ".join(texts))
+        return "switch"
+
+    def cinnabar_quiz(self) -> str:
+        """BUG-0705: the nearest quiz machine in reach not answered yet (memo "quiz_done"): A on it, the answer on OUI / NON.
+        A wrong answer starts a trainer's battle (the battle ticks fight it, the gate opens after). When every machine in
+        reach was answered and Blaine is still shut off (a battle lost), they are all tried again."""
+        walk, pos = self.grid(sprites_block=False), tuple(self.pos())
+        done = self.memo.setdefault("quiz_done", [])
+        spots = [(i, (x, y + 1)) for i, (x, y) in enumerate(CINNABAR_QUIZ)
+                 if i not in done and overworld.astar(walk, pos, (x, y + 1)) is not None]
+        if not spots:
+            # a gate just opened is redrawn a moment later: only a long wait means Blaine stays shut off
+            self.memo["quiz_idle"] = self.memo.get("quiz_idle", 0) + 1
+            if self.memo["quiz_idle"] >= QUIZ_IDLE_TICKS:
+                self.memo.update(quiz_done=[], quiz_idle=0)
+            self.io.wait(300)
+            return "quiz wait"
+        self.memo["quiz_idle"] = 0
+        i, spot = min(spots, key=lambda s: abs(s[1][0] - pos[0]) + abs(s[1][1] - pos[1]))
+        if pos != spot:
+            return self.walk(spot)
+        self.step("UP")   # the machine blocks: the press only turns the player toward it
+        self.io.press("A", 90)
+        texts, answered = [], False
+        for _ in range(16):
+            self.io.wait(400)
+            if hasattr(self.io, "refresh"):
+                self.io.refresh()
+            if self.read(ADDR["in_battle"])[0]:
+                break
+            if not text_box_open(self.read):
+                if texts:
+                    break
+                continue
+            if not answered and shop.screen(screen_rows(self.read)) == "confirm":
+                self.answer_yes_no(CINNABAR_QUIZ_YES[i])
+                answered = True
+                continue
+            box = text_box(self.read)
+            if not texts or texts[-1] != box:
+                texts.append(box)
+            self.io.press("A", 90)
+        done.append(i)
+        self.event("gym_quiz", machine=i, at=list(CINNABAR_QUIZ[i]), answer="yes" if CINNABAR_QUIZ_YES[i] else "no",
+                   answered=answered, text=" | ".join(texts), battle=bool(self.read(ADDR["in_battle"])[0]))
+        return "quiz"
 
     def fetch_lift_key(self) -> str:
         """B4F's north-west room: the Rocket who had the Lift Key is fought first (he drops it); only then is
-        the ball next to him there to be picked up (before, the square looks free and walking onto it does
-        nothing). A beaten Rocket only talks, so after a few talks the ball is tried."""
-        px, py = self.pos()
-        talks = self.memo.setdefault("key_guard_talks", 0)
-        if talks < BLOCKER_TALKS_MAX and LIFT_KEY_GUARD in overworld.sprites(self.read):
-            if abs(LIFT_KEY_GUARD[0] - px) + abs(LIFT_KEY_GUARD[1] - py) == 1:
-                self.memo["key_guard_talks"] = talks + 1
+        the ball next to him there to be picked up. The ball is a sprite hidden (image 0xFF) until his talk
+        reveals it, and a hidden on-screen sprite is not in `overworld.sprites`: the ball in sight is picked up,
+        otherwise the Rocket is talked to again. (A talk counter used to give up on him after BLOCKER_TALKS_MAX
+        and poke the hidden ball forever: the host sat there from 5 Oct, TASK-33 stall.)"""
+        sprites = overworld.sprites(self.read)
+        if LIFT_KEY_BALL in sprites:
+            return self.talk_at(LIFT_KEY_BALL)
+        if LIFT_KEY_GUARD in sprites:
             return self.talk_at(LIFT_KEY_GUARD)
-        return self.talk_at(LIFT_KEY_BALL)
+        return self.talk_at(LIFT_KEY_BALL)   # neither in sight: walk there
 
     def game_corner_poster(self) -> Optional[str]:
         """The Game Corner's guard stands in front of a poster hiding a switch; once he is beaten, A on the
@@ -782,21 +2036,61 @@ class Runner:
         edges = {side: set(overworld.edge_squares(walk, side, info.get("spans", {}).get(side)))
                  for side in ("north", "south", "west", "east")}
 
+        # BUG-0948: the player stands ON a door that an earlier walk marked unusable. The mark says
+        # that a walk toward the square did not move the player; he is standing on the square now,
+        # and the door fires when he steps on it (the stair of Victory Road 1F, (1, 1): the run
+        # landed on map 194 at (0, 8)). The mark is dropped and the door is tried again: the mark
+        # of the only way down of the floor, kept in the save by an earlier run, left the lane
+        # answering "no route" on every tick and the player standing still on the stair for 300
+        # ticks (the runs of 20261026-121745 and 20261026-125130).
+        standing = tuple(self.pos())
+        revived = [tuple(b) for b in self.memo.get("bad_warps", []) if b[0] == here and tuple(b[1:]) == standing]
+        if revived:
+            self.memo["bad_warps"] = [b for b in self.memo.get("bad_warps", []) if tuple(b) not in revived]
+            self.event("warp_revived", map=here, warps=[list(b[1:]) for b in revived])
+
+        # BUG-0635: a door marked unusable, and already retried once (BUG-0634), is dead for the milestone: no route
+        # may start with it. World.learn rewrites the warp list from the game on every tick, so the exclusion lives here.
+        bad_all = {tuple(b) for b in self.memo.get("bad_warps", [])}
+        dead = {tuple(w) for w in self.memo.get("warp_retried", []) if tuple(w) in bad_all}
+
+        # BUG-0639: an edge exit marked bad (it leads into a dead end) is no first hop of a route either
+        closed = {(b[1], b[2]) for b in self.memo.get("bad_exits", []) if b[0] == here}
+
         def first_hop_ok(how):
-            return (how[1] in part) if how[0] == "warp" else bool(edges[how[1]] & part)
+            if how[0] == "warp" and (here, *how[1]) in dead:
+                return False
+            return (how[1] in part) if how[0] == "warp" else bool((edges[how[1]] - closed) & part)
         start_part = (info.get("parts") or {}).get("player")
-        route = self.find_route(here, dest, first_hop_ok, start_part, goal_part, explore, anywhere)
+        route, exploring = self.find_route(here, dest, first_hop_ok, start_part, goal_part, explore, anywhere)
+        branch = "explore" if exploring else "route"   # BUG-0655: the label of the target in the walk_target event
+        if not route:
+            route, branch = self.unvisited_door(here, first_hop_ok, start_part), "explore"
         if not route:
             back = self.retreat(here, info, part) if self.no_route_ticks >= NO_ROUTE_TICKS else None
             if back:
                 return back
-            guard = self.guard_in_reach(here, part)
+            guard = self.guard_in_reach(here, part, walk)
             if guard:
+                if abs(guard[0] - self.pos()[0]) + abs(guard[1] - self.pos()[1]) > 1:
+                    self.note_walk_target(here, guard, None, "guard")   # BUG-0655: the walk toward him is the guard branch
                 return self.talk_at(guard)   # a locked room opens when its guard is beaten (the Rocket elevator's)
             if self.memo.get("lost") != [here, dest]:
                 self.memo["lost"] = [here, dest]
                 self.event("lost", map=here, next=dest, known=sorted(self.world.maps))
             return "no route"
+        e = self.memo.get("entry")
+        if e and e["map"] == here and route[0][0] == e["from"] and dest != e["from"] and tuple(e["landing"]) in part:
+            # BUG-0639: the way on from the part entered by an edge is back over that edge: a dead end (the landing
+            # part is unknown to the graph, so the route read it as open). Its exits are marked, and the way back is taken
+            # BUG-0640: unless a door of this part leads to a map never visited (Route 5's pocket: the gate house to the north)
+            door = self.unvisited_door(here, first_hop_ok, start_part)
+            if door:
+                route, branch = door, "explore"
+            else:
+                back = self.retreat(here, info, part)
+                if back:
+                    return back
         how = route[0][1]
         if how[0] == "warp":
             # several warps can lead to the same map (a 2-square door); some are drawn as wall and
@@ -806,24 +2100,96 @@ class Runner:
             # the twins of the chosen warp: same destination warp, reachable from where the player stands
             # (a cave floor has several ladders to the next floor, in different parts)
             chosen = next((w for w in info["warps"] if (w[0], w[1]) == how[1]), None)
-            cands = sorted(((w[0], w[1]) for w in info["warps"] if w[2] == route[0][0] and (here, w[0], w[1]) not in bad
-                            and (w[0], w[1]) in part and (chosen is None or w[3] == chosen[3])),
-                           key=lambda w: abs(w[0] - px) + abs(w[1] - py))
+            usable = [w for w in info["warps"] if w[2] == route[0][0] and (here, w[0], w[1]) not in bad and (w[0], w[1]) in part]
+            if not usable and (here, *how[1]) in bad:
+                # BUG-0634: the only door to that map is marked unusable (an earlier stall at Celadon's mart
+                # door (39, 19)). Nothing else to try, so the mark is dropped and the door is tried again, once
+                # (BUG-0635): six more failed steps mark it again and it is dead (see `dead` above).
+                self.memo["bad_warps"] = [b for b in self.memo.get("bad_warps", []) if tuple(b) != (here, *how[1])]
+                self.memo.setdefault("warp_retried", []).append([here, *how[1]])
+                self.event("warp_retry", map=here, warp=list(how[1]))
+                bad = {tuple(b) for b in self.memo.get("bad_warps", []) if b[0] == here}
+                usable = [w for w in info["warps"] if w[2] == route[0][0] and (here, w[0], w[1]) not in bad and (w[0], w[1]) in part]
+            # BUG-0938: a warp square the game draws as a wall is a door that never opens: the map's warp
+            # table lists it, the tiles do not. The south gate of Viridian Forest lists two warps north
+            # ((4,0) to the forest's warp 3 and (5,0) to its warp 4), but only (5,0) is a door (tile 3B);
+            # (4,0) is the wall tile 4A. Aiming at the wall walks the player into it for ever: the game
+            # refuses the step and the fallback of the walk (BUG-0740) steps him back down, so the run
+            # ping-ponged between (4,1) and (4,2) until the stall detector fired (20261026-075140).
+            # The squares the game shows as walls are skipped; when every candidate is one, the old choice
+            # is kept (the screen may be stale, and a door that is off screen is not known to be a wall).
+            open_warps = [w for w in usable if walk.get((w[0], w[1]), True)]
+            if open_warps:
+                usable = open_warps
+            # a twin leading to the same destination warp first; when it is all marked, any other door to that map
+            # (Route 7's gate house has two door squares, each with its own destination warp)
+            twins = [w for w in usable if chosen is None or w[3] == chosen[3]] or usable
+            cands = sorted(((w[0], w[1]) for w in twins), key=lambda w: abs(w[0] - px) + abs(w[1] - py))
             if cands:
                 how = ("warp", cands[0])
+                if self.stuck == 3:
+                    # diagnostic: a door that stops the runner three ticks in is logged before it is marked unusable
+                    self.event("warp_stuck", map=here, warp=list(cands[0]), pos=list(self.pos()),
+                               in_part=cands[0] in part)
                 if self.stuck >= 6:
-                    self.memo.setdefault("bad_warps", []).append([here, *cands[0]])
-                    self.event("warp_unusable", map=here, warp=list(cands[0]))
-                    self.stuck = 0
+                    # BUG-0925: a rock that seals the way to the door is not the door's fault: the door was
+                    # never stepped on (the part of the map ignores the sprites, the walk does not), so it is
+                    # no unusable door - the hop is unwalkable (BUG-0891) and is marked as such, and the guide
+                    # walks the runner back to the map it came from, where the game puts the rocks of the floor
+                    # back where they were. A door marked unusable is dead for the milestone (BUG-0635), and
+                    # the only way down of Victory Road 1F never worked again because of it: the stair (1, 1)
+                    # was marked bad and retried while the rock of the corridor sealed it, then every tick
+                    # answered "no route" and the run stood still for 300 ticks (20261026-020740).
+                    # BUG-0947: the player STANDS on the door: the six ticks that did not move are the
+                    # walk's failure to step onto the square, not the door's failure to fire. The rock
+                    # test is vacuous there (the layout path from the square to itself is empty), so the
+                    # door was marked unusable, died for the milestone (BUG-0635) and every tick answered
+                    # "no route": the player stood still on the stair of Victory Road 1F (1, 1) until the
+                    # detector wrote same_spot (the run of 20261026-121745, after the lane ping-ponged
+                    # between Victory Road 1F and 2F). The stair fires when the player steps onto it (the
+                    # same run landed on map 194 at (0, 8)), so the door is not marked: the hop is marked
+                    # blocked instead, and the guide walks the runner back to the waypoint it came from
+                    # (BUG-0891), where the game puts the boulders of the floor back where they were and
+                    # the floor's plan can be run from the side it needs.
+                    # BUG-0948: the door of a hop that has no other door is never marked unusable by a
+                    # walk that did not move. The mark kills the only way down of the floor for the
+                    # milestone (BUG-0635): the route cannot start with it, every tick answers "no route"
+                    # and the player stands still (the run of 20261026-125130, the same shape as the run
+                    # before it). The hop is marked blocked instead and the door's mark is dropped: the
+                    # door is not proven broken, the walk could not step onto it.
+                    if self.pos() == tuple(cands[0]) or self.boulder_on_the_way(self.pos(), tuple(cands[0])) is not None:
+                        self.memo["bad_warps"] = [b for b in self.memo.get("bad_warps", []) if tuple(b) != (here, *cands[0])]
+                        if [here, dest] not in (self.memo.get("hop_blocked") or []):
+                            self.mark_hop_blocked(here, dest)
+                            self.event("hop_blocked", map=here, next=dest, target=list(cands[0]))
+                        self.stuck = 0
+                    else:
+                        self.memo.setdefault("bad_warps", []).append([here, *cands[0]])
+                        # BUG-0635: a door that failed again after its one retry is dead for the milestone
+                        retried = [here, *cands[0]] in self.memo.get("warp_retried", [])
+                        self.event("warp_dropped" if retried else "warp_unusable", map=here, warp=list(cands[0]))
+                        self.stuck = 0
         target = hop_target(info, how, self.pos())
         if how[0] == "warp" and self.pos() == target:
             return self.step_off_warp(here, info, target)
-        return self.walk(target, edge=how[0] == "edge" and how[1])
+        self.note_walk_target(here, target, how[0] == "edge" and how[1], branch)
+        walked = self.walk(target, edge=how[0] == "edge" and how[1])
+        if getattr(self, "_hop_unwalkable", False):
+            # BUG-0891: the hop of the route cannot be walked to: the route is no route, and the
+            # guide goes back to the waypoint it came from (Victory Road 1F: the stairs at (1, 1)
+            # are behind the boulder that seals the one-wide corridor to them - the runner walked at
+            # them for 33 minutes and 42 wild battles without a new square, the run of
+            # 20261024-105855). Leaving the floor puts the boulders of the floor back where they
+            # were, so the floor can be solved.
+            self.mark_hop_blocked(here, dest)
+            self.event("hop_blocked", map=here, next=dest, target=list(target))
+        return walked
 
     def find_route(self, here: int, dest: int, first_hop_ok, start_part, goal_part, explore, anywhere: bool):
-        """The route to `dest`; failing that toward the nearest unvisited map of `explore` (the cave's floors), and
-        once that has failed for NO_ROUTE_TICKS ticks (the first ticks after a crossing can read a stale map
-        header) toward any unvisited map next to this one when `anywhere`. Counts the ticks without a route."""
+        """The route to `dest` and whether it is an exploring one; failing that toward the nearest unvisited map of
+        `explore` (the cave's floors), and once that has failed for NO_ROUTE_TICKS ticks (the first ticks after a
+        crossing can read a stale map header) toward any unvisited map next to this one when `anywhere`. Counts the
+        ticks without a route."""
         route, exploring = self.world.route(here, dest, first_hop_ok, start_part=start_part, goal_part=goal_part), False
         if not route and explore:
             route, exploring = self.world.explore(here, explore, first_hop_ok, start_part=start_part), True
@@ -834,7 +2200,18 @@ class Runner:
         if route and exploring and self.memo.get("exploring") != route[-1][0]:
             self.memo["exploring"] = route[-1][0]
             self.event("explore", map=here, toward=route[-1][0])
-        return route
+        return route, exploring
+
+    def unvisited_door(self, here: int, first_hop_ok, start_part) -> Optional[List]:
+        """BUG-0640: the one-hop route through a door or edge of the player's part into a map never visited, or None.
+        A part entered by an edge whose only known way on is back is a dead end only once its unvisited doors were tried."""
+        near = self.world.explore(here, ANY_MAP, first_hop_ok, start_part=start_part)
+        if not near or len(near) != 1:
+            return None
+        if self.memo.get("door_exploring") != near[0][0]:   # its own key: the area explorer's would flip every tick
+            self.memo["door_exploring"] = near[0][0]
+            self.event("explore", map=here, toward=near[0][0])
+        return near
 
     def note_entry(self, here: int) -> None:
         """A map was just entered over an edge: remember from where and at which square."""
@@ -855,26 +2232,87 @@ class Runner:
         dead = [q for q in overworld.edge_squares(walk, OPPOSITE[e["side"]], info.get("spans", {}).get(OPPOSITE[e["side"]])) if q in part]
         bad = self.memo.setdefault("bad_exits", [])
         fresh = [b for b in prev_exits(e, self.world.maps[e["from"]], dead) if b not in bad]
-        if not fresh and not self.world.route(here, e["from"]):
+        if not fresh:
+            # nothing new to mark: going back would call this again through go_to_map, without end (recursion)
             return None
-        if fresh:
-            bad.extend(fresh)
-            self.event("dead_end", map=here, came_from=e["from"], exits_dropped=len(fresh))
+        bad.extend(fresh)
+        self.event("dead_end", map=here, came_from=e["from"], exits_dropped=len(fresh))
         return self.go_to_map(here, e["from"], info)
 
-    def guard_in_reach(self, here: int, part) -> Optional[tuple]:
-        """The nearest person standing in the player's part of the map who was not talked to BLOCKER_TALKS_MAX
-        times yet: with no way out, talking to him is the one thing left to try."""
-        px, py = self.pos()
-        talks = self.memo.setdefault("guard_talks", {})
-        near = sorted((abs(q[0] - px) + abs(q[1] - py), q) for q in overworld.sprites(self.read) if q in part)
-        for dist, q in near:
-            key = f"{here}:{q[0]},{q[1]}"
-            if talks.get(key, 0) <= BLOCKER_TALKS_MAX:
-                if dist == 1:
-                    talks[key] = talks.get(key, 0) + 1   # only a real talk counts, not the steps walking up to him
+    def guard_in_reach(self, here: int, part, layout=None) -> Optional[tuple]:
+        """The nearest person standing in the player's part of the map who has had fewer than BLOCKER_TALKS_MAX
+        talks yet: with no way out, talking to him is the one thing left to try. The square chosen is kept
+        (memo "guard_target") until he is gone from the part or capped: a sprite is hidden once it is on screen
+        within 5 squares, so re-choosing each tick flipped between two guards (BUG-0651). Adjacent counts too: his
+        sprite is hidden there, and releasing him made the runner swap to the other guard before any talk (BUG-0656).
+        BUG-0741: the people the memo marks as walls (the beaten trainers) are skipped: their sprite is still in
+        the game but they are gone, and talking to one does nothing at all. The runner pressed A on the beaten
+        leader of the Viridian gym three times and stood still for 300 ticks (the same_spot stall of run
+        20261020-223419)."""
+        walls = {(w[0], w[1]) for w in self.memo.get("walls", {}).get(str(here), [])}
+        # BUG-0881: a boulder is not a person: the fallback that talks to "the nearest person in the
+        # part" took the picture-63 boulders too, and the runner walked to the boulder next to it and
+        # pressed A on a rock three times, then stood still for 300 ticks (the same_spot stall of the
+        # run 20261023-231857 on Victory Road 1F).
+        boulders = set(strength.live_boulders(self.read))
+        kept = self.memo.get("guard_target")
+        if kept and kept[0] == here:
+            q = (kept[1], kept[2])
+            if q in part and q not in walls and q not in boulders and self.guard_reachable(q, layout) \
+                    and self.guard_talk_left(here, q):
                 return q
+        near = sorted((abs(q[0] - self.pos()[0]) + abs(q[1] - self.pos()[1]), q)
+                      for q in overworld.sprites(self.read)
+                      if q in part and q not in walls and q not in boulders and self.guard_reachable(q, layout))
+        for _, q in near:
+            if self.guard_talk_left(here, q):
+                self.memo["guard_target"] = [here, q[0], q[1]]
+                return q
+        self.memo.pop("guard_target", None)
         return None
+
+    def guard_reachable(self, who, layout=None) -> bool:
+        """The person is in reach: no boulder stands between the player and him.
+
+        BUG-0919: the part is the layout's (the people move or fight), so the guard behind the corridor
+        boulder of Victory Road 1F - a pocket with no other way in - was chosen as "the nearest person
+        in the part", and the runner pushed the boulder against him for ever: the walk to him failed,
+        the walk asked the boulder to move, the push was refused, and the two asked each other again
+        (walk -> unblock -> talk_at -> walk) until the run died with "maximum recursion depth exceeded".
+        A rock on the floor blocks the way like a wall does for the player: a person behind one is not
+        in reach, and the runner does the boulder puzzle instead of talking to a man he cannot reach.
+        """
+        if layout is None:
+            return True
+        return self.boulder_on_the_way(self.pos(), tuple(who), layout) is None
+
+    def guard_talk_left(self, here: int, q) -> bool:
+        """True while the guard on `q` can still be talked to. A talk made from next to him counts in blocker_talks
+        (the counter the route path uses too), and the 3rd one walls him. Once his talks reach BLOCKER_TALKS_MAX he is
+        released."""
+        px, py = self.pos()
+        talks = self.memo.setdefault("blocker_talks", {})
+        key = f"{here}:{q[0]},{q[1]}"
+        if talks.get(key, 0) >= BLOCKER_TALKS_MAX:
+            self.wall_on_cap("guard", q, here)
+            return False
+        if abs(q[0] - px) + abs(q[1] - py) == 1:
+            talks[key] = talks.get(key, 0) + 1   # only a real talk counts, not the steps walking up to him
+            self.wall_on_cap("guard", q, here)
+        return True
+
+    def wall_on_cap(self, kind: str, square, here: int) -> bool:
+        """A person talked to BLOCKER_TALKS_MAX times is a wall: his square joins memo "walls" for the map, so A*
+        routes around him (a beaten trainer never moves). Shared by the guard path and the route path, which count
+        on the same blocker_talks entry. True when the square is capped."""
+        count = self.memo.get("blocker_talks", {}).get(f"{here}:{square[0]},{square[1]}", 0)
+        if count < BLOCKER_TALKS_MAX:
+            return False
+        mwalls = self.memo.setdefault("walls", {}).setdefault(str(here), [])
+        if [square[0], square[1]] not in mwalls:
+            mwalls.append([square[0], square[1]])
+            self.event("npc_walled", who=kind, map=here, square=[square[0], square[1]], talks=count)
+        return True
 
     def step_off_warp(self, here: int, info: Dict, target) -> str:
         """On the warp itself: an indoor exit mat fires when stepping off it towards the outside (off the map);
@@ -894,6 +2332,14 @@ class Runner:
         order = ok + walls or [sides[0]]
         tries = self.mat.get(target, 0)
         self.mat[target] = tries + 1
+        # BUG-0696: a door square drawn as wall (Route 7 gate's (18, 9); its twin (18, 10) fires) never fires from
+        # any side, and each step off moves the player, so `stuck` never counts it unusable: after every side twice it
+        # is marked, and the route takes another door to the same map. A sole door is left to the BUG-0634 retry.
+        door = next((w for w in info["warps"] if (w[0], w[1]) == tuple(target) and len(w) > 2), None)
+        other = door and any(w[2] == door[2] and (w[0], w[1]) != tuple(target) for w in info["warps"])
+        if other and tries >= 2 * len(order) and [here, *target] not in self.memo.setdefault("bad_warps", []):
+            self.memo["bad_warps"].append([here, *target])
+            self.event("warp_unusable", map=here, warp=list(target))
         self.stuck = 0 if self.step(order[tries % len(order)]) else self.stuck + 1
         return "exit mat"
 
@@ -912,6 +2358,7 @@ class Runner:
     def walk(self, target, edge=None) -> str:
         """One step toward `target` (or, for an edge hop, toward the nearest walkable square on that
         edge, then across it), planned with A* on the whole map."""
+        self._hop_unwalkable = False   # BUG-0891: the hop of the route is walkable until proven otherwise
         px, py = self.pos()
         walk = self.grid()
         self.avoid_warps(walk, target)
@@ -932,23 +2379,116 @@ class Runner:
                     action, path = self.unblock((px, py), goal) if goal else (None, None)
                     if action:
                         return action
+                    if path is None:
+                        # BUG-0891: the exits of this edge cannot be walked to: a boulder seals them
+                        layout = self.grid(sprites_block=False)
+                        self._hop_unwalkable = any(self.boulder_on_the_way((px, py), e, layout) is not None
+                                                   for e in exits)
         else:
             path = overworld.astar(walk, (px, py), target)
             if path is None:
+                # BUG-0887: a boulder that stands in the way is pushed with Strength, not walked into.
+                # The greedy step of the fallback below was refused by the game, the hop-tile fallback
+                # (BUG-0740) stepped away again, and the player ping-ponged between (2, 11) and (2, 12)
+                # - the grass of Victory Road 1F, a wild battle every step - for 18 minutes (48 wild
+                # battles) until the stall detector wrote "no_progress" (the run of 20261024-072503).
+                pushed = self.push_blocking_boulder((px, py), target)
+                if pushed:
+                    return pushed
                 action, path = self.unblock((px, py), target)
                 if action:
                     return action
                 if path is None:
+                    # BUG-0891: the target cannot be walked to at all. When a boulder stands on the
+                    # way, the hop of the route is not walkable (Victory Road 1F: the stairs at
+                    # (1, 1) are behind the boulder that seals the one-wide corridor to them), and
+                    # the guide has to know it: the greedy step below only bounces the player
+                    # between two squares of the grass for ever.
+                    self._hop_unwalkable = self.boulder_on_the_way((px, py), target) is not None
                     path = overworld.toward(walk, (px, py), target)
         if not path:
             self.stuck += 1
+            self.walk_stuck_log(walk, target, edge)
             return "no path"
         ahead = (px + overworld.STEP[path[0]][0], py + overworld.STEP[path[0]][1])
         if ahead in getattr(walk, "cuts", ()) and walk.get(ahead):
             return self.cut_tree(path[0], ahead)   # a tree is in the way and Cut is known: cut it
-        moved = self.step(path[0]) or self.step(path[0])  # the first press may only turn the player
+        water = getattr(walk, "water", ())
+        if ahead in water and walk.get(ahead) and (px, py) not in water:
+            return self.surf_onto(path[0], ahead)   # BUG-0681: land to water, Surf is known: get on the water
+        direction = path[0]
+        moved = self.step(direction) or self.step(direction)  # the first press may only turn the player
+        if not moved:
+            # BUG-0740: the game's hop tiles (the gym's chevrons) block the key the runner planned and
+            # throw him to their landing square whichever key he presses. On the Viridian gym's chevron
+            # (5, 13) the runner had to press DOWN to be carried east to (6, 13): with the planned key
+            # alone he stood on the chevron for ever (the same_spot stall of run 20261020-175235).
+            for d in ("DOWN", "LEFT", "UP", "RIGHT"):
+                if d != direction and self.step(d):
+                    moved, direction = True, d
+                    break
         self.stuck = 0 if moved else self.stuck + 1
+        if moved:
+            self._walk_stuck_logged = False
+            self.step_dir = direction   # BUG-0718: the game may push the player back off the square he stepped on
+        else:
+            self.walk_stuck_log(walk, target, edge)
         return "walk"
+
+    def boulder_on_the_way(self, start, target, layout=None) -> Optional[tuple]:
+        """The boulder that stands on the layout path from `start` to `target`, None when none does.
+
+        BUG-0891: a boulder is a sprite, so it blocks the grid the walk uses and the path to a
+        square behind it is no path. The layout path (the sprites ignored) says whether a rock is
+        what stands in the way.
+        """
+        boulders = set(strength.live_boulders(self.read))
+        if not boulders:
+            return None
+        layout = self.grid(sprites_block=False) if layout is None else layout
+        path = overworld.astar(layout, start, target)
+        if not path:
+            return None
+        sq = start
+        for d in path:
+            nxt = (sq[0] + overworld.STEP[d][0], sq[1] + overworld.STEP[d][1])
+            if nxt in boulders:
+                return nxt
+            sq = nxt
+        return None
+
+    def hop_blocked(self, here: int, dest: int) -> bool:
+        """Has the hop of the route to `dest` been found unwalkable on this visit?
+
+        BUG-0891: the world graph knows the warps of a map, the game does not let the player walk
+        to a warp that a boulder seals. Such a hop is no route at all.
+        """
+        return [here, dest] in (self.memo.get("hop_blocked") or [])
+
+    def mark_hop_blocked(self, here: int, dest: int) -> None:
+        """Remember that the hop of the route to `dest` cannot be walked to (BUG-0891)."""
+        blocked = self.memo.setdefault("hop_blocked", [])
+        if [here, dest] not in blocked:
+            blocked.append([here, dest])
+
+    def note_walk_target(self, here: int, target, edge, branch: str) -> None:
+        """BUG-0655 diagnostic, called where go_to_map picks the walk target: one `walk_target` event when the
+        target or the branch that chose it changes (memo "last_walk_target" / "last_walk_branch"). Nothing is
+        logged while both stay the same. Movement is not touched."""
+        now = [here, target[0], target[1], edge or None]
+        if self.memo.get("last_walk_target") == now and self.memo.get("last_walk_branch") == branch:
+            return
+        self.memo["last_walk_target"], self.memo["last_walk_branch"] = now, branch
+        self.event("walk_target", map=here, pos=list(self.pos()), target=list(target), branch=branch, edge=edge or None)
+
+    def walk_stuck_log(self, walk, target, edge) -> None:
+        """BUG-0646 diagnostic: the walk has failed to move four times in a row. Logged once per stuck
+        episode (the flag clears when a step moves), with the part of the map the player can reach."""
+        if self.stuck != 4 or getattr(self, "_walk_stuck_logged", False):
+            return
+        self._walk_stuck_logged = True
+        self.event("walk_stuck", map=self.read(ADDR["map"])[0], pos=list(self.pos()), target=list(target),
+                   edge=edge, part_size=len(overworld.reachable(walk, self.pos())))
 
     def nearest_open(self, squares) -> Optional[tuple]:
         """The square of `squares` with the shortest path on the layout (people ignored), None without one."""
@@ -965,28 +2505,31 @@ class Runner:
         blocker = self.blocker_on_the_way(start, target)
         if not blocker:
             return None, None
+        if tuple(blocker) == tuple(target):
+            # BUG-0919: he stands on the target square, so talking to him means walking to him - and the
+            # walk to him already failed (unblock is only called when it did). Talking here would ask
+            # the walk the same question again and it would answer the same way, for ever: the run of
+            # 20261025 died with "maximum recursion depth exceeded" (walk -> unblock -> talk_at ->
+            # walk -> unblock ...) on Victory Road 1F, where the boulder in the corridor keeps the
+            # guard out of reach. There is no way on: the caller re-plans.
+            return None, None
         here = self.read(ADDR["map"])[0]
         if self.wakes(blocker):
             return self.wake(blocker), None
         key = f"{here}:{blocker[0]},{blocker[1]}"
         count = self.memo.setdefault("blocker_talks", {}).get(key, 0)
+        if count >= BLOCKER_TALKS_MAX:
+            # a beaten trainer never moves: already walled by his talks (here or on the guard path), so
+            # re-plan now that this square is unwalkable instead of talking again
+            walk = self.grid()
+            return None, overworld.astar(walk, start, target) or overworld.toward(walk, start, target)
         if abs(blocker[0] - px) + abs(blocker[1] - py) == 1:
             count += 1   # only a real talk counts, not the steps walking up to it
         self.memo["blocker_talks"][key] = count
-        if count > BLOCKER_TALKS_MAX:
-            # a beaten trainer never moves: keep talking and we loop forever on the same line
-            # re-plan now that this square is unwalkable
-            walk = self.grid()
-            return None, overworld.astar(walk, start, target) or overworld.toward(walk, start, target)
         if self.memo.get("blocker") != list(blocker):
             self.memo["blocker"] = list(blocker)
             self.event("blocked_by", at=list(blocker), target=list(target))
-        if count == BLOCKER_TALKS_MAX:
-            # the 3rd talk is the last: wall the square so A* routes around it from now on
-            mwalls = self.memo.setdefault("walls", {}).setdefault(str(here), [])
-            if [blocker[0], blocker[1]] not in mwalls:
-                mwalls.append([blocker[0], blocker[1]])
-                self.event("blocker_wall", map=here, at=list(blocker))
+        self.wall_on_cap("blocker", blocker, here)   # the 3rd talk is the last: from now on A* routes around him
         return self.talk_at(blocker), None
 
     def wakes(self, blocker) -> bool:
@@ -1007,23 +2550,322 @@ class Runner:
         self.event("flute_used", at=list(blocker), used=used, battle=self.memo["woken"])
         return "flute"
 
+    def push_blocking_boulder(self, start, target):
+        """A boulder that stands in the way is pushed with Strength: the game decides whether it moves.
+
+        BUG-0887: the runner used to walk into the boulder that seals the one-wide corridor to the
+        stairs of Victory Road 1F (2, 10). The greedy step of the walk's fallback was refused by the
+        game, the hop-tile fallback (BUG-0740) stepped away again, and the player ping-ponged between
+        (2, 11) and (2, 12) - the grass of the floor, a wild battle every step - for 18 minutes
+        (48 wild battles, no new square for the last 5) until the stall detector wrote "no_progress"
+        (the run of 20261024-072503). A boulder is a rock, not a person: it is never talked to (it
+        answers "the boulder won't budge"), it is pushed - with Strength, the way the game wants it.
+
+        The boulder is found on the *layout* path (the path the map allows when the sprites are
+        ignored): that path runs through the boulder's square, the sprite path does not. The player
+        stands on the square before it and pushes it on; the game decides what happens (the boulder
+        may slide, fall into a hole or drop to the floor below), and the runner reads the result.
+        """
+        if getattr(self, "_pushing", False):
+            return None            # the walk of the push itself: no second push in the same tick
+        boulders = set(strength.live_boulders(self.read))
+        if not boulders:
+            return None
+        layout = self.grid(sprites_block=False)
+        self.avoid_warps(layout, target)
+        path = overworld.astar(layout, start, target)
+        if not path:
+            return None            # no way on at all: not a boulder's fault
+        sq = start
+        for d in path:
+            nxt = (sq[0] + overworld.STEP[d][0], sq[1] + overworld.STEP[d][1])
+            if nxt in boulders:
+                return self.push_boulder(nxt, sq, d)
+            sq = nxt
+        return None
+
+    def push_rock_aside(self, boulder, plan_direction) -> Optional[str]:
+        """Push the rock out of the way when the plan's push cannot be set up: the player is sealed
+        behind it and cannot stand where the push needs it.
+
+        BUG-0896: the rock of the pressure switch of Victory Road 1F stood at (9, 14), the doorway
+        to the pocket with the stairs, and the player was east of it while the plan's push (east)
+        needs the player west of it. The rock is pushed the other way, and the push is only allowed
+        when it OPENS the plan's push: the player can then stand where the plan needs it (the square
+        before the rock's new place, along the plan's direction). The corridor boulder of the floor
+        (2, 10) is never pushed that way: it would seal the corridor even tighter and the game
+        refuses the move in any case (BUG-0890).
+        """
+        px, py = self.pos()
+        if getattr(self, "rom", None) is None:
+            return None      # no map data: the floor cannot be read, there is no way around the rock
+        blocked = self.grid()             # the sprites block: the player cannot stand behind a rock
+        pdx, pdy = overworld.STEP[plan_direction]
+        for d in ("UP", "DOWN", "LEFT", "RIGHT"):
+            dx, dy = overworld.STEP[d]
+            stand = (boulder[0] - dx, boulder[1] - dy)
+            if not blocked.get(stand):
+                continue
+            if overworld.astar(blocked, (px, py), stand) is None:
+                continue      # the player cannot stand behind the rock that way
+            if self.push_refused(boulder, d):
+                continue      # the game already refused this push: never try it again
+            # the plan's push after this one: the player would stand where the rock leaves it
+            nxt = (boulder[0] + dx, boulder[1] + dy)
+            if not self.sealed_in_by(boulder, blocked, (px, py)):
+                continue      # the rock does not seal the player in: the plan keeps its way
+            if (px, py) != stand:
+                self._pushing = True
+                try:
+                    self.walk(stand)
+                finally:
+                    self._pushing = False
+            before = set(strength.live_boulders(self.read))
+            self.step(d)
+            if not hm.use_strength(self):
+                self.event("no_strength", map=self.read(ADDR["map"])[0], boulder=list(boulder))
+                return "no strength"
+            self.step(d)
+            after = set(strength.live_boulders(self.read))
+            moved = sorted(after - before)
+            self.event("boulder_push", map=self.read(ADDR["map"])[0], boulder=list(boulder),
+                       to=[list(p) for p in moved], direction=d, steps=1, moved=bool(moved),
+                       aside=True)
+            if moved:
+                # BUG-0896: a rock that moved changes the floor: the hops the rock stood in the
+                # way of are walkable again. The marks of a blocked hop are only dropped when the
+                # player leaves the map, and a floor whose every way out is marked blocked is a
+                # floor the player cannot leave (the run of 20261024-225457: the marks of the
+                # stalled save kept the runner on the floor for ever).
+                self.memo.pop("hop_blocked", None)
+                return "boulder push"
+            # the game refused this push: remember it, so the runner never tries it again
+            self.memo.setdefault("push_refused", {})[self.push_key(boulder, d)] = True
+        return None
+
+    def push_sealing_rock_aside(self, plan_direction) -> Optional[str]:
+        """Push the rock that seals the player in, whichever rock of the floor it is.
+
+        BUG-0948: the rock of the plan's push is not always the rock that seals the player in.
+        Victory Road 1F: the plan starts with the rock west of the entrance (5, 15) and ends with
+        the rock in the corridor to the stairs (2, 10). A player who comes down the stair from
+        Victory Road 2F stands in the pocket with the stairs: the plan's first push cannot be set
+        up there (its stand (5, 14) is across the corridor rock), the floor's plan is given up
+        and the corridor rock is the one that seals him in. The pocket then has no other way out
+        and the lane ping-ponged between the two floors until the detector wrote same_spot (the
+        run of 20261026-125130). The rock that seals the player in is pushed aside (the way the
+        plan wants the corridor rock pushed, from the pocket side): the corridor opens and the
+        plan can be run from the side it needs.
+        """
+        if getattr(self, "rom", None) is None:
+            return None      # no map data: the floor cannot be read, there is no way around the rock
+        blocked = self.grid()
+        px, py = self.pos()
+        for rock in sorted(strength.live_boulders(self.read)):
+            sq = (int(rock[0]), int(rock[1]))
+            if not self.sealed_in_by(sq, blocked, (px, py)):
+                continue      # this rock does not seal the player in
+            for d in ("UP", "DOWN", "LEFT", "RIGHT"):
+                dx, dy = overworld.STEP[d]
+                stand = (sq[0] - dx, sq[1] - dy)
+                if not blocked.get(stand):
+                    continue
+                if overworld.astar(blocked, (px, py), stand) is None:
+                    continue      # the player cannot stand behind the rock that way
+                if self.push_refused(sq, d):
+                    continue      # the game already refused this push: never try it again
+                if (px, py) != stand:
+                    # the player has to stand behind the rock before it can be pushed: the walk
+                    # moves him one square per tick, so the push is a later tick's work
+                    self._pushing = True
+                    try:
+                        self.walk(stand)
+                    finally:
+                        self._pushing = False
+                    return "walk"
+                before = set(strength.live_boulders(self.read))
+                self.step(d)
+                if not hm.use_strength(self):
+                    self.event("no_strength", map=self.read(ADDR["map"])[0], boulder=list(sq))
+                    return "no strength"
+                self.step(d)
+                after = set(strength.live_boulders(self.read))
+                moved = sorted(after - before)
+                self.event("boulder_push", map=self.read(ADDR["map"])[0], boulder=list(sq),
+                           to=[list(p) for p in moved], direction=d, steps=1, moved=bool(moved),
+                           aside=True)
+                if moved:
+                    self.memo.pop("hop_blocked", None)
+                    return "boulder push"
+                # the game refused this push: remember it, so the runner never tries it again
+                self.memo.setdefault("push_refused", {})[self.push_key(sq, d)] = True
+                return None
+        return None
+
+    def sealed_in_by(self, boulder, blocked, pos) -> bool:
+        """True when the rock at `boulder` seals the player in: the rock is the only link between the
+        player's part of the floor and a bigger part of it.
+
+        BUG-0896: the rock of the pressure switch of Victory Road 1F stood at (9, 14), the doorway
+        to the pocket with the stairs: the player was east of it in a part of 24 squares, the floor
+        159 the other side, and it could not leave the pocket at all. The corridor boulder of the
+        floor (2, 10) does not seal the player in (it closes the pocket with the stairs, which is
+        the big floor's side), so the plan keeps its way there (BUG-0890).
+        """
+        mine = self.part_of(blocked, pos)
+        for d in ("UP", "DOWN", "LEFT", "RIGHT"):
+            dx, dy = overworld.STEP[d]
+            nxt = (boulder[0] + dx, boulder[1] + dy)
+            if not blocked.get(nxt) or nxt in mine:
+                continue
+            if len(self.part_of(blocked, nxt)) > len(mine):
+                return True
+        return False
+
+    @staticmethod
+    def part_of(walk, start) -> set:
+        """The squares connected to `start` - the player's part of the map, without the fringe
+        `overworld.reachable` adds (the squares next to it, walkable or not)."""
+        jumps, walls = getattr(walk, "jumps", {}), getattr(walk, "walls", set())
+        seen, stack = {start}, [start]
+        while stack:
+            x, y = stack.pop()
+            for nxt in [(x + dx, y + dy) for dx, dy in overworld.STEP.values()] + \
+                       [land for _, land in jumps.get((x, y), [])]:
+                if nxt in walk and nxt not in seen and walk[nxt] and ((x, y), nxt) not in walls:
+                    seen.add(nxt)
+                    stack.append(nxt)
+        return seen
+
+    def plan_push_direction(self, boulder) -> Optional[str]:
+        """The direction the floor's plan pushes this boulder in, or None when the plan does not name it.
+
+        BUG-0890: the generic "push the boulder out of the way" shoved the corridor boulder of
+        Victory Road 1F NORTH, against the plan that wants it pushed SOUTH out of the corridor to the
+        stairs. The rock ended up in the alcove (2, 9), where the game refuses to move it at all, and
+        the floor could never be finished (the run of 20261024-093928). The plan has to win: a boulder
+        the plan names is only ever pushed the way the plan says. A boulder the plan does not name
+        (the rocks of (7, 17) and (14, 2)) stays free.
+        """
+        here = self.read(ADDR["map"])[0]
+        layout = strength.puzzle_for(here)
+        if layout is None:
+            return None
+        sq = (int(boulder[0]), int(boulder[1]))
+        for b, direction, _steps in layout.plan:
+            if (int(b[0]), int(b[1])) == sq:
+                return direction
+        # BUG-0896: a rock that stands BETWEEN two squares of the plan (a push that was cut short)
+        # is pushed the way the plan says too: the generic push used to shove it the other way and
+        # the chain lost the rock (the run of 20261024-225457: the rock stood at (7, 16) between
+        # (5, 16) and (9, 16) and the generic push sent it west).
+        for b, direction, steps in layout.plan:
+            dx, dy = overworld.STEP[direction]
+            start = (int(b[0]), int(b[1]))
+            for k in range(1, steps):
+                if (start[0] + dx * k, start[1] + dy * k) == sq:
+                    return direction
+        return None
+
+    def push_key(self, boulder, direction) -> str:
+        """The memo key of one refused push: the floor, the square of the rock and the direction."""
+        here = self.read(ADDR["map"])[0]
+        return f"{here}:{int(boulder[0])},{int(boulder[1])}:{direction}"
+
+    def push_refused(self, boulder, direction) -> bool:
+        """Has the game already refused this push? A refused push is never tried again: the runner
+        used to spend whole runs shoving a rock that does not move (the run of 20261024-102539: 40
+        pushes of the boulder at (2, 9) in 13 minutes, and no new square)."""
+        return bool(self.memo.get("push_refused", {}).get(self.push_key(boulder, direction)))
+
+    def push_boulder(self, boulder, path_stand, path_dir):
+        """Push the boulder that blocks the way: the player stands behind it and presses the
+        direction with Strength in use. The game decides whether it moves (it may slide, fall into
+        a hole or drop to the floor below): a push the game refuses is tried from the next side.
+        """
+        px, py = self.pos()
+        blocked = self.grid()             # the sprites block: the player cannot stand behind a boulder
+        allowed = self.plan_push_direction(boulder)      # BUG-0890: the plan has to win
+        cands = []
+        for d in ("UP", "DOWN", "LEFT", "RIGHT"):
+            dx, dy = overworld.STEP[d]
+            stand = (boulder[0] - dx, boulder[1] - dy)
+            # BUG-0890: `astar` lets a *blocked goal* be entered (its docstring says so), so a wall
+            # passed as a place to stand: (2, 8), the wall north of the corridor boulder of Victory
+            # Road 1F, was a candidate for ever and the push was tried from a square the player can
+            # never reach. A square that is not walkable is not one.
+            if not blocked.get(stand):
+                continue
+            if overworld.astar(blocked, (px, py), stand) is None:
+                continue      # the player cannot stand behind the boulder that way
+            if allowed is not None and d != allowed:
+                continue      # BUG-0890: the plan pushes this boulder another way: the plan wins
+            if self.push_refused(boulder, d):
+                continue      # BUG-0890: the game already refused this push: never try it again
+            cands.append((d, stand))
+        # the push the path asks for (the boulder is pushed on) comes first, then the sides that
+        # would move it off the path: that one opens the way when the game allows it
+        cands.sort(key=lambda c: 0 if c[0] == path_dir else 1)
+        for d, stand in cands:
+            if (px, py) != stand:
+                # the push starts from the square the player stands on: it is the square before the
+                # boulder on the path, so the boulder is not in the way of reaching it
+                self._pushing = True
+                try:
+                    return self.walk(stand)
+                finally:
+                    self._pushing = False
+            before = set(strength.live_boulders(self.read))
+            self.step(d)      # a blocked press only turns the player towards the boulder
+            if not hm.use_strength(self):
+                self.event("no_strength", map=self.read(ADDR["map"])[0], boulder=list(boulder))
+                return "no strength"
+            self.step(d)      # the push: the boulder slides one square, the player follows
+            after = set(strength.live_boulders(self.read))
+            moved = sorted(after - before)
+            self.event("boulder_push", map=self.read(ADDR["map"])[0], boulder=list(boulder),
+                       to=[list(p) for p in moved], direction=d, steps=1, moved=bool(moved))
+            if moved:
+                return "boulder push"
+            # the game refused this push: remember it, so the runner never tries it again (the run
+            # of 20261024-102539: the same refused push, 40 times, for 13 minutes and no new square)
+            self.memo.setdefault("push_refused", {})[self.push_key(boulder, d)] = True
+            # the game refused this push: try the next side of the boulder
+        return None
+
     def avoid_warps(self, walk, target) -> None:
         """Warp squares are walls for the path unless they are the target: stairs in a narrow corridor
-        (the Rocket Hideout) would otherwise be walked over, undoing the trip."""
-        for w in links(self.read)["warps"]:
-            if (w[0], w[1]) != tuple(target) and (w[0], w[1]) != self.pos() and (w[0], w[1]) in walk:
+        (the Rocket Hideout) would otherwise be walked over, undoing the trip.
+        BUG-0881: the target is a warp square itself now and then - the square a Strength push starts
+        from on Victory Road 1F is the exit mat (9, 17), which can only be reached over its twin
+        (8, 17). An exit mat (a warp square on the border of the map) fires when the player steps off
+        the map, not when he steps on it, so the border warp squares may be crossed when the runner
+        walks to a warp square of the same map."""
+        here = self.read(ADDR["map"])[0]
+        info = links(self.read)
+        warps = info["warps"]
+        target_is_warp = any((w[0], w[1]) == tuple(target) for w in warps)
+        for w in warps:
+            if (here, w[0], w[1]) in INERT_WARPS:
+                continue
+            if (w[0], w[1]) == tuple(target) or (w[0], w[1]) == self.pos():
+                continue
+            if target_is_warp and (w[0] in (0, info["width"] - 1) or w[1] in (0, info["height"] - 1)):
+                continue   # an exit mat: it fires when the player steps off the map, not onto it
+            if (w[0], w[1]) in walk:
                 walk[(w[0], w[1])] = False
 
-    def teach_cut(self) -> str:
-        """HM01 is in the bag and nobody knows Cut: teach it to the Pokémon losing least by it (hm.py)."""
-        self.memo["cut_tries"] = self.memo.get("cut_tries", 0) + 1
-        index = hm.teach_cut(self)
+    def teach_hm(self, name: str, item: int, move: int) -> str:
+        """An HM is in the bag and nobody knows its move: teach it to the Pokémon losing least by it (hm.py)."""
+        tries = self.memo["hm_tries"]
+        tries[name] = tries.get(name, 0) + 1
+        index = hm.teach_hm(self, name, item, move)
         if index is None:
-            self.event("hm_failed", move="Cut", tries=self.memo["cut_tries"])
+            self.event("hm_failed", move=name, tries=tries[name])
         else:
             mon = self.party()[index]
-            self.event("hm_taught", move="Cut", pokemon=mon["name"], level=mon["level"], moves=mon["moves"])
-        return "teach cut"
+            self.event("hm_taught", move=name, pokemon=mon["name"], level=mon["level"], moves=mon["moves"])
+        return "teach " + name
 
     def cut_tree(self, direction: str, tree) -> str:
         """Face the tree square and use Cut on it (hm.py); a tree that stays after two tries becomes a wall."""
@@ -1040,6 +2882,23 @@ class Runner:
             self.memo.setdefault("walls", {}).setdefault(str(here), []).append([tree[0], tree[1]])
             self.event("cut_failed", map=here, at=list(tree))
         return "cut failed"
+
+    def surf_onto(self, direction: str, square) -> str:
+        """BUG-0681: face the water square and use Surf on it (hm.py); getting off is a plain step onto land. A square
+        Surf fails on twice becomes a wall, like a tree Cut fails on."""
+        self.step(direction)   # a blocked press only turns the player toward the water
+        hm.use_surf(self)
+        here = self.read(ADDR["map"])[0]
+        if self.pos() == tuple(square) or self.pos() in getattr(self.grid(), "water", ()):
+            self.event("surf", map=here, at=list(square), pokemon=self.party()[hm.surf_user(self.read)]["name"])
+            return "surf"
+        key = f"{here}:{square[0]},{square[1]}"
+        fails = self.memo.setdefault("surf_fails", {})
+        fails[key] = fails.get(key, 0) + 1
+        if fails[key] >= 2:
+            self.memo.setdefault("walls", {}).setdefault(str(here), []).append([square[0], square[1]])
+            self.event("surf_failed", map=here, at=list(square))
+        return "surf failed"
 
     def trash_cans(self) -> str:
         """One step of the barrier puzzle (gym.py): go next to the next can, look under it, learn from the text."""
@@ -1110,8 +2969,16 @@ class Runner:
             self.io.press("UP", 60); self.io.wait(200)
             self.io.press("A", 90); self.io.wait(400)
             return "use pc"
+        if ms.id == "surf":
+            return self.talk_to_nearest()   # the Secret House's only person hands over HM03
+        if ms.id == "strength":
+            return self.talk_to_nearest()   # the Warden (the only person in his house) takes the Gold Teeth and gives HM04
         if ms.id == "lift_key":
             return self.fetch_lift_key()
+        if ms.id == "silph_co":
+            # BUG-0710: the president, once Giovanni is beaten, hands over the Master Ball. BUG-0711: by his picture, the
+            # nearest person from the teleporter's part is a Rocket who has nothing more to say once beaten
+            return self.make_room() or self.talk_to(PRESIDENT_PICTURE)   # BUG-0711: his Master Ball needs a free slot
         if ms.id == "poke_flute":
             return self.talk_to_topmost()
         if ms.id == "ss_anne_cut":
@@ -1120,19 +2987,159 @@ class Runner:
             # the gym leader stands at the back of the gym: the topmost sprite (of those with a picture of their own:
             # Koga's jugglers share one and some stand higher up)
             people = overworld.sprite_list(self.read)
-            if people:
-                alone = [p for p in people if [q[0] for q in people].count(p[0]) == 1] or people
-                leader = min(alone, key=lambda p: p[1][1])
+            leader = self.gym_leader(people)      # BUG-0716: the person standing in the player's room
+            if leader is None and people:
+                alone = [p for p in people if self.is_person(p, people)] or \
+                        [p for p in people if self.is_person(p, people, alone=False)]
+                leader = min(alone, key=lambda p: p[1][1]) if alone else None
+                if leader is None and self.not_leaders:
+                    # BUG-0719: every candidate of the gym was judged "not the leader" and there is
+                    # nobody left: the blacklist is a memory of this visit, it must never empty the gym,
+                    # or the runner stands still on the spot for ever (the "same_spot" stall of run
+                    # 20261020-134355: 533 "at goal" ticks with Giovanni wrongly in the blacklist).
+                    # Forget it and start again.
+                    forgotten = len(self.not_leaders)
+                    self.memo["not_leaders"] = []
+                    self.memo.pop("leader_talked", None)
+                    self.answer_texts = []
+                    self.event("leaders_forgotten", milestone=ms.id, forgotten=forgotten)
+                    return "forget the blacklist"
+            if leader:
                 if self.read(ADDR["map"])[0] == VERMILION_GYM and \
                         overworld.astar(self.grid(sprites_block=False), self.pos(), leader[1]) is None:
                     return self.trash_cans()   # Lt. Surge is behind the electric barrier
+                if self.read(ADDR["map"])[0] == CINNABAR_GYM and \
+                        overworld.astar(self.grid(sprites_block=False), self.pos(), leader[1]) is None:
+                    return self.cinnabar_quiz()   # Blaine is behind the quiz gates
+                if self.read(ADDR["map"])[0] == SAFFRON_GYM:
+                    pad = pad_route(self.grid(sprites_block=False), links(self.read), self.pos(), leader[1])
+                    if pad:
+                        return self.walk(pad)   # BUG-0712: Sabrina's room is reached only by teleporter pads
                 seen = self.memo.setdefault("leaders_seen", [])
                 if ms.id not in seen:
                     seen.append(ms.id)
                     self.event("gym_leader", milestone=ms.id, picture=leader[0], at=list(leader[1]))
-                return self.talk_at(leader[1])   # by position: the picture alone finds the nearest juggler
+                if self.memo.get("leader_talked") == list(leader[1]) and self.answer_texts \
+                        and not self.answer_is_a_trainer():
+                    # BUG-0718: he answered with a plain dialogue and not with a battle: he is not the leader
+                    # (the Viridian gym's kid: "I don't know who the champion of Viridian is"). Remember him
+                    # and let the next candidate have a go. A candidate that answered nothing (a trainer whose
+                    # line of sight is elsewhere) is not marked: the game has not said he is no leader.
+                    # BUG-0719: the answer must have settled first. A gym leader's speech is followed by his
+                    # battle line ("GIOVANNI veut se battre!") and the battle starts right after it: judged
+                    # while the speech was still being typed (the page cut in the middle of a word), the
+                    # leader was blacklisted and the gym never gave its badge. Wait for the game to be
+                    # quiet: if a battle starts in the meantime, it proves he is a trainer.
+                    # BUG-0723: while the game is talking, the runner must not MOVE: a step cancels the
+                    # leader's script and his speech starts again (the Viridian leader never fought in 200 s
+                    # of replay). His fight comes from his own script, ~13 s after the talk (run
+                    # 20261020-134355: the trainer battle, level 38, 13.7 s after his text was read).
+                    if not self.answer_settled():
+                        self.io.wait(200)
+                        return "answer pending"
+                    # the game has been quiet and no fight came: step into the leader's line of sight before
+                    # judging him (BUG-0719). The step cancels nothing now (the game is quiet) and in Gen 1 a
+                    # trainer's fight starts when the player enters the square he looks at.
+                    if self.memo.get("leader_challenged", 0) < GYM_CHALLENGE_TRIES:
+                        self.memo["leader_challenged"] = self.memo.get("leader_challenged", 0) + 1
+                        self.challenge(leader[1])
+                        self.io.wait(200)
+                        return "challenged"
+                    said = list(self.answer_texts)
+                    self.memo.setdefault("not_leaders", []).append(list(leader[1]))
+                    self.memo.pop("leader_talked", None)
+                    self.memo.pop("leader_challenged", None)
+                    self.answer_texts = []
+                    self.event("not_the_leader", milestone=ms.id, picture=leader[0], at=list(leader[1]), said=said)
+                    self.io.wait(200)
+                    return "not the leader"
+                talked = self.talk_at(leader[1])   # by position: the picture alone finds the nearest juggler
+                if talked == "talk":
+                    self.memo["leader_talked"] = list(leader[1])
+                    self.answer_texts = []   # the game's answer to this talk is what tells a trainer from a passer-by
+                    self.answer_since = time.time()   # BUG-0719: the answer is settled a quiet while after this talk
+                    self.memo.pop("leader_challenged", None)   # BUG-0723: a new talk, a new set of tries
+                return talked
         self.io.wait(300)
         return "at goal"
+
+    def is_person(self, who, people, alone: bool = True) -> bool:
+        """True when `who` can be the gym leader: a person (not a Poké Ball lying on the floor, BUG-0718),
+        not one the runner has already found not to be a trainer, and with a picture of his own (`alone`)."""
+        pic, pos = who[0], tuple(who[1])
+        if pic == BALL_PICTURE or pos in self.not_leaders:
+            return False
+        return not alone or [q[0] for q in people].count(pic) == 1
+
+    def answer_is_a_trainer(self) -> bool:
+        """True when the game's answer to the last talk was a trainer's battle line ("GIOVANNI veut se battre!",
+        BUG-0718): a passer-by answers with a plain dialogue and is not the gym leader."""
+        return any(GYM_TRAINER_WORD in t for t in self.answer_texts)
+
+    def answer_settled(self) -> bool:
+        """True when the game's answer to the last talk has settled (BUG-0719): the text box has been closed
+        for a quiet while and the battle (the leader's battle line and the fight it starts) had the time to
+        come. Judged earlier, a gym leader whose speech was still being typed was taken for a passer-by."""
+        now = time.time()
+        return now - self.answer_at >= GYM_ANSWER_QUIET_S or now - self.answer_since >= GYM_ANSWER_MAX_S
+
+    def challenge(self, who) -> str:
+        """Step onto the square a gym leader looks at (BUG-0719): in Gen 1 a trainer starts the fight when
+        the player enters the line he faces, and the leader of a gym stands at the top of his room. A leader
+        answered with a plain line when the runner talked to him ("Tu ne pourras accéder à la LIGUE
+        POKéMON..."), so talking alone never starts his battle: the runner walks towards the square in front
+        of him (below first, then the sides) and lets the game decide.
+        BUG-0723: the runner usually stands on that square already (it walked there to talk) and the game only
+        checks the sight when the player MOVES: step aside, so that coming back on it starts the fight."""
+        x, y = who
+        here = self.pos()
+        sight = (x, y + 1)          # the leader stands at the top of his room and looks down
+        walk = self.grid()
+        if here != sight and walk.get(sight):
+            return self.walk(sight)
+        if here == sight:
+            for d in ("LEFT", "RIGHT", "DOWN", "UP"):
+                dx, dy = overworld.STEP[d]
+                if walk.get((here[0] + dx, here[1] + dy)) and self.step(d):
+                    return "step aside"
+            return "challenge"
+        for target in ((x - 1, y), (x + 1, y), (x, y - 1)):
+            if target == here or not walk.get(target):
+                continue
+            return self.walk(target)
+        return "challenge"
+
+    def forget_not_leader(self) -> None:
+        """The person the runner talked to last started a battle: the game has proven he is a trainer, so he
+        is not "not the leader" any more (BUG-0719). Without this a wrong verdict about the gym leader was
+        final: the leader stayed in the blacklist and the gym could never give its badge."""
+        talked = self.memo.get("talked_to")
+        if not talked:
+            return
+        not_leaders = self.memo.get("not_leaders") or []
+        if any(list(s) == list(talked) for s in not_leaders):
+            self.memo["not_leaders"] = [s for s in not_leaders if list(s) != list(talked)]
+            self.event("leader_is_a_trainer", at=list(talked))
+
+    @property
+    def not_leaders(self) -> set:
+        """The people the runner has already talked to without a battle (BUG-0718: the Viridian gym's kid)."""
+        return {tuple(s) for s in self.memo.get("not_leaders", [])}
+
+    def gym_leader(self, people) -> Optional[tuple]:
+        """The gym leader among the people: the one standing in the player's room (on screen, not hidden) whose
+        picture no other person shares. BUG-0716: the trainers of the other rooms are hidden, and one of them
+        can have a picture of his own in the room's list: the runner then chased a trainer it could never reach
+        and walked on two squares for 5 min. None when nobody qualifies: the caller keeps the old rule.
+        BUG-0718: a Poké Ball lying on the gym's floor (picture 61) is not a person: the runner took it for the
+        leader, walked to it and the game's ledge bounced it back for ever."""
+        here = self.read(ADDR["map"])[0]
+        walls = {tuple(s) for s in self.memo.get("walls", {}).get(str(here), [])}
+        seen = [pic for pic, _ in people]
+        on_screen = {(pic, tuple(pos)) for pic, pos, hidden in overworld.screen_sprites(self.read) if not hidden}
+        out = [(pic, pos) for pic, pos in people if (pic, tuple(pos)) in on_screen
+               and tuple(pos) not in walls and self.is_person((pic, pos), people) and seen.count(pic) == 1]
+        return min(out, key=lambda p: p[1][1]) if out else None
 
     def _grind_progress(self, top: int, xp: int) -> None:
         """Track training progress: a level-up or any XP gain resets the stall timer (memo['grind_s'])."""
@@ -1156,12 +3163,24 @@ class Runner:
             self.rethink(f"training stalled: {secs} s of training without experience gained at level {top} (target {want}), "
                          f"opponents' levels {self.memo.get('opponent_levels')}")
             return "training stalled"
-        return self.wander(here, info)
+        where = self.wander(here, info)
+        if where == "no grind area":
+            # BUG-0878: the training cannot even start here: no way from this map to a grass area.
+            # The run of 20261023-175436 stood on Victory Road 1F for 300 ticks and every tick answered
+            # "no grind area" without pressing a key: the target was never dropped, so the runner spun
+            # on the training instead of playing the story. A training that cannot begin is hopeless
+            # like a stalled one: drop the target and go on (the levels come from the route).
+            self.memo.update(grinding=False, stalled_target=want, grind_s=0.0)
+            self.event("train_stalled", level=top, target=want, seconds=0, reason="no grind area")
+            self.rethink(f"training stalled: no way from map {here} to a grass area to train in, "
+                         f"the level {top} (target {want}) has to come from the route")
+            return "training stalled"
+        return where
 
-    def wander(self, here: int, info: Dict) -> str:
-        """Walk around the grass of the nearest grind map: wild battles come by themselves."""
-        if here not in GRIND_MAPS:
-            places = [m for m in GRIND_MAPS if self.world.route(here, m)]
+    def wander(self, here: int, info: Dict, maps=GRIND_MAPS) -> str:
+        """Walk around the grass of the nearest of `maps`: wild battles come by themselves."""
+        if here not in maps:
+            places = [m for m in maps if self.world.route(here, m)]
             if not places:
                 return "no grind area"
             return self.go_to_map(here, min(places, key=lambda m: len(self.world.route(here, m))), info)
@@ -1188,6 +3207,20 @@ class Runner:
             return None
         return self.wander(here, info)
 
+    def reachable_places(self, here: int, places) -> List[int]:
+        """The places of `places` the route can start from, where the player stands.
+
+        BUG-0888: the world graph knows a way to a Pokémon Center from *another* part of the map the
+        player is on, but not from the part he stands in: on Route 23 the way to Pallet Town's Center
+        starts at the map's south edge, which lies in a part of its own (the gate house leads back to
+        Route 23), while the player was in the north part, at (4, 32). The trip could never start, and
+        the tick answered "no route" for ever: the player stood on the same square for 300 ticks (the
+        same_spot stall of run 20261024-085053, the last event "lost map 34 next 41" - 41 is Pallet
+        Town's Center). A trip is only planned to a place the route can start from.
+        """
+        part = ((self.world.maps.get(here) or {}).get("parts") or {}).get("player")
+        return [m for m in places if m == here or self.world.route(here, m, start_part=part)]
+
     def heal(self, here: int, cur: int, tot: int) -> str:
         """Heal at the nearest known place: a Pokémon Center (the nurse behind the counter) or home
         (mom)."""
@@ -1196,15 +3229,31 @@ class Runner:
             self.event("heal_start", hp=cur, max_hp=tot)
         if cur == tot and self.attack_pp() >= HEAL_PP_BELOW:
             self.memo["healing"] = False
+            self.memo.pop("heal_waiting", None)
             self.event("healed", hp=cur)
             self._attach_heal_outcomes({"result": "healed"})
             return "healed"
-        places = [m for m in (PLAYERS_HOUSE_1F,) + POKEMON_CENTERS if m == here or self.world.route(here, m)]
+        places = self.reachable_places(here, (PLAYERS_HOUSE_1F,) + POKEMON_CENTERS)
         if not places:
+            # BUG-0877: no healing place is reachable (the runner is on Victory Road 1F, and the world
+            # graph knows no way from there to a Center). The trip must not become a dead end: the
+            # runner used to answer "no route to heal" on every tick and never played again (the
+            # same_spot stall of run 20261023-173029: 605 ticks on map 108, not one step). The trip
+            # waits here: the flag stays set (the trip is not restarted, and not logged again, on
+            # every tick) and the caller goes on playing the story.
+            # BUG-0888: the same waiting applies when a Center is known but the route to it cannot be
+            # started from the player's own part of the map (Route 23, see `reachable_places`).
             return "no route to heal"
-        dest = min(places, key=lambda m: 0 if m == here else len(self.world.route(here, m)))
+        part = ((self.world.maps.get(here) or {}).get("parts") or {}).get("player")
+        dest = min(places, key=lambda m: 0 if m == here else len(self.world.route(here, m, start_part=part)))
         if here != dest:
-            return self.go_to_map(here, dest, self.world.maps[here])
+            trip = self.go_to_map(here, dest, self.world.maps[here])
+            if trip == "no route":
+                # BUG-0888: the route the graph knows cannot be started from here after all (the
+                # first hop is not in the player's part): the trip waits (BUG-0877) instead of the
+                # tick ending on "no route" for ever, which left the player standing still.
+                return "no route to heal"
+            return trip
         if here == PLAYERS_HOUSE_1F:
             return self.talk_to(MOM_PICTURE)
         return self.talk_to_nurse()
@@ -1212,14 +3261,20 @@ class Runner:
     def prepare(self, ms, here: int) -> Optional[str]:
         """Once per milestone with `prepare`: a Pokémon Center visit (the nurse restores HP and PP), even
         when HP looks fine. None when done or when no Center is known."""
-        places = [m for m in POKEMON_CENTERS if m == here or self.world.route(here, m)]
+        places = self.reachable_places(here, POKEMON_CENTERS)
         if not places or self.memo.pop("nurse_talked", False):
             self.memo["prepared"].append(ms.id)   # the dialog that followed the last talk is over
             self.event("prepared", milestone=ms.id, hp=self.party_hp(), attack_pp=self.attack_pp())
             return None
-        dest = min(places, key=lambda m: 0 if m == here else len(self.world.route(here, m)))
+        part = ((self.world.maps.get(here) or {}).get("parts") or {}).get("player")
+        dest = min(places, key=lambda m: 0 if m == here else len(self.world.route(here, m, start_part=part)))
         if here != dest:
-            return self.go_to_map(here, dest, self.world.maps[here])
+            trip = self.go_to_map(here, dest, self.world.maps[here])
+            if trip == "no route":
+                # BUG-0888: the trip cannot start from here: it waits instead of freezing the tick.
+                self.memo["prepared"].append(ms.id)
+                return None
+            return trip
         tick = self.talk_to_nurse()
         self.memo["nurse_talked"] = tick == "talk nurse"
         return tick
@@ -1410,8 +3465,19 @@ class Runner:
             self.io.wait(200)
             self.io.press("A", 90)
             self.io.wait(400)
+            self.memo["talked_to"] = list(who)   # BUG-0719: a battle afterwards proves he is a trainer
             return "talk"
-        return self.walk(who)
+        # BUG-0919: we are already walking to him (talk_at -> walk -> unblock -> talk_at -> walk ...):
+        # walking to him again would ask the same walk the same question and it would answer the same
+        # way, for ever. The run of 20261025 died with "maximum recursion depth exceeded" on Victory
+        # Road 1F, where the boulder in the corridor keeps the guard out of reach.
+        if getattr(self, "_walking_to", None) == tuple(who):
+            return "no path"
+        self._walking_to = tuple(who)
+        try:
+            return self.walk(who)
+        finally:
+            self._walking_to = None
 
     def step_aside(self) -> str:
         """One step onto a walkable neighbouring square (south first)."""
@@ -1426,10 +3492,16 @@ class Runner:
     def blocker_on_the_way(self, start, target):
         """The first sprite on the path to `target` when only sprites block it, else None."""
         open_map = self.grid(sprites_block=False)
+        # BUG-0711: on the walk's own terms (warps are walls): Silph 5F's south strip is shut by a beaten Rocket and a
+        # teleporter pad; a path over the pad named no blocker, and the walk went back and forth by the pad
+        self.avoid_warps(open_map, target)
         path = overworld.astar(open_map, start, target)
         if not path:
             return None
-        people = set(overworld.sprites(self.read))
+        # BUG-0881: a boulder is not a person either: talking to it does nothing at all (the runner
+        # pressed A on the rock next to it three times on Victory Road 1F and stood still for 300
+        # ticks, the same_spot stall of the run 20261023-231857).
+        people = set(overworld.sprites(self.read)) - set(strength.live_boulders(self.read))
         sq = start
         for d in path:
             sq = (sq[0] + overworld.STEP[d][0], sq[1] + overworld.STEP[d][1])
@@ -1443,14 +3515,74 @@ class Runner:
         found = [pos for pic, pos in overworld.sprite_list(self.read) if pic == picture]
         return min(found, key=lambda p: abs(p[0] - px) + abs(p[1] - py)) if found else None
 
-    def run(self, seconds: float) -> Dict:
-        t0, counts = time.time(), {}
+    def game_is_frozen(self) -> bool:
+        """True when the emulator is not running: the game's work RAM does not change from one tick to the
+        next (BUG-0875). The game writes its OAM shadow every frame, so a snapshot that never moves is a
+        game whose keys go nowhere. The second lane's new game of 2026-10-23 stood at the title menu
+        (map 0, pos (0, 0), no Pokémon, no money) for the whole run: the runner pressed A and START into
+        a frozen game and the detector called it "no progress"."""
+        getter = getattr(self.io, "snapshot", None)
+        if getter is None:
+            return False                      # an IO without a snapshot (the unit tests): nothing to compare
+        try:
+            snap = list(getter())
+        except Exception:                      # noqa: BLE001 - a page that does not answer is frozen
+            self.frozen_ticks += 1
+            return self.frozen_ticks >= FROZEN_TICKS
+        if self.last_snapshot is not None and snap == self.last_snapshot:
+            self.frozen_ticks += 1
+        else:
+            self.frozen_ticks = 0
+        self.last_snapshot = snap
+        return self.frozen_ticks >= FROZEN_TICKS
+
+    def reboot_emulator(self) -> bool:
+        """Restart the emulator in the page: the ROM is loaded again and the save with it, so the run goes
+        on from where it was. False when the page does not answer at all: the game is then really gone."""
+        reboot = getattr(self.io, "reboot", None)
+        if reboot is None:
+            return False
+        try:
+            return bool(reboot())
+        except Exception:                      # noqa: BLE001 - a page that does not answer is gone
+            return False
+
+    def self_guarded(self) -> bool:
+        """True while the runner is in an activity that ends itself when it goes nowhere: training (GRIND_STALL_S
+        without experience) or the Safari Surf hunt (SURF_HUNT_GIVE_UP ticks). The stall detector does not count that time."""
+        m = self.memo
+        if m.get("grinding"):
+            return True
+        if self.intro_now:
+            # BUG-0875: the intro of a new game (the title screen, Oak's speech, the names) is a long phase
+            # in which the game moves nowhere: it must not be counted as "no progress" (the second lane's
+            # new game was killed by the no-progress clock while it was still being named).
+            return True
+        return (not m.get("surf_deferred") and m.get("hunt_area") is not None
+                and self.read(ADDR["map"])[0] in SAFARI_ZONE and m.get("hunt_total", 0) < SURF_HUNT_GIVE_UP)
+
+    def run(self, seconds: float, stall=None) -> Dict:
+        """Play for `seconds`. `stall` (a stall.StallDetector) ends the run early, cleanly, when it sees the run
+        go nowhere; the result then has `stalled` = its reason and the log an event `stalled`."""
+        t0, counts, stalled = time.time(), {}, None
         while time.time() - t0 < seconds:
             what = self.tick()
             counts[what] = counts.get(what, 0) + 1
             if what == "story done":
                 break   # nothing left to play: end the run, it saves as usual
+            if what == "emulator gone":
+                # BUG-0872: the page died: there is no game left to play on. The run ends here, before the
+                # detector sees it: a map and a position the game is not on are not a stall.
+                break
             if what in ("no route", "no path", "no route to heal", "no grind area", "nobody", "no nurse", "at goal"):
                 self.io.wait(200)  # nothing to do this tick: do not spin
+            if stall:
+                stalled = stall.observe(what, current(self.read, self.memo).id, self.read(ADDR["map"])[0], self.pos(),
+                                        len(self.memo.get("done", [])), guarded=self.self_guarded())
+                if stalled:
+                    self.event("stalled", reason=stalled, milestone=current(self.read, self.memo).id,
+                               map=self.read(ADDR["map"])[0], pos=list(self.pos()))
+                    break
         return {"ticks": sum(counts.values()), "counts": counts, "milestone": current(self.read, self.memo).id,
-                "map": self.read(ADDR["map"])[0], "pos": self.pos(), "party": self.read(ADDR["party_count"])[0]}
+                "map": self.read(ADDR["map"])[0], "pos": self.pos(), "party": self.read(ADDR["party_count"])[0],
+                "stalled": stalled, "emulator_gone": bool(counts.get("emulator gone"))}

@@ -192,6 +192,15 @@ def run_server(app, on_signal, post_worker_init_callback=None):
             'workers': 1,
             'threads': 1,
             'timeout': 3600,
+            # A worker that is still busy when the server is stopped gets
+            # `graceful_timeout` seconds and is then killed. The default is 30 s —
+            # exactly the `TimeoutStopSec` of the vpt-server unit, so on a loaded
+            # host the arbiter was still waiting when systemd SIGKILLed the whole
+            # cgroup: the unit logged "Failed with result 'timeout'" and the API
+            # was gone for the rest of the restart, which is what the Atlas / stb
+            # benchmark saw as 502 (vpt-pi1, 2026-10-23, TASK-169). 10 s leaves
+            # room inside the 30 s budget for the atexit cleanup that follows.
+            'graceful_timeout': 10,
             'worker_class': worker_class,
             'loglevel': 'info',
             'accesslog': '-',

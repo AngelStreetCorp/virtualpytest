@@ -17,6 +17,7 @@ import sys
 import argparse
 import time
 import os
+import re
 import signal
 import subprocess
 import uuid
@@ -31,20 +32,88 @@ from typing import Dict, List, Optional, Any, Tuple
 from shared.src.lib.utils.app_utils import load_environment_variables
 from shared.src.lib.utils.phase_timing import t0 as _phase_t0, log_phase as _log_phase
 from shared.src.lib.utils.report_generation_utils import generate_and_upload_script_report
+from shared.src.lib.utils.upload_error_utils import sanitize_upload_error
 from shared.src.lib.database.script_results_db import record_script_execution_start, update_script_execution_result
 from shared.src.lib.utils.script_identity_utils import (
     normalize_script_ref,
     resolve_script_identity,
     script_ref_from_path,
 )
+from shared.src.lib.utils.browser_run_slots import get_browser_slot_pool, slot_wait_seconds
+from shared.src.lib.utils.script_target_rules_utils import extract_script_target_rules_from_path
 from .cli_arg_utils import str_to_bool
 
 DEFAULT_TEAM_ID = '7fdeb4bb-3639-4ec3-959f-b54769a219ce'
 
 _VALID_TRIGGER_TYPES = {"api", "mcp", "scheduler", "campaign", "cli", "host", "ai"}
 
+# Hard ceiling for one script run. A caller that knows the budget of its run (the game
+# dispatcher knows a run must not outlive its slot) declares that budget and the executor
+# enforces it: a run declared at 900 s must not live for an hour (E50). A run without a
+# declared budget keeps the defaults: 1 h, 4 h for a full-tree validation (BUG-0633).
+DEFAULT_SCRIPT_TIMEOUT_SECONDS = 3600
+VALIDATION_SCRIPT_TIMEOUT_SECONDS = 4 * 3600
+# The margin the executor adds to a declared budget: the budget is the script's own stop
+# (the game runner stops playing at it), and the script still needs a moment to write its
+# result and let the server close the row. Without it the executor would kill the script
+# exactly at the budget, before the verdict is written.
+SCRIPT_RESULT_WRITE_MARGIN_SECONDS = 120
 
-def resolve_virtual_script_libs(root_source: str, fetch_source) -> Dict[str, str]:
+
+def resolve_script_timeout_seconds(script_name: str, declared_timeout: Optional[float] = None) -> int:
+    """The hard ceiling (seconds) the executor enforces on one run.
+
+    `declared_timeout` is the budget the caller declared for this run and wins over the
+    defaults. It is the script's own stop, not the ceiling: the margin the script needs to
+    write its result is added here.
+    """
+    if declared_timeout is not None:
+        try:
+            declared = float(declared_timeout)
+        except (TypeError, ValueError):
+            declared = 0.0
+        if declared > 0:
+            return int(declared) + SCRIPT_RESULT_WRITE_MARGIN_SECONDS
+    if os.path.basename(str(script_name)) in ('validation', 'validation.py'):
+        return VALIDATION_SCRIPT_TIMEOUT_SECONDS
+    return DEFAULT_SCRIPT_TIMEOUT_SECONDS
+
+
+def declared_run_budget_seconds(parameters: str) -> Optional[int]:
+    """The run's own time budget, read out of its parameters.
+
+    The game scripts take ``--max_duration 900``: that is where the script stops, so it is
+    also where the host must stop it. It used to be a script argument only — nothing outside
+    the action loop enforced it — which is why a wedged run outlived its budget for ever and
+    never reported (BUG-0842). ``--max_pieces`` is the run's piece budget, which the runner
+    counts itself; only the time budget is a ceiling the host can enforce from outside.
+
+    Returns None when the run declares no budget: the caller then keeps the defaults.
+    """
+    if not parameters or not parameters.strip():
+        return None
+    try:
+        tokens = shlex.split(parameters.strip())
+    except ValueError:
+        tokens = parameters.split()
+    for index, token in enumerate(tokens):
+        value = None
+        if token == '--max_duration' and index + 1 < len(tokens):
+            value = tokens[index + 1]
+        elif token.startswith('--max_duration='):
+            value = token.split('=', 1)[1]
+        if value is None:
+            continue
+        try:
+            budget = int(float(value))
+        except (TypeError, ValueError):
+            return None
+        return budget if budget > 0 else None
+    return None
+
+
+def resolve_virtual_script_libs(root_source: str, fetch_source,
+                                missing: Optional[List[str]] = None) -> Dict[str, str]:
     """Recursively resolve a virtual script's `_script_libs` into {name: source}.
 
     A virtual script may declare `_script_libs = ["a", "b"]` — names of OTHER
@@ -55,6 +124,11 @@ def resolve_virtual_script_libs(root_source: str, fetch_source) -> Dict[str, str
     `fetch_source(name)` must return the library's source string, or None if the
     named script does not exist (missing libraries are skipped, not fatal —
     keeping resolution best-effort like the other metadata extractors).
+
+    `missing`, when given, collects the names that were skipped. The skip itself
+    stays a skip (a declared library may be optional); collecting the names is
+    what lets a run that trips on one of them say so instead of blaming the
+    author's file (BUG-0089).
 
     Pure function (no I/O of its own) so it can be unit-tested with a fake
     fetcher. Returns an insertion-ordered dict mapping library name -> source.
@@ -72,12 +146,85 @@ def resolve_virtual_script_libs(root_source: str, fetch_source) -> Dict[str, str
             lib_source = fetch_source(name)
             if lib_source is None:
                 print(f"[@script_executor] _script_libs: library '{name}' not found — skipped")
+                if missing is not None:
+                    missing.append(name)
                 continue
             resolved[name] = lib_source
             _walk(lib_source)
 
     _walk(root_source or '')
     return resolved
+
+
+# The libraries a virtual script declared but the platform could not fetch. The
+# resolver skips them on purpose, but the skip used to be invisible outside one
+# print line: a run that died on the missing import blamed the author's file
+# ("likely corrupted or has a syntax/import error") or said nothing at all
+# (BUG-0089). The names travel to the child in the environment so the run's
+# error path can name the library the platform could not fetch.
+MISSING_LIBRARY_ENV_VAR = 'VPT_MISSING_SCRIPT_LIBS'
+
+# Set by the child process when an unexpected error is about a library the
+# platform could not fetch, so the row's error_msg can name it too.
+_MISSING_LIBRARY_ERROR: Optional[str] = None
+
+
+def describe_missing_library(name: str) -> str:
+    """The author-facing sentence for a library the platform could not fetch."""
+    return (f"declared library '{name}' could not be found by the platform "
+            f"(it is listed in _script_libs but was not found for this team/environment)")
+
+
+def missing_library_names_in_output(output: str, missing_libs: Optional[List[str]]) -> List[str]:
+    """The declared libraries this output reports as unimportable.
+
+    Only a library the platform itself could not fetch counts: the run has to
+    have tripped on it, otherwise a skip would be blamed on an unrelated
+    failure.
+    """
+    if not output or not missing_libs:
+        return []
+    hits: List[str] = []
+    for name in missing_libs:
+        if re.search(r"No module named ['\"]%s['\"]" % re.escape(name), output):
+            hits.append(name)
+    return hits
+
+
+def missing_library_error_message(output: str, missing_libs: Optional[List[str]]) -> Optional[str]:
+    """One message naming every skipped library the run actually tripped on.
+
+    None when the run did not trip on a skipped library — an unrelated failure
+    keeps its own message, so a skip never becomes a false attribution.
+    """
+    names = missing_library_names_in_output(output, missing_libs)
+    if not names:
+        return None
+    return '; '.join(describe_missing_library(name) for name in names)
+
+
+def missing_libs_from_env() -> List[str]:
+    """The skipped library names the parent handed to this child process."""
+    raw = os.getenv(MISSING_LIBRARY_ENV_VAR) or ''
+    return [name.strip() for name in raw.split(',') if name.strip()]
+
+
+def missing_library_for_error(error: Exception) -> Optional[str]:
+    """The skipped library this exception is about, if any.
+
+    An ImportError about some other module is the script's own business and
+    keeps its own message: only a library the platform could not fetch is
+    reported as the platform's problem.
+    """
+    name = getattr(error, 'name', None)
+    if not name:
+        # A ModuleNotFoundError raised by the import machinery carries `.name`;
+        # one rebuilt from a traceback does not, so read it off the message.
+        match = re.search(r"No module named ['\"]([^'\"]+)['\"]", str(error))
+        name = match.group(1) if match else None
+    if not name:
+        return None
+    return name if name in missing_libs_from_env() else None
 
 
 def _virtual_script_name() -> Optional[str]:
@@ -131,17 +278,50 @@ def _normalize_environment(environment: Optional[str]) -> str:
     raw = (environment or os.getenv("VPT_ENVIRONMENT") or "").strip().lower()
     return raw if raw in _VALID_ENVIRONMENTS else "prod"
 
-_running_processes_by_device: Dict[str, Dict[str, Any]] = {}
+# One entry PER RUN: two browser-isolated runs can share a device (TASK-146), so the
+# registry holds a list, not a single process.
+_running_processes_by_device: Dict[str, List[Dict[str, Any]]] = {}
 _running_processes_lock = threading.Lock()
 
 
+def _script_is_browser_isolated(script_path: str) -> bool:
+    """True when the script drives its OWN browser (its own debug port and profile).
+
+    Such a script does not need the device to itself (TASK-146): two of them share one
+    host, each with a Chrome of its own. The host still limits how many of them run at
+    the same time - each one is a Chromium with its own profile - so it takes one of the
+    host's browser slots.
+    """
+    if not script_path:
+        return False
+    try:
+        rules = extract_script_target_rules_from_path(script_path)
+    except Exception as rules_err:  # noqa: BLE001 - a broken script must still run
+        print(f"[@script_executor] Could not read the target rules of {script_path}: {rules_err}")
+        return False
+    return bool((rules or {}).get('browser_isolated'))
+
+
 def _register_running_process(device_id: str, process: subprocess.Popen, script_name: str,
-                               task_id: Optional[str] = None):
+                               task_id: Optional[str] = None,
+                               execution_id: Optional[str] = None,
+                               run_id: Optional[str] = None,
+                               browser_slot: bool = False):
     """Track currently running script process for a device.
 
     The key MUST be the real device_id: abort_running_script() looks the process up by
     the device_id the server holds in the lock. A placeholder key here means the script
     is unkillable — force take-control will silently fail to stop it.
+
+    `execution_id` ties the process to the deployment_executions row that claims it, so
+    the host can answer "is THIS row still running?" instead of "is this device busy?"
+    (E50).
+
+    `run_id` is the id the run's browser profile is derived from: an abort kills the
+    script's process tree, but Chrome sits in its own session and survives that, so the
+    abort has to be able to find the run's browser by its profile (BUG-0760).
+    `browser_slot` says the run took one of the host's browser slots, i.e. it drives a
+    browser of its own and must not leave it behind.
     """
     if not device_id or device_id == 'unknown-device':
         print(
@@ -151,21 +331,29 @@ def _register_running_process(device_id: str, process: subprocess.Popen, script_
         )
         return
     with _running_processes_lock:
-        _running_processes_by_device[device_id] = {
+        _running_processes_by_device.setdefault(device_id, []).append({
             'process': process,
             'script_name': script_name,
             'started_at': time.time(),
             'task_id': task_id,
-        }
+            'execution_id': execution_id,
+            'run_id': run_id,
+            'browser_slot': browser_slot,
+        })
 
 
 def _unregister_running_process(device_id: str, process: subprocess.Popen):
-    """Remove tracked process if it matches the registered one."""
+    """Remove the tracked process if it matches one of the registered ones."""
     if not device_id:
         return
     with _running_processes_lock:
-        current = _running_processes_by_device.get(device_id)
-        if current and current.get('process') is process:
+        entries = _running_processes_by_device.get(device_id)
+        if not entries:
+            return
+        remaining = [e for e in entries if e.get('process') is not process]
+        if remaining:
+            _running_processes_by_device[device_id] = remaining
+        else:
             _running_processes_by_device.pop(device_id, None)
 
 
@@ -207,6 +395,111 @@ def _kill_process_tree(process: subprocess.Popen, timeout: float = 5.0) -> None:
         process.wait(timeout=timeout)
 
 
+def stop_run_for_timeout(process: subprocess.Popen, timeout_seconds: float,
+                         elapsed_time: float) -> str:
+    """Stop a run that outlived its budget and say why it ended.
+
+    The watchdog lives outside the action loop: it watches the run itself, so a run whose
+    device call never returns still ends (BUG-0842). The browser the run held is closed on
+    the way out — the script never reached its own teardown — so a stopped run leaves no
+    orphan behind.
+
+    Returns the reason the run ended, for the result.
+    """
+    print(f"❌ [Script] Script execution timed out after {timeout_seconds} seconds "
+          f"(elapsed: {elapsed_time:.1f}s)")
+    print("❌ [Script] Process still running, force killing...")
+    _kill_process_tree(process)
+    _teardown_run_browser()
+    return f'The run outlived its budget of {timeout_seconds}s (elapsed {elapsed_time:.1f}s)'
+
+
+def apply_timeout_verdict(result: Dict[str, Any], reason: str) -> Dict[str, Any]:
+    """What a run that was stopped for its budget reports.
+
+    A run that ends must report a result: a timeout with a reason, never a hang and never
+    a silent success (BUG-0842). A healthy run keeps its own verdict untouched.
+    """
+    result['timed_out'] = True
+    result['timeout_reason'] = reason
+    result['script_success'] = False
+    return result
+
+
+def _teardown_run_browser() -> Dict[str, Any]:
+    """Close the browser and the driver of a run the watchdog just stopped.
+
+    The script never reached its own teardown, so the host does it: the reclaim pass
+    finds what the hard kill left behind — the browser on the run's port and the driver
+    that held it — and closes it, so a stopped run leaves no orphan behind (BUG-0842).
+    It only ever touches a browser and a driver that belong to no live run.
+    """
+    try:
+        from shared.src.lib.utils.leaked_browser_reaper import reap_leaked_browsers
+        outcome = reap_leaked_browsers()
+    except Exception as exc:  # noqa: BLE001 - a teardown failure must not fail the run
+        print(f'[@script_executor] Could not tear the run browser down: {type(exc).__name__}: {exc}')
+        return {}
+    print(f"[@script_executor] Run browser torn down: {len(outcome.get('reaped', []))} browser(s), "
+          f"{len(outcome.get('reaped_drivers', []))} driver(s)")
+    return outcome
+
+
+# The child reports the outcome of its own browser close on stdout and the parent reads
+# it back, so the run's log can say "closed normally" instead of the bare "already gone".
+# Same convention as SCRIPT_SUCCESS / SCRIPT_RESULT_ID.
+RUN_BROWSER_CLOSE_MARKER = 'RUN_BROWSER_CLOSE:'
+
+
+def _run_closed_its_own_browser(stdout: str) -> bool:
+    """True when the run's own cleanup closed the browser and said so."""
+    if not stdout:
+        return False
+    return any(line.strip().startswith(f'{RUN_BROWSER_CLOSE_MARKER}closed')
+               for line in stdout.splitlines())
+
+
+def _teardown_run_browser_for_run(run_id: str, stdout: str = '') -> Dict[str, Any]:
+    """The end of a run must leave no browser behind, whatever ended the run (BUG-0760).
+
+    The run's own close goes through the Playwright controller loop, and a loop that
+    wedged is exactly why the run failed: the close is scheduled on that loop, so it
+    never runs and the browser outlives the run — measured on a game host, where the
+    Chromium of an hourly run stayed alive for four minutes until the periodic reclaim
+    pass took it. This teardown does not use the loop: it finds the browser by the run's
+    own profile directory and signals it by pid.
+
+    The report says what really happened — closed normally, taken down by pid, already
+    gone, or NOT reaped with the reason. It never claims a reclaim that did not happen.
+    """
+    if not run_id:
+        return {}
+    try:
+        from shared.src.lib.utils.leaked_browser_reaper import reap_run_browser
+        outcome = reap_run_browser(run_id)
+    except Exception as exc:  # noqa: BLE001 - a teardown failure must not fail the run
+        print(f'[@script_executor] Could not tear the run browser down: {type(exc).__name__}: {exc}')
+        return {}
+
+    status = outcome.get('status')
+    pid = outcome.get('pid')
+    if status == 'taken_down':
+        print(f"[@script_executor] Run browser {pid} was still running: taken down by pid "
+              f"(the run's own close did not finish)")
+    elif status == 'already_gone':
+        if _run_closed_its_own_browser(stdout):
+            print(f"[@script_executor] Run browser closed normally by the run's own cleanup")
+        else:
+            print(f"[@script_executor] Run browser already gone")
+    elif status == 'left_open':
+        # A deliberate, operator-requested outcome - not a failure, and never a silent skip.
+        print(f"[@script_executor] Run browser {pid} left open because "
+              f"{outcome.get('reason', 'VPT_KEEP_BROWSER_OPEN is set')}")
+    elif status == 'not_reaped':
+        print(f"[@script_executor] Run browser NOT reaped - {outcome.get('reason', '')}")
+    return outcome
+
+
 def _normalize_windows_param_parts(parameters: str) -> List[str]:
     """Split Windows CLI parameters while stripping surrounding quotes from values."""
     if not parameters or not parameters.strip():
@@ -228,6 +521,10 @@ def abort_running_script(device_id: str, task_id: Optional[str] = None) -> Dict[
     With ``task_id`` the abort only applies when the process running on the
     device was launched for that task, so a stale stop request can never kill a
     later run on the same device.
+
+    Several runs can share a device (TASK-146: a browser-isolated web script gets
+    its own Chrome, so it does not need the device to itself). Without a task id
+    every run on the device is stopped; with one, only that run is.
     """
     if not device_id:
         return {
@@ -237,61 +534,67 @@ def abort_running_script(device_id: str, task_id: Optional[str] = None) -> Dict[
         }
 
     with _running_processes_lock:
-        current = _running_processes_by_device.get(device_id)
+        entries = list(_running_processes_by_device.get(device_id) or [])
 
-    if not current:
+    if not entries:
         return {
             'success': True,
             'aborted': False,
             'message': f'No running script found for device {device_id}'
         }
 
-    if task_id and current.get('task_id') != task_id:
-        return {
-            'success': True,
-            'aborted': False,
-            'message': f'Task {task_id} is not the script running on device {device_id}'
-        }
+    if task_id:
+        entries = [e for e in entries if e.get('task_id') == task_id]
+        if not entries:
+            return {
+                'success': True,
+                'aborted': False,
+                'message': f'Task {task_id} is not the script running on device {device_id}'
+            }
 
-    process = current.get('process')
-    script_name = current.get('script_name', 'unknown')
-    pid = getattr(process, 'pid', None)
+    aborted = []
+    for entry in entries:
+        process = entry.get('process')
+        script_name = entry.get('script_name', 'unknown')
+        pid = getattr(process, 'pid', None)
 
-    if process is None:
+        if process is None:
+            continue
+
+        if process.poll() is not None:
+            _unregister_running_process(device_id, process)
+            continue
+
+        try:
+            print(f"[@script_executor] Aborting running script on {device_id}: {script_name} (pid={pid})")
+            _kill_process_tree(process)
+            aborted.append({'script_name': script_name, 'pid': pid})
+        except Exception as e:
+            print(f"[@script_executor] Failed to abort script on {device_id}: {e}")
+        finally:
+            _unregister_running_process(device_id, process)
+
+        # Chrome is launched in its own session, so the tree kill above cannot reach
+        # it: an aborted run would leave its browser alive (BUG-0760).
+        if entry.get('browser_slot') and entry.get('run_id'):
+            _teardown_run_browser_for_run(entry['run_id'])
+
+    if not aborted:
         return {
             'success': True,
             'aborted': False,
             'message': f'No active process found for device {device_id}'
         }
 
-    if process.poll() is not None:
-        _unregister_running_process(device_id, process)
-        return {
-            'success': True,
-            'aborted': False,
-            'message': f'Process already finished for device {device_id}'
-        }
-
-    try:
-        print(f"[@script_executor] Aborting running script on {device_id}: {script_name} (pid={pid})")
-        _kill_process_tree(process)
-
-        return {
-            'success': True,
-            'aborted': True,
-            'device_id': device_id,
-            'script_name': script_name,
-            'pid': pid,
-            'message': f'Aborted running script {script_name} on {device_id}'
-        }
-    except Exception as e:
-        return {
-            'success': False,
-            'aborted': False,
-            'error': f'Failed to abort script on {device_id}: {str(e)}'
-        }
-    finally:
-        _unregister_running_process(device_id, process)
+    names = ', '.join(a['script_name'] for a in aborted)
+    return {
+        'success': True,
+        'aborted': True,
+        'device_id': device_id,
+        'script_name': names,
+        'pid': aborted[0]['pid'],
+        'message': f'Aborted running script(s) {names} on {device_id}'
+    }
 
 
 class ScriptExecutionContext:
@@ -400,21 +703,61 @@ class ScriptExecutionContext:
         step_data['timestamp'] = time.time()
         self._normalize_step_timing(step_data)
         self.step_results.append(step_data)
+        # Every recorded step is also a live progress event, so any script shows up
+        # in the Run Tests "Live run" view without calling emit_progress itself.
+        live_step = {
+            'label': (step_data.get('live_label')
+                      or step_data.get('message')
+                      or ' → '.join(str(step_data[k]) for k in ('from_node', 'to_node') if step_data.get(k))
+                      or step_data.get('step_description')
+                      or f"Step {self.step_counter}"),
+            'success': bool(step_data.get('success', True)),
+            'skipped': bool(step_data.get('skipped', False)),
+            'error': step_data.get('error') or None,
+            'duration_ms': step_data.get('execution_time_ms'),
+        }
+        screenshot_url = self._live_screenshot_url(step_data)
+        if screenshot_url:
+            live_step['screenshot'] = screenshot_url
+        if step_data.get('stage'):
+            live_step['stage'] = str(step_data['stage'])
+        self.emit_progress(
+            message=step_data.get('live_label') or step_data.get('message') or None,
+            step=live_step,
+            background=True,
+        )
         return self.step_counter
 
-    def emit_progress(self, message: Optional[str] = None, step: Optional[Dict[str, Any]] = None) -> None:
+    def _live_screenshot_url(self, step_data: Dict[str, Any]) -> Optional[str]:
+        """Browser-reachable URL of the step's screenshot, or None when the step carries none."""
+        path = (step_data.get('step_end_screenshot_path') or step_data.get('screenshot_url')
+                or step_data.get('screenshot_path') or step_data.get('step_start_screenshot_path'))
+        if not path or not isinstance(path, str):
+            return None
+        if path.startswith(('http://', 'https://', '/host/')):
+            return path
+        host = getattr(self, 'host', None)
+        host_name = getattr(host, 'host_name', None)
+        if not host_name:
+            return None
+        try:
+            from shared.src.lib.utils.build_url_utils import buildHostImageUrl
+            return buildHostImageUrl({'host_name': host_name}, path)
+        except Exception:
+            return None
+
+    def emit_progress(self, message: Optional[str] = None, step: Optional[Dict[str, Any]] = None,
+                      background: bool = False) -> None:
         """
         Push a live progress update to the server so the frontend can render
         per-step state. No-op when task_id is unset (script run standalone).
         Network errors are swallowed — progress is best-effort and must never
-        affect script outcome.
+        affect script outcome. `background` sends from a daemon thread so a slow
+        server never delays the next step.
         """
         if not self.task_id:
             return
         try:
-            from shared.src.lib.utils.build_url_utils import buildServerUrl, server_auth_headers
-            import requests as _requests
-
             step_number = len(self.step_results)
             total = self.total_steps if self.total_steps else None
             progress = (step_number / total * 100.0) if (total and total > 0) else None
@@ -430,6 +773,17 @@ class ScriptExecutionContext:
                 payload['message'] = message
             if step:
                 payload['step'] = step
+        except Exception:
+            return
+        if background:
+            threading.Thread(target=self._post_progress, args=(payload,), daemon=True).start()
+        else:
+            self._post_progress(payload)
+
+    def _post_progress(self, payload: Dict[str, Any]) -> None:
+        try:
+            from shared.src.lib.utils.build_url_utils import buildServerUrl, server_auth_headers
+            import requests as _requests
 
             # /server/* requires a credential. Without it the server answers 401 —
             # a response, not an exception, so the bare post below read as success
@@ -847,8 +1201,52 @@ class ScriptExecutor:
     def set_team_id(self, team_id: str):
         """Set team_id for script execution"""
         self.current_team_id = team_id
-    
-    def execute_script(self, script_name: str, parameters: str = "", estimated_duration_seconds: float = None, trigger: Optional[Dict[str, Any]] = None, environment: Optional[str] = None, task_id: Optional[str] = None, script_identity_override: Optional[Dict[str, Any]] = None, versions: Optional[Dict[str, Any]] = None, device_info: Optional[Dict[str, Any]] = None, virtual_script_id: Optional[str] = None, team_id: Optional[str] = None) -> Dict[str, Any]:
+
+    def resolve_timeout_seconds(self, script_name: Optional[str] = None) -> int:
+        """The hard ceiling (seconds) this run is stopped at.
+
+        The budget the caller declared wins over the defaults: a run declared at 900 s
+        must not live for an hour (E50). A run that declared no budget but carries its own
+        ``--max_duration`` is stopped at that budget: the script stops there, so the host
+        must stop there too, or a wedged run outlives it for ever (BUG-0842). A run without
+        either keeps the defaults (1 h, 4 h for a full-tree validation).
+        """
+        declared = getattr(self, 'timeout_seconds', None)
+        if not declared:
+            own = declared_run_budget_seconds(getattr(self, 'run_parameters', '') or '')
+            if own:
+                # The run's own budget is the ceiling, never above what the platform allows
+                # for this script (a full-tree validation keeps its 4 h).
+                platform = resolve_script_timeout_seconds(script_name or self.script_name)
+                declared = min(own, platform)
+        return resolve_script_timeout_seconds(
+            script_name or self.script_name, declared)
+
+    def emit_run_progress(self, message: str) -> None:
+        """Tell the server - and so the live run page - what this run is doing.
+
+        A run that waits for a free browser slot on a full host has to say so: a run
+        that silently waits looks like a run that is stuck (TASK-150). Best-effort: a
+        progress update never changes the outcome of a run.
+        """
+        task_id = getattr(self, 'current_task_id', None) or getattr(self, 'task_id', None)
+        if not task_id or not message:
+            return
+        try:
+            from shared.src.lib.utils.build_url_utils import buildServerUrl, server_auth_headers
+            import requests as _requests
+            response = _requests.post(
+                buildServerUrl('server/script/progress'),
+                json={'task_id': task_id, 'message': message},
+                headers=server_auth_headers(),
+                timeout=2,
+            )
+            if response.status_code >= 400:
+                print(f"[@script_executor] Progress emit rejected: {response.status_code} {response.text[:120]}")
+        except Exception as err:
+            print(f"[@script_executor] Progress emit failed: {err}")
+
+    def execute_script(self, script_name: str, parameters: str = "", estimated_duration_seconds: float = None, trigger: Optional[Dict[str, Any]] = None, environment: Optional[str] = None, task_id: Optional[str] = None, script_identity_override: Optional[Dict[str, Any]] = None, versions: Optional[Dict[str, Any]] = None, device_info: Optional[Dict[str, Any]] = None, virtual_script_id: Optional[str] = None, team_id: Optional[str] = None, timeout_seconds: Optional[float] = None, execution_id: Optional[str] = None) -> Dict[str, Any]:
         """Execute a script with parameters and real-time output streaming.
 
         script_identity_override: optional {'prefix': str, 'display_name': str} supplied
@@ -878,6 +1276,16 @@ class ScriptExecutor:
 
         # Async task id from caller route (used by script subprocess to emit live progress)
         self.current_task_id = task_id
+
+        # The deployment_executions row this run answers to, and the hard ceiling the
+        # caller declared for it. Both come from the caller: the host uses the row to
+        # answer "is this row still running?" per row (E50), and the ceiling stops an
+        # overrunning run at its budget instead of the flat default hour.
+        self.current_execution_id = execution_id or None
+        self.timeout_seconds = timeout_seconds
+        # The run's own parameters: they carry the run's budget (`--max_duration`), which
+        # is the ceiling the watchdog stops it at when the caller declared none (BUG-0842).
+        self.run_parameters = parameters or ''
 
         # Identity override (prefix / display_name) forwarded as env vars to the child
         self.current_script_identity_override = script_identity_override or {}
@@ -928,6 +1336,9 @@ class ScriptExecutor:
             # Virtual script: source lives in the DB, not on disk. Materialize it
             # to a temp file in test_scripts/ and run the SAME subprocess pipeline,
             # then always clean it up. No rsync deploy needed for new/edited scripts.
+            # Reset first: a disk run must not inherit the libraries a previous
+            # virtual run could not fetch.
+            self._missing_virtual_libs = []
             if virtual_script_id:
                 resolved_team_id = team_id or getattr(self, 'current_team_id', None) or DEFAULT_TEAM_ID
                 script_path, vslib_dir, _vs_cleanup = self._materialize_virtual_script(
@@ -1009,6 +1420,9 @@ class ScriptExecutor:
 
         The error names the last line of the traceback (e.g. "SyntaxError:
         invalid syntax"); the full output, traceback included, is the log.
+        When the crash is an import of a library the platform could not fetch
+        (`self._missing_virtual_libs`), the error names THAT instead of blaming
+        the script's file (BUG-0089).
         Best-effort: returns {} on any failure so the original result stands.
         """
         try:
@@ -1024,8 +1438,19 @@ class ScriptExecutor:
             cause = next((ln for ln in reversed(lines)
                           if re.match(r'^[A-Za-z_][\w.]*(Error|Exception)\b', ln)),
                          lines[-1] if lines else 'no output')
-            error = (f"Script crashed before it started (exit code {exit_code}) — "
-                     f"the file is likely corrupted or has a syntax/import error: {cause}")
+            # A library the platform could not fetch is the platform's problem,
+            # not a corrupted file: name it instead of the generic guess.
+            missing_hint = missing_library_error_message(
+                stdout or '', getattr(self, '_missing_virtual_libs', None))
+            if missing_hint:
+                error = (f"Script crashed before it started (exit code {exit_code}) — "
+                         f"{missing_hint}: {cause}")
+                # The log is the child's output; append the readable line so the
+                # run's log says it too.
+                stdout = f"{stdout or ''}\n❌ [@script_executor] {error}\n"
+            else:
+                error = (f"Script crashed before it started (exit code {exit_code}) — "
+                         f"the file is likely corrupted or has a syntax/import error: {cause}")
             print(f"❌ [@script_executor] {error}")
 
             trigger = getattr(self, 'current_trigger', None) or _normalize_trigger(None)
@@ -1097,6 +1522,10 @@ class ScriptExecutor:
             still skips it). That dir is placed on the subprocess PYTHONPATH so
             the entry script can `import name_a`.
           - vslib_dir is None when the script declares no libraries.
+          - the libraries the platform could not fetch are kept on
+            `self._missing_virtual_libs`. They are skipped, not fatal — the list
+            is what lets a run that trips on one of them name it instead of
+            blaming the script (BUG-0089).
         """
         from shared.src.lib.database.virtual_scripts_db import (
             get_virtual_script,
@@ -1133,7 +1562,11 @@ class ScriptExecutor:
                 lib_row = get_virtual_script_by_name(name, team_id, environment='dev')
             return (lib_row or {}).get('source') if lib_row else None
 
-        libs = resolve_virtual_script_libs(source, _fetch_lib)
+        # The libraries the platform could not fetch. The skip stays a skip, but
+        # the names are kept so the run can report them (BUG-0089).
+        missing_libs: List[str] = []
+        libs = resolve_virtual_script_libs(source, _fetch_lib, missing=missing_libs)
+        self._missing_virtual_libs = missing_libs
         if libs:
             vslib_dir = os.path.join(scripts_dir, f'.vslib_{uuid.uuid4().hex}')
             os.makedirs(vslib_dir, exist_ok=True)
@@ -1198,6 +1631,10 @@ class ScriptExecutor:
         of its own path math) plus vslib_dir (so it can `import <lib_name>` for
         each declared `_script_libs` entry). Disk-script runs pass neither, so
         their environment is byte-for-byte unchanged.
+
+        The libraries the platform could not fetch (`self._missing_virtual_libs`,
+        set when the script was materialized) are handed to the child in the
+        environment, so a run that trips on one of them can name it (BUG-0089).
         """
         # Use PROJECT_ROOT environment variable or detect from current script location
         project_root = os.getenv('PROJECT_ROOT')
@@ -1274,6 +1711,11 @@ class ScriptExecutor:
         current_task_id = getattr(self, 'current_task_id', None)
         if current_task_id:
             child_env['VPT_TASK_ID'] = str(current_task_id)
+        # Every run gets its own id: the browser it launches takes a debug port and a
+        # Chrome profile of its own, so two runs on one host do not fight over either
+        # (TASK-146).
+        run_id = str(current_task_id) if current_task_id else uuid.uuid4().hex[:12]
+        child_env['VPT_RUN_ID'] = run_id
         # Server/frontend versions (host version is read locally by the child).
         current_versions = getattr(self, 'current_versions', None) or {}
         if current_versions.get('server'):
@@ -1305,6 +1747,55 @@ class ScriptExecutor:
                 pythonpath_parts.append(existing_pythonpath)
             child_env['PYTHONPATH'] = os.pathsep.join(pythonpath_parts)
             print(f"[@script_executor] Virtual-script PYTHONPATH: {child_env['PYTHONPATH']}")
+            # The libraries the platform could not fetch. The child needs them to
+            # tell "the platform could not find this library" apart from "Python
+            # could not import this module" (BUG-0089).
+            missing_libs = getattr(self, '_missing_virtual_libs', None)
+            if missing_libs:
+                child_env[MISSING_LIBRARY_ENV_VAR] = ','.join(missing_libs)
+
+        # A browser-isolated script takes one of the host's browser slots: it runs its
+        # own Chrome (its own debug port, its own profile), so it does not need the
+        # device to itself - but every one of them is a Chromium on this host, and the
+        # host's RAM and CPU are finite (TASK-146). When the host is full the run waits
+        # for a free slot instead of piling on; when the wait runs out it is refused
+        # rather than allowed to break the cap.
+        browser_slot_taken = False
+        if _script_is_browser_isolated(script_path):
+            pool = get_browser_slot_pool()
+            before = pool.status()
+            if before.get('running', 0) >= before.get('cap', 0):
+                # The host is full: say so on the live run page, so a run that waits is
+                # not a run that looks stuck.
+                self.emit_run_progress(
+                    message=(
+                        f"Waiting for a free browser slot on this host "
+                        f"({before.get('running')}/{before.get('cap')} browser tests running)"
+                    )
+                )
+            slot = pool.acquire()
+            if not slot.get('ok'):
+                message = (
+                    f"Browser slot unavailable: {slot.get('error')} - waited "
+                    f"{slot_wait_seconds()}s for a free one"
+                )
+                print(f"[@script_executor] {message}")
+                return {
+                    'success': False,
+                    'stdout': '',
+                    'stderr': message,
+                    'exit_code': 1,
+                    'script_name': script_name,
+                    'device_id': self.device_id,
+                    'parameters': parameters,
+                    'execution_time_ms': int((time.time() - start_time) * 1000),
+                    'report_url': "",
+                }
+            browser_slot_taken = True
+            print(
+                f"[@script_executor] Browser slot taken "
+                f"({slot.get('running')}/{slot.get('cap')} browser runs on this host)"
+            )
 
         # Use streaming subprocess execution with shell=False for security.
         # cwd=project_root is required so the child can resolve `import shared.src...`
@@ -1326,15 +1817,26 @@ class ScriptExecutor:
             start_new_session=(not is_windows),
         )
         _register_running_process(self.device_id, process, script_name,
-                                  task_id=getattr(self, 'current_task_id', None))
-        
+                                  task_id=getattr(self, 'current_task_id', None),
+                                  execution_id=getattr(self, 'current_execution_id', None),
+                                  run_id=run_id,
+                                  browser_slot=browser_slot_taken)
+
+        stdout = ''
         try:
             # Stream output in real-time with timeout
             stdout_lines = []
             report_url = ""
             logs_url = ""
-            timeout_seconds = 3600  # 1 hour timeout
+            # The caller may declare the budget of this run; without one the defaults
+            # apply: 1 hour for ordinary scripts, 4 hours for a full-tree validation of
+            # stb_tv (70+ min on a slow box, and the kill happens before any result is
+            # written - BUG-0633).
+            timeout_seconds = self.resolve_timeout_seconds(script_name)
             start_time_for_timeout = time.time()
+            # Set when the watchdog stops this run: the result then says why it ended
+            # instead of reporting nothing at all (BUG-0842).
+            timeout_reason = ''
 
             def _process_output_line(line: str):
                 nonlocal report_url, logs_url
@@ -1359,15 +1861,17 @@ class ScriptExecutor:
                 print(f"[{script_name}] {line}")
             
             def _check_timeout(poll_result):
+                nonlocal timeout_reason
                 current_time = time.time()
                 elapsed_time = current_time - start_time_for_timeout
                 if elapsed_time > timeout_seconds:
-                    print(f"❌ [Script] Script execution timed out after {timeout_seconds} seconds (elapsed: {elapsed_time:.1f}s)")
                     if poll_result is None:
-                        print(f"❌ [Script] Process still running, force killing...")
-                        _kill_process_tree(process)
+                        timeout_reason = stop_run_for_timeout(
+                            process, timeout_seconds, elapsed_time)
                     else:
                         print(f"❌ [Script] Process already ended but loop didn't exit properly")
+                        timeout_reason = (f'The run outlived its budget of {timeout_seconds}s '
+                                          f'(elapsed {elapsed_time:.1f}s)')
                     stdout_lines.append(f"\n[TIMEOUT] Script execution timed out after {timeout_seconds} seconds\n")
                     return True, elapsed_time
                 return False, elapsed_time
@@ -1506,6 +2010,12 @@ class ScriptExecutor:
                 'script_success': script_success,  # Extracted from SCRIPT_SUCCESS marker
                 'script_result_id': script_result_id,  # Extracted from SCRIPT_RESULT_ID marker
             }
+
+            if timeout_reason:
+                # A run that ends must report a result: a timeout with a reason, never a
+                # hang and never a silent success (BUG-0842). A healthy run keeps its own
+                # verdict untouched.
+                result = apply_timeout_verdict(result, timeout_reason)
             
             # The script died before its @script decorator ran (syntax error,
             # bad import, typo at the top of the file): no SCRIPT_SUCCESS, no
@@ -1525,6 +2035,15 @@ class ScriptExecutor:
             print(f"[@script_executor] RETURNING: About to return result dictionary")
             return result
         finally:
+            if browser_slot_taken:
+                get_browser_slot_pool().release()
+            # The run's own browser close goes through the Playwright controller loop; when
+            # that loop wedged, the close never ran and the browser outlived the run
+            # (BUG-0760). Take it down here, by pid, whatever ended the run: success, a
+            # failure, an action error, an abort or a timeout. A run that took no browser
+            # slot never drove a browser of its own, so it pays nothing for this.
+            if browser_slot_taken:
+                _teardown_run_browser_for_run(run_id, stdout)
             _unregister_running_process(self.device_id, process)
             # Remove the per-device running.log so the live "script running" overlay
             # (modal ScriptRunningOverlay) stops showing a finished run. The child
@@ -2112,11 +2631,13 @@ class ScriptExecutor:
         logs_url = ''
         report_path = ''
         logs_path = ''
+        upload_error = ''
         if isinstance(report_result, dict):
             report_url = report_result.get('report_url') or ''
             logs_url = report_result.get('logs_url') or ''
             report_path = report_result.get('report_path') or ''
             logs_path = report_result.get('logs_path') or ''
+            upload_error = sanitize_upload_error(report_result.get('error'))
 
         script_identity = self._build_script_identity_metadata(context)
         display_name = script_identity.get('display_name') if script_identity else None
@@ -2156,6 +2677,11 @@ class ScriptExecutor:
         lines.append('- Raw execution logs:')
         lines.append(f'  - URL: {logs_url or "n/a"}')
         lines.append(f'  - R2 path: `{logs_path or "n/a"}`')
+        if upload_error and not (report_url or logs_url):
+            # BUG-0770: a run whose artifacts never reached storage used to say
+            # only "n/a" here, so a reader could not tell a missing report from
+            # a broken storage configuration. Say what actually failed.
+            lines.append(f'- Artifact upload failed: `{upload_error}`')
         lines.append('- Script source:')
         lines.append(f'  - URL: {(report_result or {}).get("script_source_url") or "n/a"}')
         lines.append(f'  - R2 path: `{(report_result or {}).get("script_source_path") or "n/a"}`')
@@ -2223,6 +2749,14 @@ class ScriptExecutor:
             'status': 'PASS' if context.overall_success else 'FAIL',
             'execution_time_ms': execution_time_ms,
         }
+        # BUG-0770: when the artifacts never reached storage, the run row must
+        # carry the reason. Without it a green run with no report looks exactly
+        # like a run that never had one to give.
+        upload_error = report_result.get('error') if isinstance(report_result, dict) else None
+        if upload_error and not (report_result.get('report_url') or report_result.get('logs_url')):
+            safe_error = sanitize_upload_error(upload_error)
+            merged['verification_review']['artifact_upload_error'] = safe_error
+            merged['artifact_upload_error'] = safe_error
         if isinstance(report_result, dict):
             script_source_url = report_result.get('script_source_url') or None
             script_source_path = report_result.get('script_source_path') or None
@@ -2375,6 +2909,10 @@ class ScriptExecutor:
 
             # Generate and upload report using device info
             _t_report = _phase_t0()
+            if not context.capture_artifacts:
+                # No capture device: tell the report formatter not to look (or warn) for screenshots.
+                for _step in context.step_results or []:
+                    _step['no_capture'] = True
             report_result = generate_and_upload_script_report(
                 metadata_url=metadata_url_for_report,
                 trigger=getattr(self, 'current_trigger', None) or getattr(context, 'trigger', None) or _normalize_trigger(None),
@@ -2398,6 +2936,7 @@ class ScriptExecutor:
                 script_identity=self._build_script_identity_metadata(context),
                 mosaic_local_path=mosaic_local_path,
                 mosaic_tile_count=mosaic_tile_count,
+                video_start_epoch=getattr(context, 'start_time', 0.0) or 0.0,
                 dom_captures=(detached_inputs or {}).get('dom_captures'),
                 ui_dumps=(detached_inputs or {}).get('ui_dumps'),
                 script_i18n=getattr(context, 'i18n_strings', None),
@@ -2550,7 +3089,9 @@ class ScriptExecutor:
         """
         if getattr(context, 'host_only', False) or not context.selected_device:
             return
-        if os.getenv('VPT_KEEP_BROWSER_OPEN', '').strip().lower() in ('1', 'true', 'yes'):
+        from shared.src.lib.utils.leaked_browser_reaper import keep_browser_open
+        if keep_browser_open():
+            # The same switch the run-scoped teardown honours: one rule, read in one place.
             return
         try:
             web_controller = context.selected_device._get_controller('web')
@@ -2560,9 +3101,19 @@ class ScriptExecutor:
             # wait=True: the cleanup runs on a daemon controller-loop thread that
             # would otherwise be cut off by this process's imminent sys.exit(0),
             # leaving Chrome running. Block briefly so it actually finishes.
-            web_controller.close_browser(wait=True)
+            result = web_controller.close_browser(wait=True)
+            if isinstance(result, dict) and result.get('success') is False:
+                # The close did not close. Say so, with the reason: a run that reports
+                # a close it did not get is the silent-success shape (BUG-0760).
+                reason = result.get('error') or 'the browser is still running'
+                print(f"⚠️ [{self.script_name}] Run browser NOT closed - {reason}")
+                print(f"{RUN_BROWSER_CLOSE_MARKER}failed - {reason}")
+                return
+            print(f"🌐 [{self.script_name}] Run browser closed")
+            print(f"{RUN_BROWSER_CLOSE_MARKER}closed")
         except Exception as e:
             print(f"⚠️ [{self.script_name}] Failed to close web browser: {e}")
+            print(f"{RUN_BROWSER_CLOSE_MARKER}failed - {type(e).__name__}: {e}")
 
     def finalize_execution_context(
         self,
@@ -2868,6 +3419,13 @@ class ScriptExecutor:
     def cleanup_and_exit(self, context: ScriptExecutionContext, userinterface_name: str):
         """Cleanup resources and exit with appropriate code - NO DEVICE UNLOCKING"""
         try:
+            # The unexpected-error path already knows which library the platform
+            # could not fetch; the row's error_msg must name it too, so the author
+            # does not only see it in the log (BUG-0089).
+            global _MISSING_LIBRARY_ERROR
+            if not context.error_message and _MISSING_LIBRARY_ERROR:
+                context.error_message = _MISSING_LIBRARY_ERROR
+                _MISSING_LIBRARY_ERROR = None
             # Output results for execution system FIRST
             success_str = str(context.overall_success).lower()
             print(f"SCRIPT_SUCCESS:{success_str}")
@@ -3070,5 +3628,13 @@ def handle_keyboard_interrupt(script_name: str):
 def handle_unexpected_error(script_name: str, error: Exception):
     """Standard unexpected error handler"""
     error_message = f"Unexpected error: {str(error)}"
+    # A library the platform could not fetch is the platform's problem, not the
+    # script's: say so here, and keep it for the row's error_msg (BUG-0089).
+    global _MISSING_LIBRARY_ERROR
+    missing = missing_library_for_error(error)
+    if missing:
+        hint = describe_missing_library(missing)
+        error_message = f"{error_message} — {hint}"
+        _MISSING_LIBRARY_ERROR = hint
     print(f"❌ [{script_name}] {error_message}")
     sys.exit(1)

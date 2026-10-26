@@ -49,10 +49,10 @@ export const getExecutionFooterSummary = (executionState: ExecutionState): strin
   const result = executionState.result;
   const resultType = result.result_type || (result.success ? 'success' : 'error');
   if (resultType === 'success') {
-    return `✓ Last run: SUCCESS (${result.execution_time_ms}ms)`;
+    return `Last run: SUCCESS (${result.execution_time_ms}ms)`;
   }
   if (resultType === 'failure') {
-    return `✗ Last run: FAILURE (${result.execution_time_ms}ms)`;
+    return `Last run: FAILURE (${result.execution_time_ms}ms)`;
   }
-  return `⚠ Last run: ERROR - ${result.error || 'Unknown error'}`;
+  return `Last run: ERROR - ${result.error || 'Unknown error'}`;
 };

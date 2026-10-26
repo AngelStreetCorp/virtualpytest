@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                             |
 | Severity  | Medium                                                             |
 | Area      | frontend (navigation popover) / backend_host (image_helpers)        |
-| Fixed in  | Unreleased                                                         |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                                |
 
 ---

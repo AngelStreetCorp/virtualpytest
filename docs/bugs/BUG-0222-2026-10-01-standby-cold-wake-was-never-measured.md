@@ -9,7 +9,7 @@
 | Severity  | High — every standby run with a dwell of 5 min or more failed with no KPI, on any standby mode |
 | Status    | Fixed (pending deploy)                                            |
 | Area      | `test_scripts/tv/standby_measurement.py`                          |
-| Fixed in  | Unreleased                                                        |
+| Fixed in  | build 90145 |
 | Related   | [BUG-0204](BUG-0204-2026-10-01-standby-wake-already-awake-blamed-kpi.md) (made this failure visible instead of blaming the KPI reference) |
 | Commit    | this commit                                                       |
 

@@ -292,10 +292,13 @@ def test_monitor_and_navigation_give_the_same_verdict(conf, monkeypatch):
     from backend_host.scripts import monitor_localize as ml
     ne_src = open(os.path.join(os.path.dirname(ml.__file__), '..', 'src', 'services', 'navigation',
                                'navigation_executor.py')).read()    # (importing it needs networkx)
-    assert "confirm_low_confidence(helpers, img, node_fps, result, team_id=team_id, cache_key=userinterface_name)" \
+    assert "confirm_low_confidence(helpers, img, match_fps, result, team_id=team_id, cache_key=userinterface_name)" \
         in ne_src
 
     class H(FakeHelpers):
+        def classify_special_state(self, img):
+            return None
+
         def identify_screen(self, img, fps):
             return {'candidates': [cand('home', 0.6)], 'excluded_count': 0, 'total': 3}
     m = ml.MonitorLocalizer(team_id='t1')
@@ -305,6 +308,7 @@ def test_monitor_and_navigation_give_the_same_verdict(conf, monkeypatch):
     monkeypatch.setattr(m, '_record_change', lambda *a: None)
     import cv2
     monkeypatch.setattr(cv2, 'imread', lambda p: IMG)
+    monkeypatch.setattr(ml.cv2_io, 'imread', lambda p: IMG)        # the monitor reads frames through cv2_io
     for out_choice, want in (({'success': True, 'choice': 'home', 'probabilities': {'home': 0.95}}, 'HOME'),
                              ({'success': True, 'choice': 'guide', 'probabilities': {'guide': 0.95}}, None)):
         conf['out'] = out_choice
@@ -312,5 +316,6 @@ def test_monitor_and_navigation_give_the_same_verdict(conf, monkeypatch):
         direct = jso.confirm_low_confidence(H(), IMG, NODES, H().identify_screen(IMG, NODES),
                                             team_id='t1', cache_key='ui')
         jso._confirm_cache.clear()
+        m._matched_thumb.clear()                                   # same IMG twice: no unchanged-frame skip (TASK-115)
         got = m.localize_frame('device1', 'x.jpg')
         assert got['node'] == want == (direct['candidates'][0]['label'] if direct['candidates'] else None)

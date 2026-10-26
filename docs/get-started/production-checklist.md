@@ -1,31 +1,47 @@
 # Going to production — hardening checklist
 
-The installers get you a working platform on a LAN in one command. They deliberately leave a
-few things convenient rather than safe, and several services ship with **well-known default
-passwords**. Before a deployment is reachable from the internet, or holds anything you care
-about, walk this list top to bottom. Every item names the file or variable to change.
+The installers get you a working system on a local network in one command. To keep setup easy, they
+leave some things open, and several services ship with **well-known default passwords**. Work through
+this list before the system is reachable from the internet or holds anything you care about.
 
 Companion pages: [Security setup](security.md) (TLS, firewall, VPN, CORS),
 [Supabase](supabase.md) (auth modes, closed mode), [Configuration](configuration.md) (every
 `.env` key), [Network](network.md).
 
-## 0. Know what the installer already did for you
+## 0. What the installer already did for you
+
+The installer creates new random passwords for most services. It does not change the database
+superuser password or the open-mode switch you chose at install time.
+
+**Installed before 2026-09-15?** Storage, Redis and VNC then shared one password, published in the
+repo. Change those three by hand (section 1).
+
+<div data-technical>
 
 `setup/local/linux/shared/write_env.sh` **generates** a random `API_KEY`, `FLASK_SECRET_KEY`,
 `MCP_SECRET_KEY`, Grafana admin password, `MINIO_SECRET_KEY` and `REDIS_PASSWORD`, and sets
 `AUTO_SIGN_ENABLED=false`. `install_supabase.sh` generates a per-install Supabase JWT secret,
-and `install_host.sh` generates `HOST_VNC_PASSWORD`. The MinIO and Redis services are
-configured *from* those values, so there is nothing to keep in sync by hand.
+and `install_host.sh` generates `HOST_VNC_PASSWORD`. The MinIO and Redis services are configured
+*from* those values, so there is nothing to keep in sync by hand.
 
 It **does not** change: the Postgres superuser password, or the open-mode switch you passed at
-install time. Those are in the first section below.
+install time.
 
-**Installed before 2026-09-15?** MinIO, Redis and VNC shipped one shared password back then —
-the same value in every install, published in the repo. A re-run of `write_env.sh` deliberately
-keeps whatever your `.env` already has, so it will not rotate them for you. Rotate those three
-by hand (section 1), then re-run the storage and host installers.
+Installed before 2026-09-15: MinIO, Redis and VNC shipped one shared password back then — the same
+value in every install, published in the repo. A re-run of `write_env.sh` deliberately keeps whatever
+your `.env` already has, so it will not rotate them for you. Rotate those three by hand (section 1),
+then re-run the storage and host installers.
 
-## 1. Replace every default credential
+</div>
+
+## 1. Replace every default password
+
+Change every password in the table below. Use a long random value for each one, and never reuse a
+password across services.
+
+<div data-technical>
+
+Generate values with `openssl rand -hex 24`.
 
 | Service | Shipped default | Where to change | Also update |
 |---|---|---|---|
@@ -39,14 +55,17 @@ by hand (section 1), then re-run the storage and host installers.
 | MCP | generated (`vpt_mcp_…`) | `MCP_SECRET_KEY` in `.env` | clients' bearer tokens |
 | Windows hosts | TightVNC installed **without authentication** and a firewall rule opened for it (`install_host_windows.ps1`) | enable `UseVncAuthentication` and set a password, or keep the host on an isolated VLAN | — |
 
-Generate values with `openssl rand -hex 24`. Never reuse a password across services: the server
-holds all of them, a leak of one `.env` should not open everything.
+</div>
 
-## 1b. Rotation register — every secret the platform holds
+## 1b. Rotation register
 
-Rotate all of these when a person with access leaves, when any `.env` or backup may have
-been exposed, and on a schedule. Nothing here is generated twice: the value in `.env` is the
-only copy, so rotating means "generate, write to `.env`, restart the unit(s)".
+Change these secrets when someone with access leaves, when a settings file may have been exposed, and
+on a schedule. Rotating means: write a new value to the settings file, then restart the service that
+uses it.
+
+<div data-technical>
+
+Full register (each row: secret, where it lives, what uses it, how to rotate, what to restart):
 
 | Secret | Lives in | Used by | Rotate by | Then restart |
 |---|---|---|---|---|
@@ -71,7 +90,18 @@ Quick inventory of what is set (never prints values):
 grep -oE '^[A-Z_]*(KEY|SECRET|TOKEN|PASSWORD|PASS)[A-Z_]*=' .env backend_host/src/.env frontend/.env | sort -u
 ```
 
-## 2. Close the authentication switches
+</div>
+
+## 2. Close the sign-in switches
+
+Switch these off before going live:
+
+- **Open mode.** While it is on, anyone who can reach the address is an administrator.
+- **Public browser key.** Turn it off, or limit it to the viewer role. Anyone who can load the page can read it.
+- **Auto-sign.** If tests need it, use a random tester token and change it after every exposure.
+- **Public database key.** It must not read application tables.
+
+<div data-technical>
 
 | Switch | Meaning | Production value |
 |---|---|---|
@@ -81,7 +111,21 @@ grep -oE '^[A-Z_]*(KEY|SECRET|TOKEN|PASSWORD|PASS)[A-Z_]*=' .env backend_host/sr
 | `VITE_DEV_MODE` | dev conveniences in the UI | `false` |
 | Supabase `anon` key | the public key the UI uses to log in; it must **not** be able to read application tables | run `setup/db/apply_schema.sh` on the current schema: RLS is on and only `service_role` is granted. Verify: `curl -H "apikey: <anon>" http://db:54321/rest/v1/device` must return an error, not rows. |
 
-## 2b. CORS — the only origin gate in front of the API
+</div>
+
+## 2b. CORS — the only website gate in front of the API
+
+Before 2026-09-15, any website could call the API with a visitor's login. The fix is in the code, but
+it does not change your own copy. Redeploy the code and set the allowed website yourself.
+
+**You still have to enforce it on your deployment:**
+
+- [ ] Update to the current code and restart the server. An older server keeps the open setting.
+- [ ] If your frontend is on a different address than this server, list that address in the CORS
+      setting. A frontend and server behind one nginx address need nothing.
+- [ ] Check that another website is refused.
+
+<div data-technical>
 
 nginx's `/server/` and `/host/` locations have **no IP or origin restriction** in any shipped
 template — CORS is the only thing standing between "the internet" and "a browser tab can call
@@ -103,22 +147,32 @@ defaults to the vendor's own known frontend domains, not a wildcard. **This does
 own deployment** — the code has to actually be redeployed there too, which the vendor's own fix
 does not do for you.
 
-**You still have to enforce it on your deployment:**
-- [ ] Pull/redeploy the current code — a server still running from before 2026-09-15 has the
-      old wildcard regardless of what `.env` says, because the fallback itself changed.
-- [ ] Set `CORS_ALLOWED_ORIGINS` in `.env` to your actual frontend origin(s) if your frontend
-      is on a different origin than this server (split Vercel/Render, a customer overlay's own
-      domain, a self-hoster's separate frontend host). A same-origin deployment — frontend and
-      `/server/` behind one nginx host, the default in the Proxmox and Docker install paths —
-      needs nothing set; same-origin requests never trigger CORS checks at all.
-- [ ] Verify: `curl -s -D - -o /dev/null <your-server-url>/server/health -H "Origin: https://evil.example.com"`
-      must NOT return an `access-control-allow-origin` header matching that value.
+- Pull/redeploy the current code — a server still running from before 2026-09-15 has the old
+  wildcard regardless of what `.env` says, because the fallback itself changed.
+- Set `CORS_ALLOWED_ORIGINS` in `.env` to your actual frontend origin(s) if your frontend is on a
+  different origin than this server (split Vercel/Render, a customer overlay's own domain, a
+  self-hoster's separate frontend host). A same-origin deployment — frontend and `/server/` behind
+  one nginx host, the default in the Proxmox and Docker install paths — needs nothing set;
+  same-origin requests never trigger CORS checks at all.
+- Verify: `curl -s -D - -o /dev/null <your-server-url>/server/health -H "Origin: https://evil.example.com"`
+  must NOT return an `access-control-allow-origin` header matching that value.
 
-## 3. Expose only what has to be public
+</div>
 
-Put nginx in front of everything and let it be the only listener on 80/443
-([security.md, Part C](security.md#part-c-network-security)). Then check each of these,
-because some install docs and the LAN-oriented nginx templates open them:
+## 3. Open only what has to be public
+
+Put nginx in front of everything, and let it be the only service answering on ports 80 and 443.
+Read [security.md, Part C](security.md#part-c-network-security) for the network setup.
+
+- **Supabase Studio:** never on the internet. It runs any SQL.
+- **Grafana:** only through `/grafana/`, with anonymous access and sign-up off.
+- **CI reports:** these can contain links with tokens. Remove the public location, or protect it.
+- **Host API, VNC and the browser view:** reachable only from the server and through nginx. Never make VNC public.
+- **Postgres:** never public.
+
+<div data-technical>
+
+Some install guides and the nginx templates open more ports than you need, so check each one.
 
 | Surface | Default port | Production |
 |---|---|---|
@@ -133,49 +187,93 @@ because some install docs and the LAN-oriented nginx templates open them:
 | Chrome DevTools ports on hosts (Windows: 9222/9223) | — | localhost only |
 | SSH | 22 | keys only, `PasswordAuthentication no`, restrict to a management network or VPN |
 
-Then run a scan from outside: `nmap -sT -p- <public-ip>` should show 22 (if at all), 80 and 443.
+Scan from outside. Only SSH (if at all), 80 and 443 should answer:
+
+```bash
+nmap -sT -p- <public-ip>   # should show 22 (if at all), 80 and 443
+```
+
+</div>
 
 ## 4. Least privilege on the hosts
 
-- `setup/local/linux/backend_host/sudoers.d/run-command` ships a scoped NOPASSWD list; the
-  optional `vpt_user ALL=(ALL) NOPASSWD: SETENV: ALL` line makes the service user root.
-  Remove it unless you rely on Run Command for system administration.
-- Do not add your own user to passwordless sudo on hosts to make deploys easier; use the
-  deploy scripts' dedicated user.
+Give hosts only the rights they need. Do not hand out admin rights to make deploys easier. Keep each
+host for one tenant only. Turn off automatic code pulls on production, and deploy a fixed release
+([RELEASING](../release_note/README.md)).
+
+<div data-technical>
+
+- `setup/local/linux/backend_host/sudoers.d/run-command` ships a scoped NOPASSWD list; the optional
+  `vpt_user ALL=(ALL) NOPASSWD: SETENV: ALL` line makes the service user root. Remove it unless you
+  rely on Run Command for system administration.
+- Do not add your own user to passwordless sudo on hosts to make deploys easier; use the deploy
+  scripts' dedicated user.
 - Stream and lock files are created world-writable by some scripts; keep hosts single-tenant.
 - NFS exports for shared storage: no `no_root_squash` on a network you do not fully control.
-- Disable `git pull` in service `ExecStartPre` lines (`vpt_server_host.service`) on
-  production; deploy from a pinned release instead ([RELEASING](../release_note/README.md)).
+- Disable `git pull` in service `ExecStartPre` lines (`vpt_server_host.service`) on production; deploy
+  from a pinned release instead ([RELEASING](../release_note/README.md)).
 
-## 5. Data, backups, retention
+</div>
 
-- Daily `pg_dump` is installed by `install_supabase.sh` (`/etc/cron.d/vpt-db-backup`); copy the
-  dumps **off the machine** and test a restore once.
+## 5. Data, backups and retention
+
+Keep copies of your data off the machine, and test that a copy can be restored. Recordings and
+screenshots can show what was on screen, so decide how long to keep them and keep the storage private.
+
+<div data-technical>
+
+- Daily `pg_dump` is installed by `install_supabase.sh` (`/etc/cron.d/vpt-db-backup`); copy the dumps
+  **off the machine** and test a restore once.
 - Back up the MinIO bucket (reference images, reports, recordings) the same way.
-- Recordings and screenshots can contain what is on the screen under test, and the gateway
-  telemetry tables can contain subscriber identifiers. Set a retention and make sure the bucket
-  is not public if that matters to you.
-- Keep `.env` files at mode 600, owned by the service user. The frontend `.env` is read at
-  build time only; do not leave it world-readable on the web root.
+- Recordings and screenshots can contain what is on the screen under test, and the gateway telemetry
+  tables can contain subscriber identifiers. Set a retention and make sure the bucket is not public if
+  that matters to you.
+- Keep `.env` files at mode 600, owned by the service user. The frontend `.env` is read at build time
+  only; do not leave it world-readable on the web root.
+
+</div>
 
 ## 6. CI runners
 
+Self-hosted runners run whatever code a pull request contains, so keep them away from production. On
+a public repository, require approval for outside contributors and run pull-request jobs on GitHub's
+own runners.
+
+<div data-technical>
+
 - Self-hosted runners execute whatever a pull request contains. On a **public** repository, set
-  *Require approval for all outside collaborators* (Settings → Actions) and keep PR-triggered
-  jobs on GitHub-hosted runners; reserve self-hosted runners for `main` and manual dispatch.
+  *Require approval for all outside collaborators* (Settings → Actions) and keep PR-triggered jobs on
+  GitHub-hosted runners; reserve self-hosted runners for `main` and manual dispatch.
 - Runners should not hold SSH keys to production; give them a deploy user with a scoped key.
+
+</div>
 
 ## 7. Keep it that way
 
+- Change the passwords in section 1 on a schedule, and whenever someone with access leaves.
+- Follow the [release notes](../release_note/README.md). Security fixes are marked in the
+  [bug index](../bugs/README.md).
+- After every upgrade, check that every server route refuses a request without a login.
+- Turn on brute-force protection for SSH and nginx, and automatic security updates.
+
+<div data-technical>
+
 - Rotate the credentials in section 1 on a schedule and whenever a person with access leaves.
-- Subscribe to the [release notes](../release_note/README.md); security fixes are marked 🔒 in
-  the [bug index](../bugs/README.md).
-- Run `scripts/security/unauth_route_sweep.sh` against your own deployment after every
-  upgrade: every `/server/*` route must answer 401 without a token.
-- Grafana datasource: give it a **read-only** DB role, not `postgres`.
+- Subscribe to the [release notes](../release_note/README.md); security fixes are marked as such in the
+  [bug index](../bugs/README.md).
+- Run `scripts/security/unauth_route_sweep.sh` against your own deployment after every upgrade: every
+  `/server/*` route must answer 401 without a token.
+- The Grafana connection to the database should use a read-only account. Give the Grafana datasource a
+  **read-only** DB role, not `postgres`.
 - fail2ban on SSH and nginx, unattended security upgrades on every VM.
 
+</div>
+
 ## Quick self-check
+
+Run these checks. If any of them prints a match or a 200 code, you are not done yet.
+
+<div data-technical>
 
 ```bash
 # anything still on a default?
@@ -187,4 +285,6 @@ curl -s -o /dev/null -w '%{http_code}\n' -H "apikey: $SUPABASE_ANON_KEY" "$SUPAB
 curl -s -o /dev/null -w '%{http_code}\n' "$SERVER_URL/server/health"   # expect 401 (health may be allow-listed: check another route)
 ```
 
-If any line prints a match or a 200, you are not done.
+</div>
+
+Any match from the first check, or a 200 from the other two, means the system is still open.

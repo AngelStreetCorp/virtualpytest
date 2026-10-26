@@ -1,7 +1,8 @@
 # Install VirtualPyTest
 
-Everything runs in Docker on one machine. Download the bundle, run one command, open the
-web UI — no account, no cloud service, no hardware needed to start.
+Everything runs in Docker on one machine. You need no account, no cloud service and no hardware to start.
+
+<div data-technical>
 
 ```bash
 curl -L https://github.com/AngelStreetCorp/virtualpytest/releases/latest/download/vpt-docker.tar.gz | tar xz
@@ -9,12 +10,15 @@ cd vpt-docker-*
 ./setup/docker/launch.sh
 ```
 
-That gives you the whole platform on this machine: the web UI, the server API, a device
-controller with a browser and a VNC desktop, a database (Postgres with auth and a REST
-API), object storage, a queue, and Grafana dashboards — 14 containers, started and wired
-together for you. `launch.sh` generates every password, finds this machine's address,
-pulls the prebuilt images and prints the URLs. Nothing is compiled on your machine and
-there is **nothing to edit first.**
+</div>
+
+The launcher sets up the whole platform on this machine: the web app, the server, a device controller and dashboards. There is **nothing to edit first.**
+
+<div data-technical>
+
+The launcher starts 14 containers and connects them. It downloads the ready-made parts, creates every password, finds this machine's address and prints the web addresses. Nothing is built on your machine. The database has login and an API; a message queue and Grafana are included.
+
+</div>
 
 | | |
 |---|---|
@@ -22,14 +26,15 @@ there is **nothing to edit first.**
 | Takes | about 3 minutes |
 | Windows | run the same commands inside WSL2 |
 
-Step by step, with the URLs and the first test: **[Install with Docker](docker.md)**.
+Step by step, with the web addresses and the first test: **[Install with Docker](docker.md)**.
 
 ## Adding your own devices
 
-`backend_host/src/.env` is **the only file you ever edit.**
+Devices are set up in one settings file. Switch on the lines for a device, enter its address and run the launcher again.
 
-It ships with the browser and VNC desktop switched on and physical devices switched off —
-every device line is prefixed with `x`, which disables it:
+<div data-technical>
+
+The file is `backend_host/src/.env`. The device lines start with `x`, which switches them off. Drop the `x`:
 
 ```bash
 xDEVICE1_NAME=AppleTv
@@ -37,14 +42,15 @@ xDEVICE1_MODEL=apple_tv
 xDEVICE1_IP=192.168.1.27
 ```
 
-Drop the `x`, set your device's address, re-run `./setup/docker/launch.sh`, and it appears
-in the UI. TVs, set-top boxes, phones and websites are all configured in that one file —
-see [Hardware](hardware.md) for what to plug in, and [Emulators](emulators.md) to use an
-Android emulator instead of a physical device.
+Then re-run `./setup/docker/launch.sh`.
+
+</div>
+
+TVs, set-top boxes, phones and websites are all set up in that file. See [Hardware](hardware.md) for what to plug in, and [Emulators](emulators.md) to use an Android emulator.
 
 ## Which install do I want?
 
-Most people want the first row. The others exist for a reason, not for completeness.
+Most people want the first option.
 
 | Your situation | Install | Page |
 |---|---|---|
@@ -55,41 +61,38 @@ Most people want the first row. The others exist for a reason, not for completen
 
 ## Running it on a server you rent
 
-A rented server is just a Linux box, so **Hetzner, AWS EC2, Azure, DigitalOcean, OVH and
-Scaleway are all the same install** — the Docker path above, unchanged. Pick any of them
-on price and location; nothing in VirtualPyTest is provider-specific.
+A rented server is a Linux machine, and the same Docker install works on it. Once it is on the internet, do these first:
 
-What changes is not the install but what you add around it, because the machine is now
-reachable from the internet:
+1. **Encrypt the connection.** Put Caddy or nginx in front of the app, serving HTTPS.
+2. **Turn off open mode.** A fresh install lets anyone use the API without logging in. See [Supabase and authentication](supabase.md#enforce-login).
+3. **Work through the [production checklist](production-checklist.md)** before it holds anything you care about.
+4. **Open only the ports you need.** Keep the database screens, file storage and device controller private. [Network setup](network.md) lists the rules.
 
-1. **Put TLS in front of it.** Caddy or nginx terminating HTTPS for ports 5073 and 5109.
-2. **Close open mode.** A fresh install accepts every API call with no login — fine on a
-   trusted LAN, not on a public address. See [Supabase and authentication](supabase.md#enforce-login).
-3. **Walk the [production checklist](production-checklist.md)** before it holds anything
-   you care about.
-4. **Only open the ports you need.** The browser needs 5073 and 5109; Grafana 3000 is
-   optional; Supabase Studio 54321, MinIO 9000/9001 and the host's 6109/6080 should stay
-   on your own network or behind a VPN. [Network setup](network.md) has the rules.
+<div data-technical>
 
-Sizing: the 4 CPU / 8 GB / 30 GB above runs the whole stack. Add ~2 CPU and ~4 GB per
-capture card on a machine that also runs a host.
+Providers that use the same install: Hetzner, AWS EC2, Azure, DigitalOcean, OVH and Scaleway. Choose on price and location.
+
+Sizing: the 4 CPU, 8 GB and 30 GB above run the whole stack. A machine that also runs a device controller needs about 2 more CPU cores and 4 GB more RAM for each capture card.
+
+Ports: the browser needs 5073 and 5109. Grafana 3000 is optional. Supabase Studio 54321, MinIO 9000/9001 and the host's 6109/6080 should stay private.
+
+</div>
 
 ## What about Render, Vercel, Fly or App Runner?
 
-They can host **part** of it, not the whole thing, and it is worth knowing why before you
-try: a managed platform gives one container and one port per service, and the device
-controller needs two ports plus direct access to your hardware. So on a managed platform
-you would run the server and the frontend there, use hosted Postgres and object storage,
-and **keep the device controller on your own machine** — which is the
-[Docker here, host there](add-a-host.md) shape with the platform half rented.
+These services can host **part** of VirtualPyTest, not the whole thing. The device controller needs direct access to your hardware, and a managed platform cannot give it that.
 
-That is a real deployment and [Cloud frontend + server](cloud-setup.md) describes it, but
-it is more moving parts, more monthly bills and more ways to be misconfigured than one
-Docker host on a VPS. Start with a VPS unless you already know you want managed services.
+So run the server and web app on the managed platform, and keep the device controller on your own machine. That is the [Docker here, host there](add-a-host.md) setup. Start with a rented Linux server (a VPS) unless you already know you want managed services.
+
+<div data-technical>
+
+A managed platform runs one container with one port per service. The device controller needs two ports and direct access to your hardware. The [Cloud frontend + server](cloud-setup.md) page describes this split. It has more parts and more monthly bills than one Docker machine.
+
+</div>
 
 ## After it is running
 
-- **[User guide](../user-guide/README.md)** — your first test.
-- **[Configuration reference](configuration.md)** — every variable and port.
-- **[Branding](branding.md)** — name, logo, title, footer.
-- **[Production checklist](production-checklist.md)** — everything to change before going online.
+- **[User guide](../user-guide/README.md)**: your first test.
+- **[Configuration reference](configuration.md)**: every setting and port.
+- **[Branding](branding.md)**: name, logo, title and footer.
+- **[Production checklist](production-checklist.md)**: everything to change before going online.

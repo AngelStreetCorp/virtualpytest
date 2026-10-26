@@ -68,6 +68,67 @@ server_host_session_bp = Blueprint('server_host_session', __name__, url_prefix='
 HOST_SESSION_COOKIE_NAME = 'vpt_host_session'
 HOST_SESSION_TTL_SECONDS = 600
 
+# Origins allowed to mint the host-session cookie via the browser. The cookie is
+# HttpOnly + SameSite=None + Secure, scoped to /host/<name>/, 10-min TTL — safe
+# to expose to any of the frontends the user actually runs. Append new frontends
+# here when a new host (e.g. the mobile Capacitor shell) starts using it.
+DEFAULT_HOST_SESSION_CORS_ORIGINS = (
+    'https://virtualpytest.angelstreet.io,'
+    'https://vpt-pi4.angelstreet.io,'
+    'https://gcloudstandalone-api.virtualpytest.com,'
+    'capacitor://localhost,'
+    'https://localhost'
+)
+
+
+def _host_session_cors_origin() -> str:
+    raw = os.getenv('HOST_SESSION_CORS_ORIGINS', DEFAULT_HOST_SESSION_CORS_ORIGINS)
+    origin = request.headers.get('Origin', '') if request else ''
+    if origin and origin in {o.strip() for o in raw.split(',') if o.strip()}:
+        return origin
+    # Fall back to the first allow-listed origin (browsers reject '*' with
+    # credentials, so we have to echo a single literal).
+    first = next((o.strip() for o in raw.split(',') if o.strip()), '')
+    return first
+
+
+@server_host_session_bp.after_request
+def _add_host_session_cors_headers(response):
+    """Echo the requesting origin in Access-Control-Allow-Origin + credentials.
+
+    BUG-0577: without these the browser's CORS preflight on the POST
+    /server/host-session/session call (sent before every VNC iframe is
+    mounted) fails with no allow-origin header, the actual POST never
+    happens, the cookie is never set, and the iframe's first navigation
+    to /host/<name>/vnc_lite.html is 401'd by nginx's auth_request gate.
+    The route *is* in the same blueprint as the `authorize` endpoint that
+    nginx calls, but Flask returns the OPTIONS preflight before any
+    blueprint-specific after_request runs — so we install one here and
+    also handle the preflight explicitly below.
+    """
+    origin = _host_session_cors_origin()
+    if origin:
+        response.headers['Access-Control-Allow-Origin'] = origin
+        response.headers['Access-Control-Allow-Credentials'] = 'true'
+        response.headers['Vary'] = 'Origin'
+        response.headers['Access-Control-Allow-Headers'] = (
+            'Content-Type, Authorization, x-auto-sign, x-vpt-host, x-target-device-id'
+        )
+        response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
+        response.headers['Access-Control-Max-Age'] = '600'
+    return response
+
+
+@server_host_session_bp.route('/<path:_unused>', methods=['OPTIONS'])
+def _host_session_preflight(_unused):
+    """Explicit OPTIONS handler for the blueprint.
+
+    Flask's URL matcher would otherwise return 405 on OPTIONS and never run
+    the after_request hook, so the browser sees no CORS headers and rejects
+    the subsequent POST before it ever reaches /server/host-session/session.
+    """
+    return make_response(('', 204))
+
 _HOST_NAME = re.compile(r'^[A-Za-z0-9._-]{1,64}$')
 
 _GATED_HOST_PATH = re.compile(

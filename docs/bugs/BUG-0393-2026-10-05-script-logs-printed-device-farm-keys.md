@@ -9,7 +9,7 @@
 | Status    | Closed                                                       |
 | Severity  | High                                                         |
 | Area      | backend / security                                           |
-| Fixed in  | Unreleased |
+| Fixed in  | build 90145 |
 | Commit    | `TBD`                                                        |
 
 ---

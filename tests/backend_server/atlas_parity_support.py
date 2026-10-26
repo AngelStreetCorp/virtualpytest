@@ -90,6 +90,15 @@ CASES: List[Dict[str, Any]] = [
      "key": [("VM", "vm_label"), ("Component", "component")],
      "values": [("Availability %", "availability_percent", 0.01), ("Minutes not OK", "minutes_not_ok", 1),
                 ("Times not OK", "times_not_ok", 0)]},
+    {"id": "match_runs_total", "family": "matcher", "dashboard": "fingerprints.json", "panel": {"id": 1},
+     "atlas": {"source_id": "match_runs", "dimensions": [], "metrics": ["run_count"]},
+     "key": [], "values": [("Total runs (24h)", "run_count", 0)]},
+    {"id": "match_runs_matched", "family": "matcher", "dashboard": "fingerprints.json", "panel": {"id": 2},
+     "atlas": {"source_id": "match_runs", "dimensions": [], "metrics": ["matched_count"]},
+     "key": [], "values": [("Matched", "matched_count", 0)]},
+    {"id": "screen_fingerprints_above", "family": "matcher", "dashboard": "fingerprints.json", "panel": {"id": 5},
+     "atlas": {"source_id": "screen_fingerprints_counter", "dimensions": [], "metrics": ["above_threshold"]},
+     "key": [], "values": [("Above threshold", "above_threshold", 0)]},
 ]
 
 

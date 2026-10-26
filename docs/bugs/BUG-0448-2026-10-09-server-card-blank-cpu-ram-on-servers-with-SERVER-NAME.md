@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                      |
 | Severity  | Medium (no resource visibility on the affected server card; collap­sible "Server Services" stays empty for the resource chips once the UI moves them) |
 | Area      | `backend_server/src/lib/server/gunicorn_app.py`, `frontend/src/pages/Dashboard.tsx` |
-| Fixed in  | Unreleased                                                                  |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                                         |
 
 ---
@@ -19,11 +19,11 @@
 On the Dashboard, the per-server card on `virtualpytest.angelstreet.io` (the "ssh server") shows
 the URL, the version line, the "Server Services" accordion, the host and device chips and the
 restart/reboot buttons — but **no CPU / RAM / Disk / °C / Load chips**. The API server card
-right above it (e.g. `84.97.49.52`) shows all five chips fine. The two cards look identical in
+right above it (e.g. `<gateway-ip>`) shows all five chips fine. The two cards look identical in
 every other way.
 
 ```
-84.97.49.52           main-2026.10.09-10418   CPU: 39%  RAM: 47%  Disk: 36%  63°C  Load: 4.3
+`<gateway-ip>`           main-2026.10.09-10418   CPU: 39%  RAM: 47%  Disk: 36%  63°C  Load: 4.3
 virtualpytest.angelstreet.io   main-2026.10.09-10450                       (no chips)
 ```
 
@@ -60,7 +60,7 @@ Every other place in the backend that talks to a per-server identity uses
 `server_auth_routes.py`, `server_report_snapshots_routes.py`, …). The store is the only caller
 still pinning `'server'`.
 
-On the API server (84.97.49.52) the env var is unset, so the default `'server'` matches the
+On the API server (`<gateway-ip>`) the env var is unset, so the default `'server'` matches the
 hardcoded store and the read returns the row. On the ssh server, `SERVER_NAME` is a real name,
 the store still writes under `host_name='server'`, and the read queries a different
 `host_name` and gets `None`. `server_info.system_stats` is then never set, the React conditional

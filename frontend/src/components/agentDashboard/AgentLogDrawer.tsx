@@ -19,6 +19,7 @@ import { openR2Url } from '../../utils/infrastructure/cloudflareUtils';
 import { createServerSocket } from '../../utils/serverSocket';
 import { segmentedSx } from '../common/PageChrome';
 import { AgentOverview, Level, LogRow, Turn, fetchLogs, fetchTurns, fmtDuration, fmtTokens } from './api';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 const LIVE_POLL_MS = 15000;
 const WINDOWS = [{ h: 1, l: '1 h' }, { h: 24, l: '24 h' }, { h: 168, l: '7 d' }, { h: 720, l: '30 d' }];
@@ -27,10 +28,10 @@ const useLevelStyle = () => {
   const P = useAgentChatPalette();
   return (l: Level) => {
     switch (l) {
-      case 'error': return { icon: <ErrorOutline sx={{ fontSize: 18 }} />, color: P.error };
-      case 'fallback': return { icon: <WarningAmberOutlined sx={{ fontSize: 18 }} />, color: P.warning };
-      case 'running': return { icon: <SyncOutlined sx={{ fontSize: 18 }} />, color: P.accentText };
-      default: return { icon: <CheckCircleOutline sx={{ fontSize: 18 }} />, color: P.success };
+      case 'error': return { icon: <ErrorOutline sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />, color: P.error };
+      case 'fallback': return { icon: <WarningAmberOutlined sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />, color: P.warning };
+      case 'running': return { icon: <SyncOutlined sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />, color: P.accentText };
+      default: return { icon: <CheckCircleOutline sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />, color: P.success };
     }
   };
 };
@@ -47,7 +48,7 @@ const TurnsView: React.FC<{ agentId: string; sessionId: string }> = ({ agentId, 
   }, [agentId, sessionId]);
   if (err) return <Alert severity="error" sx={{ my: 1 }}>{err}</Alert>;
   if (!turns) return <Box sx={{ py: 1 }}><CircularProgress size={18} /></Box>;
-  if (!turns.length) return <Typography sx={{ fontSize: '0.78rem', color: P.textMuted, py: 1 }}>No stored turns for this session (kept 30 days).</Typography>;
+  if (!turns.length) return <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted, py: 1 }}>No stored turns for this session (kept 30 days).</Typography>;
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, py: 1 }}>
       {turns.map((t, i) => {
@@ -55,11 +56,11 @@ const TurnsView: React.FC<{ agentId: string; sessionId: string }> = ({ agentId, 
         return (
           <Box key={i} sx={{ alignSelf: mine ? 'flex-end' : 'flex-start', maxWidth: '92%' }}>
             <Box sx={{
-              px: 1.25, py: 0.75, borderRadius: 2, fontSize: '0.8rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+              px: 1.25, py: 0.75, borderRadius: 2, fontSize: TYPOGRAPHY.body.size, whiteSpace: 'pre-wrap', wordBreak: 'break-word',
               bgcolor: mine ? `${P.accent}26` : P.hoverBg, border: `1px solid ${t.role === 'tool' ? P.borderColor : 'transparent'}`,
               fontFamily: t.role === 'tool' ? 'monospace' : undefined, color: t.role === 'tool' ? P.textSecondary : P.textPrimary,
             }}>{t.content}</Box>
-            <Typography sx={{ fontSize: '0.68rem', color: P.textMuted, mt: 0.25, textAlign: mine ? 'right' : 'left' }}>
+            <Typography sx={{ fontSize: TYPOGRAPHY.microMeta.size, color: P.textMuted, mt: 0.25, textAlign: mine ? 'right' : 'left' }}>
               {t.role} · {new Date(t.ts).toLocaleTimeString()}
               {(t.tokens_in || t.tokens_out) ? ` · ${fmtTokens(t.tokens_in || 0)}/${fmtTokens(t.tokens_out || 0)} tok` : ''}
               {t.trace_url && (<> · <Box component="a" href={t.trace_url} target="_blank" rel="noopener noreferrer" sx={{ color: P.accentText, textDecoration: "none" }}>trace</Box></>)}
@@ -86,21 +87,21 @@ const Row: React.FC<{ agentId: string; row: LogRow }> = ({ agentId, row }) => {
         <Box sx={{ color: st.color, display: 'flex', pt: 0.1 }} title={row.level}>{st.icon}</Box>
         <Box sx={{ flex: 1, minWidth: 0 }}>
           <Box sx={{ display: 'flex', gap: 0.75, alignItems: 'center', flexWrap: 'wrap' }}>
-            <Typography sx={{ fontSize: '0.72rem', color: P.textMuted, fontFamily: 'monospace' }}>
+            <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted, fontFamily: 'monospace' }}>
               {new Date(row.ts).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' })}
             </Typography>
-            <Box component="span" sx={{ fontSize: '0.7rem', px: 0.75, borderRadius: 1, color: P.accentText, bgcolor: `${P.accent}1f`, border: `1px solid ${P.accent}66` }}>{row.part}</Box>
+            <Box component="span" sx={{ fontSize: TYPOGRAPHY.caption.size, px: 0.75, borderRadius: 1, color: P.accentText, bgcolor: `${P.accent}1f`, border: `1px solid ${P.accent}66` }}>{row.part}</Box>
             {(row.tokens_in > 0 || row.tokens_out > 0) && (
-              <Typography sx={{ fontSize: '0.72rem', color: P.textMuted }}>{fmtTokens(row.tokens_in)} / {fmtTokens(row.tokens_out)} tok</Typography>
+              <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted }}>{fmtTokens(row.tokens_in)} / {fmtTokens(row.tokens_out)} tok</Typography>
             )}
-            {row.duration_ms > 0 && <Typography sx={{ fontSize: '0.72rem', color: P.textMuted }}>{fmtDuration(row.duration_ms)}</Typography>}
+            {row.duration_ms > 0 && <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted }}>{fmtDuration(row.duration_ms)}</Typography>}
           </Box>
           <Typography
             onClick={hasDetail ? () => setOpen((o) => !o) : undefined}
-            sx={{ fontSize: '0.82rem', wordBreak: 'break-word', cursor: hasDetail ? 'pointer' : 'default', color: row.level === 'error' ? P.error : P.textPrimary }}
+            sx={{ fontSize: TYPOGRAPHY.body.size, wordBreak: 'break-word', cursor: hasDetail ? 'pointer' : 'default', color: row.level === 'error' ? P.error : P.textPrimary }}
           >{row.summary}</Typography>
           {open && row.detail && (
-            <Box sx={{ mt: 0.5, p: 1, borderRadius: 1.5, bgcolor: P.hoverBg, fontSize: '0.76rem', whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: P.textSecondary }}>
+            <Box sx={{ mt: 0.5, p: 1, borderRadius: 1.5, bgcolor: P.hoverBg, fontSize: TYPOGRAPHY.caption.size, whiteSpace: 'pre-wrap', wordBreak: 'break-word', color: P.textSecondary }}>
               {row.detail.question && (<><b>Q</b> {row.detail.question}{'\n'}</>)}
               {row.detail.answer && (<><b>A</b> {row.detail.answer}</>)}
             </Box>
@@ -108,19 +109,19 @@ const Row: React.FC<{ agentId: string; row: LogRow }> = ({ agentId, row }) => {
         </Box>
         <Box sx={{ display: 'flex', flexShrink: 0 }}>
           {ln.report && (
-            <Tooltip title="Report"><IconButton size="small" sx={iconBtn} onClick={() => { void openR2Url(ln.report!); }}><DescriptionOutlined sx={{ fontSize: 18 }} /></IconButton></Tooltip>
+            <Tooltip title="Report"><IconButton size="small" sx={iconBtn} onClick={() => { void openR2Url(ln.report!); }}><DescriptionOutlined sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} /></IconButton></Tooltip>
           )}
           {ln.alert && (
-            <Tooltip title="Incidents"><IconButton size="small" sx={iconBtn} onClick={() => navigate('/monitoring/incidents')}><NotificationsNoneOutlined sx={{ fontSize: 18 }} /></IconButton></Tooltip>
+            <Tooltip title="Incidents"><IconButton size="small" sx={iconBtn} onClick={() => navigate('/monitoring/incidents')}><NotificationsNoneOutlined sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} /></IconButton></Tooltip>
           )}
           {ln.testprompt && (
-            <Tooltip title="Test Prompt (Atlas chat)"><IconButton size="small" sx={iconBtn} onClick={() => navigate('/ai-agent')}><SmartToyOutlined sx={{ fontSize: 18 }} /></IconButton></Tooltip>
+            <Tooltip title="Test Prompt (Atlas chat)"><IconButton size="small" sx={iconBtn} onClick={() => navigate('/ai-agent')}><SmartToyOutlined sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} /></IconButton></Tooltip>
           )}
           {ln.chat_session && (
-            <Tooltip title="Transcript"><IconButton size="small" sx={iconBtn} onClick={() => setOpen((o) => !o)}><ChatBubbleOutline sx={{ fontSize: 18 }} /></IconButton></Tooltip>
+            <Tooltip title="Transcript"><IconButton size="small" sx={iconBtn} onClick={() => setOpen((o) => !o)}><ChatBubbleOutline sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} /></IconButton></Tooltip>
           )}
           {ln.trace && (
-            <Tooltip title="Trace"><IconButton size="small" sx={iconBtn} component="a" href={ln.trace} target="_blank" rel="noopener noreferrer"><OpenInNew sx={{ fontSize: 18 }} /></IconButton></Tooltip>
+            <Tooltip title="Trace"><IconButton size="small" sx={iconBtn} component="a" href={ln.trace} target="_blank" rel="noopener noreferrer"><OpenInNew sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} /></IconButton></Tooltip>
           )}
         </Box>
       </Box>
@@ -206,20 +207,20 @@ export const AgentLogDrawer: React.FC<{ agent: AgentOverview | null; initialHour
     return () => { window.clearInterval(id); socket?.removeAllListeners(); socket?.disconnect(); };
   }, [agentId, mode, load]);
 
-  const fieldSx = { '& .MuiInputBase-root': { fontSize: 13 }, minWidth: 100 };
+  const fieldSx = { '& .MuiInputBase-root': { fontSize: TYPOGRAPHY.body.size }, minWidth: 100 };
 
   return (
     <Drawer anchor="right" open={!!agent} onClose={onClose}
       PaperProps={{ sx: { width: phone ? '100%' : 640, maxWidth: '100%', bgcolor: P.background, backgroundImage: 'none', borderLeft: `1px solid ${P.borderColor}` } }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1.5, py: 1, borderBottom: `1px solid ${P.borderColor}`, flexWrap: 'wrap' }}>
-        <Typography sx={{ fontSize: '1rem', fontWeight: 600, flex: 1, minWidth: 0 }} noWrap>{agent?.name} logs</Typography>
+        <Typography sx={{ fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600, flex: 1, minWidth: 0 }} noWrap>{agent?.name} logs</Typography>
         <ToggleButtonGroup exclusive size="small" value={mode} onChange={(_, v) => v && setMode(v)} sx={segmentedSx(P, 'sm')}>
           <ToggleButton value="history">History</ToggleButton>
           <ToggleButton value="live">
             <Box component="span" sx={{ width: 7, height: 7, borderRadius: '50%', mr: 0.75, bgcolor: mode === 'live' ? P.success : P.textMuted }} />Live
           </ToggleButton>
         </ToggleButtonGroup>
-        <IconButton size="small" onClick={onClose} aria-label="Close"><Close sx={{ fontSize: 20 }} /></IconButton>
+        <IconButton size="small" onClick={onClose} aria-label="Close"><Close sx={{ fontSize: TYPOGRAPHY.pageSubtitle.size }} /></IconButton>
       </Box>
       <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', px: 1.5, py: 1, borderBottom: `1px solid ${P.borderColor}` }}>
         <TextField select size="small" label="Part" value={part} onChange={(e) => setPart(e.target.value)} sx={fieldSx}>
@@ -243,7 +244,7 @@ export const AgentLogDrawer: React.FC<{ agent: AgentOverview | null; initialHour
         {loading ? (
           <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}><CircularProgress size={24} /></Box>
         ) : rows.length === 0 && !error ? (
-          <Typography sx={{ p: 2, fontSize: '0.85rem', color: P.textMuted }}>
+          <Typography sx={{ p: 2, fontSize: TYPOGRAPHY.body.size, color: P.textMuted }}>
             No rows for these filters in the window. Widen the window or clear the filters.
             {!isAdmin && ' Error details are visible to admins only.'}
           </Typography>

@@ -1,0 +1,39 @@
+# ad_meter: how much of a live TV channel is commercial breaks (TASK-90 goal 10). Picture only: the channel's own on-screen mark is learned from
+# the device's stream (30 min), a break is "mark gone AND cutting fast", and frames of closed breaks are remembered so a break made of spots seen
+# before is `confirmed`. Settings below are the analyzer's defaults, spelled out (docs/agent/devices/MONITOR_PROFILES.md section 9).
+name: ad_meter
+services: { img: true, audio: false, subtitle: false }
+img:
+  runtime: edge
+  analyzers:
+    - type: ad_meter
+      sample_hz: 2
+      mark_absent: 0.25          # learned-mark score under this = the mark is not there
+      cut_hist: 0.33             # grey-histogram jump between two samples that counts as a hard cut
+      cuts_per_30s: 8            # hard cuts in the last 30 s that a programme rarely reaches
+      open_s: 30
+      close_s: 45
+      min_break_s: 90
+      # timezone: Europe/Zurich    # where "today" starts; default: the host's local time
+      lib_assist: true           # active spots (seen in 3 different breaks) also help detection and pull the start back; false = label only
+      library: true              # remember break frames (ad_library.json in the device folder); confirmed = seen in earlier breaks
+events:
+  ad_break: { attr: state, equals: ad }
+incidents:
+  ads_overload: { kpi: ads_pct_hour, above: 35, window_s: 3600, min_watch_s: 1800 }   # more than a third of the last hour was breaks, once half an hour has been watched
+kpis:
+  - { name: ads_pct_today, of: ad_break, window_s: 100000, pct_time: true, since_midnight: true }   # since local midnight (host timezone, or `timezone:` above)
+  - { name: ads_pct_24h, of: ad_break, window_s: 86400, pct_time: true }     # rolling 24 h, over the time watched
+  - { name: ads_pct_hour, of: ad_break, window_s: 3600, pct_time: true }
+  - { name: breaks_per_hour, of: ad_break, window_s: 3600 }
+  - { name: minutes_to_first_break, of: ad_break, window_s: 3600, first_in_hour: true }
+  - { name: breaks_by_kind, of: ad_break, group_by: kind, window_s: 86400 }
+ui:
+  title: Ad meter
+  headline: { kpi: ads_pct_today, label: ads, unit: '%' }
+  counters:
+    kpi: breaks_by_kind
+    items:
+      - { key: confirmed, colour: red, label: seen before }
+      - { key: new, colour: amber, label: new }
+  state_badge: { event: ad_break, label: AD, colour: red }

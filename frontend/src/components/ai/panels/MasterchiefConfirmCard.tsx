@@ -33,6 +33,7 @@ import {
 } from '@mui/icons-material';
 import { api } from '../../../utils/apiClient';
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 export interface MasterchiefProposal {
   audit_id: string;
@@ -125,26 +126,26 @@ export const MasterchiefConfirmCard: React.FC<MasterchiefConfirmCardProps> = ({
         my: 1.5,
         p: 2,
         borderRadius: 2,
-        bgcolor: P.surface,
+        bgcolor: P.surfaceSolid,
         border: `1px solid ${proposal.mutates ? '#f59e0b' : P.borderColor}`,
         boxShadow: proposal.mutates ? '0 0 0 1px rgba(245,158,11,0.2)' : 'none',
       }}
     >
       <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-        <SecurityIcon sx={{ color: P.accent, fontSize: 18 }} />
+        <SecurityIcon sx={{ color: P.accent, fontSize: TYPOGRAPHY.cardTitle.size }} />
         <Typography variant="subtitle2" sx={{ color: P.textPrimary, fontWeight: 600, flex: 1 }}>
           Masterchief · {proposal.op}
         </Typography>
         {proposal.mutates && (
           <Chip
-            icon={<WarningIcon sx={{ fontSize: 14 }} />}
+            icon={<WarningIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />}
             label="mutates"
             size="small"
             sx={{
               bgcolor: 'rgba(245,158,11,0.15)',
               color: '#b45309',
               fontWeight: 600,
-              fontSize: '0.7rem',
+              fontSize: TYPOGRAPHY.caption.size,
             }}
           />
         )}
@@ -156,7 +157,7 @@ export const MasterchiefConfirmCard: React.FC<MasterchiefConfirmCardProps> = ({
               bgcolor: 'rgba(212,165,116,0.15)',
               color: P.accent,
               fontWeight: 600,
-              fontSize: '0.7rem',
+              fontSize: TYPOGRAPHY.caption.size,
             }}
           />
         )}
@@ -167,7 +168,7 @@ export const MasterchiefConfirmCard: React.FC<MasterchiefConfirmCardProps> = ({
             disabled={isTerminal}
             sx={{ color: P.textMuted }}
           >
-            <CloseIcon sx={{ fontSize: 16 }} />
+            <CloseIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
           </IconButton>
         </Tooltip>
       </Stack>
@@ -185,7 +186,7 @@ export const MasterchiefConfirmCard: React.FC<MasterchiefConfirmCardProps> = ({
           p: 1,
           mb: 1.5,
           borderRadius: 1.5,
-          bgcolor: proposal.mutates ? 'rgba(245,158,11,0.08)' : P.sidebarBg,
+          bgcolor: proposal.mutates ? 'rgba(245,158,11,0.08)' : P.sidebarBgSolid,
           border: `1px solid ${P.borderColor}`,
         }}
       >
@@ -204,7 +205,7 @@ export const MasterchiefConfirmCard: React.FC<MasterchiefConfirmCardProps> = ({
             m: 0,
             mb: 1.5,
             p: 1,
-            fontSize: '0.7rem',
+            fontSize: TYPOGRAPHY.caption.size,
             color: P.textPrimary,
             bgcolor: P.inputBg,
             border: `1px solid ${P.borderColor}`,
@@ -218,14 +219,14 @@ export const MasterchiefConfirmCard: React.FC<MasterchiefConfirmCardProps> = ({
       )}
 
       {error && (
-        <Alert severity="error" sx={{ mb: 1, fontSize: '0.75rem' }}>
+        <Alert severity="error" sx={{ mb: 1, fontSize: TYPOGRAPHY.caption.size }}>
           {error}
         </Alert>
       )}
       {summary && !error && (
         <Alert
           severity={status === 'executed' ? 'success' : status === 'failed' ? 'error' : 'info'}
-          sx={{ mb: 1, fontSize: '0.75rem' }}
+          sx={{ mb: 1, fontSize: TYPOGRAPHY.caption.size }}
         >
           {summary}
         </Alert>
@@ -247,7 +248,7 @@ export const MasterchiefConfirmCard: React.FC<MasterchiefConfirmCardProps> = ({
         <Button
           variant="text"
           size="small"
-          startIcon={<RequeueIcon sx={{ fontSize: 14 }} />}
+          startIcon={<RequeueIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />}
           onClick={() => callExecute('abandon')}
           disabled={isTerminal}
           sx={{ color: P.textMuted }}
@@ -261,7 +262,7 @@ export const MasterchiefConfirmCard: React.FC<MasterchiefConfirmCardProps> = ({
             status === 'executing' ? (
               <CircularProgress size={12} sx={{ color: 'inherit' }} />
             ) : (
-              <CheckIcon sx={{ fontSize: 14 }} />
+              <CheckIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
             )
           }
           onClick={() => callExecute('execute')}

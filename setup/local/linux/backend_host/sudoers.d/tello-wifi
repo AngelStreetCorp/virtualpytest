@@ -40,3 +40,8 @@
 
 vpt_user ALL=(root) NOPASSWD: /usr/bin/nmcli device wifi rescan, /bin/nmcli device wifi rescan
 vpt_user ALL=(root) NOPASSWD: /usr/bin/nmcli device wifi connect TELLO-*, /bin/nmcli device wifi connect TELLO-*
+
+# Two-radio hosts (one dongle per drone, scripts/drone/tello_prio.sh): the pairing route joins a
+# slot's own radio through the script instead of nmcli. Same TELLO-* pin on the SSID; the route also
+# validates it. Path is the standard install location.
+vpt_user ALL=(root) NOPASSWD: /opt/virtualpytest/scripts/drone/tello_prio.sh up [1-9] wlan[0-9]* TELLO-* 192.168.10.*

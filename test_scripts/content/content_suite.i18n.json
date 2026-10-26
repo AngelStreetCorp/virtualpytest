@@ -1,0 +1,46 @@
+{
+  "[{platform}/{case}] {message}": {
+    "fr": "[{platform}/{case}] {message}",
+    "de": "[{platform}/{case}] {message}"
+  },
+  "[content_suite] platform={platform} device={device} cases={cases}": {
+    "fr": "[content_suite] platform={platform} appareil={device} cas={cases}",
+    "de": "[content_suite] Plattform={platform} Gerät={device} Fälle={cases}"
+  },
+  "[content_suite] no adapter for this device: {error}": {
+    "fr": "[content_suite] aucun adaptateur pour cet appareil : {error}",
+    "de": "[content_suite] kein Adapter für dieses Gerät: {error}"
+  },
+  "unknown case '{name}'; known cases: {cases}": {
+    "fr": "cas inconnu « {name} » ; cas connus : {cases}",
+    "de": "unbekannter Fall '{name}'; bekannte Fälle: {cases}"
+  },
+  "{cases} cases: {passed} passed, {failed} failed, {skipped} skipped ({product} attributed to the product)": {
+    "fr": "{cases} cas : {passed} réussis, {failed} échoués, {skipped} ignorés ({product} attribués au produit)",
+    "de": "{cases} Fälle: {passed} bestanden, {failed} fehlgeschlagen, {skipped} übersprungen ({product} dem Produkt zugerechnet)"
+  },
+  "{case}: {reason}": {
+    "fr": "{case} : {reason}",
+    "de": "{case}: {reason}"
+  },
+  "the {platform} adapter has no '{case}' case": {
+    "fr": "l'adaptateur {platform} n'a pas de cas « {case} »",
+    "de": "der Adapter {platform} hat keinen Fall '{case}'"
+  },
+  "harness error in the '{case}' case: {error}": {
+    "fr": "erreur du harnais dans le cas « {case} » : {error}",
+    "de": "Harness-Fehler im Fall '{case}': {error}"
+  },
+  "coverage gap: no radio surface exists in the {platform} app": {
+    "fr": "lacune de couverture : aucune surface radio dans l'application {platform}",
+    "de": "Abdeckungslücke: keine Radio-Oberfläche in der App {platform}"
+  },
+  "infra: the {platform} device could not be reached": {
+    "fr": "infra : l'appareil {platform} n'a pas pu être atteint",
+    "de": "infra: das Gerät {platform} war nicht erreichbar"
+  },
+  "product: the {platform} surface was reached and behaved wrongly": {
+    "fr": "produit : la surface {platform} a été atteinte et s'est mal comportée",
+    "de": "Produkt: die Oberfläche {platform} wurde erreicht und hat sich falsch verhalten"
+  }
+}

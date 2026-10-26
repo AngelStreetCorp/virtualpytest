@@ -1,4 +1,5 @@
 import logging
+import threading
 import os
 import sys
 from typing import Optional
@@ -107,10 +108,20 @@ def _loud(message: str) -> None:
 _supabase_client: Optional[Client] = None
 _supabase_admin_client: Optional[Client] = None
 
+_client_init_lock = threading.RLock()
+
+
 def get_supabase_client() -> Optional[Client]:
-    """Get the Supabase client instance with lazy loading."""
+    """Get the Supabase client instance with lazy loading (double-checked lock: TASK-154)."""
+    if _supabase_client is not None:
+        return _supabase_client
+    with _client_init_lock:
+        return _get_supabase_client_locked()
+
+
+def _get_supabase_client_locked() -> Optional[Client]:
     global _supabase_client
-    
+
     if _supabase_client is None:
         try:
             # Only try to create client when actually needed.

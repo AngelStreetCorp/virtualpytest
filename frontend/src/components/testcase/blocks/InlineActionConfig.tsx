@@ -23,6 +23,7 @@ import { useDeviceData } from '../../../contexts/device/DeviceDataContext';
 import { useTestCaseBuilder } from '../../../contexts/testcase/TestCaseBuilderContext';
 import { resolveParamsVariables } from '../../../utils/variableResolutionUtils';
 import { ActionBlockData } from '../../../types/testcase/TestCase_Types';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface InlineActionConfigProps {
   data: ActionBlockData;
@@ -105,7 +106,7 @@ export const InlineActionConfig: React.FC<InlineActionConfigProps> = ({ data, on
           variant="outlined"
           startIcon={<AddIcon />}
           onClick={handleAdd}
-          sx={{ minWidth: 'auto', fontSize: '0.75rem', py: 0.25 }}
+          sx={{ minWidth: 'auto', fontSize: TYPOGRAPHY.caption.size, py: 0.25 }}
         >
           Add action
         </Button>

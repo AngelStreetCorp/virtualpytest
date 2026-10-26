@@ -1,11 +1,8 @@
 # Cloud Device Farms
 
-**Lease a phone from Sauce Labs or BrowserStack and drive it like one on your desk.**
+**Rent a phone from Sauce Labs or BrowserStack and control it from your desk.**
 
-A farm device is an ordinary VirtualPyTest device: the same remote panel, the same
-navigation trees, the same scripts, the same reports. What differs is that the session
-lives in a vendor's cloud and costs money by the minute — so the lease is explicit
-rather than hidden.
+A farm phone works like any other VirtualPyTest device. You use the same remote panel, the same navigation trees, the same scripts and the same reports. The difference is cost. The phone runs in the vendor's cloud and you pay by the minute, so you always choose to start a session.
 
 ---
 
@@ -13,42 +10,53 @@ rather than hidden.
 
 | Provider | Status | What works |
 |---|---|---|
-| **Sauce Labs** | Live | Everything — sessions, app upload, device listing, session artifacts. Proven against a real device on 2026-09-17. |
-| **BrowserStack** | Live | Sessions and app-driven runs. Upload the build yourself (below) and point `DEVICE{i}_FARM_APP` at the returned reference. |
-| **LambdaTest** | Planned | The session half is written and unit-tested behind the same seam; nothing has been run against a real account. |
+| **Sauce Labs** | Live | Everything: sessions, app upload, device list, session files. Tested on a real device on 2026-09-17. |
+| **BrowserStack** | Live | Sessions and app runs. You upload the build yourself (see below). |
+| **LambdaTest** | Planned | Not yet tested on a real account. |
 
-Adding a fourth farm is one module in `features/device-farm/lib/providers/` implementing
-five methods, plus one line in that folder's `__init__.py`. Nothing outside it changes.
+<div data-technical>
+
+Adding a fourth provider means one module in `features/device-farm/lib/providers/` that implements five methods, plus one line in that folder's `__init__.py`. Nothing outside that folder changes.
+
+For BrowserStack and Sauce, point `DEVICE{i}_FARM_APP` at the reference returned by the upload (see below).
+
+</div>
 
 ---
 
 ## Configuration
 
-One farm device is one slot in the host `.env`. The keys that matter:
+<div data-technical>
+
+Each farm phone is one slot in the host `.env`. The keys that matter:
 
 | Key | Meaning |
 |---|---|
 | `DEVICE{i}_MODEL` | `cloud_android_mobile` or `cloud_ios_mobile` |
 | `DEVICE{i}_FARM_PROVIDER` | `saucelabs` / `browserstack` / `lambdatest` |
-| `DEVICE{i}_FARM_USER`, `..._FARM_KEY` | account credentials — masked in every log line |
+| `DEVICE{i}_FARM_USER`, `..._FARM_KEY` | account credentials, masked in every log line |
 | `DEVICE{i}_FARM_REGION` | provider datacenter |
 | `DEVICE{i}_FARM_DEVICE`, `..._FARM_OS_VERSION` | which device to allocate |
 | `DEVICE{i}_FARM_APP` | the build under test (`storage:` / `bs://` / `lt://`) |
 | `FARM_MAX_SESSIONS` | host-wide cap on concurrent sessions, not per device |
 
-The full list with defaults is in `backend_host/src/.env.example`. A slot missing
-credentials is skipped with the exact keys named; the host's other devices are unaffected.
+The full list with defaults is in `backend_host/src/.env.example`. A slot with missing credentials is skipped, and the log names the missing keys. The host's other devices keep working.
 
-**The device name must exist in your account's pool.** Name one that does not and the
-vendor answers with a bare internal error that says nothing useful.
+</div>
+
+Each farm phone has its own settings on the host: your account, the phone you want, and the app to test.
+
+**The device name must exist in your account's pool.** If it does not, the vendor returns a generic internal error that does not say what went wrong.
 
 ---
 
 ## Getting an app onto a farm
 
-`DEVICE{i}_FARM_APP` is **required, not optional** — a farm refuses a session with neither
-a browser nor an app, and there is no way to drive an app that is merely preinstalled on
-the device. Upload the build once, then reference it:
+A farm needs an app or a browser to run. It cannot just use an app that is already on the phone. So you upload your build once, and then point VirtualPyTest at it.
+
+<div data-technical>
+
+The BrowserStack upload command returns `bs://<hash>`:
 
 ```bash
 # BrowserStack — returns bs://<hash>
@@ -57,29 +65,34 @@ curl -u "<user>:<key>" \
   -F "file=@/path/to/app.apk"
 ```
 
-Then set `DEVICE{i}_FARM_APP` to the returned reference (`storage:<id>` on Sauce,
-`bs://<hash>` on BrowserStack). Giving the upload a custom id lets the same `.env` value
-keep meaning "the current build" without an edit per release.
+Then set `DEVICE{i}_FARM_APP` to the returned reference (`storage:<id>` on Sauce, `bs://<hash>` on BrowserStack). If you give the upload a custom ID, the same `.env` value keeps pointing at the current build, so you do not edit it for every release.
 
-The upload commands per vendor, how to list what is already uploaded, how to pull an APK
-off a device you own, and why a split-APK app cannot be uploaded at all are covered in
-`features/device-farm/APPS.md`.
+`DEVICE{i}_FARM_APP` is required. A farm refuses a session that has neither a browser nor an app.
+
+</div>
+
+The upload commands for each vendor, how to list what is already uploaded, how to pull an APK off a phone you own, and why a split-APK app cannot be uploaded are covered in `features/device-farm/APPS.md`.
 
 ---
 
 ## Before the first run
 
-Apply `features/device-farm/db/001_cloud_device_models.sql` by hand — feature migrations
-are not run by any deploy script, and without it the UserInterface editor cannot offer the
-cloud models, so no navigation tree can be built for a farm device.
+An admin must run one database setup step by hand. The deploy scripts do not run it for you. Without it, the editor cannot offer cloud phones, so no navigation tree can be built for them.
 
-To turn the whole feature off, set `DISABLED_FEATURES=device-farm`. Every other device
-behaves identically.
+<div data-technical>
+
+Apply `features/device-farm/db/001_cloud_device_models.sql` by hand. Feature migrations are not run by any deploy script.
+
+To turn the whole feature off, set `DISABLED_FEATURES=device-farm`. Every other device behaves the same.
+
+</div>
+
+An admin can switch the whole farm feature off for a deployment. Your other devices are not affected.
 
 ---
 
 ## Related Documentation
 
-- **[Integrations](README.md)** — everything VirtualPyTest connects to
-- **[Unified Controller](../features/unified-controller.md)** — how one panel drives every device type
-- **[Mobile App](../features/mobile-app.md)** — the other way to test on a phone
+- **[Integrations](README.md)**: everything VirtualPyTest connects to
+- **[Unified Controller](../features/unified-controller.md)**: how one panel drives every device type
+- **[Mobile App](../features/mobile-app.md)**: the other way to test on a phone

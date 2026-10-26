@@ -6,6 +6,91 @@
  */
 
 // Core monitoring analysis from analyze_audio_video.py
+// One thing a profile analyzer saw in a frame
+export interface ProfileObservation {
+  label: string; // e.g. 'car'
+  track_id?: number; // same object across frames
+  conf?: number; // 0..1
+  bbox: [number, number, number, number]; // x, y, w, h (pixels of frame_size; all values <= 1 = fractions)
+  attrs?: Record<string, string | number>; // e.g. { colour: 'red' }
+  votes?: string; // '2/3': votes cast so far / votes needed for the track's verdict (profiles with track.votes > 1)
+  shape?: { ellipse: [number, number, number, number, number] }; // [cx, cy, ax, ay, angle_deg] in frame pixels (ax, ay = full axis lengths)
+  verdict?: string | null; // null while the track is still voting
+  probs?: Record<string, number>; // class probabilities of the verdict attribute so far
+  /**
+   * Centre velocity of the track in px/s ([vx, vy]), as the tracker measured it (BUG-0836).
+   * The overlay is drawn on a live video, which is later than the frame these boxes came from, so a
+   * moving object has moved on since. The client advances each box by v x age to keep it on its
+   * object. Absent for a tracker that cannot estimate motion, or for an object that has not moved.
+   */
+  v?: [number, number];
+}
+
+// The web overlay of a profile, as the profile manifest's `ui` block (the monitor copies it into every frame JSON)
+export type ProfileUiColour = 'green' | 'red' | 'amber' | 'grey' | 'blue' | 'purple' | 'white' | 'black' | 'yellow' | 'brown';
+export interface ProfileUi {
+  title: string;
+  headline?: { kpi: string; label: string; unit?: '%' | 'min' };
+  // the stat row under the headline: "Eggs 253 · Detections 82". `kpi` reads a KPI, `observations`
+  // reads the number of detections in the analysed frame (not a KPI — it is the observations list).
+  stats?: { label: string; kpi?: string; observations?: boolean }[];
+  counters?: { kpi: string; items: { key: string; colour: ProfileUiColour; label?: string }[] };
+  box?: { shape?: 'rect' | 'ellipse'; badge?: 'none' | 'votes'; colour_by?: 'none' | 'verdict' };
+  focus_panel?: { crop?: boolean; probs?: boolean; title?: string };
+  // a badge on the picture while this event is in progress (ad_meter: AD)
+  state_badge?: { event: string; label: string; colour?: ProfileUiColour };
+  // top-right HUD of a vehicle: fields of the frame's `telemetry`, in order; a field without a value is not drawn
+  hud?: ProfileHudItem[];
+}
+
+export interface ProfileHudItem {
+  key: string;
+  label: string;
+  format?: 'number' | 'battery' | 'duration' | 'latlon'; // latlon: key = lat, key2 = lon
+  key2?: string;
+  short?: string; // label in the narrow HUD (default: first three letters)
+  unit?: string;
+  decimals?: number;
+  warn_above?: number;
+  warn_below?: number;
+}
+
+// A vehicle's reading attached to the frame (drone profile): units %, degrees C, metres, m/s, seconds; absent keys = not reported
+export interface ProfileTelemetry {
+  ok: boolean; // false: no telemetry (the reading is older than a few seconds)
+  age?: number;
+  bat?: number;
+  temp?: number;
+  alt?: number;
+  spd?: number;
+  yaw?: number;
+  ft?: number;
+  fly?: boolean;
+  x?: number;
+  y?: number;
+  lat?: number;
+  lon?: number;
+  fix?: number;
+  [key: string]: number | boolean | undefined;
+}
+
+// The item checked last, for the "last checked" panel
+export interface ProfileFocus {
+  track_id: number;
+  check: number; // vote number of this check
+  checks: number; // votes needed
+  verdict: string | null;
+  final: boolean;
+  probs: Record<string, number>;
+  crop: string | null; // file name in the device's metadata folder
+}
+
+// A profile event in progress (start = unix seconds)
+export interface ProfileEvent {
+  start: number;
+  duration_ms: number;
+}
+
 export interface MonitoringAnalysis {
   timestamp: string;
   filename: string;
@@ -22,6 +107,25 @@ export interface MonitoringAnalysis {
   macroblocks: boolean; // Macroblock/image quality detection
   quality_score: number; // Image quality score (0-100)
   has_incidents: boolean; // Pre-calculated incident status
+
+  // Generic profile output (TASK-90). tv_app writes profile='tv_app' with empty values; frames from before
+  // the change have none of these. Boxes are drawn by ProfileOverlay for every profile except tv_app.
+  profile?: string;
+  frame_size?: [number, number]; // [w, h] of the analysed frame; observation bboxes are in these pixels
+  observations?: ProfileObservation[];
+  events?: Record<string, ProfileEvent>;
+  kpis?: Record<string, number | Record<string, number>>;
+  incidents?: Record<string, { active: boolean; value: number }>; // profile incidents as evaluated by the monitor
+  ui?: ProfileUi;
+  focus?: ProfileFocus | null;
+  telemetry?: ProfileTelemetry;
+  /**
+   * When the analysed frame was CAPTURED, as opposed to `timestamp`, which is when the analysis of it
+   * finished (BUG-0836). Everything the overlay draws is `now - captured_at` old, so this is what the
+   * client needs to move each box forward onto its object and to tell the operator how far behind the
+   * picture is. Written by the sampled profile analyzers; absent on tv_app frames and on old frames.
+   */
+  captured_at?: string;
   
   // R2 storage URLs (uploaded to R2 on detection)
   r2_images?: {
@@ -77,6 +181,9 @@ export interface MonitoringAnalysis {
     // When present, the cached `node` is served with `confidence: 0` and Tier-2
     // fields are absent. Absent on a fresh matcher run.
     gate_skip?: string;
+    // Localize v3 (TASK-104): the one verdict the button and MCP give too.
+    kind?: 'signal' | 'live' | 'node' | 'overlay' | 'known_screen' | 'app' | 'unknown';
+    verdict?: { kind: 'signal' | 'live' | 'node' | 'overlay' | 'known_screen' | 'app' | 'unknown'; label: string; node_id?: string | null; confidence?: number; evidence?: Record<string, unknown> };
     // Tier 2 (screen_state_cv) — only present on a fresh matcher run (the gate
     // must be open to read the frame). Each arm abstains honestly on its own
     // missing input, so 'unknown' is a real answer (we DID look, the answer
@@ -102,6 +209,8 @@ export interface MonitoringAnalysis {
     cells?: number;
     rows?: number;
     cols?: number;
+    mask?: number; // changed 4x4 cells, row-major bits (bit 0 = top-left, bit 15 = bottom-right)
+    bbox?: [number, number, number, number] | null; // changed area, frame fractions [x0, y0, x1, y1]
     pip?: boolean; // localized motion box on a matched UI screen (picture-in-picture)
     carousel?: boolean; // horizontal motion band on a matched UI screen
   };
@@ -218,7 +327,7 @@ export interface Alert {
   id: string; // UUID from backend
   host_name: string; // Exact backend field name
   device_id: string; // Exact backend field name
-  incident_type: string; // 'blackscreen' | 'freeze' | 'audio_loss'
+  incident_type: string; // 'blackscreen' | 'freeze' | 'no_signal' | 'audio_loss'
   status: 'active' | 'resolved'; // Exact backend enum values
   consecutive_count: number; // Exact backend field name
   start_time: string; // ISO datetime string
@@ -236,6 +345,12 @@ export interface Alert {
 
 // Alert metadata structure (from alert_system.py)
 export interface AlertMetadata {
+  // Last key sent to the device before the alert (TASK-158); absent when the host recorded none
+  seconds_since_last_key?: number;
+  last_key_source?: string; // 'script' | 'take_control' | 'remote' | 'probe' | 'unknown'
+  last_key_actor?: string | null;
+  last_key_name?: string | null;
+  probe?: { key: string; outcome: string; detail: string; at: string };
   // Core analysis data (always present)
   blackscreen?: boolean;
   blackscreen_percentage?: number;

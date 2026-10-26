@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High                                                         |
 | Area      | backend / backend_host / agent                               |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `b660a964d8`                                                  |
 
 ---

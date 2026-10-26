@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — wrong audit trail, no data loss                     |
 | Area      | frontend / backend_server / backend_host / reports           |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `a25e643bf`                                                  |
 
 ---

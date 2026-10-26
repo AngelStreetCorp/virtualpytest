@@ -34,6 +34,7 @@ Then push it live (file provisioning is disabled on VM 106):
 import argparse
 import json
 import os
+import sys
 
 # Reuse the Self-Test dashboard's datasource so the two look like siblings.
 DS = {"type": "grafana-postgresql-datasource", "uid": "supabase-postgres"}
@@ -582,8 +583,13 @@ def main():
     out = os.path.join(out_dir, f"{args.project}-quality.json")
 
     dash = build(args.project, surfaces, args.campaign_prefix)
-    with open(out, "w") as f:
-        json.dump(dash, f, indent=2)
+    # The house shape (see dashboards/README.md): the dashboard ends with a
+    # collapsed "Details" row, like the Script Results dashboard.
+    sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboards"))
+    from _apply_details_row import apply as apply_details_row
+    apply_details_row(dash)
+    with open(out, "w", encoding="utf-8") as f:
+        json.dump(dash, f, indent=2, ensure_ascii=False)
         f.write("\n")
     print(f"wrote {out}  uid={dash['uid']}  panels={len(dash['panels'])}  surfaces={len(surfaces)}")
 

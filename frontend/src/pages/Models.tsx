@@ -8,7 +8,6 @@ import {
   IconButton,
   Chip,
   Alert,
-  CircularProgress,
   Table,
   TableBody,
   TableCell,
@@ -19,7 +18,8 @@ import {
   Snackbar,
 } from '@mui/material';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
-import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
+import { PAGE_TITLE_SX, dangerIconSx, pageSurfaceSx } from '../components/common/PageChrome';
+import { TableRowsSkeleton } from '../components/common/ReportSkeleton';
 import React, { useState } from 'react';
 
 import CreateModelDialog from '../components/models/Models_CreateDialog';
@@ -27,6 +27,7 @@ import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { ModelCreatePayload } from '../types/pages/Models_Types';
 import { useDeviceModels } from '../hooks/pages/useDeviceModels';
+import { TYPOGRAPHY } from '../constants/typography';
 
 const Models: React.FC = () => {
   const P = useAgentChatPalette();
@@ -92,25 +93,6 @@ const Models: React.FC = () => {
     setError(null);
   };
 
-  // Loading state
-  const LoadingState = () => (
-    <Box
-      sx={{
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        py: 8,
-        textAlign: 'center',
-      }}
-    >
-      <CircularProgress size={40} sx={{ mb: 2 }} />
-      <Typography variant="h6" color="text.secondary">
-        Loading Models...
-      </Typography>
-    </Box>
-  );
-
   // Empty state
   const EmptyState = () => (
     <Box
@@ -123,7 +105,7 @@ const Models: React.FC = () => {
         textAlign: 'center',
       }}
     >
-      <DeviceIcon sx={{ fontSize: 64, color: 'text.secondary', mb: 2 }} />
+      <DeviceIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: 'text.secondary', mb: 2 }} />
       <Typography variant="h6" color="text.secondary" gutterBottom>
         No Models Found
       </Typography>
@@ -139,6 +121,44 @@ const Models: React.FC = () => {
         Add Model
       </Button>
     </Box>
+  );
+
+  // The <colgroup> + <TableHead>, shared by the live table and the loading placeholder so both
+  // have one geometry and the columns cannot shift between them.
+  //
+  // Deliberately NOT a <Table>: 57f6cdac9 hoisted the whole <Table> as `modelsShell` and the
+  // <TableBody> that followed was left as a sibling of it inside the <TableContainer>, i.e.
+  // `div > table > colgroup+thead` next to `div > tbody`. The body became its own auto-laid-out,
+  // shrink-to-fit table that could not see the colgroup at all, so every column drifted and the
+  // rows lost the `py: 0.5` override scoped to the header's <Table>. See BUG-0768.
+  const modelsHead = (
+    <>
+      <colgroup><col style={{ width: 220 }} /><col style={{ width: 200 }} /><col style={{ width: 100 }} /><col /><col style={{ width: 100 }} /><col style={{ width: 120 }} /></colgroup>
+      <TableHead>
+        <TableRow>
+          <TableCell><strong>Name</strong></TableCell>
+          <TableCell><strong>Types</strong></TableCell>
+          <TableCell><strong>Version</strong></TableCell>
+          <TableCell><strong>Description</strong></TableCell>
+          <TableCell><strong>Default</strong></TableCell>
+          <TableCell align="center"><strong>Actions</strong></TableCell>
+        </TableRow>
+      </TableHead>
+    </>
+  );
+
+  // Head and body assembled into ONE table, body passed in as an argument so the <tbody> is
+  // lexically inside the <table> that closes it. Same shape as `interfaceTable` on
+  // /configuration/interface and `coverageTable` on LocalizeCoverage.
+  const modelsTable = (body: React.ReactNode) => (
+    <Table size="small" sx={{
+      tableLayout: 'fixed', minWidth: 900,
+      '& .MuiTableCell-root': { py: 0.5, px: 1, overflowWrap: 'anywhere' },
+      '& .MuiTableRow-root:hover': { backgroundColor: 'transparent !important' },
+    }}>
+      {modelsHead}
+      {body}
+    </Table>
   );
 
   return (
@@ -172,44 +192,20 @@ const Models: React.FC = () => {
       <Card sx={{ boxShadow: 1 }}>
         <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
           {loading ? (
-            <LoadingState />
+            /* Same table shell and the same header as the live table, with placeholder rows for
+               the body — the spinner this replaces reserved nothing and the page popped. */
+            <TableContainer component={Paper} variant="outlined" sx={{ boxShadow: 'none' }}>
+              {modelsTable(
+                <TableBody>
+                  <TableRowsSkeleton rows={8} widths={['78%', '82%', '54%', '86%', '62%', null]} rowHeight={42} />
+                </TableBody>,
+              )}
+            </TableContainer>
           ) : models.length === 0 ? (
             <EmptyState />
           ) : (
             <TableContainer component={Paper} variant="outlined" sx={{ boxShadow: 'none' }}>
-              <Table
-                size="small"
-                sx={{
-                  tableLayout: 'fixed', minWidth: 900,
-                  '& .MuiTableCell-root': { py: 0.5, px: 1, overflowWrap: 'anywhere' },
-                  '& .MuiTableRow-root:hover': {
-                    backgroundColor: 'transparent !important',
-                  },
-                }}
-              >
-              <colgroup><col style={{ width: 220 }} /><col style={{ width: 200 }} /><col style={{ width: 100 }} /><col /><col style={{ width: 100 }} /><col style={{ width: 120 }} /></colgroup>
-                <TableHead>
-                  <TableRow>
-                    <TableCell>
-                      <strong>Name</strong>
-                    </TableCell>
-                    <TableCell>
-                      <strong>Types</strong>
-                    </TableCell>
-                    <TableCell>
-                      <strong>Version</strong>
-                    </TableCell>
-                    <TableCell>
-                      <strong>Description</strong>
-                    </TableCell>
-                    <TableCell>
-                      <strong>Default</strong>
-                    </TableCell>
-                    <TableCell align="center">
-                      <strong>Actions</strong>
-                    </TableCell>
-                  </TableRow>
-                </TableHead>
+              {modelsTable(
                 <TableBody>
                   {models.map((model) => (
                     <TableRow key={model.id}>
@@ -243,9 +239,8 @@ const Models: React.FC = () => {
                       <TableCell align="center">
                         <IconButton
                           size="small"
-                          color="error"
                           onClick={() => handleDelete(model.id)}
-                          sx={{ p: 0.5 }}
+                          sx={{ ...dangerIconSx(P), p: 0.5 }}
                           disabled={submitting || model.is_default}
                           title={model.is_default ? 'Cannot delete default model' : 'Delete model'}
                         >
@@ -254,8 +249,8 @@ const Models: React.FC = () => {
                       </TableCell>
                     </TableRow>
                   ))}
-                </TableBody>
-              </Table>
+                </TableBody>,
+              )}
             </TableContainer>
           )}
         </CardContent>

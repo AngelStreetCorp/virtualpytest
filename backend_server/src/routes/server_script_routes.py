@@ -156,6 +156,22 @@ def _persist_server_failure_artifacts(*, team_id, host_info, host_name, device_i
         return {}
 
 
+def _lock_held_by_browser_isolated_run(lock_info) -> bool:
+    """True when the device lock belongs to a browser-isolated script run.
+
+    Such a run drives its OWN Chrome (its own debug port, its own profile), so it does
+    not hold the device to itself: another browser-isolated run may go beside it
+    (TASK-146). Any other owner - a Take Control, a script that drives the host's own
+    browser - still blocks the device.
+    """
+    if not lock_info:
+        return False
+    if lock_info.get('owner_type') != 'script_execution':
+        return False
+    reason = lock_info.get('lock_reason') or ''
+    return reason.endswith('#browser_isolated')
+
+
 def _build_lock_conflict_payload(host_name: str, device_id: str, lock_info: dict) -> dict:
     return {
         'success': False,
@@ -170,6 +186,65 @@ def _build_lock_conflict_payload(host_name: str, device_id: str, lock_info: dict
         'message': lock_info.get('lock_reason') or 'Device is currently in use by another execution',
         'lock_info': lock_info,
     }
+
+
+def _queue_run_until_free(*, task_id, team_id, script_name, host_name, device_id, parameters,
+                          virtual_script_id, data, conflict, reason, message):
+    """Park this run until the device frees up.
+
+    This is exactly what the Run Tests page does when it gets a 423: a one-shot
+    deployment the host scheduler runs once the device frees up, done server-side so an
+    API caller firing a batch (BUG-0118) gets the same queue as a browser tab. The
+    task_id stays open and is completed by /server/deployments/executionComplete with the
+    run's real result.
+
+    (A browser-isolated run does not come here: it runs beside the other one, and the
+    host's browser pool waits for a slot on its own - see TASK-150.)
+
+    Returns the (response, 202) pair for the caller to return, or None when the queue
+    could not be created - the caller then refuses with the 423 it already knows how to
+    handle.
+    """
+    from backend_server.src.lib.utils.task_manager import task_manager
+    try:
+        from routes.server_deployment_routes import create_deployment_record
+        ui_match = re.search(r'--userinterface(?:[ =])([^\s]+)', parameters or '')
+        queued_deployment = create_deployment_record(team_id, {
+            'name': f"{script_name}_{host_name}_{device_id}_{int(time.time() * 1000)}",
+            'host_name': host_name,
+            'device_id': device_id,
+            'script_name': script_name,
+            'userinterface_name': data.get('userinterface_name') or (ui_match.group(1) if ui_match else ''),
+            'parameters': parameters or '',
+            'cron_expression': '0 0 1 1 *',
+            'max_executions': 1,
+            'virtual_script_id': virtual_script_id,
+            'environment': data.get('environment'),
+            'device_info': data.get('device_info'),
+            'rerun_payload': {
+                'type': 'script',
+                'scriptName': script_name,
+                'hostName': host_name,
+            },
+            'deviceId': device_id,
+            'parameters': parameters or '',
+            'queued_task_id': task_id,
+        })
+        task_manager.get_task(task_id)['params']['queued_deployment_id'] = queued_deployment.get('id')
+        print(f"[@server_script:execute_script] {host_name}:{device_id} {reason} - queued "
+              f"{script_name} as deployment {queued_deployment.get('id')} (task {task_id})")
+        return jsonify({
+            'success': True,
+            'queued': True,
+            'task_id': task_id,
+            'deployment_id': queued_deployment.get('id'),
+            'message': message,
+            'lock_info': conflict,
+        }), 202
+    except Exception as queue_err:
+        # Fall back to the refusal the caller already knows how to handle.
+        print(f"[@server_script:execute_script] Queue fallback failed ({queue_err}); returning device_locked")
+        return None
 
 def analyze_script_parameters(script_path):
     """Analyze a Python script file (disk) — thin wrapper over analyze_script_source."""
@@ -500,6 +575,9 @@ def abort_running_script():
     data = request.get_json() or {}
     host_name = data.get('host_name')
     device_id = data.get('device_id')
+    # The run to stop, when the caller knows it: a device can carry several runs, and
+    # the abort must hit the one that overran (E50).
+    task_id = data.get('task_id')
 
     if not host_name or not device_id:
         return jsonify({
@@ -520,7 +598,7 @@ def abort_running_script():
         host_info,
         '/host/script/abort',
         method='POST',
-        data={'device_id': device_id},
+        data={'device_id': device_id, 'task_id': task_id},
         timeout=30
     )
 
@@ -621,6 +699,7 @@ def execute_script():
     # Same target rules the frontend applies before offering a target
     # (frontend/src/utils/targetCompatibility.ts). Only for scripts that declare
     # _target_rules; virtual scripts keep their source in the DB.
+    target_rules = None
     if not virtual_script_id:
         target_rules = extract_script_target_rules(script_name)
         if target_rules is not None:
@@ -631,6 +710,15 @@ def execute_script():
                     'error': f'Target not allowed for {script_name}: {problem}',
                     'target_rules': target_rules,
                 }), 400
+
+    # A browser-isolated web script drives its OWN Chrome - its own debug port, its own
+    # profile - so it does not need the device to itself: two of them can share one host
+    # at the same time instead of queueing behind each other (TASK-146). Every other
+    # script keeps the exclusive device lock.
+    browser_isolated = bool((target_rules or {}).get('browser_isolated'))
+    lock_reason = f'script_execute:{script_name}'
+    if browser_isolated:
+        lock_reason = f'{lock_reason}#browser_isolated'
 
     # Generate session ID if not exists
     requested_session_id = data.get('session_id')
@@ -663,7 +751,10 @@ def execute_script():
     if force_unlock:
         # strict=True: a new script is about to start on this device, so a failed abort
         # must block rather than risk two runs driving the same device.
-        force_result = abort_and_force_unlock(host_name, device_id, strict=True)
+        force_result = abort_and_force_unlock(
+            host_name, device_id, strict=True, protect_others=True,
+            caller_sessions=[session_id] if session_id else None, caller_user_id=user_id,
+        )
         if not force_result.get('success'):
             task_manager.complete_task(task_id, {}, error=force_result.get('errorType') or 'force_unlock_failed')
             return jsonify({
@@ -671,6 +762,7 @@ def execute_script():
                 'error': force_result.get('error') or 'Failed to force unlock device',
                 'errorType': force_result.get('errorType') or 'force_unlock_failed',
                 'details': force_result.get('details'),
+                'lock_info': force_result.get('lock_info'),
             }), 409
         emit_system_update('lock_changed', {
             'host_name': host_name,
@@ -692,74 +784,67 @@ def execute_script():
         owner_user_id=user_id,
         owner_user_name=user_name,
         owner_job_id=task_id,
-        lock_reason=f'script_execute:{script_name}',
+        lock_reason=lock_reason,
         can_force_takeover=True,
         client_ip=client_ip,
         allow_same_user_takeover=True,
     )
+    # True when this run holds the device lock. A parallel browser-isolated run does
+    # not (it runs beside the one that does), and must not release the other's lock.
+    lock_acquired = bool(lock_result.get('success'))
     if not lock_result.get('success'):
         conflict = lock_result.get('conflict') or get_device_lock_info(host_name, device_id)
 
-        # The device is busy: queue this run rather than refuse it. This is exactly
-        # what the Run Tests page does when it gets a 423 - a one-shot deployment the
-        # host scheduler runs once the device frees up - done server-side so an API
-        # caller firing a batch (BUG-0118) gets the same queue as a browser tab. The
-        # task_id stays open and is completed by /server/deployments/executionComplete
-        # with the run's real result. Callers that would rather fail than wait (the
-        # UI's rerun button) send queue_if_locked=false and get the 423 as before.
-        queue_if_locked = data.get('queue_if_locked', True) is not False
-        if conflict and queue_if_locked:
-            try:
-                from routes.server_deployment_routes import create_deployment_record
-                ui_match = re.search(r'--userinterface(?:[ =])([^\s]+)', parameters or '')
-                queued_deployment = create_deployment_record(team_id, {
-                    'name': f"{script_name}_{host_name}_{device_id}_{int(time.time() * 1000)}",
-                    'host_name': host_name,
-                    'device_id': device_id,
-                    'script_name': script_name,
-                    'userinterface_name': data.get('userinterface_name') or (ui_match.group(1) if ui_match else ''),
-                    'parameters': parameters or '',
-                    'cron_expression': '0 0 1 1 *',
-                    'max_executions': 1,
-                    'virtual_script_id': virtual_script_id,
-                    'environment': data.get('environment'),
-                    'device_info': data.get('device_info'),
-                    'rerun_payload': {
-                        'type': 'script',
-                        'scriptName': script_name,
-                        'hostName': host_name,
-                        'deviceId': device_id,
-                        'parameters': parameters or '',
-                        'queued_task_id': task_id,
-                    },
-                })
-                task_manager.get_task(task_id)['params']['queued_deployment_id'] = queued_deployment.get('id')
-                print(f"[@server_script:execute_script] {host_name}:{device_id} locked by "
-                      f"{conflict.get('owner_type')} - queued {script_name} as deployment {queued_deployment.get('id')} (task {task_id})")
-                return jsonify({
-                    'success': True,
-                    'queued': True,
-                    'task_id': task_id,
-                    'deployment_id': queued_deployment.get('id'),
-                    'message': f'Device {host_name}:{device_id} is busy; run queued and will start when it frees up',
-                    'lock_info': conflict,
-                }), 202
-            except Exception as queue_err:
-                # Fall back to the refusal the caller already knows how to handle.
-                print(f"[@server_script:execute_script] Queue fallback failed ({queue_err}); returning device_locked")
+        # The device is taken by another BROWSER-ISOLATED run: that run drives its own
+        # Chrome, so this one can run beside it (TASK-146). Two web scripts no longer
+        # queue behind each other on one host.
+        if browser_isolated and _lock_held_by_browser_isolated_run(conflict):
+            print(
+                f"[@server_script:execute_script] {host_name}:{device_id} is used by another "
+                f"browser-isolated run ({conflict.get('lock_reason')}) - running beside it "
+                f"(TASK-146)"
+            )
+            lock_acquired = False
+        else:
+            # The device is busy: queue this run rather than refuse it. This is exactly
+            # what the Run Tests page does when it gets a 423 - a one-shot deployment the
+            # host scheduler runs once the device frees up - done server-side so an API
+            # caller firing a batch (BUG-0118) gets the same queue as a browser tab. The
+            # task_id stays open and is completed by /server/deployments/executionComplete
+            # with the run's real result. Callers that would rather fail than wait (the
+            # UI's rerun button) send queue_if_locked=false and get the 423 as before.
+            queue_if_locked = data.get('queue_if_locked', True) is not False
+            if conflict and queue_if_locked:
+                queued = _queue_run_until_free(
+                    task_id=task_id, team_id=team_id, script_name=script_name,
+                    host_name=host_name, device_id=device_id, parameters=parameters,
+                    virtual_script_id=virtual_script_id, data=data, conflict=conflict,
+                    reason=f"locked by {conflict.get('owner_type')}",
+                    message=f'Device {host_name}:{device_id} is busy; run queued and will start when it frees up',
+                )
+                if queued is not None:
+                    return queued
 
-        task_manager.complete_task(task_id, {}, error='device_locked')
-        if conflict:
-            return jsonify(_build_lock_conflict_payload(host_name, device_id, conflict)), 423
-        return jsonify({
-            'success': False,
-            'error': f'Failed to lock device {host_name}:{device_id} for script execution',
-        }), 500
+            task_manager.complete_task(task_id, {}, error='device_locked')
+            if conflict:
+                return jsonify(_build_lock_conflict_payload(host_name, device_id, conflict)), 423
+            return jsonify({
+                'success': False,
+                'error': f'Failed to lock device {host_name}:{device_id} for script execution',
+            }), 500
 
     # Subordinate = the script runs under its user's Take Control (manual_control).
     # A failed launch keeps that lock; a run that ends releases it
     # (/script/taskComplete → _release_subordinate_lock).
     is_subordinate_lock = lock_result.get('subordinate', False)
+
+    # Remember whether this run holds the lock: a parallel browser-isolated run does
+    # NOT, and must never release the lock of the run it runs beside.
+    try:
+        task_manager.get_task(task_id)['params']['lock_acquired'] = lock_acquired
+        task_manager.get_task(task_id)['params']['browser_isolated'] = browser_isolated
+    except Exception as lock_flag_err:
+        print(f"[@server_script:execute_script] Could not record the lock state ({lock_flag_err}) - non-fatal")
 
     # Announce the new lock so viewers' lock badges update immediately — every
     # other acquire path (takeControl, acquireExecutionLock, campaign execute)
@@ -795,6 +880,15 @@ def execute_script():
         'device_id': device_id,
         'task_id': task_id
     }
+    # The budget the caller declared for this run (the game dispatcher knows a run must
+    # not outlive its slot). The host enforces it as the run's hard ceiling instead of
+    # the flat default hour (E50).
+    try:
+        declared_timeout = float(data['timeout_seconds']) if data.get('timeout_seconds') is not None else None
+    except (TypeError, ValueError):
+        declared_timeout = None
+    if declared_timeout and declared_timeout > 0:
+        payload['timeout_seconds'] = declared_timeout
     if virtual_script_id:
         payload['virtual_script_id'] = virtual_script_id
         # Scope virtual-script + shared-lib (_script_libs) resolution to this team.
@@ -899,6 +993,9 @@ def execute_script():
             },
         )
         adhoc_exec_id = adhoc_exec['id']
+        # The host ties the run to this row, so it can answer "is this row still
+        # running?" per row instead of "is this device busy?" (E50).
+        payload['execution_id'] = adhoc_exec_id
         # Store in task params so task_complete can update it
         task_manager.get_task(task_id)['params']['adhoc_exec_id'] = adhoc_exec_id
         emit_system_update('deployment_changed', {
@@ -954,7 +1051,7 @@ def execute_script():
                         })
                     except Exception:
                         pass
-                if not is_subordinate_lock:
+                if not is_subordinate_lock and lock_acquired:
                     release_result = release_device_lock(
                         host_name=host_name,
                         device_id=device_id,
@@ -1014,7 +1111,7 @@ def execute_script():
                     pass
             # Unlock device on error (skip if subordinate to manual_control: the
             # script never ran, so the user's Take Control stays)
-            if not is_subordinate_lock:
+            if not is_subordinate_lock and lock_acquired:
                 release_result = release_device_lock(
                     host_name=host_name,
                     device_id=device_id,
@@ -1159,6 +1256,38 @@ def _derive_run_success(result: dict, error) -> bool:
     return True
 
 
+def _describe_failed_run(result: dict) -> str:
+    """Why this run failed, in words that name what actually happened (BUG-0759).
+
+    A script that ran and reported `SCRIPT_SUCCESS:false` DID report — the test failed,
+    which is the outcome the run exists to produce. Calling that "host reported no
+    script result" told every consumer the host had gone quiet, which sends people
+    hunting an infrastructure fault that does not exist (it cost this repo a whole
+    debugging detour on 2026-10-22 before the two were told apart).
+
+    So the message is chosen by what the callback carries:
+      - stderr: the host phrased the failure, and its sentence is the reason;
+      - a failed marker: the test ran and failed, and here is its report;
+      - otherwise the host genuinely said nothing, which is the only case the old
+        wording ever described.
+    """
+    if not isinstance(result, dict):
+        result = {}
+
+    # Whatever the host actually said comes first: if it phrased the failure, that
+    # sentence is the reason.
+    stderr = (result.get('stderr') or '').strip()
+    if stderr:
+        return stderr[:500]
+
+    if result.get('script_success') is False:
+        report_url = result.get('report_url')
+        reason = 'The test ran and reported a failed result'
+        return f"{reason}: {report_url}" if report_url else reason
+
+    return 'host reported no script result'
+
+
 @server_script_bp.route('/script/taskComplete', methods=['POST'])
 def task_complete():
     """Receive script execution completion callback from host"""
@@ -1203,6 +1332,13 @@ def task_complete():
                 # Script ran under its user's Take Control: release that lock with
                 # the run (only if it is still the lock this run ran under).
                 _release_subordinate_lock(host_name, device_id, task_id)
+            elif task_params.get('lock_acquired') is False:
+                # A parallel browser-isolated run (TASK-146) holds no lock of its own:
+                # the device belongs to the run it runs beside, which releases it.
+                print(
+                    f"[@route:server_script:task_complete] {host_name}:{device_id}: this run held "
+                    f"no lock (parallel browser-isolated run) - leaving the device lock alone"
+                )
             else:
                 unlock_result = release_device_lock(
                     host_name=host_name,
@@ -1236,9 +1372,10 @@ def task_complete():
 
     # A failure the host did not phrase as an error still needs a reason on the
     # wire, or the consumer sees status=failed with error=None. Only ever states
-    # what the callback actually carried.
+    # what the callback actually carried — a test that failed is not a host that
+    # said nothing (BUG-0759).
     if not run_success and not error:
-        error = result.get('stderr') or 'host reported no script result'
+        error = _describe_failed_run(result)
 
     # Update adhoc deployment_execution row if present
     adhoc_exec_id = task_params.get('adhoc_exec_id')
@@ -1308,6 +1445,32 @@ def get_task_status(task_id):
         'success': True,
         'task': task_response
     }), 200
+
+
+@server_script_bp.route('/script/liveProgress', methods=['GET'])
+def script_live_progress():
+    """Recorded progress of the script now running on a device, for the Run Tests "Live run"
+    dialog opened by a browser that did not launch the run (or opened after it started)."""
+    team_id = request.args.get('team_id')
+    host_name = request.args.get('host_name')
+    device_id = request.args.get('device_id')
+    if not team_id or not host_name:
+        return jsonify({'success': False, 'error': 'team_id and host_name required'}), 400
+
+    from backend_server.src.lib.utils.task_manager import task_manager
+    tasks = [
+        t for t in task_manager.running_tasks('script_execute', team_id)
+        if (t.get('params') or {}).get('host_name') == host_name
+        and str((t.get('params') or {}).get('device_id') or '') == str(device_id or '')
+    ]
+    if not tasks:
+        return jsonify({'success': True, 'task': None}), 200
+    task = max(tasks, key=lambda t: t.get('created_at') or 0)
+    return jsonify({'success': True, 'task': {
+        'id': task['id'],
+        'progress': task.get('progress'),
+        'progress_steps': task.get('progress_steps') or [],
+    }}), 200
 
 
 @server_script_bp.route('/script/progress', methods=['POST'])

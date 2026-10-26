@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 
 vi.mock('../../frontend/src/contexts/HostManagerProvider', () => ({
   HostManagerProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
@@ -91,7 +92,11 @@ describe('Heatmap page', () => {
   });
 
   it('renders timeline sections', () => {
-    render(<Heatmap />);
+    render(
+      <MemoryRouter>
+        <Heatmap />
+      </MemoryRouter>,
+    );
 
     expect(screen.getByText('24h Heatmap')).toBeInTheDocument();
     expect(screen.getByText('Data Analysis')).toBeInTheDocument();
@@ -105,7 +110,11 @@ describe('Heatmap page', () => {
   it('reports a missing frame for the selected minute', () => {
     heatmapState.hasDataError = true;
 
-    render(<Heatmap />);
+    render(
+      <MemoryRouter>
+        <Heatmap />
+      </MemoryRouter>,
+    );
 
     expect(screen.getByText(/No heatmap was generated/)).toBeInTheDocument();
   });

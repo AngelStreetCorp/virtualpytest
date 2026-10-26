@@ -32,6 +32,8 @@ import {
   type RunIdentity,
 } from '../../types/reports';
 import { formatDateTime } from './status';
+import { dangerButtonSx } from '../common/PageChrome';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 /** Absolute share URL with the token in the fragment. */
 export const buildShareUrl = (snapshotId: string, token: string): string => {
@@ -53,6 +55,7 @@ export interface ShareDialogProps {
 }
 
 export const ShareDialog: React.FC<ShareDialogProps> = ({ open, identity, onClose }) => {
+  const P = useAgentChatPalette();
   const [ttlDays, setTtlDays] = useState<number>(SHARE_TTL_DEFAULT_DAYS);
   const [link, setLink] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -161,9 +164,9 @@ export const ShareDialog: React.FC<ShareDialogProps> = ({ open, identity, onClos
                 secondaryAction={
                   <Button
                     size="small"
-                    color="error"
                     onClick={() => void handleRevoke(snapshot.id)}
                     disabled={revoke.isPending}
+                    sx={dangerButtonSx(P)}
                   >
                     Revoke
                   </Button>

@@ -1,68 +1,90 @@
 # Content filtering for lab devices
 
+Keep browsers, emulators and Android devices in the lab away from adult and malicious sites.
+
+<div data-technical>
+
 > **Purpose**: Keep browsers, emulators and Android devices in a VirtualPyTest lab away from adult and malicious sites, so that a guest or a test never lands the lab (and its recordings) on content you do not want to store or show  
 > **Audience**: System Administrators, DevOps
+
+</div>
 
 ---
 
 ## Why
 
-Anyone who can take control of a device can open a browser on it. Every screen a
-device shows is captured, stored (screenshots, session video, heatmap, incident
-evidence) and visible to everyone watching the live stream. A single visit to an
-adult or malware site therefore ends up in your storage and on your dashboards.
-
-VirtualPyTest does not inspect URLs itself, and it could not do so reliably:
-a user with device control can type any address into a browser. The filter
-belongs at the network layer, where every device in the lab passes through it
-regardless of how the URL was entered.
+Anyone who can control a device can open a browser on it, and every screen is captured and stored.
+VirtualPyTest cannot reliably check URLs itself, so the filter sits in the network, where every device
+passes through it.
 
 ## Block list or allow list?
 
 | Approach | What it does | Use it for |
 |----------|--------------|------------|
-| **Block list** (recommended) | Resolve everything except known adult and malware domains, using a filtering DNS resolver | Working test labs. Apps under test talk to CDNs, analytics, auth providers, app stores and the platform's own services (Supabase, MinIO/R2, GitHub for deploys, package mirrors). An allow list breaks them one by one. |
-| **Allow list** | Resolve only a short list of domains, return nothing for everything else | A locked-down showcase device that only ever needs a handful of sites. Expect to keep adding domains as the demo evolves. |
+| **Block list** (recommended) | Allows everything except known adult and malware sites | Working test labs. Apps under test need CDNs, analytics, login providers, app stores and the platform's own services. An allow list breaks them one by one. |
+| **Allow list** | Allows only a short list of sites, and blocks everything else | A locked-down showcase device that only ever needs a handful of sites. You keep adding sites as the demo changes. |
 
-The block list is the default described below. An allow-list recipe follows for
-the showcase case.
+The block list is the default. An allow-list recipe is at the end, for showcase devices.
 
 ## The resolver
 
-[Cloudflare for Families](https://one.one.one.one/family/) is a public DNS
-resolver with two flavours. No account, no software, no cost:
+We use [Cloudflare for Families](https://one.one.one.one/family/): a free public DNS service, with no
+account or software needed.
 
-| Flavour | IPv4 | IPv6 |
-|---------|------|------|
+- **Malware only:** blocks malware sites.
+- **Malware and adult content:** blocks malware and adult sites. Use this one.
+
+Blocked sites show a connection error.
+
+<div data-technical>
+
+| Level | IPv4 | IPv6 |
+|-------|------|------|
 | Malware only | `1.1.1.2`, `1.0.0.2` | `2606:4700:4700::1112`, `::1002` |
 | **Malware + adult content** | `1.1.1.3`, `1.0.0.3` | `2606:4700:4700::1113`, `::1003` |
 
-Blocked names resolve to `0.0.0.0`, so the browser shows a connection error.
-Chromium and Firefox keep the filter even when they auto-upgrade to
-DNS-over-HTTPS, because they upgrade to the same provider's family endpoint.
+Blocked names resolve to `0.0.0.0`, so the browser shows a connection error. Chromium and Firefox keep
+the filter even when they switch to DNS-over-HTTPS, because they use the same provider's family endpoint.
+
+</div>
 
 ## Lab on Proxmox (one change for every VM and emulator)
 
-In the reference layout the Proxmox node runs `dnsmasq` as the DNS forwarder for
-the VM LAN (`192.168.x.1`). Every VM points at it, and Android emulators inherit
-the DNS of the VM they run on, so changing its upstream filters the whole lab.
+On Proxmox, one small DNS forwarder serves every VM and emulator, so one change filters the whole lab.
+
+<div data-technical>
+
+The forwarder is `dnsmasq`, listening on `192.168.x.1` for the VM LAN. Android emulators inherit the
+DNS of their VM, so changing its upstream filters the whole lab.
+
+</div>
 
 ### Check first: can the node reach a public resolver over UDP?
+
+Some hosting providers block UDP replies from outside resolvers. Test both before you choose a recipe.
+
+<div data-technical>
 
 ```bash
 dig +short @1.1.1.3 youtube.com        # UDP
 dig +short +tcp @1.1.1.3 youtube.com   # TCP
 ```
 
-Hosting providers with a stateless firewall (Hetzner's incoming firewall, for
-one) drop UDP replies from external resolvers while TCP goes through. If the
-first command times out and the second answers, use the **DNS-over-TLS** recipe.
-If both answer, the **direct** recipe is enough.
+Hosting providers with a stateless firewall (Hetzner's incoming firewall, for one) drop UDP replies
+from external resolvers while TCP goes through. If the first command times out and the second answers,
+use the **DNS-over-TLS** recipe. If both answer, the **direct** recipe is enough.
+
+</div>
+
+If UDP works, use the direct recipe. If it does not, use the DNS-over-TLS recipe. Both are below.
 
 ### Recipe A: direct upstream (UDP works)
 
-Replace the upstream servers in the dnsmasq drop-in, on the reference node
-`/etc/dnsmasq.d/vm-dns.conf`:
+Point the forwarder at the family resolver.
+
+<div data-technical>
+
+Replace the upstream servers in the dnsmasq drop-in, on the reference node `/etc/dnsmasq.d/vm-dns.conf`:
 
 ```
 interface=vmbr0
@@ -72,16 +94,17 @@ server=1.1.1.3
 server=1.0.0.3
 ```
 
-`no-resolv` matters: without it dnsmasq also uses the node's own
-`/etc/resolv.conf` resolvers and spreads queries across every upstream, so an
-unfiltered one keeps answering part of the time. Check every file under
-`/etc/dnsmasq.d/` and `/etc/dnsmasq.conf` for other `server=` lines for the
-same reason.
+`no-resolv` matters. Without it, dnsmasq also uses the node's own `/etc/resolv.conf` resolvers and spreads
+queries across every upstream, so an unfiltered one answers part of the time. Check every file under
+`/etc/dnsmasq.d/` and `/etc/dnsmasq.conf` for other `server=` lines for the same reason.
 
-### Recipe B: DNS-over-TLS stub (UDP blocked) — what the reference node runs
+</div>
 
-`stubby` is a small DNS-over-TLS client. It listens on the loopback and talks
-to Cloudflare for Families over TCP 853; dnsmasq forwards to it.
+### Recipe B: DNS-over-TLS stub (UDP blocked, what the reference node runs)
+
+A small client, `stubby`, sends encrypted queries to the family resolver. The forwarder uses it.
+
+<div data-technical>
 
 ```bash
 sudo apt-get install -y stubby
@@ -124,13 +147,18 @@ server=185.12.64.2
 server=185.12.64.1
 ```
 
-The two extra servers are the hosting provider's resolvers, kept as a fallback
-so the lab never loses DNS if stubby is down. `strict-order` makes dnsmasq try
-servers in the listed order and move on only when one fails to answer. A
-blocked name is a normal answer (`0.0.0.0`), so the fallback is never consulted
+The two extra servers are the hosting provider's resolvers. They are a fallback, so the lab keeps DNS
+if `stubby` is down. `strict-order` makes dnsmasq try the servers in the listed order, and move on only
+when one fails to answer. A blocked name is a normal answer (`0.0.0.0`), so the fallback is never used
 for it. Never list an unfiltered upstream without `strict-order`.
 
+</div>
+
 ### Validate and verify
+
+Restart the forwarder, then test from any VM. A blocked site should not resolve; a normal site should.
+
+<div data-technical>
 
 ```bash
 sudo dnsmasq --test
@@ -144,14 +172,17 @@ dig +short pornhub.com        # expect 0.0.0.0 (blocked)
 dig +short youtube.com        # expect a normal address
 ```
 
-Inside an Android emulator the blocked name shows as `127.0.0.1`; that is
-Android's rendering of the same answer. VMs cache nothing beyond dnsmasq's own
-cache, so the change is immediate.
+</div>
+
+Inside an Android emulator, a blocked site shows as `127.0.0.1`. The change takes effect at once.
 
 ## Standalone box (Docker or native install on one machine)
 
-Point the machine's resolver at the family servers. On a Debian/Ubuntu box with
-`systemd-resolved`:
+On a single machine, set its own DNS to the family resolver.
+
+<div data-technical>
+
+On a Debian or Ubuntu box with `systemd-resolved`:
 
 ```bash
 sudo mkdir -p /etc/systemd/resolved.conf.d
@@ -168,21 +199,29 @@ nmcli con up "<connection name>"
 
 Docker containers use the host's resolver by default, so nothing else changes.
 
+</div>
+
 ## Real devices on their own network
 
-Phones, tablets and set-top boxes connected over Wi-Fi or Ethernet resolve DNS
-through whatever the network's DHCP hands out, not through the lab's VMs. Two
-options:
+Phones, tablets and set-top boxes get their DNS from the network router, not from the lab's VMs. Either:
 
-- **Router or DHCP server**: set the DNS servers handed to clients to
-  `1.1.1.3` and `1.0.0.3`. Covers every device on that network at once.
-- **Per device** (Android 9+): Settings, Network, Private DNS, hostname
-  `family.cloudflare-dns.com`. Overrides the network's DNS for that device only.
+- **Router or DHCP server:** give clients the family resolver. This covers the whole network.
+- **One Android 9 device or newer:** set Private DNS to the family hostname.
+
+
+<div data-technical>
+
+The router or DHCP server hands out `1.1.1.3` and `1.0.0.3`. For a single Android device: Settings,
+Network, Private DNS, hostname `family.cloudflare-dns.com`.
+
+</div>
 
 ## Allow list for a showcase device
 
-For a device that must only reach a fixed set of sites, run a dedicated dnsmasq
-for it (or a separate Proxmox bridge) with an explicit list and a catch-all:
+For a device that must reach only a fixed set of sites, run a separate forwarder that resolves only
+the sites you list. Expect a few rounds of adding domains before a page fully works.
+
+<div data-technical>
 
 ```
 # resolve only these (and their subdomains) through the family resolver
@@ -197,24 +236,27 @@ server=/cloudflare.com/1.1.1.3
 address=/#/0.0.0.0
 ```
 
-Modern sites pull assets from many other domains (`ytimg.com`, `googlevideo.com`,
-`fbcdn.net`, `gstatic.com`), so expect a few iterations with the browser's
-network tab open before a page fully works. Keep this to devices that really need
-it.
+Modern sites pull assets from many other domains (`ytimg.com`, `googlevideo.com`, `fbcdn.net`,
+`gstatic.com`). Add them as you find them in the browser's network tab.
+
+</div>
 
 ## What this does not cover
 
-- **Addresses typed as raw IPs** bypass DNS. Rare for adult content, but possible.
-- **VPN or proxy apps** installed on a device bypass the network's DNS. Do not
-  let guests install apps on lab devices.
-- **Applications with their own hard-coded DNS-over-HTTPS** (some browsers when
-  configured explicitly) bypass the resolver. Cloudflare's own family DoH
-  endpoint, `https://family.cloudflare-dns.com/dns-query`, can be set in the
-  browser policy instead.
-- **Who may take control** is a separate control. Keep external guests on the
-  `viewer` role, which has no `device_control:execute` permission, and give
-  demo accounts a role limited to a designated demo device. See
-  `technical/permissions/`.
+Filtering DNS is strong, but a few routes go around it:
 
-Content filtering reduces what a guest can put on a screen. Role restriction
-reduces who can put anything on a screen at all. Use both.
+- **Raw IP addresses** skip DNS.
+- **VPN or proxy apps** on a device skip the network's DNS. Do not let guests install apps on lab devices.
+- **Browsers with their own DNS-over-HTTPS** can skip the resolver. Set the family endpoint in the browser policy.
+- **Who may take control** is a separate control. Keep external guests on the viewer role, and give demo accounts a role limited to one demo device.
+
+<div data-technical>
+
+Specifically: applications with hard-coded DNS-over-HTTPS bypass the resolver. Cloudflare's family DoH
+endpoint, `https://family.cloudflare-dns.com/dns-query`, can be set in the browser policy. Viewers have no
+`device_control:execute` permission. See `technical/permissions/`.
+
+</div>
+
+Content filtering reduces what a guest can put on a screen. Role restriction reduces who can put
+anything on a screen at all. Use both.

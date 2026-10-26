@@ -9,6 +9,13 @@ import { useValidationColors } from '../validation';
 
 const EDGE_ENTRY_NODE_TO_HOME = 'edge-entry-node-to-home';
 
+/** Colour tone of an edge run result, decided from its words (never from emoji). */
+export const getRunResultTone = (text: string): 'success' | 'error' | 'neutral' => {
+  if (text.includes('Execution completed')) return 'success';
+  if (text.includes('Execution failed') || text.startsWith('Failed')) return 'error';
+  return 'neutral';
+};
+
 export interface UseEdgeProps {
   selectedHost?: Host | null;
   selectedDeviceId?: string | null;
@@ -226,14 +233,17 @@ export const useEdge = (props: UseEdgeProps = {}) => {
     const formattedLines: string[] = [];
 
     for (const line of lines) {
+      // Match the words only: the backend may or may not prefix these lines with an emoji,
+      // so drop any leading non-letter characters before comparing.
+      const words = line.replace(/^[^\p{L}\p{N}]+/u, '');
       if (
-        line.includes('⏹️ Execution stopped due to failed action') ||
-        line.includes('📋 Processing') ||
-        line.includes('⏳ Starting execution') ||
-        line.includes('🔄 Executing action') ||
-        line.includes('✅ Action completed') ||
-        line.includes('❌ Action failed') ||
-        line.includes('🎯 Final result')
+        words.startsWith('Execution stopped due to failed action') ||
+        words.startsWith('Processing') ||
+        words.startsWith('Starting execution') ||
+        words.startsWith('Executing action') ||
+        words.startsWith('Action completed') ||
+        words.startsWith('Action failed') ||
+        words.startsWith('Final result')
       ) {
         continue;
       }
@@ -263,12 +273,12 @@ export const useEdge = (props: UseEdgeProps = {}) => {
       const failureActions = overrideFailureActions || defaultSet.failure_actions || [];
 
       if (actions.length === 0) {
-        setRunResult('❌ No actions to execute');
+        setRunResult('Failed: No actions to execute');
         return;
       }
 
       if (!props?.isControlActive || !props?.selectedHost) {
-        setRunResult('❌ Device control not active or host not available');
+        setRunResult('Failed: Device control not active or host not available');
         return;
       }
 
@@ -339,7 +349,7 @@ export const useEdge = (props: UseEdgeProps = {}) => {
 
         return result;
       } catch (err: any) {
-        const errorResult = `❌ Network error: ${err.message}`;
+        const errorResult = `Failed: Network error: ${err.message}`;
         setRunResult(errorResult);
         throw err;
       }

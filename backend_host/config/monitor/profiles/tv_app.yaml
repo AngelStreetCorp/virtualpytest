@@ -1,0 +1,11 @@
+# tv_app: what vpt-monitor-img / -audio / -subtitle have always done for TV-app testing.
+# Behaviour lives in code behind `type: tv_app` (detection, priority rules, 30 s incident delay,
+# at most 3 active incidents, suppression); nothing here changes it. Its events and incident types are fixed in code: blackscreen and no_signal
+# (both outrank freeze), freeze, audio_loss, macroblocks, errors (BUG-0504 made no_signal a first-class type). See docs/agent/devices/MONITOR_PROFILES.md.
+name: tv_app
+services: { img: true, audio: true, subtitle: true }
+img:
+  runtime: edge
+  telemetry: true   # TASK-157 image telemetry (frames, JPEG bytes, frame age, drops); IMG_TELEMETRY=false on a host switches it off
+  analyzers:
+    - type: tv_app

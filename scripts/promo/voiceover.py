@@ -14,10 +14,15 @@ import json
 import sys
 import ssl
 import subprocess
+import time
 import urllib.request
 from pathlib import Path
 
 import certifi
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from shared.src.lib.ai import gateway  # noqa: E402
+from shared.src.lib.ai.provider_client import CallUsage  # noqa: E402
 
 import build2
 from build import WORK, OUT, FFMPEG
@@ -48,9 +53,16 @@ def tts(text, voice, model, key, speed=1.0):
                        "audio_setting": {"sample_rate": 44100, "bitrate": 128000, "format": "mp3", "channel": 1}}).encode()
     req = urllib.request.Request("https://api.minimax.io/v1/t2a_v2", data=body, method="POST",
                                  headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"})
+    started = time.time()
     with urllib.request.urlopen(req, timeout=120, context=ssl.create_default_context(cafile=certifi.where())) as r:
         d = json.load(r)
-    if d.get("base_resp", {}).get("status_code") != 0 or not (d.get("data") or {}).get("audio"):
+    ok = d.get("base_resp", {}).get("status_code") == 0 and bool((d.get("data") or {}).get("audio"))
+    # Logged in ai_calls like every model call (BUG-0721); TTS bills characters, counted as tokens_in.
+    chars = int((d.get("extra_info") or {}).get("usage_characters") or len(text))
+    gateway.report_external_call("external:promo.voiceover", endpoint="minimax", model=model,
+                                 call_usage=CallUsage(tokens_in=chars), ok=ok, ms=int((time.time() - started) * 1000),
+                                 script="promo/voiceover.py", error_type=None if ok else "other")
+    if not ok:
         raise SystemExit(f"TTS failed: {d.get('base_resp')}")
     out.write_bytes(bytes.fromhex(d["data"]["audio"]))
     return out

@@ -20,7 +20,7 @@ export const ModPaneDrawer: React.FC = () => {
       PaperProps={{
         sx: {
           width: { xs: '100%', sm: PANE_WIDTH },
-          bgcolor: P.surface,
+          bgcolor: P.surfaceSolid,
           borderLeft: `1px solid ${P.borderColor}`,
           boxShadow: 'none',
         },

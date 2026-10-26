@@ -65,9 +65,12 @@ def take_control():
                     connection_success = remote_controller.connect()
                     remote_available = connection_success
                     if not connection_success:
-                        # Get device IP/port for error message
+                        # The controller's own reason first (e.g. a misspelled IR_TYPE),
+                        # then the device IP/port, then the generic message.
                         device_info = get_device_by_id(device_id)
-                        if device_info:
+                        if getattr(remote_controller, 'connect_error', None):
+                            remote_error = remote_controller.connect_error
+                        elif device_info:
                             device_ip = getattr(device_info, 'device_ip', None)
                             device_port = getattr(device_info, 'device_port', None)
                             if device_ip and device_port:
@@ -84,6 +87,16 @@ def take_control():
                     remote_status = remote_controller.get_status()
                     print(f"[@route:take_control] Remote controller status: {remote_status}")
                     remote_available = remote_status.get('success', False)
+                    if not remote_available:
+                        # The device dropped off since the last connect (e.g. an ADB phone
+                        # missing from `adb devices`): connect again once, `adb connect` included.
+                        print(f"[@route:take_control] Remote status failed, reconnecting...")
+                        if remote_controller.connect():
+                            remote_status = remote_controller.get_status()
+                            print(f"[@route:take_control] Remote status after reconnect: {remote_status}")
+                            remote_available = remote_status.get('success', False)
+                        if not remote_available:
+                            remote_error = remote_status.get('error') or "Failed to reconnect to remote controller"
         else:
             print(f"[@route:take_control] ⚠️ WARNING: No remote controller found for device {device_id}")
                 

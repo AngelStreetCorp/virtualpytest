@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — AI interface building on Android produced no usable screen |
 | Area      | `backend_host/src/lib/utils/adb_utils.py` (`_parse_ui_elements`), `backend_host/src/services/ai_exploration/screen_analyzer.py` (`_extract_interactive_elements_mobile`) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

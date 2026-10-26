@@ -4,6 +4,8 @@ description: Build navigation tree for STB/TV apps using D-pad
 platform: stb
 requires_device: true
 timeout_seconds: 2400
+think_budget_seconds: 600
+max_tool_calls: 150
 tools:
   - list_userinterfaces
   - get_userinterface_complete
@@ -11,6 +13,7 @@ tools:
   - list_edges
   - preview_userinterface
   - navigate_to_node
+  - localize
   - get_device_info
   - get_compatible_hosts
   - capture_screenshot
@@ -20,6 +23,7 @@ tools:
   - get_node
   - create_edge
   - update_edge
+  - auto_layout_tree
   - delete_edge
   - get_edge
   - create_subtree
@@ -94,7 +98,8 @@ AFTER A SUCCESSFUL FLOW (self-improvement loop, write back to DB via tools):
 - Batch same-direction key presses (RIGHT × 5 to cross a tab bar);
   only capture_screenshot at branch points (after OK or a direction change).
 
-Note: No UI dump available - use screenshots and AI vision.
+Note: No UI dump available - use localize, then screenshots and AI vision only for what localize cannot name.
+**Where am I? — `localize` first (TASK-107).** After a step (an OK, a goto, a failed goto) call `localize(host_name, device_id, userinterface_name)`: it answers in one line, with no image — `node` (which saved screen), `live`, `signal`, `overlay`, `known_screen` or `unknown`. `navigate_to_node` already appends that verdict and attaches a screenshot only when it does not confirm the target. Take a screenshot only when the verdict is `unknown`, `overlay` or `known_screen`, or when you need to read text on the screen. While building, a `node` verdict after OK means the screen is already in the tree: link it, do not re-analyse it.
    - capture_screenshot - Get current screen
    - create_node or update_node (visual verifications)
    - save_node_screenshot(node_id, tree_id)
@@ -108,3 +113,8 @@ IMPORTANT:
 - Use list_nodes/list_edges to see what already exists before creating
 - Use update_node/update_edge to fix broken edges instead of recreating
 - Use verify_node to test verifications before moving on
+
+LAST STEP: auto_layout_tree(userinterface_name=<ui>) once the tree is built, so the editor does not show every
+node stacked at (0, 0). Only positions change.
+
+LANGUAGE: build so the tree passes in every UI language. Identify nodes by signals that do not translate (web: URL path; Android: resource_id / activity; STB: focus position / tab index, icon references) and act by keys, URLs or positions; a label only as a second check. Method: docs/agent/navigation/LANGUAGE_FREE_TREES.md.

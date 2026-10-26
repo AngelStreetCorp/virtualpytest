@@ -4,7 +4,7 @@
  * Handles device execution, device selection, and video stream display.
  */
 
-import React from 'react';
+import React, { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import {
   Box,
   Typography,
@@ -16,6 +16,7 @@ import { HLSVideoPlayer } from '../common/HLSVideoPlayer';
 import { useHostSession } from '../../hooks/useHostSession';
 import { calculateVncScaling } from '../../utils/vncUtils';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 
 interface DevicePanelProps {
@@ -46,6 +47,38 @@ export const DevicePanel: React.FC<DevicePanelProps> = ({
   // the cookie in the last 10 minutes. Not keepAlive: only the handshake is gated.
   const vncSessionReady = useHostSession(isVnc ? streamUrl : null, false);
 
+  // VNC scaling: the iframe keeps a fixed 1440x847 layout box (see calculateVncScaling) and
+  // is fitted with a CSS transform, so the scale MUST track the real stream-area size.
+  // The previous version hard-coded { width: 380, height: 180 } and never re-measured, so
+  // when the user widened the Target panel the iframe stayed as a 306x180 sliver in the
+  // top-left of an otherwise empty container. Mirror RecStreamContainer: a ref on the
+  // dashed-border wrapper, ResizeObserver, and we honour the measured box.
+  const streamAreaRef = useRef<HTMLDivElement | null>(null);
+  const [measuredArea, setMeasuredArea] = useState<{ width: number; height: number } | null>(null);
+  useLayoutEffect(() => {
+    const el = streamAreaRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const update = () => {
+      const { width, height } = el.getBoundingClientRect();
+      setMeasuredArea((prev) =>
+        prev && prev.width === width && prev.height === height ? prev : { width, height },
+      );
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  // Fallbacks match the pre-fix hard-coded target only so the first render (before the
+  // ResizeObserver fires) doesn't cause a noticeable jump. The measurement replaces them
+  // on the next frame.
+  const streamAreaWidth = measuredArea?.width ?? 380;
+  const streamAreaHeight = measuredArea?.height ?? 180;
+  const vncScaling = useMemo(
+    () => calculateVncScaling({ width: streamAreaWidth, height: streamAreaHeight }),
+    [streamAreaWidth, streamAreaHeight],
+  );
+
   return (
     <Box
       sx={{
@@ -65,7 +98,7 @@ export const DevicePanel: React.FC<DevicePanelProps> = ({
         <Box sx={{ p: 1, height: '100%', display: 'flex', flexDirection: 'column' }}>
           {/* Header with icon and title */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
-            <DevicesIcon sx={{ fontSize: 18, color: P.accentText }} />
+            <DevicesIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size, color: P.accentText }} />
             <Typography variant="subtitle2" fontWeight={600}>
               Target
             </Typography>
@@ -87,15 +120,26 @@ export const DevicePanel: React.FC<DevicePanelProps> = ({
           >
             {selectedDevice && streamUrl && (!isVnc || vncSessionReady) ? (
               isVnc ? (
-                // VNC device - render iframe like RecHostPreview
-                // Iframes don't respect % sizing, must use transform scaling
+                // VNC device - render iframe like RecStreamContainer. Iframes don't respect
+                // % sizing, must use transform scaling against the MEASURED wrapper size.
+                // Top-aligned (not vertically centred): the desktop's title bar should
+                // always be reachable, and a tall target panel otherwise leaves an even
+                // black gap above and below the scaled render. We still centre horizontally
+                // — `transformOrigin: top center` keeps the scaled render's horizontal
+                // middle pinned to the iframe's top-centre, so a wrapper narrower than
+                // 1440 px fills its full width while a wider one renders the desktop
+                // centred with equal black bars on each side.
                 <Box
+                  ref={streamAreaRef}
                   sx={{
                     position: 'relative',
                     width: '100%',
                     height: '100%',
                     backgroundColor: '#000', // palette: VNC iframe backdrop
                     overflow: 'hidden',
+                    display: 'flex',
+                    alignItems: 'flex-start',
+                    justifyContent: 'center',
                   }}
                 >
                   <iframe
@@ -104,7 +148,12 @@ export const DevicePanel: React.FC<DevicePanelProps> = ({
                       border: 'none',
                       backgroundColor: '#000', // palette: VNC iframe backdrop
                       pointerEvents: 'none', // Disable interaction in panel view
-                      ...calculateVncScaling({ width: 380, height: 180 }), // Panel target size
+                      ...vncScaling,
+                      transformOrigin: 'top center',
+                      // Never let flex shrink the iframe below its 1440x847 box: a smaller
+                      // iframe gives noVNC a viewport smaller than the remote desktop and
+                      // the desktop gets cropped instead of scaled.
+                      flexShrink: 0,
                     }}
                     title="VNC Desktop Stream"
                   />

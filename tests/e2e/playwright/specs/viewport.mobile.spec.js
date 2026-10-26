@@ -55,10 +55,13 @@ test.describe('Viewport Mobile (375x812)', () => {
     await gotoWithAutoSign(page, '/');
     await skipIfNotAuthenticated(page);
 
-    // The mobile dashboard has no page title — it opens straight on its content. "Hosts" is
-    // its own section heading and is absent from every other page here, so it is what says
-    // "this is the dashboard, rendered".
-    await expect(page.getByRole('heading', { name: 'Hosts', exact: true })).toBeVisible();
+    // The Dashboard renders the standard <PageTitle title="Dashboard" /> even at
+    // mobile width — the heading itself is what says "this is the dashboard,
+    // rendered". (An earlier version of the test asserted a "Hosts" section heading
+    // because the mobile view used to open straight on the Hosts tab; the Dashboard
+    // Tabs refactor made Overview the default tab, so the "Hosts" heading is no
+    // longer on first paint at any width.)
+    await expect(page.getByRole('heading', { name: 'Dashboard', exact: true })).toBeVisible();
     await expectMobileBottomNav(page);
     await expect(page.getByLabel('Ask AI')).toHaveCount(0);
     await expectNoHorizontalOverflow(page);
@@ -71,11 +74,11 @@ test.describe('Viewport Mobile (375x812)', () => {
     // No heading on this page at mobile width: the content is device cards, and there are
     // none when no host exposes an AV device. The two filters above them are the page's own
     // controls and render either way.
-    // Matched on their own text: neither select carries an accessible name (no aria-label,
-    // no aria-labelledby), so getByRole(name:) finds nothing.
-    const filters = page.getByRole('combobox');
-    await expect(filters.filter({ hasText: 'All Targets' })).toBeVisible();
-    await expect(filters.filter({ hasText: 'All Models' })).toBeVisible();
+    // After 8a352bf75 (fix(device-control): compact rows in the targets dropdown) the
+    // targets filter became a Button (chip-style control) at every width; the Models filter
+    // is still a multi-Select. Match each control by its role, not by a shared combobox list.
+    await expect(page.getByRole('button').filter({ hasText: 'All Targets' })).toBeVisible();
+    await expect(page.getByRole('combobox').filter({ hasText: 'All Models' })).toBeVisible();
     await expectMobileBottomNav(page);
     await expect(page.getByLabel('Ask AI')).toHaveCount(0);
     await expectNoHorizontalOverflow(page);

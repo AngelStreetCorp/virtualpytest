@@ -1,0 +1,30 @@
+{
+ "written_by": "Claude Sonnet 5.5 (round 4 question writer)",
+ "questions": [
+  {
+   "id": "R1",
+   "shape": "method-with-common-name",
+   "question": "I am about to change the signature of ADBUtils.click_element, the `click_element` method on the ADBUtils class defined in backend_host/src/lib/utils/adb_utils.py. Which repo files contain calls to `.click_element(...)` on an ADBUtils instance (for example an `adb_utils` / `self.adb_utils` object, or an ADBUtils object returned by a helper)? Ignore everything under features/. Test files count. Calls to `.click_element(...)` on other classes (AppiumUtils, the Playwright web controller, remote controllers' own `click_element` wrappers, mocks of other classes, ...) do not count. Comments, strings and def lines do not count. Answer with the list of file paths."
+  },
+  {
+   "id": "R2",
+   "shape": "method-with-common-name",
+   "question": "I am about to change the signature of TelloRemoteController.execute_command, the `execute_command` method on the TelloRemoteController class defined in backend_host/src/controllers/remote/tello.py. Which repo files contain calls to `.execute_command(...)` on a TelloRemoteController instance (for example a `ctrl`, `controller` or `self` object whose runtime type is TelloRemoteController)? Ignore everything under features/. Test files and scripts count. Calls to `.execute_command(...)` on other controller classes (BashController, ADBUtils, AppiumUtils, BaseMobilityController, other remote controllers, ...) do not count. Comments, strings and def lines do not count. Answer with the list of file paths."
+  },
+  {
+   "id": "R3",
+   "shape": "route-callers",
+   "question": "The Flask route handled by `get_task_status(task_id)` in backend_server/src/routes/server_script_routes.py is mounted at GET /server/script/status/<task_id> (blueprint `server_script_bp`, url_prefix '/server'). Which repo files outside that route file send HTTP requests to that exact URL (for example `/server/script/status/${taskId}` passed directly or through helpers such as buildServerUrl, buildServerUrlWithParams, hostScopedUrl, an `api.get(...)` MCP client, or a test/script `_api(\"GET\", ...)` helper)? Both frontend/ TypeScript files and Python files (backend_server, scripts, tests, test_scripts, ...) count; ignore everything under features/. Files that only mention the URL in a comment or docstring do not count. Requests to different routes such as /host/... status routes or /server/transcript/status do not count. Answer with the list of file paths."
+  },
+  {
+   "id": "R4",
+   "shape": "module-function callers",
+   "question": "I am about to change the signature of normalize_script_ref, the module-level function defined in shared/src/lib/utils/script_identity_utils.py. Which Python files contain calls to it (via a top-level import, a function-local import, or a module attribute such as `script_identity_utils.normalize_script_ref(...)`), including calls inside script_identity_utils.py itself? Ignore everything under features/. Tests and scripts count. Files that only mention the name in a comment, docstring or string, or that define/call a different function with a similar name, do not count. Answer with the list of file paths."
+  },
+  {
+   "id": "R5",
+   "shape": "two-levels-up impact",
+   "question": "If the signature of resolve_script_identity (module-level function in shared/src/lib/utils/script_identity_utils.py) changes, which repo files are affected two levels up? Level 1 = files containing calls to resolve_script_identity (comments/docstrings/monkeypatch string names do not count as calls; ignore everything under features/). Level 2 = files containing calls to the functions/methods that enclose those level-1 calls. For enclosing methods, only count calls on the owning class: TestCaseExecutor (backend_host/src/services/testcase/testcase_executor.py) or ScriptExecutor (shared/src/lib/executors/script_executor.py) as appropriate; for an enclosing Flask route handler (such as execute_script in backend_server/src/routes/server_script_routes.py), treat it as a terminal node: it has no level-2 callers, so do not search for HTTP callers. Answer with the union of level-1 and level-2 file paths (a file in both counts once). Answer with the list of file paths."
+  }
+ ]
+}

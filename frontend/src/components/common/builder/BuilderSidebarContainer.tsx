@@ -1,6 +1,6 @@
 import React from 'react';
 import { AGENT_CHAT_PALETTE, AGENT_CHAT_PALETTE_LIGHT } from '../../../constants/agentChatTheme';
-import { Box, IconButton } from '@mui/material';
+import { Box, IconButton, Paper } from '@mui/material';
 import { ChevronRight as ChevronRightIcon } from '@mui/icons-material';
 
 /**
@@ -30,6 +30,9 @@ export const BuilderSidebarContainer: React.FC<BuilderSidebarContainerProps> = (
     <>
       {/* Sidebar Container */}
       <Box
+        component={Paper}
+        elevation={0}
+        square
         sx={{
           position: 'absolute',
           left: 0,
@@ -42,7 +45,6 @@ export const BuilderSidebarContainer: React.FC<BuilderSidebarContainerProps> = (
           borderColor: 'divider',
           display: 'flex',
           flexDirection: 'column',
-          background: P.sidebarBg,
           zIndex: 5,
         }}
       >

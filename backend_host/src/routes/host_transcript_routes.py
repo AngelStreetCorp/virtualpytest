@@ -5,6 +5,7 @@ from backend_host.src.lib.utils.route_decorators import route_exception_handler
 import os
 import json
 import time
+import threading
 from pathlib import Path
 from datetime import datetime
 
@@ -45,6 +46,57 @@ def transcript_status():
     now = datetime.now()
     start, end = resolve_window(now, minutes, hour, chunk_index)
     return jsonify(read_transcript_status(device_id, capture_folder, start, end, now=now))
+
+
+@host_transcript_bp.route('/captions', methods=['GET'])
+@route_exception_handler()
+def chunk_captions():
+    """Machine captions of one 10-minute chunk as WebVTT plus which minutes are ready (TASK-103, section 7 of
+    docs/tasks/TASK-103-caption-playback.md). JSON because the server forwards it through auto_proxy; the player
+    turns `vtt` into a Blob URL for its <track>. Cue times are chunk-relative (the archive chunk MP4's timebase)."""
+    from backend_host.src.lib.utils.caption_vtt import build_vtt, minute_coverage
+    from shared.src.lib.utils.storage_path_utils import get_capture_folder_from_device_id, get_transcript_path
+
+    device_id = request.args.get('device_id')
+    if not device_id:
+        return jsonify({'success': False, 'error': 'device_id is required'}), 400
+    try:
+        hour = int(request.args.get('hour', ''))
+        chunk_index = int(request.args.get('chunk_index', ''))
+        if not (0 <= hour <= 23 and 0 <= chunk_index <= 5):
+            raise ValueError
+    except ValueError:
+        return jsonify({'success': False, 'error': 'hour (0-23) and chunk_index (0-5) are required'}), 400
+    capture_folder = get_capture_folder_from_device_id(device_id)
+    if not capture_folder:
+        return jsonify({'success': False, 'error': f'unknown device {device_id}'}), 404
+
+    path = os.path.join(get_transcript_path(capture_folder), str(hour), f'chunk_10min_{chunk_index}.json')
+    chunk = None
+    try:
+        with open(path, 'r') as f:
+            chunk = json.load(f)
+    except (OSError, ValueError):
+        pass
+    source = (chunk or {}).get('language')
+    lang = (request.args.get('lang') or '').strip().lower()
+    shown, vtt_chunk, translated = source, chunk, False
+    from backend_host.src.lib.utils import caption_translate
+    if lang and lang != 'original' and chunk and source and lang != caption_translate.lang_code(source):
+        # TASK-103 goal 6: the viewer's language. Translate what is missing (short wait; the rest continues in the
+        # background and the next poll has it), serve the translated cues, source text flagged where not translated yet.
+        if lang not in caption_translate.LANGUAGE_NAMES:
+            return jsonify({'success': False, 'error': f'unsupported lang {lang}'}), 400
+        worker = threading.Thread(target=caption_translate._safe, args=(path, lang, None), daemon=True)
+        worker.start()
+        worker.join(timeout=8)
+        t_chunk = caption_translate._read(caption_translate.translated_path(path, lang))
+        if t_chunk:
+            vtt_chunk, shown = t_chunk, lang
+            translated = len(t_chunk.get('translated_minutes') or {}) > 0
+    return jsonify({'success': True, 'device_id': device_id, 'hour': hour, 'chunk_index': chunk_index,
+                    'vtt': build_vtt(vtt_chunk, source), 'minutes': minute_coverage(chunk),
+                    'language': shown, 'source_language': source, 'translated': translated})
 
 
 @host_transcript_bp.route('/translate-chunk', methods=['POST'])

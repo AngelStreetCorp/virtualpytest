@@ -45,6 +45,7 @@ import {
   svgSize,
   svgToPngBlob,
 } from './analyticsExport';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export type AnalyticsMark = 'radar' | 'line' | 'area' | 'bar' | 'stacked-bar' | 'pie' | 'scatter' | 'heatmap' | 'stat' | 'state-timeline' | 'table';
 
@@ -237,7 +238,7 @@ const DataTable: React.FC<{ spec: AnalyticsVisualizationSpec }> = ({ spec }) => 
   const units = spec.options?.units || {};
   return (
     <Box data-analytics-table sx={{ overflowX: 'auto', overflowY: 'auto', maxWidth: '100%', maxHeight: '100%' }}>
-      <table style={{ width: '100%', minWidth: 'max-content', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+      <table style={{ width: '100%', minWidth: 'max-content', borderCollapse: 'collapse', fontSize: TYPOGRAPHY.body.size }}>
         <thead><tr>{fields.map((field) => <th key={field} style={{ padding: 8, textAlign: 'left', whiteSpace: 'nowrap', borderBottom: `2px solid ${theme.palette.divider}` }}>{field.replace(/_/g, ' ')}</th>)}</tr></thead>
         <tbody>{rows.map((row, index) => <tr key={index}>{fields.map((field) => <td key={field} style={{ padding: 8, borderBottom: `1px solid ${theme.palette.divider}` }}>{formatAnalyticsValueWithUnit(row[field], units[field])}</td>)}</tr>)}</tbody>
       </table>
@@ -261,7 +262,7 @@ const ComparisonTable: React.FC<{ comparison: AnalyticsComparison }> = ({ compar
     <Box sx={{ mb: 1, flexShrink: 0 }}>
       <Typography variant="caption" color="text.secondary">{comparison.metric.replace(/_/g, ' ')}: {String(comparison.baseline)} vs {String(comparison.candidate)} — {compared.filter((row) => isRegression(comparison, row)).length} regression(s) in {compared.length} compared</Typography>
       <Box sx={{ overflow: 'auto', maxHeight: 280 }}>
-        <table aria-label="comparison" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+        <table aria-label="comparison" style={{ width: '100%', borderCollapse: 'collapse', fontSize: TYPOGRAPHY.body.size }}>
           <thead><tr>{headers.map((header) => <th key={header} style={head}>{header}</th>)}</tr></thead>
           <tbody>{shown.map((row, index) => {
             const regression = isRegression(comparison, row);
@@ -340,7 +341,7 @@ const Visualization: React.FC<{ spec: AnalyticsVisualizationSpec }> = ({ spec })
     return <ResponsiveContainer width="100%" height="100%"><PieChart><Tooltip formatter={formatValue} /><Legend /><Pie data={spec.data?.rows || []} dataKey={y} nameKey={x} outerRadius="72%" label>{(spec.data?.rows || []).map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}</Pie></PieChart></ResponsiveContainer>;
   }
   if (mark === 'radar') {
-    return <ResponsiveContainer width="100%" height="100%"><RadarChart data={rows} outerRadius="68%"><PolarGrid /><PolarAngleAxis dataKey={x} tick={{ fontSize: 11 }} /><PolarRadiusAxis tick={{ fontSize: 10 }} tickFormatter={formatValue} /><Tooltip formatter={formatValue} /><Legend />{seriesNames.map((name, index) => <Radar key={name} name={name} dataKey={name} stroke={COLORS[index % COLORS.length]} fill={COLORS[index % COLORS.length]} fillOpacity={0.18} connectNulls={false} />)}</RadarChart></ResponsiveContainer>;
+    return <ResponsiveContainer width="100%" height="100%"><RadarChart data={rows} outerRadius="68%"><PolarGrid /><PolarAngleAxis dataKey={x} tick={{ fontSize: TYPOGRAPHY.microMeta.size }} /><PolarRadiusAxis tick={{ fontSize: TYPOGRAPHY.microMeta.size }} tickFormatter={formatValue} /><Tooltip formatter={formatValue} /><Legend />{seriesNames.map((name, index) => <Radar key={name} name={name} dataKey={name} stroke={COLORS[index % COLORS.length]} fill={COLORS[index % COLORS.length]} fillOpacity={0.18} connectNulls={false} />)}</RadarChart></ResponsiveContainer>;
   }
   if (mark === 'scatter') {
     const seriesField = spec.encoding?.series;

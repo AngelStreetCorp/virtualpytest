@@ -1,0 +1,112 @@
+# egg_quality_yolo_belt: the egg line with the model that was TRAINED ON A BELT (BUG-0870).
+#
+# WHY A THIRD PROFILE
+# -------------------
+# `egg_quality_yolo` runs the Roboflow `egg-seg-1` model (YOLOv8s-seg). On the device3 frame it
+# finds 74.8 % of the eggs — and it costs 12 forwards a frame (12.4 s) because a 640x640 input
+# cannot hold 200 eggs at a size the head will commit to, so the frame is sliced.
+#
+# `egg_quality_yolo_belt` runs a DIFFERENT model, trained by someone else on a conveyor belt of
+# white eggs — which is exactly this scene. It is a YOLOv8n DETECT model (no mask branch), so it
+# runs the WHOLE FRAME in ONE forward and finds 98.6 % of the eggs.
+#
+# THE MODEL IS NOT IN GIT
+# -----------------------
+# `best.pt` is `model/best.pt` from the public GitHub repo Moein-Talebi/egg-detection-tracking
+# ("Egg Detection and Size Tracking System", conveyor belt, YOLO). No account, no key. SHA-256 of
+# the downloaded file: c219a234ad9a6ebaf64fed76331e596376f420ee3ee58dc5061769e1113b7767
+# (verified against the raw file in the repo). It is a YOLOv8n detection model with ONE class,
+# `egg`, exported to ONNX outside the project folder, e.g. /var/lib/vpt_user/models/egg_belt.onnx,
+# and MONITOR_YOLO_BELT_MODEL points at it. The repo has no licence file, so the file is fetched
+# and exported by the operator, not redistributed here.
+#
+# WHY THIS MODEL AND NOT THE OLD ONE, MEASURED ON THE device3 FRAME (one fixed 1280x720 frame)
+# -------------------------------------------------------------------------------------------
+# The ground truth is 147 eggs, built WITHOUT this model (the union of four OTHER detectors,
+# merged, filtered to the white-eggs, and checked by eye), so the number below is not the model
+# marking its own homework:
+#
+#     detector                                        recall   circles on an egg   s/frame
+#     egg_quality_yolo (Roboflow seg, 12 forwards)     78.2 %      99.2 %             12.4
+#     this profile (belt detect, 1 forward)             98.6 %      98.4 %              0.2
+#
+# On a second ground truth built from all four detectors (163 eggs, one box per distinct egg)
+# it is 98.8 % with 1 duplicated pair. The four circles that sit on no egg are the four eggs the
+# ground truth itself missed (a blurred cluster in the far top-left corner), not false positives.
+#
+# WHAT EACH KNOB IS FOR
+# ----------------------
+#   input_size 960   the ONNX input is a fixed square; 960 is where this model measured best
+#                    (640: 98.0 %, 960: 98.6 %, 1280: 97.3 % on the independent ground truth).
+#   fill: letterbox  the frame is 1280x720 and the input is square, so letterbox pads it. STRETCH
+#                    was measured too and is worse: 94.5 % recall, because a wide frame stretched
+#                    into a square turns every egg into a tall ellipse.
+#   min_conf 0.02    the head's scores are already activated, so 0.02 is a real 2 % confidence.
+#                    Measured: 0.01 -> 99.4 %, 0.02 -> 98.8 %, 0.05 -> 95.1 % on the 163-egg truth.
+#   nms_iou 0.60     two eggs that touch overlap by ~0.04; the same egg twice overlaps ~0.6.
+#   dedupe_dist 0.35 centres within 0.35 diameters are the same egg seen twice, and the size
+#                    tolerance keeps a big box and a small box apart (they are different eggs).
+#                    Measured duplicate pairs: 0 -> 49, 0.25 -> 18, 0.30 -> 6, 0.35 -> 1.
+#   min_side 8       the far eggs at the top of the frame are small; 8 px keeps them.
+#   NO colour filter the belt model was trained on THIS kind of belt and its boxes are already on
+#                    eggs (98.4 % of them are on a white egg), so the filter would only throw
+#                    away real eggs. It is left out on purpose.
+#   NO tiles         one whole-frame forward replaces twelve 640x640 ones. That is the whole
+#                    reason this profile updates ~60x faster than `egg_quality_yolo`.
+#
+# THE GOOD/BAD GRADE IS STILL WORTHLESS HERE
+# -------------------------------------------
+# `egg_classify` grades crops of white eggs on a blue belt in daylight, where the image carries no
+# evidence of interior quality, so it reports ~99 % bad because that is what the model says. The
+# counters are kept because they are part of the block, not because the number means anything. A
+# real grade needs candling (the egg against a light).
+name: egg_quality_yolo_belt
+services: { img: true, audio: false, subtitle: false }
+img:
+  runtime: edge
+  analyzers:
+    - type: yolo_seg_detect
+      # one whole-frame pass at 960x960, so this profile can run far faster than the sliced one.
+      # MEASURED on the box (vpt-lenovo1, i3-4150T, 4 cores): the detection pass is 0.65-0.75 s and
+      # grading the ~195 crops it finds costs another 0.23-0.26 s, so a graded cycle is ~1.0 s and
+      # 1 Hz is the fastest the worker can keep up with (the cycle is max(period, analysis time)).
+      # At 0.5 Hz the model was idle more than half the time: 0.47 analyses/s measured live.
+      sample_hz: 1.0
+      classes: [egg]                # one name per model class, in the model's order
+      min_conf: 0.02                # the head's scores are activated; 0.02 is a real 2 %
+      model_env: MONITOR_YOLO_BELT_MODEL
+      input_size: 960               # the model's square input; 960 measured best
+      fill: letterbox               # the frame is 1280x720 and the input is square: pad, do not stretch
+      nms_iou: 0.60                 # two touching eggs overlap ~0.04; the same egg twice ~0.6
+      dedupe_dist: 0.35             # centres within 0.35 diameters = the same egg, one circle
+      dedupe_ratio: 0.35            # ...unless the two boxes differ so much they are different eggs
+      min_side: 8                   # the far eggs at the top of the frame are small
+      max_aspect: 2.6
+    - type: egg_classify
+      attr: condition
+      classes: [good, bad]
+      model_env: MONITOR_EGG_MODEL
+  # The belt runs fast and the profile can now sample twice a second, so the vote window the
+  # fast `egg_quality` profile uses is reachable again.
+  track: { algo: ocsort, max_gap_s: 30.0, min_iou: 0.1, cold_gate: 1.5, votes: 3, min_votes: 2 }
+  reset_counters: { every_s: 120 }
+events:
+  egg_seen: { attr: label, in: [egg] }
+incidents: {}
+kpis:
+  - { name: count_total, of: egg_seen, window_s: 86400 }
+  - { name: count_by_condition, of: egg_seen, group_by: condition, window_s: 86400 }   # includes `unverified`
+  - { name: bad_pct, of: egg_seen, window_s: 300, pct_where: { attr: condition, in: [bad] } }
+ui:
+  title: Egg quality control (belt model)
+  stats:
+    - { label: Eggs, kpi: count_total }
+    - { label: Detections, observations: true }
+  counters:
+    kpi: count_by_condition
+    items:
+      - { key: good, colour: green }
+      - { key: bad, colour: red }
+      - { key: unverified, colour: grey }
+  box: { shape: ellipse, badge: votes, colour_by: verdict }
+  focus_panel: { crop: true, probs: true, title: Last checked }

@@ -21,6 +21,19 @@
   "links": [],
   "panels": [
     {
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "collapsed": false,
+      "panels": []
+    },
+    {
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "supabase-postgres"
@@ -50,7 +63,7 @@
         "h": 4,
         "w": 4,
         "x": 0,
-        "y": 0
+        "y": 1
       },
       "id": 1,
       "title": "Runs",
@@ -112,7 +125,7 @@
         "h": 4,
         "w": 4,
         "x": 4,
-        "y": 0
+        "y": 1
       },
       "id": 2,
       "title": "Full games",
@@ -174,7 +187,7 @@
         "h": 4,
         "w": 4,
         "x": 8,
-        "y": 0
+        "y": 1
       },
       "id": 3,
       "title": "Pass rate",
@@ -236,7 +249,7 @@
         "h": 4,
         "w": 4,
         "x": 12,
-        "y": 0
+        "y": 1
       },
       "id": 4,
       "title": "Best score",
@@ -298,7 +311,7 @@
         "h": 4,
         "w": 4,
         "x": 16,
-        "y": 0
+        "y": 1
       },
       "id": 5,
       "title": "Best tile",
@@ -360,7 +373,7 @@
         "h": 4,
         "w": 4,
         "x": 20,
-        "y": 0
+        "y": 1
       },
       "id": 6,
       "title": "LLM tokens",
@@ -420,7 +433,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 4
+        "y": 5
       },
       "id": 7,
       "title": "Final score per full game",
@@ -482,7 +495,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 4
+        "y": 5
       },
       "id": 8,
       "title": "Seconds per move",
@@ -517,95 +530,109 @@
       ]
     },
     {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "supabase-postgres"
-      },
+      "type": "row",
+      "title": "Details",
       "gridPos": {
-        "h": 12,
+        "h": 1,
         "w": 24,
         "x": 0,
-        "y": 12
+        "y": 13
       },
-      "id": 9,
-      "title": "Runs",
-      "type": "table",
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            }
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Report"
-            },
-            "properties": [
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "markdown"
-                }
-              },
-              {
-                "id": "custom.align",
-                "value": "center"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Result"
-            },
-            "properties": [
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-text"
-                }
-              },
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "type": "value",
-                    "options": {
-                      "PASS": {
-                        "color": "green",
-                        "index": 0
-                      },
-                      "FAIL": {
-                        "color": "red",
-                        "index": 1
-                      }
-                    }
-                  }
-                ]
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm"
-      },
-      "targets": [
+      "id": 101,
+      "collapsed": true,
+      "panels": [
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
             "uid": "supabase-postgres"
           },
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT sr.started_at AS \"Started\", sr.host_name AS \"Host\", sr.device_name AS \"Device\", sr.metadata->>'path' AS \"Platform\", sr.metadata->>'player' AS \"Player\", (sr.metadata->>'final_score')::int AS \"Score\", (sr.metadata->>'max_tile')::int AS \"Max tile\", (sr.metadata->>'move_count')::int AS \"Moves\", (sr.metadata->>'board_resyncs')::int AS \"Resyncs\", sr.metadata->>'stop_reason' AS \"Stop reason\", CASE WHEN sr.success THEN 'PASS' ELSE 'FAIL' END AS \"Result\", COALESCE('<a href=\"' || sr.html_report_r2_url || '\" target=\"_blank\">report</a>', '') AS \"Report\" FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr WHERE sr.script_name = 'game_2048' AND sr.metadata ? 'final_score' AND $__timeFilter(sr.started_at) AND sr.metadata->>'path' IN (${path:sqlstring}) AND sr.metadata->>'player' IN (${player:sqlstring}) ORDER BY sr.started_at DESC LIMIT 100",
-          "refId": "A"
+          "gridPos": {
+            "h": 12,
+            "w": 24,
+            "x": 0,
+            "y": 14
+          },
+          "id": 9,
+          "title": "Runs",
+          "type": "table",
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Result"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "PASS": {
+                            "color": "green",
+                            "index": 0
+                          },
+                          "FAIL": {
+                            "color": "red",
+                            "index": 1
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm"
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT sr.started_at AS \"Started\", sr.host_name AS \"Host\", sr.device_name AS \"Device\", sr.metadata->>'path' AS \"Platform\", sr.metadata->>'player' AS \"Player\", (sr.metadata->>'final_score')::int AS \"Score\", (sr.metadata->>'max_tile')::int AS \"Max tile\", (sr.metadata->>'move_count')::int AS \"Moves\", (sr.metadata->>'board_resyncs')::int AS \"Resyncs\", sr.metadata->>'stop_reason' AS \"Stop reason\", CASE WHEN sr.success THEN 'PASS' ELSE 'FAIL' END AS \"Result\", COALESCE('<a href=\"' || sr.html_report_r2_url || '\" target=\"_blank\">report</a>', '') AS \"Report\" FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) sr WHERE sr.script_name = 'game_2048' AND sr.metadata ? 'final_score' AND $__timeFilter(sr.started_at) AND sr.metadata->>'path' IN (${path:sqlstring}) AND sr.metadata->>'player' IN (${player:sqlstring}) ORDER BY sr.started_at DESC LIMIT 100",
+              "refId": "A"
+            }
+          ]
         }
       ]
     }

@@ -1,77 +1,87 @@
 # JIRA Integration
 
-Quick integration for tracking JIRA tickets from VirtualPyTest.
+See your JIRA tickets in one place, filter them and open any ticket in JIRA with one click.
 
-## Features
+<div data-technical>
 
-- ✅ Multiple JIRA instances support
-- ✅ Secure API token storage (backend proxy)
-- ✅ Real-time ticket dashboard
-- ✅ Filter by status
-- ✅ Quick statistics (total, by status)
-- ✅ One-click to open in JIRA
+You can connect more than one JIRA site.
+
+</div>
 
 ## Setup
 
-### 1. Generate JIRA API Token
+### 1. Create a JIRA API token
+
+Create a token in your Atlassian account. It works like a password for VirtualPyTest.
 
 1. Go to https://id.atlassian.com/manage/api-tokens
-2. Click "Create API token"
-3. Name it (e.g., "VirtualPyTest Integration")
-4. Copy the token (you won't see it again!)
+2. Click "Create API token" and give it a name
+3. Copy the token. You will not see it again.
 
-### 2. Add JIRA Instance
+<div data-technical>
 
-1. Navigate to **Integrations → JIRA** in VirtualPyTest
+Example name: "VirtualPyTest Integration". Keep the token somewhere safe.
+
+</div>
+
+### 2. Add your JIRA site
+
+1. Open **Integrations → JIRA** in VirtualPyTest
 2. Click **"Add JIRA Instance"**
 3. Fill in the form:
-   - **Instance Name**: Your custom name (e.g., "Company JIRA")
-   - **JIRA Domain**: Your domain without https:// (e.g., `yourcompany.atlassian.net`)
-   - **Email**: Your JIRA account email
-   - **API Token**: Paste the token from step 1
-   - **Project Key**: The project key (e.g., `PROJ` from ticket `PROJ-123`)
-4. Click **"Test Connection"** to verify
+   - **Instance Name**: a name you choose
+   - **JIRA Domain**: your site address
+   - **Email**: the email of your JIRA account
+   - **API Token**: paste the token from step 1
+   - **Project Key**: the short code of your project
+4. Click **"Test Connection"**
 5. Click **"Save"**
+
+<div data-technical>
+
+Examples: "Company JIRA" as the name; `yourcompany.atlassian.net` as the domain; `PROJ` as the project key, from the ticket `PROJ-123`.
+
+Domain format: no `https://` and no trailing `/`.
+
+</div>
 
 ## Usage
 
-### View Tickets
+### View tickets
 
-1. Select your JIRA instance from dropdown
-2. See statistics cards (total, open, in progress, done, etc.)
-3. Browse tickets in the table below
+Pick your JIRA site. Counts show at the top.
 
-### Filter Tickets
+### Filter tickets
 
-Use the **Status Filter** dropdown to show only:
-- All tickets
-- Open
-- In Progress
-- To Do
-- Done
-- Closed
+Use the **Status Filter** to choose which tickets to show.
 
-### Open in JIRA
+### Open a ticket in JIRA
 
-Click the 🔗 icon on any ticket to open it in JIRA (new tab)
+Click the link icon on a ticket. It opens in a new tab.
 
-### Refresh Data
+### Refresh and edit
 
-Click **"Refresh"** button to reload tickets and stats
+Click **"Refresh"** to reload. To change or remove a site, select it and click **"Edit"** or **"Delete"**.
 
-### Edit/Delete Instance
+<div data-technical>
 
-1. Select the instance
-2. Click **"Edit"** to update credentials
-3. Click **"Delete"** to remove (with confirmation)
+Edit lets you change the details, for example a new token. You will be asked to confirm a delete.
+
+</div>
 
 ## Security
 
-- ✅ API tokens stored on backend (never sent to frontend)
-- ✅ All JIRA API calls go through backend proxy
-- ✅ Frontend never sees or handles API tokens
+Your API token stays on the server.
+
+<div data-technical>
+
+All JIRA requests go through the server, and the web page never handles the token.
+
+</div>
 
 ## API Endpoints
+
+<div data-technical>
 
 Backend endpoints (for reference):
 
@@ -84,45 +94,52 @@ GET  /server/integrations/jira/:id/stats
 POST /server/integrations/jira/:id/test
 ```
 
+</div>
+
 ## Troubleshooting
 
-### Connection Failed
+**Connection failed.** Check the domain, email, token and project key.
 
-- Verify domain is correct (no `https://`, no trailing `/`)
-- Check email matches your JIRA account
-- Regenerate API token if expired
-- Verify project key exists
+**No tickets showing.** Check the project key and try another filter.
 
-### No Tickets Showing
+**Authentication error.** The token may have expired. Create a new one.
 
-- Check project key is correct
-- Verify you have permission to view project
-- Try different status filter
-- Click "Refresh"
+<div data-technical>
 
-### Authentication Error
+- Connection failed: the domain must not start with `https://` or end with `/`. The email must match your JIRA account. If the token expired, create a new one. The project key must exist.
+- No tickets showing: check the project key, try another status filter, and click "Refresh".
+- Authentication error: the token may be expired or revoked. Create a new one at https://id.atlassian.com/manage/api-tokens, then edit the site and paste it.
 
-- API token may be expired or revoked
-- Regenerate token at https://id.atlassian.com/manage/api-tokens
-- Edit instance with new token
+</div>
 
 ## Configuration File
 
-Instances are stored in `jira_instances.json` under `~/.config/virtualpytest/` of the user the server runs as (`vpt_user`), or `$VPT_CONFIG_DIR`:
+Your sites are saved on the server.
+
+<div data-technical>
+
+Sites are stored in `jira_instances.json` under `~/.config/virtualpytest/` of the user the server runs as (`vpt_user`), or in `$VPT_CONFIG_DIR`:
+
 ```
 ~/.config/virtualpytest/jira_instances.json
 ```
 
-It lives outside the project tree so a deploy (`rsync --delete`) cannot wipe it. It holds API
-tokens — never copy it into the repository.
+Your tokens stay private. The file lives outside the project folder, so a deploy (`rsync --delete`) cannot wipe it. It holds API tokens, so never copy it into the repository.
+
+</div>
 
 ## Future Enhancements
+
+More features are planned.
+
+<div data-technical>
 
 Planned features:
 - Create tickets from VirtualPyTest
 - Link test cases to JIRA tickets
 - Sync test results as JIRA comments
-- Support for more filters (assignee, priority, labels)
+- More filters (assignee, priority, labels)
 - Ticket search
 - Custom JQL queries
 
+</div>

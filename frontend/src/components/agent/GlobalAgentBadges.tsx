@@ -13,6 +13,7 @@ import { Box, Paper, Typography, IconButton, Collapse, Chip, LinearProgress, Fad
 import { Close, ExpandLess, ExpandMore, ThumbUp, ThumbDown, CheckCircle, Error as ErrorIcon, Schedule, OpenInNew } from '@mui/icons-material';
 import { useAgentActivity, AgentTask } from '../../contexts/AgentActivityContext';
 import { useNavigate } from 'react-router-dom';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 // Styles
 const BADGE_WIDTH = 380;
@@ -69,9 +70,9 @@ const AgentBadge: React.FC<AgentBadgeProps> = ({
   const isNegativeFeedback = feedbackGiven && (currentTask?.feedback?.rating ?? localFeedback?.rating ?? 0) <= 3;
 
   const getStatusIcon = () => {
-    if (failedTasks.length > 0) return <ErrorIcon sx={{ fontSize: 14, color: COLORS.error }} />;
-    if (completedTasks.length > 0 && runningTasks.length === 0) return <CheckCircle sx={{ fontSize: 14, color: COLORS.success }} />;
-    return <Schedule sx={{ fontSize: 14, color: COLORS.accent, animation: 'pulse 1.5s infinite' }} />;
+    if (failedTasks.length > 0) return <ErrorIcon sx={{ fontSize: TYPOGRAPHY.body.size, color: COLORS.error }} />;
+    if (completedTasks.length > 0 && runningTasks.length === 0) return <CheckCircle sx={{ fontSize: TYPOGRAPHY.body.size, color: COLORS.success }} />;
+    return <Schedule sx={{ fontSize: TYPOGRAPHY.body.size, color: COLORS.accent, animation: 'pulse 1.5s infinite' }} />;
   };
 
   // Progress dots removed — the pulsing status icon in the header is sufficient.
@@ -147,22 +148,22 @@ const AgentBadge: React.FC<AgentBadgeProps> = ({
         >
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-              <Typography sx={{ fontWeight: 600, color: COLORS.text, fontSize: '0.85rem' }}>
+              <Typography sx={{ fontWeight: 600, color: COLORS.text, fontSize: TYPOGRAPHY.body.size }}>
                 {displayName}
               </Typography>
               {false && tasks.length > 1 && (
-                <Chip label={tasks.length} size="small" sx={{ height: 16, fontSize: '0.65rem', bgcolor: '#333', color: COLORS.textMuted }} />
+                <Chip label={tasks.length} size="small" sx={{ height: 16, fontSize: TYPOGRAPHY.microMeta.size, bgcolor: '#333', color: COLORS.textMuted }} />
               )}
               {getStatusIcon()}
             </Box>
-            <Typography sx={{ color: COLORS.textMuted, fontSize: '0.7rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <Typography sx={{ color: COLORS.textMuted, fontSize: TYPOGRAPHY.caption.size, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
               {currentTask?.prompt || 'Processing...'}
             </Typography>
           </Box>
           {/* Progress dots removed from collapsed view — the pulsing status icon is
               sufficient as a loading indicator and the dots added visual noise. */}
         <IconButton size="small" sx={{ color: COLORS.textMuted, p: 0.25 }} component="span">
-            {isExpanded ? <ExpandMore sx={{ fontSize: 18 }} /> : <ExpandLess sx={{ fontSize: 18 }} />}
+            {isExpanded ? <ExpandMore sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} /> : <ExpandLess sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />}
           </IconButton>
         </Box>
         <Tooltip title="Open in Agent Chat">
@@ -176,7 +177,7 @@ const AgentBadge: React.FC<AgentBadgeProps> = ({
               '&:hover': { opacity: 1, color: COLORS.text }
             }}
           >
-            <OpenInNew sx={{ fontSize: 14 }} />
+            <OpenInNew sx={{ fontSize: TYPOGRAPHY.body.size }} />
           </IconButton>
         </Tooltip>
         {/* Discreet close button - always visible */}
@@ -193,7 +194,7 @@ const AgentBadge: React.FC<AgentBadgeProps> = ({
             '&:hover': { opacity: 1, color: COLORS.text } 
           }}
         >
-          <Close sx={{ fontSize: 14 }} />
+          <Close sx={{ fontSize: TYPOGRAPHY.body.size }} />
         </IconButton>
       </Box>
 
@@ -239,7 +240,7 @@ const AgentBadge: React.FC<AgentBadgeProps> = ({
                   }}
                 >
                   <Typography sx={{
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                     color: COLORS.text,
                     lineHeight: 1.5,
                     whiteSpace: 'pre-wrap',
@@ -253,7 +254,7 @@ const AgentBadge: React.FC<AgentBadgeProps> = ({
               {/* Error message */}
               {isFailed && currentTask.error && (
                 <Box sx={{ px: 0.75, py: 0.5, mb: 0.75, bgcolor: 'rgba(239, 68, 68, 0.1)', borderRadius: 1, border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                  <Typography sx={{ fontSize: '0.7rem', color: COLORS.error }}>
+                  <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: COLORS.error }}>
                     {currentTask.error}
                   </Typography>
                 </Box>
@@ -263,8 +264,8 @@ const AgentBadge: React.FC<AgentBadgeProps> = ({
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, pt: 0.5 }}>
                 {isComplete && isManual && (
                   <>
-                    <Typography sx={{ fontSize: '0.7rem', color: feedbackGiven ? (isPositiveFeedback ? COLORS.success : COLORS.error) : COLORS.textMuted }}>
-                      {feedbackGiven ? (isPositiveFeedback ? '👍 Helpful' : '👎 Not helpful') : 'Helpful?'}
+                    <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: feedbackGiven ? (isPositiveFeedback ? COLORS.success : COLORS.error) : COLORS.textMuted }}>
+                      {feedbackGiven ? (isPositiveFeedback ? 'Helpful' : 'Not helpful') : 'Helpful?'}
                     </Typography>
                     <IconButton 
                       size="small" 
@@ -278,7 +279,7 @@ const AgentBadge: React.FC<AgentBadgeProps> = ({
                         '&.Mui-disabled': { color: isPositiveFeedback ? COLORS.success : COLORS.textMuted, opacity: 1 },
                       }}
                     >
-                      <ThumbUp sx={{ fontSize: 14 }} />
+                      <ThumbUp sx={{ fontSize: TYPOGRAPHY.body.size }} />
                     </IconButton>
                     <IconButton 
                       size="small" 
@@ -292,7 +293,7 @@ const AgentBadge: React.FC<AgentBadgeProps> = ({
                         '&.Mui-disabled': { color: isNegativeFeedback ? COLORS.error : COLORS.textMuted, opacity: 1 },
                       }}
                     >
-                      <ThumbDown sx={{ fontSize: 14 }} />
+                      <ThumbDown sx={{ fontSize: TYPOGRAPHY.body.size }} />
                     </IconButton>
                   </>
                 )}

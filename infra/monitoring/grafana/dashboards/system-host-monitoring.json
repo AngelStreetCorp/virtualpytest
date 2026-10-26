@@ -1714,7 +1714,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '24 hours'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 1440), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status IN ('active', 'off') THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '24 hours'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 1440), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -1847,7 +1847,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '24 hours'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 24.0 / 1440), 0) as \"Uptime\",\n    ROUND(24 - (available_pings * 24.0 / 1440), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status IN ('active', 'off') THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '24 hours'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 24.0 / 1440), 0) as \"Uptime\",\n    ROUND(24 - (available_pings * 24.0 / 1440), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -1949,7 +1949,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '7 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 10080), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status IN ('active', 'off') THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '7 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 10080), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -2082,7 +2082,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '7 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 7.0 / 10080), 0) as \"Uptime\",\n    ROUND(7 - (available_pings * 7.0 / 10080), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status IN ('active', 'off') THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '7 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 7.0 / 10080), 0) as \"Uptime\",\n    ROUND(7 - (available_pings * 7.0 / 10080), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -2184,7 +2184,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '30 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 43200), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status IN ('active', 'off') THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '30 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 43200), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -2317,7 +2317,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '30 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 30.0 / 43200), 0) as \"Uptime\",\n    ROUND(30 - (available_pings * 30.0 / 43200), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status IN ('active', 'off') THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '30 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 30.0 / 43200), 0) as \"Uptime\",\n    ROUND(30 - (available_pings * 30.0 / 43200), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -2419,7 +2419,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '365 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 525600), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status IN ('active', 'off') THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '365 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 100.0 / 525600), 0) as \"Availability %\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -2552,7 +2552,7 @@
             "uid": "supabase-postgres"
           },
           "format": "table",
-          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '365 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 365.0 / 525600), 0) as \"Uptime\",\n    ROUND(365 - (available_pings * 365.0 / 525600), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
+          "rawSql": "WITH device_availability AS (\n    SELECT \n        device_name,\n        COUNT(CASE WHEN ffmpeg_status = 'active' AND monitor_status IN ('active', 'off') THEN 1 END) as available_pings\n    FROM (SELECT * FROM system_device_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) system_device_metrics \n    WHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n      AND timestamp >= NOW() - INTERVAL '365 days'\n    GROUP BY device_name\n)\nSELECT \n    device_name as \"Device\",\n    ROUND((available_pings * 365.0 / 525600), 0) as \"Uptime\",\n    ROUND(365 - (available_pings * 365.0 / 525600), 0) as \"Downtime\"\nFROM device_availability\nORDER BY device_name;",
           "refId": "A"
         }
       ],
@@ -3830,7 +3830,7 @@
       "type": "timeseries"
     },
     {
-      "collapsed": false,
+      "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
@@ -3838,309 +3838,311 @@
         "y": 94
       },
       "id": 202,
-      "panels": [],
-      "title": "⏱️ Uptime Timeline",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
-          },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "barAlignment": 0,
-            "barWidthFactor": 0.6,
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
-            },
-            "insertNulls": false,
-            "lineInterpolation": "linear",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "showPoints": "auto",
-            "spanNulls": false,
-            "stacking": {
-              "group": "A",
-              "mode": "none"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
-            }
-          },
-          "decimals": 0,
-          "mappings": [],
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          },
-          "unit": "s"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 24,
-        "x": 0,
-        "y": 95
-      },
-      "id": 112,
-      "options": {
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": true
-        },
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "multi",
-          "sort": "none"
-        }
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
+      "panels": [
         {
           "datasource": {
             "uid": "supabase-postgres"
           },
-          "editorMode": "code",
-          "format": "time_series",
-          "rawQuery": true,
-          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(uptime_seconds) as value\nFROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND uptime_seconds IS NOT NULL\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
-          "refId": "A"
-        }
-      ],
-      "title": "Uptime Seconds Timeline",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "barAlignment": 0,
+                "barWidthFactor": 0.6,
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "insertNulls": false,
+                "lineInterpolation": "linear",
+                "lineWidth": 2,
+                "pointSize": 5,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "showPoints": "auto",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "decimals": 0,
+              "mappings": [],
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              },
+              "unit": "s"
+            },
+            "overrides": []
           },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "fillOpacity": 80,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 95
+          },
+          "id": 112,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
             },
-            "lineWidth": 1,
-            "scaleDistribution": {
-              "type": "linear"
-            },
-            "thresholdsStyle": {
-              "mode": "off"
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "multi",
+              "sort": "none"
             }
           },
-          "decimals": 0,
-          "mappings": [],
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "uid": "supabase-postgres"
               },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "orange",
-                "value": 3
-              },
-              {
-                "color": "red",
-                "value": 5
-              }
-            ]
-          },
-          "unit": "short"
+              "editorMode": "code",
+              "format": "time_series",
+              "rawQuery": true,
+              "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(uptime_seconds) as value\nFROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND uptime_seconds IS NOT NULL\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
+              "refId": "A"
+            }
+          ],
+          "title": "Uptime Seconds Timeline",
+          "type": "timeseries"
         },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 1,
-        "w": 1,
-        "x": 23,
-        "y": 105
-      },
-      "id": 102,
-      "options": {
-        "barRadius": 0,
-        "barWidth": 0.97,
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "orientation": "vertical",
-        "showValue": "auto",
-        "stacking": "none",
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        },
-        "xTickLabelRotation": 0,
-        "xTickLabelSpacing": 0
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
         {
           "datasource": {
             "uid": "supabase-postgres"
           },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(download_mbps) as value\nFROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND download_mbps IS NOT NULL\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
-          "refId": "A"
-        }
-      ],
-      "title": "Hidden Panel 1",
-      "type": "barchart"
-    },
-    {
-      "datasource": {
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "palette-classic"
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineWidth": 1,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "decimals": 0,
+              "mappings": [],
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 1
+                  },
+                  {
+                    "color": "orange",
+                    "value": 3
+                  },
+                  {
+                    "color": "red",
+                    "value": 5
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
           },
-          "custom": {
-            "axisBorderShow": false,
-            "axisCenteredZero": false,
-            "axisColorMode": "text",
-            "axisLabel": "",
-            "axisPlacement": "auto",
-            "fillOpacity": 80,
-            "gradientMode": "none",
-            "hideFrom": {
-              "legend": false,
-              "tooltip": false,
-              "viz": false
+          "gridPos": {
+            "h": 1,
+            "w": 1,
+            "x": 23,
+            "y": 101
+          },
+          "id": 102,
+          "options": {
+            "barRadius": 0,
+            "barWidth": 0.97,
+            "fullHighlight": false,
+            "groupWidth": 0.7,
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
             },
-            "lineWidth": 1,
-            "scaleDistribution": {
-              "type": "linear"
+            "orientation": "vertical",
+            "showValue": "auto",
+            "stacking": "none",
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
             },
-            "thresholdsStyle": {
-              "mode": "off"
+            "xTickLabelRotation": 0,
+            "xTickLabelSpacing": 0
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(download_mbps) as value\nFROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND download_mbps IS NOT NULL\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
+              "refId": "A"
             }
-          },
-          "decimals": 0,
-          "mappings": [],
-          "min": 0,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "orange",
-                "value": 3
-              },
-              {
-                "color": "red",
-                "value": 5
-              }
-            ]
-          },
-          "unit": "short"
+          ],
+          "title": "Hidden Panel 1",
+          "type": "barchart"
         },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 1,
-        "w": 1,
-        "x": 23,
-        "y": 106
-      },
-      "id": 103,
-      "options": {
-        "barRadius": 0,
-        "barWidth": 0.97,
-        "fullHighlight": false,
-        "groupWidth": 0.7,
-        "legend": {
-          "calcs": [],
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "orientation": "vertical",
-        "showValue": "auto",
-        "stacking": "none",
-        "tooltip": {
-          "hideZeros": false,
-          "mode": "single",
-          "sort": "none"
-        },
-        "xTickLabelRotation": 0,
-        "xTickLabelSpacing": 0
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
         {
           "datasource": {
             "uid": "supabase-postgres"
           },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(upload_mbps) as value\nFROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND upload_mbps IS NOT NULL\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
-          "refId": "A"
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisBorderShow": false,
+                "axisCenteredZero": false,
+                "axisColorMode": "text",
+                "axisLabel": "",
+                "axisPlacement": "auto",
+                "fillOpacity": 80,
+                "gradientMode": "none",
+                "hideFrom": {
+                  "legend": false,
+                  "tooltip": false,
+                  "viz": false
+                },
+                "lineWidth": 1,
+                "scaleDistribution": {
+                  "type": "linear"
+                },
+                "thresholdsStyle": {
+                  "mode": "off"
+                }
+              },
+              "decimals": 0,
+              "mappings": [],
+              "min": 0,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 1
+                  },
+                  {
+                    "color": "orange",
+                    "value": 3
+                  },
+                  {
+                    "color": "red",
+                    "value": 5
+                  }
+                ]
+              },
+              "unit": "short"
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 1,
+            "w": 1,
+            "x": 23,
+            "y": 102
+          },
+          "id": 103,
+          "options": {
+            "barRadius": 0,
+            "barWidth": 0.97,
+            "fullHighlight": false,
+            "groupWidth": 0.7,
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "orientation": "vertical",
+            "showValue": "auto",
+            "stacking": "none",
+            "tooltip": {
+              "hideZeros": false,
+              "mode": "single",
+              "sort": "none"
+            },
+            "xTickLabelRotation": 0,
+            "xTickLabelSpacing": 0
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT \n  DATE_TRUNC('minute', timestamp) as time,\n  host_name as metric,\n  AVG(upload_mbps) as value\nFROM (SELECT * FROM system_metrics /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k)))) system_metrics \nWHERE host_name != 'server' AND host_name IN (${host:sqlstring})\n  AND upload_mbps IS NOT NULL\n  AND $__timeFilter(timestamp)\nGROUP BY DATE_TRUNC('minute', timestamp), host_name\nORDER BY time, host_name",
+              "refId": "A"
+            }
+          ],
+          "title": "Hidden Panel 2",
+          "type": "barchart"
         }
       ],
-      "title": "Hidden Panel 2",
-      "type": "barchart"
+      "title": "Details",
+      "type": "row",
+      "description": "⏱️ Uptime Timeline"
     }
   ],
   "preload": false,

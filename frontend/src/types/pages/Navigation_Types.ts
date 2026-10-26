@@ -402,6 +402,7 @@ export interface NodeForm {
   verifications?: Verification[];
   verification_pass_condition?: 'all' | 'any'; // Condition for passing verifications: 'all' = all must pass (default), 'any' = any can pass
   use_fingerprint_for_verification?: boolean; // Verify by the node's stored fingerprint when no verifications are authored
+  live?: boolean; // The tree's live node (TASK-104): Localize answers it on full-frame motion (data.live)
 
   // Named-variant model — see docs/agent/ENHANCE_VARIANT.md.
   hidden_in_base?: boolean;
@@ -777,12 +778,17 @@ export interface NavigationItem {
   external?: boolean; // If true, opens in new tab
   href?: string; // External URL (used when external is true)
   externalHref?: string; // Optional external shortcut shown alongside an internal page link
+  onSelect?: () => void; // Action row: calls this instead of navigating (path is then only its visibility key)
+  isVisible?: () => boolean; // Runtime gate read on every render; false hides the row
 }
 
 export interface NavigationDropdownProps {
   label: string;
   items: NavigationItem[];
   footer?: React.ReactNode;
+  /** Optional floor width (px). Use when the footer (e.g. PreferencesRows) needs more
+   *  room than the widest menu item. Defaults to 240 (the widest locale baseline). */
+  minWidth?: number;
 }
 
 export interface NavigationGroupedItem {

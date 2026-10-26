@@ -3,10 +3,10 @@
  * Imported by the vpt-features Vite plugin only when the feature is enabled, so with
  * DISABLED_FEATURES=gitlab neither page nor its identifiers reach the bundle.
  */
-import { Code as GitLabIcon } from '@mui/icons-material';
 import React from 'react';
 
 import type { FeatureDefinition } from '../../../frontend/src/config/features';
+import { GitLabMark } from './GitLabMark';
 
 const GitLabPage = React.lazy(() => import('./GitLabPage'));
 
@@ -16,10 +16,14 @@ const feature: FeatureDefinition = {
   ],
   nav: [
     {
-      section: 'monitoring',
+      // Plugins, not Monitoring: GitLab is a third-party integration VPT connects to, and
+      // that is what the Plugins dropdown is — Monitoring is the platform's own telemetry.
+      section: 'plugins',
       label: 'GitLab',
       path: '/monitoring/gitlab',
-      icon: <GitLabIcon fontSize="small" />,
+      // The real GitLab mark, not a generic code glyph: this row is a link to GitLab, and the
+      // mark inherits the row's colour like every other nav icon.
+      icon: <GitLabMark fontSize={20} />,
     },
   ],
 };

@@ -22,6 +22,7 @@ import ManualRun from './ManualRun';
 import Milestones from './Milestones';
 import RunGroups from './RunGroups';
 import RunLabels from './RunLabels';
+import { TYPOGRAPHY } from '../constants/typography';
 
 type Translate = ReturnType<typeof useI18n>['t'];
 
@@ -106,7 +107,7 @@ const RunManagement: React.FC = () => {
           </ToggleButtonGroup>
         }
       />
-      <Typography sx={{ fontSize: '0.875rem', color: P.textSecondary, mb: 2 }} data-testid="run-management-help">
+      <Typography sx={{ fontSize: TYPOGRAPHY.body.size, color: P.textSecondary, mb: 2 }} data-testid="run-management-help">
         {current.help}
       </Typography>
       <Body key={current.key} />

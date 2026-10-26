@@ -39,6 +39,16 @@ class PhoneAgentService : Service() {
 
     companion object {
         private const val TAG = "PhoneAgentService"
+        /**
+         * The running service, so the plugin can reach the drone bridge (TASK-167).
+         *
+         * A plain Android Service has no binder, so the service publishes itself here
+         * for as long as it lives.
+         */
+        @Volatile
+        @JvmStatic
+        var instance: PhoneAgentService? = null
+            private set
         private const val CHANNEL_ID = "vpt_phone_agent_link"
         private const val NOTIFICATION_ID = 4201
         private const val CONNECT_ATTEMPT_TIMEOUT_MS = 8_000L
@@ -104,6 +114,13 @@ class PhoneAgentService : Service() {
     private var pendingCaptureSettings: JSONObject? = null
 
     private var socket: Socket? = null
+    /**
+     * The drone bridge (TASK-167): the phone's radio end of a remote Tello. It is
+     * created when the owner turns the drone link on and lives as long as the
+     * service does, because the drone's Wi-Fi conversation has to survive the phone
+     * being in the field for hours.
+     */
+    private var droneBridge: DroneBridge? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     /** Fires once the phone has gone DRIVING_IDLE_MS without a command. */
     private val drivingIdleRunnable = Runnable { setDriving(false) }
@@ -124,6 +141,11 @@ class PhoneAgentService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        instance = this
+        // The drone link (TASK-167/TASK-173) comes up with the phone agent: the
+        // owner turns the hotspot on and powers the drone, and the phone finds it
+        // and tells the host. Nothing has to be armed by hand for the link to work.
+        startDroneBridge()
         mediaProjectionManager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
         createNotificationChannel()
         // Go foreground at the earliest possible point: API 34+ raises
@@ -165,10 +187,13 @@ class PhoneAgentService : Service() {
 
     override fun onDestroy() {
         stopping = true
+        if (instance === this) instance = null
         PhoneAgentState.removeListener(stateListener)
         // Nothing is driving a phone whose agent is gone; the idle timer dies with the handler
         // below, so drop the badge here rather than leaving it up until the overlay is torn down.
         setDriving(false)
+        droneBridge?.stop()
+        droneBridge = null
         teardownSocket()
         projectionCapture?.release()
         mediaProjection?.stop()
@@ -305,6 +330,9 @@ class PhoneAgentService : Service() {
         s.on(Protocol.EV_CAPTURE) { args -> (args.firstOrNull() as? JSONObject)?.let { applyCaptureSettings(it) } }
         s.on(Protocol.EV_CMD) { args -> handleCmdEvent(args) }
         s.on(Protocol.EV_UNPAIR) { handleUnpair() }
+        // The drone bridge (TASK-167): the host sends a drone command, this phone runs
+        // it on the drone over Wi-Fi and answers with the drone's own reply.
+        s.on(Protocol.EV_DRONE_CMD) { args -> handleDroneCmdEvent(args) }
     }
 
     private fun sendHello(s: Socket) {
@@ -474,6 +502,75 @@ class PhoneAgentService : Service() {
             applyCaptureSettings(it)
             pendingCaptureSettings = null
         }
+    }
+
+    // ---- drone bridge (§TASK-167) ------------------------------------------------------------
+
+    /**
+     * Run a drone command the host asked for, and answer with the drone's own reply.
+     *
+     * The answer is the drone's text, so the host's SafetyGuard and its TelloClient see
+     * exactly what they would see with the drone sitting on the bench.
+     */
+    private fun handleDroneCmdEvent(args: Array<out Any>) {
+        val payload = args.firstOrNull() as? JSONObject
+        val ack = args.lastOrNull() as? Ack
+        if (payload == null) {
+            ack?.call(JSONObject().put("ok", false).put("error", "bad_payload"))
+            return
+        }
+        val label = payload.optString("target").ifBlank { payload.optString("drone") }
+        val cmd = payload.optString("cmd")
+        val bridge = droneBridge
+        if (bridge == null) {
+            ack?.call(JSONObject().put("ok", false).put("error", "the drone link is off"))
+            return
+        }
+        // The drone's answer comes back over Wi-Fi, which takes as long as it takes;
+        // the host's timeout is generous enough for the round trip.
+        Thread {
+            val (ok, reply) = bridge.handleCommand(label, cmd)
+            val response = JSONObject().put("ok", ok).put("reply", reply)
+            ack?.call(response)
+        }.start()
+    }
+
+    /** Turn the drone link on: open the drone's sockets and relay to the host. */
+    fun startDroneBridge(): Boolean {
+        if (droneBridge != null) return true
+        val bridge = DroneBridge(applicationContext)
+        bridge.socketProvider = { socket }
+        bridge.start()
+        droneBridge = bridge
+        return true
+    }
+
+    /** Turn the drone link off. */
+    fun stopDroneBridge() {
+        droneBridge?.stop()
+        droneBridge = null
+    }
+
+    /** The drones this phone currently carries, for the app's status page. */
+    fun droneStatus(): List<DroneBridge.Drone> = droneBridge?.list() ?: emptyList()
+
+    /** Is the phone's hotspot on? Without it the drones cannot be reached at all. */
+    fun droneHotspotEnabled(): Boolean = droneBridge?.hotspotEnabled() ?: false
+
+    /** The subnet the hotspot hands out on - the prefix the drones live on. */
+    fun droneHotspotSubnet(): String = droneBridge?.hotspotSubnet() ?: ""
+
+    /** Look for drones on the hotspot's subnet. */
+    fun discoverDrones(): List<DroneBridge.Drone> = droneBridge?.discover() ?: emptyList()
+
+    /** Give a discovered drone the label the owner chose. */
+    fun labelDrone(ip: String, label: String) {
+        droneBridge?.labelDrone(ip, label)
+    }
+
+    /** Set the whole drone list the owner configured. */
+    fun setDrones(drones: List<DroneBridge.Drone>) {
+        droneBridge?.setDrones(drones)
     }
 
     // ---- cmd dispatch (§1.3) -------------------------------------------------------------------

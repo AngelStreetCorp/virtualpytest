@@ -7,7 +7,7 @@ import { expandModels } from '../config/deviceModelFamilies';
 import { useUserSession } from '../hooks/useUserSession';
 import { useServerManager } from '../hooks/useServerManager';
 import { Host, Device } from '../types/common/Host_Types';
-import { buildServerUrl, getServerBaseUrl } from '../utils/buildUrlUtils';
+import { buildHostServerUrl, buildServerUrl, getServerBaseUrl } from '../utils/buildUrlUtils';
 import { clearUserInterfaceCaches } from '../hooks/pages/useUserInterface';
 import { hasCompatibleDevice } from '../utils/userinterface/deviceCompatibilityUtils';
 import { useToast } from '../hooks/useToast';
@@ -19,6 +19,7 @@ import { HostDataContext } from './HostDataContext';
 import { HostControlContext } from './HostControlContext';
 import { useAuthContext } from './auth';
 import { isAuthEnabled } from '../lib/supabase';
+import { isAllServersSentinel } from '../lib/allServer/scope';
 import { useWorkspaceContext } from './workspace/WorkspaceContext';
 
 const log = (..._args: unknown[]): void => {};
@@ -70,17 +71,35 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
   const { isDeviceAllowed } = useWorkspaceContext();
 
   // Extract hosts from server data, filtering by selected server only
-  // This ensures we only show hosts from the currently selected server
+  // This ensures we only show hosts from the currently selected server.
+  //
+  // TASK-113 PR-C + BUG-0577: when the picker is on "All servers",
+  // `selectedServer` is the `ALL_SERVERS_SENTINEL` literal — there is
+  // no entry in `serverHostsData` whose `server_url` matches it, so the
+  // single-server `find` would always miss and the Devices page would
+  // render "No AV devices found" against an otherwise populated list.
+  // In ALL mode we union every server's hosts (with the home server
+  // stamped on each host row by ServerManagerProvider, so device keys
+  // remain origin-aware — `buildDeviceKey(host.host_name, device.device_id)`
+  // is already unique per server because host names are).
   const [selectedServerError, setSelectedServerError] = useState<string | null>(null);
   const cacheRefreshAttemptedRef = useRef<string | null>(null);
-  
+
   const allHostsFromServers = useMemo(() => {
     if (!selectedServer) return [];
-    
+
+    if (isAllServersSentinel(selectedServer)) {
+      // ALL: union every server's hosts. Clear any stale single-server error;
+      // a slow first round will simply show no devices until each server's fetch
+      // lands (HostManagerProvider mirrors serverHostsData via setAvailableHosts below).
+      setSelectedServerError(null);
+      return serverHostsData.flatMap((entry) => entry.hosts);
+    }
+
     const selectedServerData = serverHostsData.find(
       serverData => serverData.server_info.server_url === selectedServer
     );
-    
+
     if (!selectedServerData) {
       if (!serverLoading) {
         setSelectedServerError('Selected server is not responding. Please select another server.');
@@ -89,7 +108,7 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
     } else {
       setSelectedServerError(null);
     }
-    
+
     return selectedServerData.hosts;
   }, [serverHostsData, selectedServer, serverLoading]);
   
@@ -298,17 +317,23 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
     const allDevices = availableHosts.flatMap((host) =>
       (host.devices || []).map((device) => ({ ...device, hostName: host.host_name })),
     );
-    return allDevices;
-  }, [availableHosts]);
+    // G9 (TASK-65 §14.2): every device list must respect the active workspace
+    // AND project intersection. `isDeviceAllowed` is the single source of
+    // truth — the same rule pages like Dashboard / Rec / RunTests already
+    // apply on top of this. Filtering here too gives a consistent view to
+    // any new caller (a hook that forgot to filter is no longer a leak).
+    return allDevices.filter((d) => isDeviceAllowed(d.hostName, d.device_id));
+  }, [availableHosts, isDeviceAllowed]);
 
   // Get all devices from specific host
   const getDevicesFromHost = useCallback(
     (hostName: string): Device[] => {
       const host = availableHosts.find((h) => h.host_name === hostName);
       const devices = host?.devices || [];
-      return devices;
+      // G9: same workspace + project filter as the lists above.
+      return devices.filter((d) => isDeviceAllowed(hostName, d.device_id));
     },
-    [availableHosts],
+    [availableHosts, isDeviceAllowed],
   );
 
   // Get devices with specific capability, returning {host, device} pairs
@@ -321,7 +346,10 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
           host.devices.forEach((device) => {
             // Check if device has the specified capability in device.device_capabilities object
             if (device.device_capabilities && (device.device_capabilities as any)[capability]) {
-              matchingDevices.push({ host, device });
+              // G9: same workspace + project filter as the lists above.
+              if (isDeviceAllowed(host.host_name, device.device_id)) {
+                matchingDevices.push({ host, device });
+              }
             }
           });
         }
@@ -329,7 +357,7 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
 
       return matchingDevices;
     },
-    [availableHosts],
+    [availableHosts, isDeviceAllowed],
   );
 
   // ========================================
@@ -463,8 +491,11 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
 
       try {
         log(`[@context:HostManagerProvider] Loading action schemas for ${deviceKey}...`);
+        // The host's own server: another server's registry does not know it ("Host not found"),
+        // which left the action and verification dropdowns empty (BUG-0625 class).
         const schemaResponse = await fetch(
-          buildServerUrl(
+          buildHostServerUrl(
+            host,
             `/server/system/getDeviceActions?host_name=${encodeURIComponent(host.host_name)}&device_id=${encodeURIComponent(effectiveDeviceId)}`,
           ),
         );
@@ -582,7 +613,7 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
           requestBody.variant = variant;
         }
 
-        const response = await fetch(buildServerUrl('/server/control/takeControl'), {
+        const response = await fetch(buildHostServerUrl(host, '/server/control/takeControl'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -703,7 +734,7 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
         );
         log(`[@context:HostManagerProvider] Using user ID for unlock: ${userId}`);
 
-        const response = await fetch(buildServerUrl('/server/control/releaseControl'), {
+        const response = await fetch(buildHostServerUrl(host, '/server/control/releaseControl'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',

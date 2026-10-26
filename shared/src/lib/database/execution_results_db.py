@@ -444,7 +444,8 @@ def record_verification_execution(
         print(f"[@db:execution_results:record_verification_execution] Error: {str(e)}")
         return None
 
-def get_tree_metrics(team_id: str, node_ids: List[str], edge_ids: List[str], variant: Optional[str] = None) -> Dict:
+def get_tree_metrics(team_id: str, node_ids: List[str], edge_ids: List[str], variant: Optional[str] = None,
+                     tree_ids: Optional[List[str]] = None) -> Dict:
     """Aggregated node/edge metrics for the frontend.
 
     Single implementation lives in navigation_metrics_db (real column names,
@@ -452,7 +453,7 @@ def get_tree_metrics(team_id: str, node_ids: List[str], edge_ids: List[str], var
     same function re-exported for callers that import it from here.
     """
     from shared.src.lib.database.navigation_metrics_db import get_tree_metrics as _get_tree_metrics
-    return _get_tree_metrics(team_id, node_ids, edge_ids, variant)
+    return _get_tree_metrics(team_id, node_ids, edge_ids, variant, tree_ids)
 
 def get_raw_tree_metrics(team_id: str, tree_id: str, node_ids: List[str], edge_ids: List[str], variant: Optional[str] = None) -> Dict:
     """Get complete raw metrics rows for a tree (one run scope) matching the frontend RawNodeMetrics / RawEdgeMetrics types."""

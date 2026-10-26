@@ -45,8 +45,11 @@ Master lookup: scan the section matching the question's topic, open the file who
 - `api/specs/server-ai-routing.yaml` — AI model routing (TASK-30): `/server/ai/{config,stats,endpoints[/{id}[/test]],profiles[/{id}[/test]],routes[/{id}],complete,resolve,openai/{usage}/chat/completions}`, `/server/agent/{health,api-key}`.
 - `api/specs/server-campaign-management.yaml` — campaign CRUD: `/server/campaigns/{getAllCampaigns,createCampaign,getCampaign,updateCampaign,deleteCampaign}[/{campaign_id}]`.
 - `api/specs/server-core-system.yaml` — health check: `/server/system/health`.
+- `api/specs/server-dashboard.yaml` — dashboard blocks: `/server/dashboard/{summary,system}`.
 - `api/specs/server-deployment-scheduling.yaml` — scheduled deployments: `/server/deployment/{create,list,pause,resume,delete}[/{deployment_id}]`.
 - `api/specs/server-device-management.yaml` — device CRUD: `/server/devices/{getAllDevices,createDevice,getDevice,updateDevice,deleteDevice}[/{device_id}]`.
+- `api/specs/server-log-review.yaml` — operator log review: `/server/logs/{agent,services,view}`, `/server/public/stats`.
+- `api/specs/server-masterchief.yaml` — Masterchief operations: `/server/masterchief/{ops,execute,status/{audit_id},audit}`.
 - `api/specs/server-metrics-analytics.yaml` — navigation metrics: `/server/metrics/{tree,node/node-id,edge/edge-id,history/actions/edge-id,history/verifications/node-id}/{navigation_id}`.
 - `api/specs/server-navigation-management.yaml` — navigation & trees: `/server/navigation/goto`, `/server/navigation/config/createEmpty/{ui_name}`, `/server/navigation-trees/{getTree/{navigation_id},getAllTrees,deleteTree/{navigation_id}}`.
 - `api/specs/server-requirements-management.yaml` — requirements: `/server/requirements/{create,list,{requirement_id},link-testcase,coverage/summary}`.
@@ -103,42 +106,43 @@ Master lookup: scan the section matching the question's topic, open the file who
 
 ## Agent docs (operational references for AI agents working on/with VPT)
 - `agent/INDEX.md` — generated full index with keywords; route here for the subdirectories not listed below (`agent/devices/`, `agent/execution/`, `agent/infra/`, `agent/navigation/`, `agent/platform/`, `agent/validation/`).
-- `agent/README.md` — agent onboarding, read first; `agent/MAP.md` — codebase map, find the right files without grepping.
-- `agent/CONTRACTS.md` — hidden implicit rules that cause bugs when violated; `agent/PATTERNS.md` — canonical files to copy when adding features; `agent/BEST_PRACTICES.md` — practices mined from past incidents/bugs.
+- `agent/README.md` — agent onboarding, read first; `agent/navigation/MAP.md` — codebase map, find the right files without grepping.
+- `agent/validation/CONTRACTS.md` — hidden implicit rules that cause bugs when violated; `agent/navigation/PATTERNS.md` — canonical files to copy when adding features; `agent/BEST_PRACTICES.md` — practices mined from past incidents/bugs.
 - `agent/TROUBLESHOOT.md` — known issues and fixes across the platform.
-- `agent/TESTING.md` — auto-sign token to bypass auth for agent/E2E testing; `agent/AGENT_API_TESTING.md` — drive Atlas/Sherlock/Nightwatch from a terminal via API/MCP, no browser.
-- `agent/DEPLOY.md` — push, deploy to debug env, verify end-to-end; `agent/CODE_DEPLOYMENT.md` — admin Code Deployment page and backend deploy APIs; `agent/CICD.md` — regression pipeline details.
-- `agent/DATABASE.md` — DB architecture, access, backup/recovery; `agent/INFRA.md` — VM topology, IPs, services (single source of truth).
-- `agent/HOST_SERVICE.md` — how host-side Linux services fit together; `agent/host_runner.md` — lightweight runner hosts (script-exec only, no capture).
-- `agent/STREAM.md` — `run_ffmpeg.sh` AV capture pipeline (HLS, frames, audio); `agent/devices/FFMPEG_TROUBLESHOOT.md` — ffmpeg stall runbook; `agent/FFMPEG_HD_PLUS.md` — HD+ buffered watch-stream tier.
-- `agent/CPU_PARTITIONING.md` — shielding the latency-critical control path from ffmpeg CPU load.
-- `agent/DEVICE_CONTROL.md` — drive any device type via one route/many controllers; `agent/DEVICE_SCREENSHOTS.md` — fetch frames from devices under test (NOT frontend screenshots).
-- `agent/DEVICE_LOCK.md` — device locking/arbitration and leaked-lock recovery; `agent/PERSISTENT_DEVICES.md` — stable per-STB peripheral naming on multi-device hosts.
-- `agent/DEVICE_INFO_CORRECTION.md` — OCR-extracted device info fields and manual overrides.
-- `agent/INFRARED.md` — IR key-press pipeline + debugging; `agent/IRTRANS_PROXY.md` — reaching a networked IRTrans box through the nginx proxy.
-- `agent/BLUETOOTH.md` — BLE remote emulation for the Arris STB (HID descriptor, pairing, reboot persistence).
-- `agent/EMULATOR.md` — Android emulator VM topology and operations; `agent/devices/ANDROID_EMULATOR_TROUBLESHOOT.md` — step-by-step debugging of the 3 emulator hosts.
-- `agent/USERINTERFACE.md` — index across all UserInterface concerns; `agent/navigation_trees.md` — navigation tree data model; `agent/NAVIGATION.md` — runtime action execution and node verification; `agent/VARIANT.md` — named-variant overlay on trees.
-- `agent/KNOWN_ISSUES_USERINTERFACE.md` — catalogue of UI-validation bugs (symptom → root cause → fix).
-- `agent/VALIDATION_ANALYSIS.md` — diagnosis playbook for failed validation runs (cause-of-failure ladder); `agent/VALIDATION_FIX_LOOP.md` — validate→fix→re-validate loop workflow.
-- `agent/REFERENCE.md` — how verification references (image + text) are stored, scoped, replaced; `agent/image.md` — image/icon matching algorithms and extensions.
-- `agent/KPI.md` — action→on-screen-confirmation timing: measurement, storage, aggregation, display.
+- `agent/validation/TESTING.md` — auto-sign token to bypass auth for agent/E2E testing; `agent/validation/AGENT_API_TESTING.md` — drive Atlas/Sherlock/Nightwatch from a terminal via API/MCP, no browser.
+- `agent/infra/DEPLOY.md` — push, deploy to debug env, verify end-to-end; `agent/infra/CODE_DEPLOYMENT.md` — admin Code Deployment page and backend deploy APIs; `agent/infra/CICD.md` — regression pipeline details.
+- `agent/infra/DATABASE.md` — DB architecture, access, backup/recovery; `agent/infra/INFRA.md` — VM topology, IPs, services (single source of truth).
+- `agent/infra/HOST_SERVICE.md` — how host-side Linux services fit together; `agent/execution/host_runner.md` — lightweight runner hosts (script-exec only, no capture).
+- `agent/devices/STREAM.md` — `run_ffmpeg.sh` AV capture pipeline (HLS, frames, audio); `agent/devices/FFMPEG_TROUBLESHOOT.md` — ffmpeg stall runbook; `agent/devices/FFMPEG_HD_PLUS.md` — HD+ buffered watch-stream tier.
+- `agent/infra/CPU_PARTITIONING.md` — shielding the latency-critical control path from ffmpeg CPU load.
+- `agent/devices/DEVICE_CONTROL.md` — drive any device type via one route/many controllers; `agent/devices/DEVICE_SCREENSHOTS.md` — fetch frames from devices under test (NOT frontend screenshots).
+- `agent/devices/DEVICE_LOCK.md` — device locking/arbitration and leaked-lock recovery; `agent/devices/PERSISTENT_DEVICES.md` — stable per-STB peripheral naming on multi-device hosts.
+- `agent/devices/DEVICE_INFO_CORRECTION.md` — OCR-extracted device info fields and manual overrides.
+- `agent/devices/INFRARED.md` — IR key-press pipeline + debugging; `agent/devices/IRTRANS_PROXY.md` — reaching a networked IRTrans box through the nginx proxy.
+- `agent/devices/BLUETOOTH.md` — BLE remote emulation for the Arris STB (HID descriptor, pairing, reboot persistence).
+- `agent/devices/EMULATOR.md` — Android emulator VM topology and operations; `agent/devices/ANDROID_EMULATOR_TROUBLESHOOT.md` — step-by-step debugging of the 3 emulator hosts.
+- `agent/navigation/USERINTERFACE.md` — index across all UserInterface concerns; `agent/navigation/navigation_trees.md` — navigation tree data model; `agent/navigation/NAVIGATION.md` — runtime action execution and node verification; `agent/navigation/VARIANT.md` — named-variant overlay on trees.
+- `agent/navigation/KNOWN_ISSUES_USERINTERFACE.md` — catalogue of UI-validation bugs (symptom → root cause → fix).
+- `agent/validation/VALIDATION_ANALYSIS.md` — diagnosis playbook for failed validation runs (cause-of-failure ladder); `agent/validation/VALIDATION_FIX_LOOP.md` — validate→fix→re-validate loop workflow.
+- `agent/REFERENCE.md` — how verification references (image + text) are stored, scoped, replaced; `agent/devices/image.md` — image/icon matching algorithms and extensions.
+- `agent/execution/KPI.md` — action→on-screen-confirmation timing: measurement, storage, aggregation, display.
 - `agent/navigation/AUTOBUILD.md` — auto-build pipeline runbook (machine-created, oracle-certified UIs); `agent/navigation/AUTOBUILD_STRIP_MODEL.md` — its hard case: commit-strip/pane-row settings screens.
 - `agent/testgen/AI_TEST_GENERATION.md` — concept: AI creates deterministic zero-token `graph_json` testcases; `agent/testgen/AI_TEST_GENERATION_GUIDE.md` — full E2E guide per platform (web, tablet, TV).
 - `agent/testgen/AI_TEST_GENERATION_PHASES.md` — implementation status by phase; `agent/testgen/AI_TEST_GENERATION_ROADMAP.md` — platform coverage matrix; `agent/testgen/AI_TEST_GENERATION_V2.md` — v2 design (requirements drive tests).
-- `agent/AI_USERINTERFACE.md` — AI-learned UI knowledge base (DB tables, CRUD, history); `agent/navigation/AI_USERINTERFACE_MARKDOWN_PACKS.md` — current 5-layer pack model + runtime contract (read first for AI-UI work).
+- `agent/navigation/AI_USERINTERFACE.md` — AI-learned UI knowledge base (DB tables, CRUD, history); `agent/navigation/AI_USERINTERFACE_MARKDOWN_PACKS.md` — current 5-layer pack model + runtime contract (read first for AI-UI work).
 - `agent/navigation/AI_USERINTERFACE_CRAWLING.md` — how to crawl a UI into a pack and verify it; `agent/navigation/AI_USERINTERFACE_TROUBLESHOOT.md` — field log of AI-UI failures; `agent/navigation/AI_USERINTERFACE_BENCHMARKS.md` — LLM/VLM benchmark results on STB tasks.
-- `agent/TEST_PROMPT.md` — free-text prompt + acceptance-criteria AI test feature.
-- `agent/SCRIPTS_AND_CAMPAIGNS.md` — adding/moving/wiring `test_scripts/` and `test_campaign/` files; `agent/execution/VIRTUAL_SCRIPTS.md` — DB-stored, browser-edited scripts run without deploy.
-- `agent/PERIODIC_TEST_RUN.md` — the TWO separate scheduling mechanisms and when each applies.
-- `agent/mcp.md` — VPT MCP tools reference for agents (75+ tools, workflows).
-- `agent/GRAFANA.md` — Grafana access/operations; `agent/GRAFANA_DASHBOARD_PERF.md` — SRI dashboard slowness diagnosis and applied fix.
-- `agent/SCREENSHOTS.md` — screenshotting the VPT frontend itself (Puppeteer, responsive review); `agent/UIUX.md` — UI/UX review findings.
-- `agent/ORG_MANAGEMENT.md` — admin management of users/teams/workspaces (UI + API); `agent/WORKSPACES.md` — workspace DB schema, permission semantics, API, frontend.
-- `agent/USER_PERMISSION.md` — authentication, roles, fine-grained permission checks; `agent/SERVER_AUTH.md` — `/server/*` auth baseline design (API key / JWT / auto-sign).
-- `agent/REQUIREMENTS.md` — requirements & coverage technical reference; `agent/COVERAGE.md` — Coverage dashboard internals.
-- `agent/CHANGE_DOMAIN.md` — exact updates needed when the production domain changes.
-- `agent/AVQ_IMPLEMENTATION.md` — per-minute audio/video quality KPI implementation plan.
+- `agent/validation/TEST_PROMPT.md` — free-text prompt + acceptance-criteria AI test feature.
+- `agent/execution/SCRIPTS_AND_CAMPAIGNS.md` — adding/moving/wiring `test_scripts/` and `test_campaign/` files; `agent/execution/VIRTUAL_SCRIPTS.md` — DB-stored, browser-edited scripts run without deploy.
+- `agent/execution/PERIODIC_TEST_RUN.md` — the TWO separate scheduling mechanisms and when each applies.
+- `agent/infra/mcp.md` — VPT MCP tools reference for agents (75+ tools, workflows).
+- `agent/infra/GRAFANA.md` — Grafana access/operations; `agent/infra/GRAFANA_DASHBOARD_PERF.md` — SRI dashboard slowness diagnosis and applied fix.
+- `agent/devices/SCREENSHOTS.md` — screenshotting the VPT frontend itself (Puppeteer, responsive review); `agent/platform/UIUX.md` — UI/UX review findings.
+- `agent/platform/ORG_MANAGEMENT.md` — admin management of users/teams/workspaces (UI + API); `agent/platform/WORKSPACES.md` — workspace DB schema, permission semantics, API, frontend.
+- `agent/platform/USER_PERMISSION.md` — authentication, roles, fine-grained permission checks; `agent/platform/SERVER_AUTH.md` — `/server/*` auth baseline design (API key / JWT / auto-sign).
+- `agent/platform/ACCESS_MODEL.md` — the one access-model doc that explains who-sees-what end-to-end (tenants → teams → users → roles → workspaces → projects + AI config / provider / model / quota). Replaces the previous user-guide permissions page (BUG-0560). Read this before adding a new permission gate or cross-team/cross-tenant feature.
+- `agent/validation/REQUIREMENTS.md` — requirements & coverage technical reference; `agent/validation/COVERAGE.md` — Coverage dashboard internals.
+- `agent/infra/CHANGE_DOMAIN.md` — exact updates needed when the production domain changes.
+- `agent/platform/AVQ_IMPLEMENTATION.md` — per-minute audio/video quality KPI implementation plan.
 - `../scripts/profile_remote_monitor.sh` — py-spy sampling of remote host services (how to read it: `../backend_host/scripts/OPTIMIZATION.md`); `agent/DOCS_BENCHMARK.md` — benchmark for whether agents can retrieve facts from these docs.
 - `agent/ai/UNIFIED_CHAT_REFACTOR.md` — plan to unify the 3 overlapping agent-chat systems.
 - `agent/ai/README.md` — AI agent system docs hub; `agent/ai/agent.md` — skill-based 3-agent architecture with prompt caching.

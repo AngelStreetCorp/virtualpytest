@@ -58,10 +58,11 @@ const PAGES = [
   { name: 'Postman Workspaces',     path: '/api/workspaces' },
   { name: 'Jira Integration',       path: '/integrations/jira' },
   { name: 'GitLab',                 path: '/monitoring/gitlab' },
+  { name: 'Zammad',                 path: '/integrations/zammad' },
   { name: 'User Interface',         path: '/configuration/interface' },
   { name: 'Models',                 path: '/configuration/models' },
   { name: 'Settings',               path: '/configuration/settings' },
-  { name: 'Code Deployment',        path: '/configuration/code-deployment' },
+  { name: 'Platform update',        path: '/configuration/platform-update' },
   { name: 'CICD Reports',           path: '/test-results/cicd-reports' },
   // Optional-feature pages (features/*/frontend/routes.tsx). Keep in sync with the route
   // inventory in docs/agent/validation/TESTING.md — nothing enforces it, and a feature page
@@ -69,7 +70,6 @@ const PAGES = [
   // spec treats as a pass (no error boundary), so these rows are safe on a trimmed build.
   { name: 'QuickTest Builder',      path: '/builder/quick-test' },
   { name: 'Virtual Scripts',        path: '/builder/virtual-scripts' },
-  { name: 'Run CICD',               path: '/test-execution/cicd' },
   { name: 'Test Prompt',            path: '/test-prompt' },
   { name: 'AI Dataset',             path: '/training-review' },
   { name: 'Mobile App',             path: '/configuration/mobile-app' },
@@ -79,6 +79,11 @@ const PAGES = [
   // VirtualPyTest's own device host and runs vpt-avq.service (see FEATURES.md).
   { name: 'AVQ Device',             path: '/monitoring/avq/host-clone-1/host' },
   { name: 'Status',                 path: '/status' },
+  // "Run CICD" was a /test-execution/cicd route that no longer ships as a <Route>
+  // (searched App.tsx: nothing registers it, and the SPA returns the 404 page for
+  // /test-execution/cicd). The discover sweep's network/404 silence would paper over
+  // it; remove it from the list so it stops being a per-run red row.
+  // Old entry was: { name: 'Run CICD', path: '/test-execution/cicd' },
 ];
 
 for (const { name, path } of PAGES) {

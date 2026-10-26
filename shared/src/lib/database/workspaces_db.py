@@ -60,7 +60,6 @@ def get_all_workspaces() -> List[Dict]:
                 'denied_permissions': workspace.get('denied_permissions', []),
                 'device_filter': workspace.get('device_filter', []),
                 'script_filter': workspace.get('script_filter', []),
-                'project_tags': workspace.get('project_tags', []),
                 'hidden_pages': workspace.get('hidden_pages', []),
                 'is_public': workspace.get('is_public', False),
                 'server_name': workspace.get('server_name'),
@@ -97,7 +96,6 @@ def get_workspace(workspace_id: str) -> Optional[Dict]:
                 'denied_permissions': workspace.get('denied_permissions', []),
                 'device_filter': workspace.get('device_filter', []),
                 'script_filter': workspace.get('script_filter', []),
-                'project_tags': workspace.get('project_tags', []),
                 'hidden_pages': workspace.get('hidden_pages', []),
                 'is_public': workspace.get('is_public', False),
                 'server_name': workspace.get('server_name'),
@@ -157,7 +155,7 @@ def create_workspace(data: Dict) -> Optional[Dict]:
             'updated_at': datetime.now(timezone.utc).isoformat(),
         }
 
-        for field in ('permissions', 'denied_permissions', 'device_filter', 'script_filter', 'project_tags', 'hidden_pages', 'is_public'):
+        for field in ('permissions', 'denied_permissions', 'device_filter', 'script_filter', 'hidden_pages', 'is_public'):
             if field in data:
                 insert_data[field] = data[field]
         insert_data['server_name'] = owner   # always this server: callers never choose the owner
@@ -175,7 +173,6 @@ def create_workspace(data: Dict) -> Optional[Dict]:
                 'denied_permissions': workspace.get('denied_permissions', []),
                 'device_filter': workspace.get('device_filter', []),
                 'script_filter': workspace.get('script_filter', []),
-                'project_tags': workspace.get('project_tags', []),
                 'hidden_pages': workspace.get('hidden_pages', []),
                 'is_public': workspace.get('is_public', False),
                 'server_name': workspace.get('server_name'),
@@ -202,7 +199,7 @@ def update_workspace(workspace_id: str, data: Dict) -> Optional[Dict]:
         }
 
         for field in ('name', 'slug', 'description', 'permissions', 'denied_permissions',
-                      'device_filter', 'script_filter', 'project_tags', 'hidden_pages', 'is_public'):
+                      'device_filter', 'script_filter', 'hidden_pages', 'is_public'):
             if field in data:
                 update_data[field] = data[field]
 
@@ -225,7 +222,6 @@ def update_workspace(workspace_id: str, data: Dict) -> Optional[Dict]:
                 'denied_permissions': workspace.get('denied_permissions', []),
                 'device_filter': workspace.get('device_filter', []),
                 'script_filter': workspace.get('script_filter', []),
-                'project_tags': workspace.get('project_tags', []),
                 'hidden_pages': workspace.get('hidden_pages', []),
                 'is_public': workspace.get('is_public', False),
                 'server_name': workspace.get('server_name'),

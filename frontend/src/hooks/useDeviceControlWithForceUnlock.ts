@@ -12,6 +12,8 @@ import { useConfirmDialog } from './useConfirmDialog';
 import { useUserSession } from './useUserSession';
 import { buildServerUrl } from '../utils/buildUrlUtils';
 import { api } from '../utils/apiClient';
+import { useI18n } from '../i18n/useI18n';
+import { useDeviceMaintenanceLookup } from './platformUpdate/useDeviceMaintenance';
 
 interface UseDeviceControlWithForceUnlockProps {
   host: any;
@@ -56,6 +58,8 @@ export const useDeviceControlWithForceUnlock = ({
   
   // Confirmation dialog for force unlock
   const { dialogState, confirm, handleConfirm, handleCancel } = useConfirmDialog();
+  const { t, formatDate } = useI18n();
+  const maintenanceFor = useDeviceMaintenanceLookup();
   
   const {
     isControlActive,
@@ -76,7 +80,7 @@ export const useDeviceControlWithForceUnlock = ({
   /**
    * Handle device control with force unlock logic
    */
-  const handleDeviceControl = useCallback(async () => {
+  const runDeviceControl = useCallback(async () => {
     if (isControlActive) {
       // Release device control
       console.log('[@useDeviceControlWithForceUnlock] Releasing device control');
@@ -170,6 +174,33 @@ export const useDeviceControlWithForceUnlock = ({
     confirm,
     effectiveSessionId,
   ]);
+
+  /**
+   * Taking control of a device under maintenance (TASK-97 G6) asks first; releasing never does.
+   */
+  const handleDeviceControl = useCallback(async () => {
+    const win = isControlActive ? undefined : maintenanceFor(host?.host_name, device_id || 'device1');
+    if (!win) {
+      await runDeviceControl();
+      return;
+    }
+    const until = formatDate(new Date(win.window_end), { timeStyle: 'short' });
+    const reason = win.reason || win.note || '';
+    confirm({
+      title: t('Device under maintenance'),
+      message:
+        (reason
+          ? t('Under maintenance until {time} — {reason}', { time: until, reason })
+          : t('Under maintenance until {time}', { time: until })) +
+        `\n${t('Continue anyway?')}`,
+      confirmColor: 'warning',
+      confirmText: t('Continue'),
+      cancelText: t('Cancel'),
+      onConfirm: () => {
+        void runDeviceControl();
+      },
+    });
+  }, [isControlActive, maintenanceFor, host, device_id, runDeviceControl, confirm, t, formatDate]);
 
   return {
     isControlActive,

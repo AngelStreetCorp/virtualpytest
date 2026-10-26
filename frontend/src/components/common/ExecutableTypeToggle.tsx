@@ -1,5 +1,6 @@
 import React from 'react';
 import { Box, Chip } from '@mui/material';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 type ToggleColor = 'primary' | 'secondary' | 'success' | 'default';
 
@@ -40,7 +41,7 @@ export const ExecutableTypeToggle: React.FC<ExecutableTypeToggleProps> = ({
             sx={{
               height: '22px',
               minWidth: '34px',
-              fontSize: '0.68rem',
+              fontSize: TYPOGRAPHY.microMeta.size,
               fontWeight: 600,
             }}
           />

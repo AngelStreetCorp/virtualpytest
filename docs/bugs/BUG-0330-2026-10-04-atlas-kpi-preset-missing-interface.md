@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                     |
 | Severity  | Medium — every KPI canvas cost 1-3 failed tool calls         |
 | Area      | backend_server/src/lib/analytics, backend_server/src/agent/core/manager.py |
-| Fixed in  | Unreleased                                 |
+| Fixed in  | build 90145 |
 | Commit    | see branch task43-w9-kpi-default           |
 
 ---

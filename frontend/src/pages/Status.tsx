@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   Refresh as RefreshIcon,
   Terminal as LogsIcon,
@@ -18,6 +18,7 @@ import {
   AccordionDetails,
   Skeleton,
 } from '@mui/material';
+import { useSearchParams } from 'react-router-dom';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
 import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
 import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
@@ -25,8 +26,10 @@ import { ExpandMore as ExpandMoreIcon } from '@mui/icons-material';
 import { ServiceLogsModal } from '../components/common/ServiceLogsModal';
 import { buildServerUrl, buildPrimaryServerUrl } from '../utils/buildUrlUtils';
 import { useServerManager } from '../hooks/useServerManager';
+import { dedupeHostsByName } from '../components/status/hostCatalog';
 import { getCached, setCached } from '../utils/pageCache';
 import { useI18n } from '../i18n/useI18n';
+import { TYPOGRAPHY } from '../constants/typography';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -63,12 +66,65 @@ const resourcesRow = (id: string, metrics: { name: string; value?: number }[]): 
   };
 };
 
+interface UplinkStats {
+  nic?: string;
+  linkMbit: number;
+  rxMbit?: number;
+  txMbit?: number;
+  peakRxMbit?: number;
+  peakTxMbit?: number;
+  peakSource?: string;
+}
+
+// Share of the NIC speed above which the uplink is flagged (warn / saturated).
+const UPLINK_WARN_PERCENT = 50;
+const UPLINK_SATURATED_PERCENT = 80;
+
+// Busiest direction wins: viewers pull video out (tx), so tx usually decides.
+const uplinkPercent = (u: UplinkStats, rx?: number, tx?: number) =>
+  (Math.max(rx ?? 0, tx ?? 0) / u.linkMbit) * 100;
+
+const UplinkTile: React.FC<{ uplink: UplinkStats }> = ({ uplink }) => {
+  const { t } = useI18n();
+  const live = uplinkPercent(uplink, uplink.rxMbit, uplink.txMbit);
+  const peak = uplinkPercent(uplink, uplink.peakRxMbit, uplink.peakTxMbit);
+  const worst = Math.max(live, peak);
+  const color = worst >= UPLINK_SATURATED_PERCENT ? 'error.main' : worst >= UPLINK_WARN_PERCENT ? 'warning.main' : undefined;
+  const word = worst >= UPLINK_SATURATED_PERCENT ? t('Saturated') : worst >= UPLINK_WARN_PERCENT ? t('Busy') : t('OK');
+  const fmt = (v?: number) => (v === undefined ? '—' : v.toFixed(0));
+  return (
+    <Grid item xs={12} sm={6} md={3}>
+      <Tooltip
+        title={t('{nic} · link {link} Mbit/s · peak 24h {source} (5-min average)', {
+          nic: uplink.nic ?? 'NIC',
+          link: uplink.linkMbit,
+          source: uplink.peakSource ?? 'n/a',
+        })}
+      >
+        <Paper variant="outlined" sx={{ p: 2, textAlign: 'center', borderColor: color }}>
+          <Typography sx={{ fontSize: TYPOGRAPHY.pageTitle.size, fontWeight: 600 }} color={color}>
+            ↓{fmt(uplink.rxMbit)} ↑{fmt(uplink.txMbit)}
+          </Typography>
+          <Typography variant="caption" color={color ?? 'text.secondary'}>
+            {t('Uplink Mbit/s · {state} · peak 24h ↓{rx} ↑{tx} of {link}', {
+              state: word,
+              rx: fmt(uplink.peakRxMbit),
+              tx: fmt(uplink.peakTxMbit),
+              link: uplink.linkMbit,
+            })}
+          </Typography>
+        </Paper>
+      </Tooltip>
+    </Grid>
+  );
+};
+
 const StatTile: React.FC<{ label: string; value: number }> = ({ label, value }) => {
   const over = value > RESOURCE_ERROR_PERCENT;
   return (
     <Grid item xs={12} sm={6} md={3}>
       <Paper variant="outlined" sx={{ p: 2, textAlign: 'center', borderColor: over ? 'error.main' : undefined }}>
-        <Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }} color={over ? 'error.main' : undefined}>
+        <Typography sx={{ fontSize: TYPOGRAPHY.pageTitle.size, fontWeight: 600 }} color={over ? 'error.main' : undefined}>
           {value.toFixed(0)}%
         </Typography>
         <Typography variant="caption" color={over ? 'error.main' : 'text.secondary'}>
@@ -154,7 +210,7 @@ const ServiceRow: React.FC<{
         size="small"
         color={statusColor(service.status)}
         variant="outlined"
-        sx={{ fontSize: '0.7rem', height: 20 }}
+        sx={{ fontSize: TYPOGRAPHY.caption.size, height: 20 }}
       />
     </Box>
 
@@ -221,7 +277,7 @@ const AccordionSection: React.FC<{
         sx={{ minHeight: 40, '& .MuiAccordionSummary-content': { margin: '6px 0', alignItems: 'center', gap: 1 } }}
       >
         <StatusDot status={overall} size={10} />
-        <Typography variant="subtitle2" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: '0.72rem' }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', fontSize: TYPOGRAPHY.caption.size }}>
           {title}
         </Typography>
         {subtitle && (
@@ -234,7 +290,7 @@ const AccordionSection: React.FC<{
           size="small"
           color={statusColor(overall)}
           variant="filled"
-          sx={{ ml: 'auto', mr: 1, fontSize: '0.65rem', height: 18 }}
+          sx={{ ml: 'auto', mr: 1, fontSize: TYPOGRAPHY.microMeta.size, height: 18 }}
         />
       </AccordionSummary>
       <AccordionDetails sx={{ pt: 0, pb: 0.5, px: 2 }}>
@@ -369,7 +425,7 @@ const MetricCell: React.FC<{
         <Typography
           sx={{
             display: { xs: 'block', md: 'none' },
-            fontSize: '0.65rem',
+            fontSize: TYPOGRAPHY.microMeta.size,
             fontWeight: 600,
             textTransform: 'uppercase',
             letterSpacing: '0.08em',
@@ -399,6 +455,10 @@ const MetricCell: React.FC<{
   );
 };
 
+// localStorage key for the summary block's collapsed state. Persisted per
+// browser so the user's choice survives a refresh; never written server-side.
+const SUMMARY_COLLAPSED_KEY = 'virtualpytest:status:summaryCollapsed';
+
 const StatusSummaryBlock: React.FC<{
   rows: SummaryRow[];
   /** True when initial load has not finished yet — show a full skeleton. */
@@ -407,6 +467,36 @@ const StatusSummaryBlock: React.FC<{
 }> = ({ rows, loading, onJump }) => {
   const P = useAgentChatPalette();
   const { t } = useI18n();
+
+  // Collapsed state — defaults to expanded. Read from localStorage on mount
+  // so the user's choice survives a refresh; write back whenever it changes.
+  // Guarded so SSR / non-browser environments (the typecheck build) don't
+  // touch `window` at import time.
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    try {
+      return window.localStorage.getItem(SUMMARY_COLLAPSED_KEY) === '1';
+    } catch {
+      return false;
+    }
+  });
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.setItem(SUMMARY_COLLAPSED_KEY, collapsed ? '1' : '0');
+    } catch {
+      // localStorage may be disabled (private mode, quota) — silently ignore.
+    }
+  }, [collapsed]);
+
+  // Worst status across the rows — shown in the title bar so a collapsed
+  // block still tells the owner at a glance whether anything is down.
+  const overall = rows.length > 0
+    ? rows.reduce<SummaryStatus>(
+        (acc, r) => (STATUS_RANK[r.status] > STATUS_RANK[acc] ? r.status : acc),
+        'ok' as SummaryStatus,
+      )
+    : 'ok' as SummaryStatus;
 
   // Header — hidden on phones (the row title carries enough info there).
   const HeaderLabel: React.FC<{ children: React.ReactNode; width: number; align?: 'left' | 'right' }> = ({
@@ -417,7 +507,7 @@ const StatusSummaryBlock: React.FC<{
         width,
         flexShrink: 0,
         textAlign: align,
-        fontSize: '0.7rem',
+        fontSize: TYPOGRAPHY.caption.size,
         fontWeight: 600,
         textTransform: 'uppercase',
         letterSpacing: '0.08em',
@@ -477,27 +567,94 @@ const StatusSummaryBlock: React.FC<{
       overflow: 'hidden',
       mb: 2,
     }}>
-      {/* Header — visible only at md+. Mobile users get a vertical card layout
-          and the header would just duplicate what each row already says. */}
-      <Box sx={{
-        display: { xs: 'none', md: 'flex' },
-        alignItems: 'center',
-        gap: 1.5,
-        px: 1.5, py: 0.75,
-        bgcolor: P.hoverBg,
-        borderBottom: `1px solid ${P.borderColor}`,
-      }}>
-        <Box sx={{ width: COL_DOT, flexShrink: 0 }} />
-        <Box sx={{ flex: 1, minWidth: 0 }}>
-          <HeaderLabel width={COL_NAME_MD}>{t('Machine')}</HeaderLabel>
-        </Box>
-        <Box sx={{ width: COL_GROUP, flexShrink: 0, display: 'flex', gap: `${METRIC_GAP}px` }}>
-          <HeaderLabel width={COL_CPU} align="right">{t('CPU')}</HeaderLabel>
-          <HeaderLabel width={COL_LOAD} align="right">{t('Load')}</HeaderLabel>
-          <HeaderLabel width={COL_RAM} align="right">{t('RAM')}</HeaderLabel>
-          <HeaderLabel width={COL_DISK} align="right">{t('Disk')}</HeaderLabel>
-        </Box>
+      {/* Title bar — always visible, click to expand/collapse. A small overall
+          status dot and a count of healthy/total keep the collapsed view
+          useful ("is anything down?") without having to expand. */}
+      <Box
+        role="button"
+        tabIndex={0}
+        aria-expanded={!collapsed}
+        aria-label={collapsed ? t('Expand VM summary') : t('Collapse VM summary')}
+        onClick={() => setCollapsed((c) => !c)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setCollapsed((c) => !c);
+          }
+        }}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          gap: 1,
+          px: 1.5, py: 0.875,
+          bgcolor: P.hoverBg,
+          borderBottom: collapsed ? 'none' : `1px solid ${P.borderColor}`,
+          cursor: 'pointer',
+          outline: 'none',
+          userSelect: 'none',
+          transition: 'background-color 0.15s',
+          '&:hover': { bgcolor: P.surface },
+          '&:focus-visible': { boxShadow: `inset 0 0 0 2px ${P.accent}` },
+        }}
+      >
+        <SummaryDot status={overall} size={12} />
+        <Typography
+          sx={{
+            fontSize: TYPOGRAPHY.body.size,
+            fontWeight: 600,
+            color: P.textPrimary,
+            flex: 1,
+            minWidth: 0,
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {t('VM summary')}
+        </Typography>
+        <Typography
+          variant="caption"
+          sx={{ color: P.textMuted, display: { xs: 'none', sm: 'inline' } }}
+        >
+          {collapsed
+            ? t('Show details')
+            : t('Hide details')}
+        </Typography>
+        <ExpandMoreIcon
+          sx={{
+            fontSize: 20, // ui-ok: no-literal-font-size - chevron icon, fixed icon size
+            color: P.textMuted,
+            transform: collapsed ? 'rotate(-90deg)' : 'rotate(0deg)',
+            transition: 'transform 0.2s',
+            flexShrink: 0,
+          }}
+        />
       </Box>
+
+      {collapsed ? null : (
+        <>
+          {/* Column header — visible only at md+. Mobile users get a vertical
+              card layout and the header would just duplicate what each row
+              already says. */}
+          <Box sx={{
+            display: { xs: 'none', md: 'flex' },
+            alignItems: 'center',
+            gap: 1.5,
+            px: 1.5, py: 0.75,
+            bgcolor: P.hoverBg,
+            borderBottom: `1px solid ${P.borderColor}`,
+          }}>
+            <Box sx={{ width: COL_DOT, flexShrink: 0 }} />
+            <Box sx={{ flex: 1, minWidth: 0 }}>
+              <HeaderLabel width={COL_NAME_MD}>{t('Machine')}</HeaderLabel>
+            </Box>
+            <Box sx={{ width: COL_GROUP, flexShrink: 0, display: 'flex', gap: `${METRIC_GAP}px` }}>
+              <HeaderLabel width={COL_CPU} align="right">{t('CPU')}</HeaderLabel>
+              <HeaderLabel width={COL_LOAD} align="right">{t('Load')}</HeaderLabel>
+              <HeaderLabel width={COL_RAM} align="right">{t('RAM')}</HeaderLabel>
+              <HeaderLabel width={COL_DISK} align="right">{t('Disk')}</HeaderLabel>
+            </Box>
+          </Box>
 
       {/* Rows */}
       <Box role="list">
@@ -546,7 +703,7 @@ const StatusSummaryBlock: React.FC<{
                   width: { xs: 'calc(100% - 36px)', md: 'auto' },
                   flex: { xs: 'none', md: 1 },
                   minWidth: 0,
-                  fontSize: '0.85rem',
+                  fontSize: TYPOGRAPHY.body.size,
                   fontWeight: 500,
                   color: P.textPrimary,
                   overflow: 'hidden',
@@ -579,6 +736,8 @@ const StatusSummaryBlock: React.FC<{
           );
         })}
       </Box>
+        </>
+      )}
     </Box>
   );
 };
@@ -589,6 +748,12 @@ const Status: React.FC = () => {
   const P = useAgentChatPalette();
   const { t } = useI18n();
   const { serverHostsData } = useServerManager();
+
+  // The same machine can be registered on more than one backend server
+  // (host-clone-1 and host-clone-2 are on the primary server and on the
+  // QualiAI server). Flat-mapping every catalog listed them twice and
+  // counted their services twice — BUG-0771.
+  const uniqueHosts = useMemo(() => dedupeHostsByName(serverHostsData), [serverHostsData]);
 
   // Track which accordion sections are open. Clicking a summary row below
   // opens the matching section and scrolls to it — this Set holds the
@@ -643,6 +808,17 @@ const Status: React.FC = () => {
   // another page asked for them, so the summary reads the page's own fetch.
   const [hostLive, setHostLive] = useState<Record<string, { status?: string; system_stats?: HostStats }>>({});
   const [hostGroups, setHostGroups] = useState<{ label: string; subtitle: string; subtitleError: boolean; services: ServiceInfo[] }[]>([]);
+  // `?host=<name>` (notification / dashboard chip links): open and scroll to that host's section once its group exists.
+  const [searchParams] = useSearchParams();
+  const hostParam = searchParams.get('host');
+  const jumpedHostRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!hostParam || jumpedHostRef.current === hostParam) return;
+    if (!hostGroups.some((g) => g.label === hostParam)) return;
+    jumpedHostRef.current = hostParam;
+    jumpToSection(`host-${hostParam}`);
+  }, [hostParam, hostGroups, jumpToSection]);
+
   const [runnerServices, setRunnerServices] = useState<ServiceInfo[]>([]);
 
   // Live CPU/RAM/disk/load per infra VM (frontend, proxy, database, storage,
@@ -654,7 +830,7 @@ const Status: React.FC = () => {
   const [lastChecked, setLastChecked] = useState<Date | null>(null);
   const [checking, setChecking] = useState(false);
   const checkingRef = React.useRef(false);
-  const [serverStats, setServerStats] = useState<{ cpu?: number; ram?: number; disk?: number; load?: number; uptime?: string } | null>(() => getCached('status-stats'));
+  const [serverStats, setServerStats] = useState<{ cpu?: number; ram?: number; disk?: number; load?: number; uptime?: string; uplink?: UplinkStats } | null>(() => getCached('status-stats'));
 
   // Logs dialog state — the fetch, filters and loading state live inside
   // <ServiceLogsModal/>; this only tracks which service is open.
@@ -722,6 +898,15 @@ const Status: React.FC = () => {
               ram: ss.memory_percent,
               disk: ss.disk_percent,
               load: ss.load_average_1m,
+              uplink: ss.uplink_link_mbit ? {
+                nic: ss.uplink_nic,
+                linkMbit: ss.uplink_link_mbit,
+                rxMbit: ss.uplink_rx_mbit,
+                txMbit: ss.uplink_tx_mbit,
+                peakRxMbit: ss.uplink_peak_rx_mbit,
+                peakTxMbit: ss.uplink_peak_tx_mbit,
+                peakSource: ss.uplink_peak_source,
+              } : undefined,
             });
           }
         }
@@ -897,70 +1082,68 @@ const Status: React.FC = () => {
 
   // Sync host services from ServerManager context — expand individual services per host
   useEffect(() => {
-    const groups = serverHostsData.flatMap((serverData) =>
-      serverData.hosts.map((host) => {
-        const cpu = host.system_stats?.cpu_percent;
-        const ram = host.system_stats?.memory_percent;
-        const disk = host.system_stats?.disk_percent;
-        const resources = resourcesRow(`host-${host.host_name}-resources`, [
-          { name: 'CPU', value: cpu },
-          { name: 'RAM', value: ram },
-          { name: 'Disk', value: disk },
-        ]);
-        const extra = resources?.extra ?? '';
+    const groups = uniqueHosts.map((host) => {
+      const cpu = host.system_stats?.cpu_percent;
+      const ram = host.system_stats?.memory_percent;
+      const disk = host.system_stats?.disk_percent;
+      const resources = resourcesRow(`host-${host.host_name}-resources`, [
+        { name: 'CPU', value: cpu },
+        { name: 'RAM', value: ram },
+        { name: 'Disk', value: disk },
+      ]);
+      const extra = resources?.extra ?? '';
 
-        const hostServiceHealth = host.system_stats?.service_health?.services || [];
-        const services: ServiceInfo[] = hostServiceHealth.map((svc: { label: string; name: string; resolved_name?: string; status: string; optional?: boolean }) => ({
-          id: `host-${host.host_name}-${svc.name}`,
-          label: svc.label,
-          logService: svc.resolved_name || svc.name,
-          logHostName: host.host_name,
-          status: svc.status === 'active' ? 'ok' as ServiceStatus
-            : (svc.status === 'stopped' || svc.status === 'inactive') ? (svc.optional ? 'stopped' as ServiceStatus : 'degraded' as ServiceStatus)
-            : svc.status === 'not_installed' ? (svc.optional ? 'not_installed' as ServiceStatus : 'degraded' as ServiceStatus)
-            : (svc.status === 'stuck' || svc.status === 'error') ? 'error' as ServiceStatus
-            : svc.status === 'unknown' ? 'unknown' as ServiceStatus
-            : 'degraded' as ServiceStatus,
-          detail: svc.status === 'not_installed' && svc.optional ? 'optional service' : svc.status,
-        }));
+      const hostServiceHealth = host.system_stats?.service_health?.services || [];
+      const services: ServiceInfo[] = hostServiceHealth.map((svc: { label: string; name: string; resolved_name?: string; status: string; optional?: boolean }) => ({
+        id: `host-${host.host_name}-${svc.name}`,
+        label: svc.label,
+        logService: svc.resolved_name || svc.name,
+        logHostName: host.host_name,
+        status: svc.status === 'active' ? 'ok' as ServiceStatus
+          : (svc.status === 'stopped' || svc.status === 'inactive') ? (svc.optional ? 'stopped' as ServiceStatus : 'degraded' as ServiceStatus)
+          : svc.status === 'not_installed' ? (svc.optional ? 'not_installed' as ServiceStatus : 'degraded' as ServiceStatus)
+          : (svc.status === 'stuck' || svc.status === 'error') ? 'error' as ServiceStatus
+          : svc.status === 'unknown' ? 'unknown' as ServiceStatus
+          : 'degraded' as ServiceStatus,
+        detail: svc.status === 'not_installed' && svc.optional ? 'optional service' : svc.status,
+      }));
 
-        // Fallback if no service_health data available
-        if (services.length === 0) {
-          const opStatus = host.system_stats?.operational_status || (host.status === 'online' ? 'online' : 'error');
-          const s: ServiceStatus = opStatus === 'online' ? 'ok' : opStatus === 'degraded' ? 'degraded' : 'error';
-          services.push({
-            id: `host-${host.host_name}`,
-            label: host.host_name,
-            port: host.host_url ? host.host_url.split(':').pop() : 6109,
-            logService: 'vpt-host',
-            status: s,
-            detail: host.host_url,
-            extra,
-          });
-        }
-
-        if (resources) services.push(resources);
-
-        // Deployment scheduler log entry
+      // Fallback if no service_health data available
+      if (services.length === 0) {
+        const opStatus = host.system_stats?.operational_status || (host.status === 'online' ? 'online' : 'error');
+        const s: ServiceStatus = opStatus === 'online' ? 'ok' : opStatus === 'degraded' ? 'degraded' : 'error';
         services.push({
-          id: `host-${host.host_name}-deployments`,
-          label: 'Deployment Scheduler',
-          logService: 'deployments',
-          logHostName: host.host_name,
-          status: host.status === 'online' ? 'ok' : 'unknown',
-          detail: 'deployments.log',
-        });
-
-        return {
+          id: `host-${host.host_name}`,
           label: host.host_name,
-          subtitle: `${host.host_api_url || host.host_url}${extra ? ` · ${extra}` : ''}`,
-          subtitleError: resources?.status === 'error',
-          services,
-        };
-      })
-    );
+          port: host.host_url ? host.host_url.split(':').pop() : 6109,
+          logService: 'vpt-host',
+          status: s,
+          detail: host.host_url,
+          extra,
+        });
+      }
+
+      if (resources) services.push(resources);
+
+      // Deployment scheduler log entry
+      services.push({
+        id: `host-${host.host_name}-deployments`,
+        label: 'Deployment Scheduler',
+        logService: 'deployments',
+        logHostName: host.host_name,
+        status: host.status === 'online' ? 'ok' : 'unknown',
+        detail: 'deployments.log',
+      });
+
+      return {
+        label: host.host_name,
+        subtitle: `${host.host_api_url || host.host_url}${extra ? ` · ${extra}` : ''}`,
+        subtitleError: resources?.status === 'error',
+        services,
+      };
+    });
     setHostGroups(groups);
-  }, [serverHostsData]);
+  }, [uniqueHosts]);
 
   // Initial check + 15s polling
   useEffect(() => {
@@ -1068,9 +1251,7 @@ const Status: React.FC = () => {
     ...hostGroups.map<SummaryRow>((g) => {
       // Metrics come from the page's own getAllHosts?include_system_stats=true call
       // (hostLive); the shared host context is only a fallback.
-      const hostRecord = serverHostsData
-        .flatMap((sd) => sd.hosts)
-        .find((h) => h.host_name === g.label);
+      const hostRecord = uniqueHosts.find((h) => h.host_name === g.label);
       const live = hostLive[g.label];
       const ss: HostStats | undefined = live?.system_stats ?? hostRecord?.system_stats;
       const hostStatus = live?.status ?? hostRecord?.status;
@@ -1106,16 +1287,16 @@ const Status: React.FC = () => {
         <Box display="flex" alignItems="center" gap={1}>
           <StatusDot status={overall} size={12} />
           <Typography component="h1" sx={PAGE_TITLE_SX}>
-            System Status
+            {t('System Status')}
           </Typography>
         </Box>
         <Box display="flex" alignItems="center" gap={1}>
           {lastChecked && (
             <Typography variant="caption" color="text.secondary">
-              Last checked: {lastChecked.toLocaleTimeString()}
+              {t('Last checked: {time}', { time: lastChecked.toLocaleTimeString() })}
             </Typography>
           )}
-          <Tooltip title="Refresh now">
+          <Tooltip title={t('Refresh now')}>
             <span>
               <IconButton size="small" onClick={checkAll} disabled={checking}>
                 {checking ? <CircularProgress size={16} /> : <RefreshIcon fontSize="small" />}
@@ -1129,17 +1310,18 @@ const Status: React.FC = () => {
       <Grid container spacing={2} sx={{ mb: 3 }}>
         <Grid item xs={12} sm={6} md={3}>
           <Paper variant="outlined" sx={{ p: 2, textAlign: 'center' }}>
-            <Typography sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
+            <Typography sx={{ fontSize: TYPOGRAPHY.pageTitle.size, fontWeight: 600 }}>
               {totalCount > 0 ? `${healthyCount}/${totalCount}` : '—'}
             </Typography>
             <Typography variant="caption" color="text.secondary">
-              Services healthy
+              {t('Services healthy')}
             </Typography>
           </Paper>
         </Grid>
-        {serverStats?.cpu !== undefined && <StatTile label="Server CPU" value={serverStats.cpu} />}
-        {serverStats?.ram !== undefined && <StatTile label="Server RAM" value={serverStats.ram} />}
-        {serverStats?.disk !== undefined && <StatTile label="Server Disk" value={serverStats.disk} />}
+        {serverStats?.cpu !== undefined && <StatTile label={t('Server CPU')} value={serverStats.cpu} />}
+        {serverStats?.ram !== undefined && <StatTile label={t('Server RAM')} value={serverStats.ram} />}
+        {serverStats?.disk !== undefined && <StatTile label={t('Server disk')} value={serverStats.disk} />}
+        {serverStats?.uplink && <UplinkTile uplink={serverStats.uplink} />}
       </Grid>
 
       {/* ── At-a-glance VM summary ─────────────────────────────────────────── */}

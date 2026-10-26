@@ -109,6 +109,18 @@ export const useVirtualScripts = () => {
       doc?: string;
       folder?: string;
     }) => {
+      // TASK-65 G10: pass `X-Project-Id` so the server auto-tags the new
+      // virtual script with the current project's tag (mirrors G5's
+      // `current_project_from_id` path). The header is read from the same
+      // localStorage slot AgentChat and the executable list already use —
+      // a project not picked means no header, no auto-tag (legacy behaviour).
+      const headers: Record<string, string> = {};
+      if (typeof window !== 'undefined') {
+        const projectId = window.localStorage.getItem('virtualpytest:project_id');
+        if (projectId && projectId !== 'all') {
+          headers['X-Project-Id'] = projectId;
+        }
+      }
       // Read the body whatever the status (BUG-0392): the server answers a rejected
       // save with 400 (syntax error, with `validation`), 404 or 409 and a JSON reason.
       // `api.post` throws on any non-2xx, which dropped that reason — the page showed
@@ -116,6 +128,7 @@ export const useVirtualScripts = () => {
       const response = await apiClient(buildServerUrl('/server/virtual-script/save'), {
         method: 'POST',
         body: JSON.stringify(payload),
+        headers,
       });
       const body = await response.json().catch(() => null);
       return (body ?? { success: false, error: `HTTP ${response.status}` }) as {

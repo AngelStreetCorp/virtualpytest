@@ -3,6 +3,11 @@
 Speaks the real Tello SDK 1.3/2.0 protocol: commands go to <ip>:<cmd_port> (8889), the drone replies to
 the source port of the command, and state datagrams arrive on a host port (8890 on a real drone). Address
 and ports are parameters so two drones can be reached through per-drone addresses (design section B).
+
+A real Tello only answers the address:port that sent its first `command` after power-on: from any other
+source port every command times out (measured on vpt-pi4 with TELLO-C5B142, 2026-10-13). So commands to a
+real drone go out from ONE fixed local port (`local_cmd_port`, 8889 for the host controller, SO_REUSEADDR
+so a re-link or a script process can bind it again). 0 = any port, for the loopback simulator.
 """
 
 import socket
@@ -43,8 +48,9 @@ def parse_state(text: str) -> Dict[str, Union[int, float]]:
 
 class TelloClient:
     def __init__(self, ip: str, cmd_port: int = 8889, state_port: int = 8890, local_ip: str = "0.0.0.0",
-                 name: str = "drone", timeout_s: float = 10.0):
+                 name: str = "drone", timeout_s: float = 10.0, local_cmd_port: int = 0):
         self.ip = ip
+        self.local_cmd_port = local_cmd_port
         self.cmd_port = cmd_port
         self.state_port = state_port
         self.local_ip = local_ip
@@ -60,22 +66,33 @@ class TelloClient:
         self._threads = []
 
     # -- lifecycle -------------------------------------------------------------------------------
-    def connect(self) -> None:
+    def connect(self, timeout_s: Optional[float] = None) -> None:
+        """Open the sockets and enter SDK mode. On any failure every socket is closed again: a leaked
+        socket on the fixed command port would swallow the replies meant for the next attempt."""
         self._stop.clear()
-        self._cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._cmd_sock.bind((self.local_ip, 0))
-        self._state_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._state_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        self._state_sock.bind((self.local_ip, self.state_port))
-        self._state_sock.settimeout(0.5)
-        t = threading.Thread(target=self._state_loop, daemon=True, name=f"tello-state-{self.name}")
-        t.start()
-        self._threads.append(t)
+        try:
+            self._cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self._cmd_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._cmd_sock.bind((self.local_ip, self.local_cmd_port))
+            self._state_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            self._state_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self._state_sock.bind((self.local_ip, self.state_port))
+            self._state_sock.settimeout(0.5)
+            t = threading.Thread(target=self._state_loop, daemon=True, name=f"tello-state-{self.name}")
+            t.start()
+            self._threads.append(t)
+            self.enter_sdk(timeout_s)
+        except BaseException:
+            self.close()
+            raise
+
+    def enter_sdk(self, timeout_s: Optional[float] = None) -> None:
+        """Send `command` (enter SDK mode). Also what a power-cycled drone needs to answer again."""
         # A plain Tello responds with "ok"; a Tello EDU/Tello Talent in binary mode responds
         # with a 0xcc... packet. Both indicate the SDK handoff succeeded, so any non-empty
         # reply that is not the literal "error" is accepted. (TASK-32, plain Tello + EDU
         # observed on vpt-pi4 with TELLO-C5B142 on 2026-10-09.)
-        resp = self.send("command")
+        resp = self.send("command", timeout_s)
         if not resp or resp.lower() == "error":
             raise TelloError(f"{self.name}: 'command' was not acknowledged (got {resp!r})")
 

@@ -1,3 +1,4 @@
+import { AppIcon } from '../../constants/icons';
 import React, { useState, useEffect, useCallback } from 'react';
 import {
   DialogTitle,
@@ -21,6 +22,8 @@ import { NodeVerificationModal } from './NodeVerificationModal';
 import { useExplorationValidation, ValidationResult } from '../../hooks/exploration';
 import { StyledDialog } from '../common/StyledDialog';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { dangerButtonSx, neutralButtonSx } from '../common/PageChrome';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface ValidationModalProps {
   isOpen: boolean;
@@ -233,9 +236,9 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
     >
       {/* Header */}
       <DialogTitle>
-        {isValidating && '🔄 TESTING NAVIGATION'}
-        {isComplete && '✅ TESTING COMPLETE'}
-        {error && '❌ TEST ERROR'}
+        {isValidating && 'TESTING NAVIGATION'}
+        {isComplete && 'TESTING COMPLETE'}
+        {error && 'TEST ERROR'}
       </DialogTitle>
 
       <DialogContent sx={{ 
@@ -288,10 +291,10 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             gap: 2
           }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 'bold' }}>
-              📊 Summary:
+              <AppIcon name="report" /> Summary:
             </Typography>
             <Typography variant="body2" sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-              <span>✅ {
+              <span><AppIcon name="success" /> {
                 // Count successes (forward + backward for vertical only)
                 validationResults.reduce((count, r) => {
                   let stepCount = r.forward.result === 'success' ? 1 : 0;
@@ -302,7 +305,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                 }, 0)
               } Success</span>
               <span>•</span>
-              <span>❌ {
+              <span><AppIcon name="error" /> {
                 validationResults.reduce((count, r) => {
                   let stepCount = r.forward.result === 'failure' ? 1 : 0;
                   const isHorizontal = r.forward.action === 'RIGHT' || r.forward.action === 'LEFT' || r.forward.action === 'DOWN';
@@ -311,7 +314,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                 }, 0)
               } Failed</span>
               <span>•</span>
-              <span>⚠️ {validationResults.filter(r => r.backward.result === 'warning').length} Warnings</span>
+              <span><AppIcon name="warning" /> {validationResults.filter(r => r.backward.result === 'warning').length} Warnings</span>
             </Typography>
           </Box>
         )}
@@ -386,12 +389,12 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                           Step {result.step}.{stepOffset}
                 </Typography>
                 <Tooltip title={`${result.sourceNode} → ${result.targetNode}`} arrow>
-                  <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.85rem', color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: TYPOGRAPHY.body.size, color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0 }}>
                     {result.sourceNode} → {result.targetNode}
                   </Typography>
                 </Tooltip>
                 <Tooltip title={result.forward.action} arrow>
-                  <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'text.disabled', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: TYPOGRAPHY.body.size, color: 'text.disabled', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0 }}>
                     {result.forward.action}
                   </Typography>
                 </Tooltip>
@@ -404,7 +407,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                     color: result.forward.result === 'success' ? 'success.main' : 'error.main'
                   }}
                 >
-                  {result.forward.result === 'success' ? '✅ SUCCESS' : '❌ FAILED'}
+                  {result.forward.result === 'success' ? 'SUCCESS' : 'FAILED'}
                 </Typography>
               </Box>
               
@@ -415,12 +418,12 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                             Step {result.step}.{stepOffset + 1}
                 </Typography>
                 <Tooltip title={`${result.targetNode} → ${result.sourceNode}`} arrow>
-                  <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.85rem', color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: TYPOGRAPHY.body.size, color: 'text.secondary', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0 }}>
                     {result.targetNode} → {result.sourceNode}
                   </Typography>
                 </Tooltip>
                 <Tooltip title={result.backward.action} arrow>
-                  <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', color: 'text.disabled', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0 }}>
+                  <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: TYPOGRAPHY.body.size, color: 'text.disabled', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', flexShrink: 1, minWidth: 0 }}>
                     {result.backward.action}
                   </Typography>
                 </Tooltip>
@@ -435,9 +438,9 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                            result.backward.result === 'skipped' ? 'text.secondary' : 'error.main'
                   }}
                 >
-                  {result.backward.result === 'success' ? '✅ SUCCESS' :
-                   result.backward.result === 'warning' ? '⚠️ WARNING' :
-                   result.backward.result === 'skipped' ? '⏭️ SKIPPED' : '❌ FAILED'}
+                  {result.backward.result === 'success' ? 'SUCCESS' :
+                   result.backward.result === 'warning' ? 'WARNING' :
+                   result.backward.result === 'skipped' ? 'SKIPPED' : 'FAILED'}
                 </Typography>
               </Box>
                       )}
@@ -463,7 +466,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
               }}
             >
               <Typography variant="body2" color="text.secondary">
-                ⏳ Step {(progress.current || 0) + index + 2} - PENDING
+                <AppIcon name="pending" /> Step {(progress.current || 0) + index + 2} - PENDING
               </Typography>
             </Paper>
           ))}
@@ -477,8 +480,8 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
           <Button
             onClick={handleCancelExploration}
             variant="outlined"
-            color="error"
             startIcon={<CancelIcon />}
+            sx={dangerButtonSx(P)}
           >
             Cancel
           </Button>
@@ -490,8 +493,8 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             <Button
               onClick={handleCancelExploration}
               variant="outlined"
-              color="error"
               startIcon={<CancelIcon />}
+              sx={dangerButtonSx(P)}
             >
               Cancel & Delete
             </Button>
@@ -513,8 +516,8 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
             <Button
               onClick={handleCancelExploration}
               variant="outlined"
-              color="error"
               startIcon={<CancelIcon />}
+              sx={dangerButtonSx(P)}
             >
               Cancel & Delete
             </Button>
@@ -523,8 +526,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
                 onValidationComplete?.();
               }}
               variant="contained"
-              color="success"
-              startIcon={<CompleteIcon />}
+              startIcon={<CompleteIcon />} sx={neutralButtonSx(P)}
             >
               Confirm & Save
             </Button>
@@ -535,8 +537,7 @@ export const ValidationModal: React.FC<ValidationModalProps> = ({
         {error && !isValidating && (
           <Button
             onClick={onClose}
-            variant="contained"
-            color="error"
+            variant="contained" sx={neutralButtonSx(P)}
           >
             Close
           </Button>

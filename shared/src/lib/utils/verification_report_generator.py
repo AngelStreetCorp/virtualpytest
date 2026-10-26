@@ -561,6 +561,14 @@ def _generate_verification_report(
         # labels follow the theme — readers recognise red/yellow by name in the caption.
         html.append('.legend .r{color:var(--vpt-error)}.legend .y{color:var(--vpt-warning)}')
         html.append('.extracted{font-size:13px;color:var(--vpt-text);background:var(--vpt-subtle);border:1px solid var(--vpt-border);border-radius:4px;padding:8px 10px;word-break:break-word;min-height:20px;font-variant-numeric:tabular-nums}')
+        html.append('.tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}')
+        html.append('.tab{font:inherit;font-size:12px;padding:5px 12px;border-radius:14px;border:1px solid var(--vpt-border);background:var(--vpt-surface);color:var(--vpt-muted);cursor:pointer}')
+        html.append('.tab.on{background:var(--vpt-text);color:var(--vpt-page);border-color:var(--vpt-text)}')
+        html.append('.nmeta{margin-top:8px;font-size:12px;color:var(--vpt-muted)}.nmeta b{color:var(--vpt-text-2);font-weight:500}')
+        html.append('.ba{position:relative;line-height:0}.ba img{width:100%;height:auto;display:block}')
+        html.append('.ba #ba-after{position:absolute;inset:0;clip-path:inset(0 0 0 50%)}')
+        html.append('.ba-line{position:absolute;top:0;bottom:0;left:50%;width:2px;background:var(--vpt-text);pointer-events:none}')
+        html.append('#ba-range{width:100%;margin-top:8px}')
         html.append('@media (max-width:900px){.layout{grid-template-columns:1fr}.header{grid-template-columns:1fr}}')
         html.append('</style></head><body>')
 
@@ -665,6 +673,68 @@ def _generate_verification_report(
             """Minimal HTML-escape for text rendered server-side into a cell."""
             return str(s).replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
 
+        # Node screenshot (what the node/variant looked like when it was saved), so a failed
+        # verification can be read against the interface as it was. Tabs on the left hero:
+        # Capture | Node screenshot | Before/After slider.
+        node_shot = verification_config.get('node_screenshot') or {}
+        node_shot_url = ensure_signed_url(node_shot.get('url')) if node_shot.get('url') else ''
+        node_shot_date = ''
+        if node_shot_url and node_shot.get('timestamp'):
+            try:
+                from datetime import datetime
+                saved = datetime.fromtimestamp(int(node_shot['timestamp']) / 1000)
+                days = (datetime.now() - saved).days
+                node_shot_date = f"{saved.strftime('%d %b %Y')} ({days} day{'s' if days != 1 else ''} ago)"
+            except Exception:
+                node_shot_date = ''
+
+        def _left_open():
+            """Open the left column: tab bar (only when a node screenshot exists) + Capture pane."""
+            out = ['<div class="left">']
+            if node_shot_url:
+                short = time_display[:10] if time_display else ''
+                out.append('<div class="tabs">'
+                           f'<button class="tab on" id="tab-cap" onclick="tabSel(\'cap\')">Capture · {_esc(short)}</button>'
+                           f'<button class="tab" id="tab-node" onclick="tabSel(\'node\')">Node screenshot{(" · " + _esc(node_shot_date.split(" (")[0])) if node_shot_date else ""}</button>'
+                           '<button class="tab" id="tab-ba" onclick="tabSel(\'ba\')">Before / After &#8644;</button>'
+                           '</div>')
+            out.append('<div class="pane" id="pane-cap">')
+            return out
+
+        def _left_close(capture_url_js):
+            """Close the Capture pane, add Node / Before-After panes + JS, close the left column."""
+            out = ['</div>']  # /#pane-cap
+            if node_shot_url:
+                meta = [f'<b>Node:</b> {_esc(node_shot.get("label") or "")}',
+                        f'<b>Interface:</b> {_esc(node_shot.get("userinterface") or "")}']
+                if node_shot.get('variant'):
+                    meta.append(f'<b>Variant:</b> {_esc(node_shot["variant"])}')
+                if node_shot_date:
+                    meta.append(f'<b>Saved:</b> {_esc(node_shot_date)}')
+                meta_html = '<div class="nmeta">' + ' &nbsp;·&nbsp; '.join(meta) + '</div>'
+                out.append('<div class="pane" id="pane-node" style="display:none"><div class="cell">'
+                           '<div class="cap">Node screenshot (saved reference of this screen)</div>'
+                           f'<div class="img-wrap"><a href="{node_shot_url}" target="_blank"><img src="{node_shot_url}" alt="Node screenshot"></a></div>'
+                           f'{meta_html}</div></div>')
+                out.append('<div class="pane" id="pane-ba" style="display:none"><div class="cell">'
+                           '<div class="cap">Before (node screenshot) &#8644; After (this capture) &mdash; drag</div>'
+                           '<div class="ba" id="ba"><img id="ba-before" src="" alt="Before"><img id="ba-after" src="" alt="After">'
+                           '<div class="ba-line" id="ba-line"></div></div>'
+                           '<input type="range" min="0" max="100" value="50" id="ba-range" oninput="baSet(this.value)">'
+                           f'{meta_html}</div></div>')
+                out.append('<script>'
+                           f'var NODE_SHOT={json.dumps(node_shot_url)};'
+                           'function baSet(v){document.getElementById("ba-after").style.clipPath="inset(0 0 0 "+v+"%)";'
+                           'document.getElementById("ba-line").style.left=v+"%";}'
+                           'function tabSel(n){["cap","node","ba"].forEach(function(k){'
+                           'document.getElementById("pane-"+k).style.display=(k===n)?"block":"none";'
+                           'document.getElementById("tab-"+k).classList.toggle("on",k===n);});'
+                           'if(n==="ba"){document.getElementById("ba-before").src=NODE_SHOT;'
+                           f'document.getElementById("ba-after").src={capture_url_js};baSet(document.getElementById("ba-range").value);}}'
+                           '</script>')
+            out.append('</div>')  # /.left
+            return out
+
         has_any_image = any([source_image_url, original_image_url, reference_image_url, result_overlay_url])
 
         # Wait-timeline frames: present only for polled waitFor* verifications. Each
@@ -715,11 +785,13 @@ def _generate_verification_report(
 
             # Synced hero — full frame (left) + crop / reference / overlay-or-text (right).
             html.append('<div class="layout">')
-            html.append('<div class="left"><div class="cell">')
+            html.extend(_left_open())
+            html.append('<div class="cell">')
             html.append('<div class="cap" id="hero-cap">Full frame</div>')
             html.append('<div class="img-wrap"><a id="hero-full-link" href="#" target="_blank"><img id="hero-full" src="" alt="Full frame"></a></div>')
             html.append('<div class="legend">Legend: <span class="r">red</span> = exact crop area &nbsp; <span class="y">yellow</span> = fuzzy search area</div>')
-            html.append('</div></div>')
+            html.append('</div>')
+            html.extend(_left_close('document.getElementById("hero-full").src'))
             html.append('<div class="right">')
             html.append('<div class="cell"><div class="cap">Cropped source</div><div class="img-wrap"><a id="hero-src-link" href="#" target="_blank"><img id="hero-src" src="" alt="Cropped source"></a></div></div>')
             if reference_image_url:
@@ -758,14 +830,14 @@ def _generate_verification_report(
             html.append('<div class="layout">')
 
             # LEFT: full captured screenshot (scaled to column width).
-            html.append('<div class="left">')
+            html.extend(_left_open())
             if original_image_url:
                 html.append('<div class="cell">')
                 html.append(f'<div class="img-wrap"><a href="{original_image_url}" target="_blank"><img src="{original_image_url}" alt="Full screenshot"></a></div>')
                 html.append('</div>')
             elif verification_type == 'image':
                 html.append('<div class="cell empty"><div class="img-wrap">not available</div></div>')
-            html.append('</div>')
+            html.extend(_left_close(json.dumps(original_image_url or '')))
 
             # RIGHT: stacked native-size comparison (cropped source / reference / overlay).
             html.append('<div class="right">')

@@ -2,11 +2,21 @@
 
 ## Status
 
+This is the first of four steps. It is a foundation only: a fake rover, switched off by default, with no simulator and no real hardware. The later steps are separate pieces of work, and each one needs the owner's review.
+
+<div data-technical>
+
 **PR 1 of 4** (foundation only — fake adapter, opt-in, no Gazebo, no hardware).
 The remaining PRs (Gazebo adapter, VPT runner integration, physical rover
 readiness) are separate, owner-reviewed branches.
 
+</div>
+
 ## What this ships
+
+The mobility service is a self-contained part of the host. It can run a scripted 100-metre sidewalk mission on a fake rover. Every command goes through a safety check first. The feature stays off unless you turn it on.
+
+<div data-technical>
 
 - A self-contained backend_host service under `backend_host/src/mobility/`.
 - An explicit list of capabilities (`telemetry`, `camera`, `navigate`, `stop`,
@@ -19,14 +29,26 @@ readiness) are separate, owner-reviewed branches.
   `require_permission` helper.
 - An opt-in `VPT_MOBILITY_ENABLED` flag (default `false`).
 
+</div>
+
 ## What this does NOT ship
+
+There is no real rover control yet, no simulator, and no screen in the app. The only interface is HTTP endpoints.
+
+<div data-technical>
 
 - No Gazebo / ROS 2 adapter (PR 2). No physical rover actuation (PR 4).
 - No production actuation backend. The only actuator that runs is the fake.
 - No customer-facing UI. The PR exposes HTTP endpoints only.
 - No DB migration for the `mobility:run` permission (owner-only carve-out).
 
+</div>
+
 ## Activation
+
+The feature stays off until `VPT_MOBILITY_ENABLED` is set to true. The default limits are small and safe: low speed, a narrow area and short runs.
+
+<div data-technical>
 
 ```bash
 # opt-in: only the routes and the permission gate activate
@@ -46,7 +68,13 @@ VPT_MOBILITY_NONCE_WINDOW=100
 
 All defaults are fail-safe (small speed, narrow geofence, short duration).
 
+</div>
+
 ## Architecture
+
+A request comes in, the safety gate checks it, and only then does the controller act. The safety gate can always say no. Only the fake controller exists today.
+
+<div data-technical>
 
 ```
             ┌─────────────────────────────────────────────────────┐
@@ -77,7 +105,13 @@ All defaults are fail-safe (small speed, narrow geofence, short duration).
             └─────────────────────────────────────────────────────┘
 ```
 
+</div>
+
 ### Why a self-contained service (not a `DEVICE_CONTROLLER_MAP` entry)
+
+Mobility is a separate service, not a device controller. That keeps the first step small.
+
+<div data-technical>
 
 The `Device` model only knows `av`/`remote`/`verification`/`power`/`network`/
 `switch`/`desktop`/`web` (`shared/src/lib/models/device.py:74-81`). Adding a
@@ -87,7 +121,13 @@ should touch. Mobility is therefore a *service* — its own blueprint, its own
 state, gated by `VPT_MOBILITY_ENABLED` — not a `Device`-attached controller.
 Capabilities are surfaced via `/host/mobility/state` only.
 
+</div>
+
 ## SafetyGate rules (R1..R12)
+
+The safety gate has twelve rules. Each one either allows a command, trims it, or refuses it. Every refusal also sends a zero-speed pulse, so the rover does not keep moving.
+
+<div data-technical>
 
 | Rule | Trigger | Outcome | `reason_code` |
 |---|---|---|---|
@@ -113,11 +153,23 @@ Capabilities are surfaced via `/host/mobility/state` only.
 | **R11** | every deny | force a zero-motion pulse | (audit only) |
 | **R12** | unexpected exception in any rule | deny | `SAFETY_GATE_INTERNAL_ERROR` |
 
-**Stop is unconditional**: `capability="stop"` short-circuits to allow,
+</div>
+
+**Stop always goes through.** Stop is the way back, so it works even when the e-stop is on, the connection is down or the heartbeat is lost.
+
+<div data-technical>
+
+`capability="stop"` short-circuits to allow,
 regardless of e-stop, connection health, or heartbeat. Stop is the
 recovery path; it must always succeed.
 
+</div>
+
 ## Permission gate
+
+Admin users can run missions. Other users are refused until the owner runs a database step.
+
+<div data-technical>
 
 `mobility:run` is enforced by the existing
 `backend_server/src/lib/auth_middleware.py::require_permission` helper.
@@ -130,7 +182,13 @@ For PR 1:
 
 The test suite covers the admin and 403 paths.
 
+</div>
+
 ## Endpoints
+
+The service has eight endpoints. They cover health, the rover's state, missions and the e-stop.
+
+<div data-technical>
 
 | Method | Path | Permission | Purpose |
 |---|---|---|---|
@@ -143,7 +201,13 @@ The test suite covers the admin and 403 paths.
 | `POST` | `/host/mobility/estop` | `mobility:run` | engage e-stop |
 | `POST` | `/host/mobility/estop/clear` | `mobility:run` | release e-stop |
 
+</div>
+
 ## Reporting contract
+
+Mission results come back in a simple format. The usual test reports do not show them yet. That comes in the third step.
+
+<div data-technical>
 
 PR 1 returns mission results through `MobilityResult` (a JSON-friendly
 dataclass with `status` ∈ `{pass, fail, needs_review, error}` and a
@@ -151,7 +215,13 @@ full observation trace). The VPT reporting conventions are not yet
 wired up — that's PR 3. PR 1 ships a clearly-documented temporary
 contract; see `MobilityResult.to_dict()`.
 
+</div>
+
 ## Known limitations (called out for PR 2+)
+
+These limits must be fixed before the service runs on more than one host.
+
+<div data-technical>
 
 - **In-memory operator + nonce store.** Multi-host deployments need a
   shared store (Redis or the platform DB) — the nonce window lives in
@@ -163,7 +233,13 @@ contract; see `MobilityResult.to_dict()`.
 - **E-stop is per-process.** Multi-host deployments need an out-of-band
   channel.
 
+</div>
+
 ## Tests
+
+The tests cover the config, the data models, the safety rules, the fake rover, the missions and the endpoint permissions.
+
+<div data-technical>
 
 | File | Layer | Coverage |
 |---|---|---|
@@ -185,7 +261,13 @@ python3 -m pytest backend_host/src/mobility/tests/
 python3 -m pytest tests/backend_host/test_mobility_smoke.py
 ```
 
+</div>
+
 ## Follow-up PRs
+
+Three more steps follow. Each one is a separate review: a simulator, a link to the test runner, and a check for a real rover.
+
+<div data-technical>
 
 - **PR 2** — Gazebo / ROS 2 adapter (`adapters/gazebo.py`), world/model
   assets, one-command local smoke.
@@ -193,3 +275,5 @@ python3 -m pytest tests/backend_host/test_mobility_smoke.py
   exposure (bounded).
 - **PR 4** — Physical-rover contract, mock/loopback adapter, hardware
   safety review checklist.
+
+</div>

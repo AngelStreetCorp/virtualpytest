@@ -10,12 +10,20 @@
  * HLSVideoPlayer.tsx and is NOT exported here — the archiver has its own
  * serving path and the live path must not bleed knobs into it.
  */
+/** Live target latency a player switches to after its first stall (HLSVideoPlayer). A
+ *  clean link keeps liveSyncDuration (1 s); a slow or lossy one (vpt-mf1 on WiFi) stops
+ *  freezing at 3 s. */
+export const LIVE_STALL_TARGET_LATENCY_S = 3;
+
 export const LIVE_HLS_CONFIG = {
   enableWorker: true,
   lowLatencyMode: true,
   liveSyncDuration: 1.0,
-  liveMaxLatencyDuration: 3,
-  maxLiveSyncPlaybackRate: 1.5,
+  liveMaxLatencyDuration: 8, // above LIVE_STALL_TARGET_LATENCY_S, or the 3 s target would be jumped back
+  // Catch up gently: at 1.5x a 60 fps stream asks a 60 Hz screen for 90 frames/s and the
+  // browser drops ~30 of them every second it catches up (vpt-mf1 on WiFi: 62 decoded,
+  // 31 dropped). 1.1x costs ~6 frames/s and still closes a 1 s lag in ~10 s.
+  maxLiveSyncPlaybackRate: 1.1,
   maxBufferLength: 6,
   maxMaxBufferLength: 150,
   backBufferLength: 150,

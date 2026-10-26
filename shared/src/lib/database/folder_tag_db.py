@@ -134,16 +134,21 @@ def get_or_create_tag(name: str) -> Optional[Dict[str, Any]]:
 
 def set_executable_tags(executable_type: str, executable_id: str, tag_names: List[str]) -> bool:
     """
-    Set tags for an executable (script or testcase).
-    Replaces existing tags with new set.
-    
+    Set tags for an executable. Replaces existing tags with the new set.
+
     Args:
-        executable_type: 'script' or 'testcase'
-        executable_id: script name or testcase_id
-        tag_names: List of tag names to assign
-    
+        executable_type: One of ``'script'``, ``'testcase'``,
+            ``'virtual_script'``, ``'campaign'``. The DB CHECK on
+            ``executable_tags.executable_type`` enforces this list;
+            passing anything else fails at insert time. (G10 widened the
+            check; the original migration only allowed ``'script'`` /
+            ``'testcase'``.)
+        executable_id: script name, testcase_id, virtual_script id, or
+            campaign id (the row's primary key as a string).
+        tag_names: List of tag names to assign.
+
     Returns:
-        True on success, False on failure
+        True on success, False on failure.
     """
     supabase = get_supabase_client()
     if not supabase:
@@ -181,13 +186,16 @@ def set_executable_tags(executable_type: str, executable_id: str, tag_names: Lis
 def get_executable_tags(executable_type: str, executable_id: str) -> List[Dict[str, Any]]:
     """
     Get all tags for an executable.
-    
+
     Args:
-        executable_type: 'script' or 'testcase'
-        executable_id: script name or testcase_id
-    
+        executable_type: ``'script'``, ``'testcase'``, ``'virtual_script'``,
+            or ``'campaign'`` (see :func:`set_executable_tags` for the
+            full list and migration context).
+        executable_id: script name, testcase_id, virtual_script id, or
+            campaign id.
+
     Returns:
-        List of tag dicts [{tag_id, name, color}, ...]
+        List of tag dicts ``[{tag_id, name, color}, ...]``.
     """
     supabase = get_supabase_client()
     if not supabase:
@@ -226,8 +234,15 @@ def get_executable_tags_bulk(
     """
     Fetch tags for many executables in a single query.
 
-    Returns mapping {executable_id: [{tag_id, name, color}, ...]} with an entry
-    for every requested id (empty list if the executable has no tags).
+    Args:
+        executable_type: ``'script'``, ``'testcase'``, ``'virtual_script'``,
+            or ``'campaign'`` (see :func:`set_executable_tags`).
+        executable_ids: ids to fetch tags for.
+
+    Returns:
+        Mapping ``{executable_id: [{tag_id, name, color}, ...]}`` with an
+        entry for every requested id (empty list if the executable has no
+        tags).
     """
     tags_by_id: Dict[str, List[Dict[str, Any]]] = {eid: [] for eid in executable_ids}
     if not executable_ids:

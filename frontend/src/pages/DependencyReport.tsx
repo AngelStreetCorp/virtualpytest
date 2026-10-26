@@ -12,7 +12,6 @@ import {
   Box,
   Card,
   CardContent,
-  CircularProgress,
   Collapse,
   FormControl,
   IconButton,
@@ -34,6 +33,7 @@ import {
 } from '@mui/material';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
 import { PageTitle, Palette, StatTiles, pageSurfaceSx, rateColor, segmentedSx } from '../components/common/PageChrome';
+import { TableRowsSkeleton, ValueSkeleton } from '../components/common/ReportSkeleton';
 import React, { useState, useEffect } from 'react';
 
 import { 
@@ -44,10 +44,11 @@ import {
   type EdgeScriptDependency,
 } from '../hooks/pages/useDependency';
 import { useUserInterface } from '../hooks/pages/useUserInterface';
+import { TYPOGRAPHY } from '../constants/typography';
 
 /** A success rate as coloured text (≥80 green, ≥50 amber, else red). */
 const RateText: React.FC<{ value: number; P: Palette }> = ({ value, P }) => (
-  <Box component="span" sx={{ fontWeight: 600, fontSize: '0.8rem', color: rateColor(value, P), fontVariantNumeric: 'tabular-nums' }}>
+  <Box component="span" sx={{ fontWeight: 600, fontSize: TYPOGRAPHY.body.size, color: rateColor(value, P), fontVariantNumeric: 'tabular-nums' }}>
     {value.toFixed(1)}%
   </Box>
 );
@@ -55,6 +56,9 @@ const RateText: React.FC<{ value: number; P: Palette }> = ({ value, P }) => (
 const DependencyReport: React.FC = () => {
   const P = useAgentChatPalette();
   const { loadDependencyData, loading, error, setError } = useDependency();
+
+  /** A tile count, or a grey bar while the data is still in flight. */
+  const tileCount = (n: number) => (loading ? <ValueSkeleton width={30} height={22} /> : n);
   const { getAllUserInterfaces } = useUserInterface();
 
   const [activeTab, setActiveTab] = useState(0);
@@ -167,13 +171,6 @@ const DependencyReport: React.FC = () => {
 
   // Helper functions
 
-  // Loading state component
-  const LoadingState = () => (
-    <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-      <CircularProgress />
-    </Box>
-  );
-
   // Empty state component
   const EmptyState = ({ message }: { message: string }) => (
     <TableRow>
@@ -275,7 +272,7 @@ const DependencyReport: React.FC = () => {
       {!selectedUserInterface ? (
         <Card>
           <CardContent sx={{ py: 6, textAlign: 'center' }}>
-            <ModelIcon sx={{ fontSize: 48, color: P.accentText, mb: 1 }} />
+            <ModelIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: P.accentText, mb: 1 }} />
             <Typography variant="h6" color="text.secondary" gutterBottom>
               Select User Interface to Analyze
             </Typography>
@@ -288,10 +285,13 @@ const DependencyReport: React.FC = () => {
       <>
       <StatTiles
         tiles={[
-          { label: 'Scripts → nodes', value: scriptNodeDependencies.length, onClick: () => setActiveTab(0), active: activeTab === 0 },
-          { label: 'Scripts → edges', value: scriptEdgeDependencies.length, onClick: () => setActiveTab(1), active: activeTab === 1 },
-          { label: 'Nodes covered', value: nodeScriptDependencies.length, onClick: () => setActiveTab(2), active: activeTab === 2 },
-          { label: 'Edges covered', value: edgeScriptDependencies.length, onClick: () => setActiveTab(3), active: activeTab === 3 },
+          // These four counts are unknown until the load lands — a `0` there reads as "this
+          // interface has no dependencies" rather than "we have not looked yet", so the value
+          // slot takes a grey bar while loading and the label stays readable.
+          { label: 'Scripts → nodes', value: tileCount(scriptNodeDependencies.length), onClick: () => setActiveTab(0), active: activeTab === 0 },
+          { label: 'Scripts → edges', value: tileCount(scriptEdgeDependencies.length), onClick: () => setActiveTab(1), active: activeTab === 1 },
+          { label: 'Nodes covered', value: tileCount(nodeScriptDependencies.length), onClick: () => setActiveTab(2), active: activeTab === 2 },
+          { label: 'Edges covered', value: tileCount(edgeScriptDependencies.length), onClick: () => setActiveTab(3), active: activeTab === 3 },
         ]}
       />
       <Card>
@@ -353,11 +353,7 @@ const DependencyReport: React.FC = () => {
                   </TableHead>
                   <TableBody>
                     {loading ? (
-                      <TableRow>
-                        <TableCell colSpan={4}>
-                          <LoadingState />
-                        </TableCell>
-                      </TableRow>
+                      <TableRowsSkeleton rows={6} widths={['64%', '58%', '60%', '44%']} rowHeight={40} />
                     ) : filteredScriptNodeDependencies.length === 0 ? (
                       <EmptyState message="No script-node dependencies found" />
                     ) : (
@@ -413,9 +409,9 @@ const DependencyReport: React.FC = () => {
                                   >
                                     <TableHead>
                                       <TableRow sx={{ backgroundColor: 'rgba(255, 255, 255, 0.05)' }}>
-                                        <TableCell width="40%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.75rem', fontWeight: 500 }}>Node</TableCell>
-                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.75rem', fontWeight: 500, textAlign: 'center' }}>Executions</TableCell>
-                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.75rem', fontWeight: 500, textAlign: 'center' }}>Success Rate</TableCell>
+                                        <TableCell width="40%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: TYPOGRAPHY.caption.size, fontWeight: 500 }}>Node</TableCell>
+                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: TYPOGRAPHY.caption.size, fontWeight: 500, textAlign: 'center' }}>Executions</TableCell>
+                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: TYPOGRAPHY.caption.size, fontWeight: 500, textAlign: 'center' }}>Success Rate</TableCell>
                                       </TableRow>
                                     </TableHead>
                                     <TableBody>
@@ -504,11 +500,7 @@ const DependencyReport: React.FC = () => {
                   </TableHead>
                   <TableBody>
                     {loading ? (
-                      <TableRow>
-                        <TableCell colSpan={4}>
-                          <LoadingState />
-                        </TableCell>
-                      </TableRow>
+                      <TableRowsSkeleton rows={6} widths={['64%', '58%', '60%', '44%']} rowHeight={40} />
                     ) : filteredScriptEdgeDependencies.length === 0 ? (
                       <EmptyState message="No script-edge dependencies found" />
                     ) : (
@@ -564,9 +556,9 @@ const DependencyReport: React.FC = () => {
                                   >
                                     <TableHead>
                                       <TableRow sx={{ backgroundColor: 'rgba(255, 255, 255, 0.05)' }}>
-                                        <TableCell width="40%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.75rem', fontWeight: 500 }}>Edge</TableCell>
-                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.75rem', fontWeight: 500, textAlign: 'center' }}>Executions</TableCell>
-                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.75rem', fontWeight: 500, textAlign: 'center' }}>Success Rate</TableCell>
+                                        <TableCell width="40%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: TYPOGRAPHY.caption.size, fontWeight: 500 }}>Edge</TableCell>
+                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: TYPOGRAPHY.caption.size, fontWeight: 500, textAlign: 'center' }}>Executions</TableCell>
+                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: TYPOGRAPHY.caption.size, fontWeight: 500, textAlign: 'center' }}>Success Rate</TableCell>
                                       </TableRow>
                                     </TableHead>
                                     <TableBody>
@@ -655,11 +647,7 @@ const DependencyReport: React.FC = () => {
                   </TableHead>
                   <TableBody>
                     {loading ? (
-                      <TableRow>
-                        <TableCell colSpan={5}>
-                          <LoadingState />
-                        </TableCell>
-                      </TableRow>
+                      <TableRowsSkeleton rows={6} widths={['60%', '56%', '58%', '56%', '42%']} rowHeight={40} />
                     ) : filteredNodeScriptDependencies.length === 0 ? (
                       <EmptyState message="No node-script dependencies found" />
                     ) : (
@@ -717,9 +705,9 @@ const DependencyReport: React.FC = () => {
                                   >
                                     <TableHead>
                                       <TableRow sx={{ backgroundColor: 'rgba(255, 255, 255, 0.05)' }}>
-                                        <TableCell width="40%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.75rem', fontWeight: 500 }}>Script</TableCell>
-                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.75rem', fontWeight: 500, textAlign: 'center' }}>Executions</TableCell>
-                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.75rem', fontWeight: 500, textAlign: 'center' }}>Success Rate</TableCell>
+                                        <TableCell width="40%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: TYPOGRAPHY.caption.size, fontWeight: 500 }}>Script</TableCell>
+                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: TYPOGRAPHY.caption.size, fontWeight: 500, textAlign: 'center' }}>Executions</TableCell>
+                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: TYPOGRAPHY.caption.size, fontWeight: 500, textAlign: 'center' }}>Success Rate</TableCell>
                                       </TableRow>
                                     </TableHead>
                                     <TableBody>
@@ -801,11 +789,7 @@ const DependencyReport: React.FC = () => {
                   </TableHead>
                   <TableBody>
                     {loading ? (
-                      <TableRow>
-                        <TableCell colSpan={5}>
-                          <LoadingState />
-                        </TableCell>
-                      </TableRow>
+                      <TableRowsSkeleton rows={6} widths={['60%', '56%', '58%', '56%', '42%']} rowHeight={40} />
                     ) : filteredEdgeScriptDependencies.length === 0 ? (
                       <EmptyState message="No edge-script dependencies found" />
                     ) : (
@@ -863,9 +847,9 @@ const DependencyReport: React.FC = () => {
                                   >
                                     <TableHead>
                                       <TableRow sx={{ backgroundColor: 'rgba(255, 255, 255, 0.05)' }}>
-                                        <TableCell width="40%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.75rem', fontWeight: 500 }}>Script</TableCell>
-                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.75rem', fontWeight: 500, textAlign: 'center' }}>Executions</TableCell>
-                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.75rem', fontWeight: 500, textAlign: 'center' }}>Success Rate</TableCell>
+                                        <TableCell width="40%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: TYPOGRAPHY.caption.size, fontWeight: 500 }}>Script</TableCell>
+                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: TYPOGRAPHY.caption.size, fontWeight: 500, textAlign: 'center' }}>Executions</TableCell>
+                                        <TableCell width="30%" sx={{ py: 0.5, color: 'rgba(255, 255, 255, 0.7)', fontSize: TYPOGRAPHY.caption.size, fontWeight: 500, textAlign: 'center' }}>Success Rate</TableCell>
                                       </TableRow>
                                     </TableHead>
                                     <TableBody>

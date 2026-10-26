@@ -1332,8 +1332,11 @@ class AndroidMobileRemoteController(RemoteControllerInterface):
                 return {'success': success}
             
             elif command == 'launch_app':
-                package = params.get('package')
-                success = self.launch_app(package) if package else False
+                # Accept both 'package' (MCP / original API) and 'package_name' (docs / Agent prompts).
+                package = params.get('package') or params.get('package_name')
+                if not package:
+                    return {'success': False, 'error': "launch_app requires 'package' or 'package_name' parameter"}
+                success = self.launch_app(package)
                 return {'success': success}
             
             elif command == 'open_url':
@@ -1373,6 +1376,24 @@ class AndroidMobileRemoteController(RemoteControllerInterface):
                     y = round(min(max(float(params['y_pct']), 0.0), 1.0) * (size['height'] - 1))
                 success = self.tap_coordinates(int(x), int(y)) if x is not None and y is not None else False
                 return {'success': success}
+
+            elif command == 'tap':
+                # BUG-0588: docs / agent prompts say `tap`, but the canonical command is
+                # `tap_coordinates`. Accept the short alias so a wrongly-cased prompt does
+                # not 404 the agent in a tight loop. Re-uses the same x/x_pct/y/y_pct
+                # handling as tap_coordinates (no recursion — the handler above is local
+                # to _execute_specific_command, and self.execute_command would re-enter
+                # validation, so we duplicate the small body here).
+                x, y = params.get('x'), params.get('y')
+                if (x is None or y is None) and params.get('x_pct') is not None and params.get('y_pct') is not None:
+                    size = self.get_orientation()
+                    if not size:
+                        return {'success': False, 'error': 'Could not read the screen size'}
+                    x = round(min(max(float(params['x_pct']), 0.0), 1.0) * (size['width'] - 1))
+                    y = round(min(max(float(params['y_pct']), 0.0), 1.0) * (size['height'] - 1))
+                if x is None or y is None:
+                    return {'success': False, 'error': "tap requires 'x' and 'y' (or 'x_pct' and 'y_pct')"}
+                return {'success': self.tap_coordinates(int(x), int(y))}
             
             elif command == 'swipe':
                 from_x = params.get('from_x')
@@ -1509,9 +1530,52 @@ class AndroidMobileRemoteController(RemoteControllerInterface):
                 return {'success': True, 'matches': matches, 'total_matches': len(matches)}
             
             elif command == 'get_installed_apps':
-                # Android Mobile specific
+                # Android Mobile specific.
+                # `apps` are AndroidApp dataclass objects — JSON-encode every field
+                # explicitly so the response survives json.dumps (BUG-0588:
+                # the previous return was `{'success': ..., 'apps': [AndroidApp, ...]}`
+                # which hit "Object of type AndroidApp is not JSON serializable" on
+                # the vpt-windows emulator host).
                 apps = self.get_installed_apps()
-                return {'success': len(apps) > 0, 'apps': apps}
+                apps_json = [
+                    {
+                        'package_name': a.package_name,
+                        'app_name': getattr(a, 'app_name', None) or a.package_name,
+                        'version_name': getattr(a, 'version_name', None),
+                        'is_system_app': getattr(a, 'is_system_app', None),
+                    } for a in apps
+                ]
+                return {'success': len(apps_json) > 0, 'apps': apps_json, 'count': len(apps_json)}
+
+            elif command == 'list_actions':
+                # BUG-0588: the unknown-command error message below *recommends*
+                # `list_actions()` to discover commands, but no `list_actions` handler
+                # existed — every call fell into the same error. Implement it so
+                # the recommendation actually works. Returns the canonical command
+                # list with a one-line description for each (sourced from
+                # `android_mobile.py:execute_command` so the two cannot drift).
+                return {
+                    'success': True,
+                    'actions': [
+                        {'command': 'press_key',          'params': 'key (HOME / BACK / POWER / KEYCODE_<code>)'},
+                        {'command': 'input_text',         'params': 'text (string to type into the focused field)'},
+                        {'command': 'launch_app',         'params': 'package OR package_name (e.g. com.android.settings)'},
+                        {'command': 'open_url',           'params': 'url (http/https) [package (browser to use)]'},
+                        {'command': 'close_app',          'params': 'package (force-stop)'},
+                        {'command': 'click_element',      'params': 'element_id OR text (matches text / content-desc / resource-id)'},
+                        {'command': 'click_element_by_id','params': 'element_id (from a fresh dump_elements)'},
+                        {'command': 'tap_coordinates',    'params': 'x, y (px) OR x_pct, y_pct (0..1 of live screen)'},
+                        {'command': 'swipe',              'params': 'from_x, from_y, to_x, to_y, [duration=300ms]'},
+                        {'command': 'swipe_up/down/left/right', 'params': '(uses sensible defaults)'},
+                        {'command': 'SWIPE_UP/DOWN/LEFT/RIGHT', 'params': 'uppercase = finger direction, screen-relative (remote panel)'},
+                        {'command': 'dump_elements',      'params': '(no params) — uiautomator dump of the current screen'},
+                        {'command': 'find_element',       'params': 'search_term (substring of text / content_desc / resource_id / class_name)'},
+                        {'command': 'get_installed_apps', 'params': '(no params)'},
+                        {'command': 'take_screenshot',    'params': '[wait_time=0] — saves to /tmp/ai_screenshot_latest.png'},
+                        {'command': 'capture_camera_image','params': 'output_path, [wait_time=3000]'},
+                    ],
+                    'count': 16,
+                }
 
             elif command == 'take_screenshot':
                 # Capture a screenshot and save to disk for the step report.
@@ -1548,20 +1612,47 @@ class AndroidMobileRemoteController(RemoteControllerInterface):
                 return {'success': False, 'message': 'getMenuInfo should be called via verification route, not action route'}
             
             else:
-                # ❌ VALIDATION: Raise clear error for unknown commands
+                # ❌ VALIDATION: Raise clear error for unknown commands.
+                # BUG-0588: the previous error message said "Did you mean 'click_element'
+                # (text-based) instead of 'click_element_by_index'?" but `click_element_by_index`
+                # was never a real command — the real one is `click_element_by_id` (matches
+                # the dump_elements `element.id` field). Replace the false hint with a
+                # nearest-match suggestion. `list_actions` is now a real command, so the
+                # second hint actually works.
                 valid_commands = [
                     'press_key', 'input_text', 'launch_app', 'open_url', 'close_app',
-                    'click_element', 'click_element_by_id', 'tap_coordinates',
+                    'click_element', 'click_element_by_id', 'tap_coordinates', 'tap',
                     'swipe', 'swipe_up', 'swipe_down', 'swipe_left', 'swipe_right',
                     'SWIPE_UP', 'SWIPE_DOWN', 'SWIPE_LEFT', 'SWIPE_RIGHT',
                     'dump_elements', 'find_element', 'get_installed_apps', 'capture_camera_image',
-                    'take_screenshot'
+                    'take_screenshot', 'list_actions'
                 ]
+                # Nearest-match: pick the valid command with the shortest Levenshtein
+                # distance to the requested one. Pure-Python implementation; bounded to
+                # 100-char strings (no DoS risk from a 100kB prompt typo).
+                def _levenshtein(a: str, b: str) -> int:
+                    if a == b: return 0
+                    if not a: return len(b)
+                    if not b: return len(a)
+                    prev = list(range(len(b) + 1))
+                    for i, ca in enumerate(a, 1):
+                        curr = [i] + [0] * len(b)
+                        for j, cb in enumerate(b, 1):
+                            curr[j] = min(
+                                prev[j] + 1,        # delete
+                                curr[j-1] + 1,       # insert
+                                prev[j-1] + (0 if ca == cb else 1),  # replace
+                            )
+                        prev = curr
+                    return prev[-1]
+                hint = min(valid_commands, key=lambda v: (_levenshtein(v, command), v)) if command else ''
+                if hint == command or _levenshtein(hint, command) > max(3, len(command) // 3):
+                    hint = ''
+                hint_msg = f" Did you mean '{hint}'?" if hint else ''
                 error_msg = (
                     f"❌ Invalid command '{command}' for android_mobile device. "
-                    f"Valid commands: {', '.join(valid_commands)}. "
-                    f"Did you mean 'click_element' (text-based) instead of 'click_element_by_index'? "
-                    f"Use list_actions() to see all available commands."
+                    f"Valid commands: {', '.join(valid_commands)}.{hint_msg} "
+                    f"Run list_actions to see all available commands with their parameters."
                 )
                 print(f"Remote[{self.device_type.upper()}]: {error_msg}")
                 return {'success': False, 'error': error_msg}

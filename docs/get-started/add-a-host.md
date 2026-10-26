@@ -1,37 +1,38 @@
 # Add a machine with devices
 
-A **host** is the piece that talks to your devices — HDMI capture cards, IR and Bluetooth
-blasters, Android over the network, browsers. It runs next to the hardware, and it joins a
-VirtualPyTest platform that already exists somewhere else.
+A **host** talks to your devices: capture cards, remotes and Android devices. It runs next to the hardware and joins a platform that already exists elsewhere. Use this when your devices are not where the platform is.
 
-Use this when your devices are not where the platform is: devices in a lab and the
-platform on a server, devices at a customer site, or a second rack of set-top boxes added
-to a platform you already run.
+<div data-technical>
 
-The device controller is the one piece that **cannot** be hosted for you: it needs physical
-access to the hardware. Everything else can live anywhere.
+Examples: devices in a lab and the platform on a server, devices at a customer site, or a second rack of set-top boxes added to a platform you already run. The device controller is the one part that cannot be hosted for you, because it needs physical access to the hardware. Everything else can live anywhere.
+
+</div>
 
 ## Install
 
-On the machine with the devices:
+Do this on the machine that has the devices.
 
-**1. Get the bundle.**
+**1. Get the bundle.** It is the same as the one-machine install.
+
+<div data-technical>
 
 ```bash
 curl -L https://github.com/AngelStreetCorp/virtualpytest/releases/latest/download/vpt-docker.tar.gz | tar xz
 cd vpt-docker-*
 ```
 
-**2. Tell it which platform to join** — do this *before* the first launch, or `launch.sh`
-generates its own `API_KEY` and the server rejects the host. The file ships with a
-"Host-only mode" block, commented out:
+</div>
+
+**2. Tell it which platform to join.** Do this before the first launch, or the server turns the host away. Copy the values from the existing server's settings exactly. You choose only the host name and this machine's address.
+
+<div data-technical>
+
+The settings file has a "Host-only mode" block that is switched off by default. Turn it on and fill it in. `HOST_NAME` and `PUBLIC_HOST` are near the top of the file, not in that block. Anything you leave as `CHANGE_ME` gets a generated value. That is what you want for everything except the shared values below.
 
 ```bash
 cp setup/docker/.env.example setup/docker/.env
 $EDITOR setup/docker/.env        # uncomment and fill the "Host-only mode" block
 ```
-
-Every value comes from the existing server's own `.env` and must match exactly:
 
 | Variable | Where it comes from |
 |---|---|
@@ -42,65 +43,75 @@ Every value comes from the existing server's own `.env` and must match exactly:
 | `HOST_NAME` | a name unique to this machine, e.g. `lab-paris-1` |
 | `PUBLIC_HOST` | this machine's address **as a browser reaches it** (see below) |
 
-`HOST_NAME` and `PUBLIC_HOST` are near the top of the file rather than in the host-only
-block. Anything you leave as `CHANGE_ME` gets a generated value, which is what you want
-for everything except the shared values above.
+</div>
 
-**3. Configure the devices** in `backend_host/src/.env` — the same one file as any other
-install. See [Install](install.md#adding-your-own-devices).
+**3. Set up the devices.** Follow [Install](install.md#adding-your-own-devices).
 
-**4. Start it.**
+<div data-technical>
+
+The device settings file is `backend_host/src/.env`.
+
+</div>
+
+**4. Start it.** Only the device part starts. The platform already has its database, web app and Grafana.
+
+<div data-technical>
 
 ```bash
 ./setup/docker/launch.sh --host-only
 ```
 
-This pulls the prebuilt host image and starts one container: the device controller, its
-browser and its VNC desktop. No database, no web UI, no Grafana — those are the
-platform's, and it already has them.
+This pulls the prebuilt host image and starts one container: the device controller, its browser and its VNC desktop. No database, no web UI, no Grafana.
+
+</div>
 
 ## The part people get stuck on: the browser talks to the host directly
 
-Streams and the VNC desktop are **not** proxied through the server. The browser connects
-straight to this machine on ports 6109 and 6080, using the address in `PUBLIC_HOST`.
+Video and the remote desktop go from the browser straight to this machine, not through the server. That works when both are on the same network. If the platform is public and the host sits behind a router, the host shows up in the web app but its video never loads.
 
-That is fine when the browser and the host are on the same network. It fails when the
-platform is on a public server and the host sits in a lab behind NAT — the server can be
-reached, the host cannot, and the UI shows a registered host whose video never loads.
+There are three ways to fix this. Try them in this order.
 
-Three ways to fix it, in the order I would try them:
+1. **A private network such as Tailscale.** The simplest choice for a known team. Install it on the host and on the machines that open the app.
+2. **A Cloudflare Tunnel.** Best when the app must work from anywhere, with no software on the client.
+3. **Port forwarding.** Only on a network you control, with TLS and login turned on. You expose the device controller and remote desktop to the internet, so read the [production checklist](production-checklist.md) first.
 
-**1. Tailscale (or any WireGuard mesh)** — simplest when the people using the UI are a
-known team. Install Tailscale on the host and on the machines that open the UI, then set
-`PUBLIC_HOST` to the host's Tailscale address. Nothing is exposed publicly.
+<div data-technical>
 
-**2. Cloudflare Tunnel** — best when the UI must work from anywhere, with no client
-software. Run a tunnel on the host for ports 6109 and 6080, publish them as hostnames, and
-set `PUBLIC_HOST` to the tunnel hostname. No inbound firewall rule at all.
+For Tailscale, set `PUBLIC_HOST` to the host's address on that network. Nothing is exposed to the public internet.
 
-**3. Port forwarding** — only on a network you control, and only with TLS and login
-enabled. You are exposing a device controller and a remote desktop to the internet; read
-the [production checklist](production-checklist.md) first.
+For a Cloudflare Tunnel, run a tunnel on the host, publish its ports as names, and set `PUBLIC_HOST` to the tunnel name. No inbound firewall rule is needed.
 
-Whichever you pick, `PUBLIC_HOST` must be the address **a browser** can reach — not the
-host's LAN IP, and not `localhost`.
+Port forwarding exposes the host's ports directly. Ports to reach: 6109 (host API) and 6080 (VNC desktop, noVNC).
+
+Whichever you pick, `PUBLIC_HOST` must be an address a **browser** can reach. It must not be the host's LAN address, and it must not be `localhost`.
+
+</div>
 
 ## Check it worked
+
+Open the web app. The host appears under *Devices*. If it shows up but video does not load, the cause is reachability, not the install.
+
+<div data-technical>
 
 ```bash
 curl -fsS http://localhost:6109/host/system/health
 ```
 
-Then open the platform's web UI: the host appears under *Devices* with its name, and its
-devices under it. If it registered but video does not load, it is the reachability problem
-above, not the install.
+</div>
 
 ## Notes
 
-- One host can serve many devices; you do not need a machine per device.
-- A host never stores test results itself — it writes captures to the platform's storage,
-  which is why the `MINIO_*` / `CLOUDFLARE_R2_*` values must match the server's.
-- Real hardware needs `/dev` access, which the Linux Docker override already grants. On
-  macOS, USB capture cards and IR blasters are not passed into containers — use a browser
-  or Android-over-network device there, or run the host on Linux.
-- Native install instead of Docker: the per-role installers in [proxmox.md](proxmox.md).
+- One host can serve many devices. You do not need one machine per device.
+- A host stores no test results. Captures go to the platform's storage.
+- USB capture cards and infrared remotes cannot be passed into Docker on macOS. Use a browser or an Android device over the network there, or run the host on Linux.
+- To install without Docker, use the per-job installers in [proxmox.md](proxmox.md).
+
+<div data-technical>
+
+A host never stores test results. It writes captures to the platform's storage. That is why the file storage values must match the server's.
+
+Real hardware needs access to the machine's device files. The Linux container setup already grants this. On macOS, USB capture cards and infrared remotes cannot be passed into containers.
+
+File storage values: `MINIO_*` or `CLOUDFLARE_R2_*`, which must match the server's. Device access: `/dev`, granted by the Linux Docker override.
+
+</div>

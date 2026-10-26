@@ -1,6 +1,6 @@
 """Transcript of a device over a time window, plus WHY it is empty when it is.
 
-vpt-transcript (backend_host/scripts/transcript_accumulator.py) does two jobs: the always-on
+vpt-monitor-audio (backend_host/scripts/transcript_accumulator.py) does two jobs: the always-on
 audio check (writes ``hot/metadata/audio_status.json`` every <=30 s, including its mode in
 ``transcription``) and, only when ENABLE_TRANSCRIPTION=true, Whisper transcription of the
 archiver's MP3s into ``<capture>/transcript/<hour>/chunk_10min_<index>.json``. A segment's
@@ -11,11 +11,12 @@ archiver's MP3s into ``<capture>/transcript/<hour>/chunk_10min_<index>.json``. A
 
   status        reason                    meaning
   ok            transcribed               segments found
-  unavailable   service_inactive          vpt-transcript is not running
+  unavailable   service_inactive          vpt-monitor-audio is not running
   unavailable   transcription_disabled    service runs in AUDIO DETECTION ONLY mode
   empty         no_audio_stream           the device captures no audio (VIDEO_AUDIO=null)
   empty         silent_audio              audio was silent (minutes flagged silent, or silent now)
   empty         no_speech                 MP3s transcribed, VAD/Whisper found no speech
+  empty         broadcaster_subtitles     caption_playback: broadcaster subtitles on screen, no machine captions
   empty         no_audio_recorded         no MP3 for that (past) window: capture/archiver was not recording
   empty         processing_pending        MP3s too fresh to be transcribed yet (~1-2 min lag)
   error         audio_status_missing      no audio_status.json: device not captured/monitored
@@ -35,7 +36,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Optional
 
-TRANSCRIPT_UNIT = 'vpt-transcript'
+TRANSCRIPT_UNIT = 'vpt-monitor-audio'
 AUDIO_STATUS_MAX_AGE_S = 60      # same staleness rule as capture_monitor.py
 PROCESSING_LAG_S = 180           # an MP3 younger than this may not be transcribed yet
 MAX_WINDOW_MINUTES = 120
@@ -43,7 +44,7 @@ MAX_SEGMENTS = 400
 
 
 def _service_state() -> Optional[str]:
-    """``systemctl is-active vpt-transcript`` ('active', 'inactive', 'failed', ...), or None off Linux."""
+    """``systemctl is-active vpt-monitor-audio`` ('active', 'inactive', 'failed', ...), or None off Linux."""
     if platform.system() != 'Linux':
         return None
     try:
@@ -91,7 +92,7 @@ def read_transcript_status(device_id: str, capture_folder: str, start: datetime,
     now = now or datetime.now()
     now_ts = time.time()
 
-    # --- service + mode + audio, as written by vpt-transcript itself ---
+    # --- service + mode + audio, as written by vpt-monitor-audio itself ---
     service_state = _service_state()
     service_active = None if service_state is None else service_state == 'active'
     audio_path = os.path.join(get_metadata_path(capture_folder), 'audio_status.json')
@@ -213,6 +214,8 @@ def _classify(*, segments, service_state, service_active, audio_status, audio_ag
         return 'empty', 'silent_audio'
     if 'no_speech' in minute_reasons:
         return 'empty', 'no_speech'
+    if 'broadcaster_subtitles' in minute_reasons:
+        return 'empty', 'broadcaster_subtitles'
     if not mp3_times:
         if audio_status.get('audio') is False:
             return 'empty', 'silent_audio'
@@ -227,32 +230,34 @@ def _classify(*, segments, service_state, service_active, audio_status, audio_ag
 
 
 _MESSAGES = {
-    'service_inactive': "vpt-transcript is not running on this host (state: {service_state}). "
-                        "No audio check and no transcription. Start it: sudo systemctl start vpt-transcript.",
-    'transcription_disabled': "Transcription is disabled on this host: vpt-transcript runs in AUDIO DETECTION ONLY "
+    'service_inactive': "vpt-monitor-audio is not running on this host (state: {service_state}). "
+                        "No audio check and no transcription. Start it: sudo systemctl start vpt-monitor-audio.",
+    'transcription_disabled': "Transcription is disabled on this host: vpt-monitor-audio runs in AUDIO DETECTION ONLY "
                               "mode (ENABLE_TRANSCRIPTION unset/false). Only the audio check runs; no transcript "
-                              "is produced. Enable with the systemd drop-in vpt-transcript.service.d/transcription.conf "
-                              "(Environment=ENABLE_TRANSCRIPTION=true) and restart vpt-transcript.",
+                              "is produced. Enable with the systemd drop-in vpt-monitor-audio.service.d/transcription.conf "
+                              "(Environment=ENABLE_TRANSCRIPTION=true) and restart vpt-monitor-audio.",
     'no_audio_stream': "Transcription is on, but this device captures no audio (no audio stream; VIDEO_AUDIO=null "
                        "in the host .env), so there is nothing to transcribe.",
     'silent_audio': "Transcription is on, but the audio was silent in this window ({volume}), "
                     "so there was nothing to transcribe.",
     'no_speech': "Transcription is on and the audio was processed, but no speech was found in this window "
                  "(music/noise; the voice-activity filter dropped it).",
+    'broadcaster_subtitles': "Transcription is on (caption_playback) but the broadcaster's own subtitles are on screen in this "
+                             "window, so no machine captions were made for it.",
     'no_audio_recorded': "Transcription is on, but no audio was recorded for this window (no MP3 from the "
                          "archiver; the capture was probably not recording then).",
     'processing_pending': "Transcription is on; the audio for this window is not transcribed yet "
                           "(the transcript lags ~1-2 min). Retry shortly or ask for a longer window.",
-    'audio_status_missing': "No audio_status.json for {capture_folder}: vpt-transcript does not monitor this device "
+    'audio_status_missing': "No audio_status.json for {capture_folder}: vpt-monitor-audio does not monitor this device "
                             "(capture not running or not in active_captures.conf).",
-    'audio_check_stale': "audio_status.json is {age}s old (limit 60 s): the capture or vpt-transcript is wedged "
-                         "for this device. Check vpt-stream and journalctl -u vpt-transcript.",
-    'transcription_mode_unknown': "vpt-transcript did not report its mode (old build): restart vpt-transcript "
+    'audio_check_stale': "audio_status.json is {age}s old (limit 60 s): the capture or vpt-monitor-audio is wedged "
+                         "for this device. Check vpt-stream and journalctl -u vpt-monitor-audio.",
+    'transcription_mode_unknown': "vpt-monitor-audio did not report its mode (old build): restart vpt-monitor-audio "
                                   "so it writes 'transcription' into audio_status.json.",
     'mp3_missing': "Audio is present now, but no MP3 exists for the last minutes: the archiver is not producing "
                    "audio (check vpt-archiver).",
     'transcript_missing': "MP3s exist for this window and are old enough, but no transcript was written: "
-                          "transcription is failing (check journalctl -u vpt-transcript).",
+                          "transcription is failing (check journalctl -u vpt-monitor-audio).",
 }
 
 
@@ -266,7 +271,7 @@ def _message(r: dict) -> str:
         if r['truncated']:
             msg += f' Only the last {MAX_SEGMENTS} segments are returned; ask for a shorter window.'
         if r['service_active'] is False:
-            msg += f" Note: vpt-transcript is not running now (state: {r['service_state']})."
+            msg += f" Note: vpt-monitor-audio is not running now (state: {r['service_state']})."
         return msg
     vol = r['audio']['mean_volume_db']
     return f"No transcript for {r['device_id']} from {w['from']} to {w['to']}. " + _MESSAGES[r['reason']].format(

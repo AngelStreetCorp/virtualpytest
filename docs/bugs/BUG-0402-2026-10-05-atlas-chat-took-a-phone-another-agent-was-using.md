@@ -9,7 +9,7 @@
 | Status    | Closed                                                                |
 | Severity  | Medium                                                                |
 | Area      | scripts/atlas_chat.py + backend_server MCP `take_control`             |
-| Fixed in  | Unreleased                                                            |
+| Fixed in  | build 90145 |
 | Commit    | `b0431508ec`, `da9b5ffa1c`, `776c289d6`                               |
 
 ---

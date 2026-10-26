@@ -1,11 +1,18 @@
 import { Box, Typography } from '@mui/material';
 import { SxProps, Theme } from '@mui/material/styles';
 import React from 'react';
+import { TYPOGRAPHY } from '../../constants/typography';
 
+/**
+ * Bottom-right "what is running on this device" badge: the script/deployment name.
+ *
+ * It used to take an `ownerName` too and print "owner · script". That prop is gone: the
+ * operator's name belongs to DeviceLockBadge at bottom-left, and while both existed the
+ * name was rendered twice on the same tile. Two corners, one fact each — WHO is on the
+ * device on the left, WHAT is running on the right.
+ */
 interface RunningScriptNameBadgeProps {
   scriptName: string | null;
-  /** Who holds the device / launched the run. Shown alongside the script name. */
-  ownerName?: string | null;
   maxChars?: number;
   sx?: SxProps<Theme>;
   textSx?: SxProps<Theme>;
@@ -16,23 +23,15 @@ const truncate = (value: string, maxChars?: number) =>
 
 export const RunningScriptNameBadge: React.FC<RunningScriptNameBadgeProps> = ({
   scriptName,
-  ownerName,
   maxChars,
   sx,
   textSx,
 }) => {
-  if (!scriptName && !ownerName) {
+  if (!scriptName) {
     return null;
   }
 
-  // Both known → show both, each truncated on its own budget. Truncating the
-  // joined string would eat the script name, which is the part that changes.
-  const bothShown = Boolean(scriptName && ownerName);
-  const partBudget = bothShown && maxChars ? Math.ceil(maxChars / 2) : maxChars;
-  const label = [ownerName, scriptName]
-    .filter(Boolean)
-    .map((part) => truncate(part as string, partBudget))
-    .join(' · ');
+  const label = truncate(scriptName, maxChars);
 
   return (
     <Box
@@ -53,7 +52,7 @@ export const RunningScriptNameBadge: React.FC<RunningScriptNameBadgeProps> = ({
         variant="caption"
         sx={{
           color: '#fff',
-          fontSize: '0.7rem',
+          fontSize: TYPOGRAPHY.caption.size,
           lineHeight: 1.2,
           overflow: 'hidden',
           textOverflow: 'ellipsis',

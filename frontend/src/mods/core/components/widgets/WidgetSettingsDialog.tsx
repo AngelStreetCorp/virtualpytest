@@ -1,4 +1,5 @@
-import { Button, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, MenuItem, Stack, Switch, TextField } from '@mui/material';
+import { Button, Dialog, DialogActions, DialogContent, DialogTitle, MenuItem, Stack, TextField } from '@mui/material';
+import SettingRow from '../../../../components/common/SettingRow';
 import React, { useEffect, useState } from 'react';
 
 import { useI18n } from '../../../../i18n/useI18n';
@@ -24,12 +25,11 @@ export const WidgetSettingsDialog: React.FC<Props> = ({ def, settings, onSave, o
         <Stack spacing={2} sx={{ mt: 1 }}>
           {(def?.settings ?? []).map((field) =>
             field.type === 'boolean' ? (
-              <FormControlLabel
+              <SettingRow
                 key={field.key}
-                control={
-                  <Switch checked={Boolean(draft[field.key])} onChange={(e) => setDraft({ ...draft, [field.key]: e.target.checked })} />
-                }
-                label={t(field.label)}
+                title={t(field.label)}
+                checked={Boolean(draft[field.key])}
+                onChange={(on) => setDraft({ ...draft, [field.key]: on })}
               />
             ) : (
               <TextField

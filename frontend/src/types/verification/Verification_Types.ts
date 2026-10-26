@@ -85,6 +85,7 @@ export interface AppiumVerificationParams {
 export interface WebVerificationParams {
   search_term?: string; // waitForElementTo*: element search term (text, selector, aria-label)
   title?: string; // waitForTitleToAppear: expected text in document.title (case-insensitive)
+  url_pattern?: string; // waitForUrlToMatch: URL path glob, language segment ignored
   timeout?: number; // Optional: timeout in ms, default 10000
   check_interval?: number; // Optional: interval between checks in seconds, default 1
 }

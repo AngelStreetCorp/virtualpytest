@@ -9,7 +9,7 @@
 | Status    | Fixed                                                            |
 | Severity  | Medium                                                           |
 | Area      | backend_server / backend_host — drone (Tello) status polling     |
-| Fixed in  | Unreleased                                                       |
+| Fixed in  | build 90145 |
 | Commit    | `db36f0f43`                                                      |
 
 ---
@@ -114,7 +114,7 @@ After deploying the two route files to vpt-pi4 and restarting `vpt-host` then
 
 ```
 GET /host/drone/tello/status -> 200
-  {"success": true, "linked": false, "airborne": false, "ip": "192.168.10.1",
+  {"success": true, "linked": false, "airborne": false, "ip": "192.168.x.1",
    "state_port": 8890, "video_port": 11111, "last_error": null, ...}
 ```
 

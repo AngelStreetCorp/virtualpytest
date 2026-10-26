@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { ensureHostSession, isGatedHostPath } from '../utils/buildUrlUtils';
+import { ensureHostSession, ensureHostSessionOnce, isGatedHostPath } from '../utils/buildUrlUtils';
 
 // Well under the 10-minute cookie TTL (server_host_session_routes.py:HOST_SESSION_TTL_SECONDS)
 // so a refresh always lands before expiry, even under load.
@@ -32,7 +32,9 @@ export function useHostSession(url: string | null | undefined, keepAlive: boolea
 
     let cancelled = false;
     setMintedReady(false);
-    ensureHostSession(url).then((ok) => {
+    // One mint per host, shared by every component that shows an image of that host
+    // (BUG-0779): a page with twenty frames used to send twenty mint requests.
+    ensureHostSessionOnce(url).then((ok) => {
       if (!cancelled) setMintedReady(ok);
     });
 

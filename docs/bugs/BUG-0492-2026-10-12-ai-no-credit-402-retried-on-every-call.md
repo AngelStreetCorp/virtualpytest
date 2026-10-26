@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High                                                         |
 | Area      | backend / AI gateway / alert triage                          |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `fa248686b`                                                  |
 
 ---

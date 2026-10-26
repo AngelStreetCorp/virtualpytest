@@ -14,6 +14,7 @@ import { Box, FormControl, InputLabel, Select, MenuItem, Tooltip, Typography } f
 
 import { KpiActionSet, useKpiActionSets } from '../../hooks/script/useKpiActionSets';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface EdgeKpiSelectorProps {
   userinterfaceName?: string;
@@ -166,7 +167,7 @@ export const EdgeKpiSelector: React.FC<EdgeKpiSelectorProps> = ({
       fullWidth={fullWidth}
       disabled={disabled || !userinterfaceName || loading || actionSets.length === 0}
     >
-      <InputLabel shrink sx={{ fontSize: '0.75rem' }}>
+      <InputLabel shrink sx={{ fontSize: TYPOGRAPHY.caption.size }}>
         {label}
       </InputLabel>
       <Select
@@ -206,7 +207,7 @@ export const EdgeKpiSelector: React.FC<EdgeKpiSelectorProps> = ({
               // Friendly name as the primary label, raw edge name as subtext.
               <Box sx={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
                 <span>{a.kpi_name}</span>
-                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                   {a.label}
                 </Typography>
               </Box>

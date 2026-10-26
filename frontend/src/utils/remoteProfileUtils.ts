@@ -39,6 +39,29 @@ const CANONICAL_PROFILES: Record<string, ReadonlyArray<string>> = {
 
 export const deviceRemoteProfiles = (device: Device): string[] => device.remote_profiles ?? [];
 
+/**
+ * Does this device have any remote controller configured at all?
+ *
+ * Mirrors the `hasAnyRemote` check in RemotePanel (its "No remote configured"
+ * empty state) so the take-control entry point and the panel agree on one
+ * definition — RemotePanel documents that the entry point "should also be
+ * disabled upstream (gated on hasAnyRemote)". Kept here, next to the profile
+ * helpers, rather than inline in each caller so they cannot drift.
+ *
+ * `device_capabilities.remote` is typed `string` but the backend sends a LIST
+ * when a device has several controllers (see RemotePanel's finalRemoteType
+ * resolution), so both shapes are handled. The 'switch' slot counts as a
+ * remote: nintendo_switch and any future switch-driven device route their
+ * input through it (bluetooth_procon).
+ */
+export const hasRemoteConfigured = (device: Device | undefined): boolean => {
+  const cap = device?.device_capabilities?.remote as string | string[] | undefined;
+  if (Array.isArray(cap)) return cap.filter(Boolean).length > 0;
+  if (typeof cap === 'string') return cap.length > 0;
+  const sw = device?.device_capabilities?.switch;
+  return typeof sw === 'string' && sw.length > 0;
+};
+
 /** The `remote_type` the host resolves for a profile (and the RemotePanel case it renders). */
 export const profileRemoteType = (profile: string): string => {
   if (profile.startsWith(IR_PREFIX)) return 'ir_remote';

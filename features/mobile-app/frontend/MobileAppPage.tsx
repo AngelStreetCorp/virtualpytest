@@ -20,7 +20,6 @@ import {
   Alert,
   Box,
   Button,
-  CircularProgress,
   FormControl,
   IconButton,
   MenuItem,
@@ -40,6 +39,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { QRCodeSVG } from 'qrcode.react';
 
 import PairQrDialog from './PairQrDialog';
+import { TableRowsSkeleton } from '../../../frontend/src/components/common/ReportSkeleton';
 
 import { getEnv } from '../../../frontend/src/config/constants';
 import { usePermissions } from '../../../frontend/src/hooks/auth/usePermissions';
@@ -190,14 +190,6 @@ export default function MobileAppPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, ...(pageSurfaceSx(P) as object) }}>
       <Typography component="h1" sx={PAGE_TITLE_SX}>Mobile app & phones</Typography>
@@ -278,7 +270,24 @@ export default function MobileAppPage() {
             </Tooltip>
           </Box>
 
-          {!anyHostHasSlots ? (
+          {loading ? (
+            // Phone-slot table still loading: keep host picker visible, draw the table shell.
+            <Paper variant="outlined">
+              <Table size="small" sx={{ '& .MuiTableRow-root:hover': { backgroundColor: 'transparent !important' } }}>
+                <TableHead>
+                  <TableRow>
+                    <TableCell>Slot</TableCell>
+                    <TableCell>Phone</TableCell>
+                    <TableCell>State</TableCell>
+                    <TableCell align="right">Pair / Action</TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  <TableRowsSkeleton widths={[80, 240, 100, 120]} />
+                </TableBody>
+              </Table>
+            </Paper>
+          ) : !anyHostHasSlots ? (
             <Typography variant="body2" color="text.secondary">
               {EMPTY_STATE_TEXT}
             </Typography>

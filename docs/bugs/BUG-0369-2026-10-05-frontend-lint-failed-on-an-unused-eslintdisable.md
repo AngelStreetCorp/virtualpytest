@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)               |
 | Severity  | Medium — a required CI check was red |
 | Area      | Frontend (agent chat page)                               |
-| Fixed in  | Unreleased                           |
+| Fixed in  | build 90145 |
 | Commit    | this commit                          |
 
 ---

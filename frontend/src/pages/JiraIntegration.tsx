@@ -5,8 +5,6 @@ import {
   Edit as EditIcon,
   OpenInNew as OpenInNewIcon,
   Refresh as RefreshIcon,
-  CheckCircle as CheckCircleIcon,
-  Error as ErrorIcon,
 } from '@mui/icons-material';
 import {
   Alert,
@@ -15,12 +13,9 @@ import {
   Card,
   CardContent,
   Chip,
-  DialogActions,
   DialogContent,
   DialogTitle,
   FormControl,
-  FormControlLabel,
-  Switch,
   Grid,
   IconButton,
   InputLabel,
@@ -34,25 +29,16 @@ import {
   TableContainer,
   TableHead,
   TableRow,
-  TextField,
   Tooltip,
   Typography,
 } from '@mui/material';
 import React, { useEffect, useState } from 'react';
-import { APP_CONFIG } from '../config/constants';
+import JiraInstanceForm, { JiraInstance } from '../components/integrations/JiraInstanceForm';
 import { buildServerUrl } from '../utils/buildUrlUtils';
 import { StyledDialog } from '../components/common/StyledDialog';
 import { useResponsiveMode } from '../hooks/useResponsiveMode';
-
-interface JiraInstance {
-  id: string;
-  name: string;
-  domain: string;
-  email: string;
-  projectKey: string;
-  /** Teams whose test-result defects may be pushed to this instance (server-enforced). */
-  teamIds?: string[];
-}
+import { dangerButtonSx } from '../components/common/PageChrome';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 
 interface JiraTicket {
   id: string;
@@ -73,6 +59,7 @@ interface JiraStats {
 }
 
 const JiraIntegration: React.FC = () => {
+  const P = useAgentChatPalette();
   const { isMobile } = useResponsiveMode();
   const [instances, setInstances] = useState<JiraInstance[]>([]);
   const [selectedInstance, setSelectedInstance] = useState<string>('');
@@ -84,17 +71,6 @@ const JiraIntegration: React.FC = () => {
   // Dialog states
   const [configDialogOpen, setConfigDialogOpen] = useState(false);
   const [editingInstance, setEditingInstance] = useState<JiraInstance | null>(null);
-  const [formData, setFormData] = useState({
-    name: '',
-    domain: '',
-    email: '',
-    apiToken: '',
-    projectKey: '',
-    allowTeamDefects: false,
-  });
-  const [testingConnection, setTestingConnection] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-
   // Load instances on mount
   useEffect(() => {
     loadInstances();
@@ -185,22 +161,11 @@ const JiraIntegration: React.FC = () => {
 
   const handleAddInstance = () => {
     setEditingInstance(null);
-    setFormData({ name: '', domain: '', email: '', apiToken: '', projectKey: '', allowTeamDefects: false });
-    setTestResult(null);
     setConfigDialogOpen(true);
   };
 
   const handleEditInstance = (instance: JiraInstance) => {
     setEditingInstance(instance);
-    setFormData({
-      name: instance.name,
-      domain: instance.domain,
-      email: instance.email,
-      apiToken: '',
-      projectKey: instance.projectKey,
-      allowTeamDefects: (instance.teamIds || []).includes(APP_CONFIG.DEFAULT_TEAM_ID),
-    });
-    setTestResult(null);
     setConfigDialogOpen(true);
   };
 
@@ -222,68 +187,6 @@ const JiraIntegration: React.FC = () => {
     } catch (err) {
       console.error('Error deleting instance:', err);
       alert('Failed to delete instance');
-    }
-  };
-
-  const handleTestConnection = async () => {
-    setTestingConnection(true);
-    setTestResult(null);
-    
-    try {
-      const response = await fetch(buildServerUrl('/server/integrations/jira/test/test'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify((({ allowTeamDefects: _ignored, ...fields }) => fields)(formData)),
-      });
-      const data = await response.json();
-      
-      if (data.success) {
-        setTestResult({
-          success: true,
-          message: `Connected successfully as ${data.user}`,
-        });
-      } else {
-        setTestResult({
-          success: false,
-          message: data.error || 'Connection failed',
-        });
-      }
-    } catch {
-      setTestResult({
-        success: false,
-        message: 'Connection test failed',
-      });
-    } finally {
-      setTestingConnection(false);
-    }
-  };
-
-  const handleSaveInstance = async () => {
-    try {
-      // Only this team's membership is toggled; other teams bound to the instance are kept.
-      const { allowTeamDefects, ...fields } = formData;
-      const otherTeams = (editingInstance?.teamIds || []).filter((t) => t !== APP_CONFIG.DEFAULT_TEAM_ID);
-      const teamIds = allowTeamDefects ? [...otherTeams, APP_CONFIG.DEFAULT_TEAM_ID] : otherTeams;
-      const payload = editingInstance
-        ? { ...fields, teamIds, id: editingInstance.id }
-        : { ...fields, teamIds };
-      
-      const response = await fetch(buildServerUrl('/server/integrations/jira/instances'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-      const data = await response.json();
-      
-      if (data.success) {
-        setConfigDialogOpen(false);
-        loadInstances();
-      } else {
-        alert(data.error || 'Failed to save instance');
-      }
-    } catch (err) {
-      console.error('Error saving instance:', err);
-      alert('Failed to save instance');
     }
   };
 
@@ -365,9 +268,9 @@ const JiraIntegration: React.FC = () => {
                   </Button>
                   <Button
                     variant="outlined"
-                    color="error"
                     startIcon={<DeleteIcon />}
                     onClick={() => handleDeleteInstance(selectedInstance)}
+                    sx={dangerButtonSx(P)}
                   >
                     Delete
                   </Button>
@@ -513,96 +416,15 @@ const JiraIntegration: React.FC = () => {
           </IconButton>
         </DialogTitle>
         <DialogContent>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mt: 2 }}>
-            <TextField
-              label="Instance Name"
-              fullWidth
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              placeholder="My JIRA"
+          <Box sx={{ mt: 2 }}>
+            <JiraInstanceForm
+              instance={editingInstance}
+              onCancel={() => setConfigDialogOpen(false)}
+              onSaved={() => { setConfigDialogOpen(false); loadInstances(); }}
+              tokenHelper="Generate at: https://id.atlassian.com/manage/api-tokens"
             />
-            <TextField
-              label="JIRA Domain"
-              fullWidth
-              value={formData.domain}
-              onChange={(e) => setFormData({ ...formData, domain: e.target.value })}
-              placeholder="yourcompany.atlassian.net"
-              helperText="Your JIRA domain (without https://)"
-            />
-            <TextField
-              label="Email"
-              fullWidth
-              type="email"
-              value={formData.email}
-              onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-              placeholder="your.email@company.com"
-            />
-            <TextField
-              label="API Token"
-              fullWidth
-              type="password"
-              value={formData.apiToken}
-              onChange={(e) => setFormData({ ...formData, apiToken: e.target.value })}
-              helperText="Generate at: https://id.atlassian.com/manage/api-tokens"
-            />
-            <TextField
-              label="Project Key"
-              fullWidth
-              value={formData.projectKey}
-              onChange={(e) => setFormData({ ...formData, projectKey: e.target.value })}
-              placeholder="PROJ"
-              helperText="The project key (e.g., PROJ from PROJ-123)"
-            />
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={formData.allowTeamDefects}
-                  onChange={(e) => setFormData({ ...formData, allowTeamDefects: e.target.checked })}
-                />
-              }
-              label="Allow this team's test-result defects to be pushed here"
-            />
-
-            {testResult && (
-              <Alert
-                severity={testResult.success ? 'success' : 'error'}
-                icon={testResult.success ? <CheckCircleIcon /> : <ErrorIcon />}
-              >
-                {testResult.message}
-              </Alert>
-            )}
-
-            <Button
-              variant="outlined"
-              onClick={handleTestConnection}
-              disabled={
-                testingConnection ||
-                !formData.domain ||
-                !formData.email ||
-                !formData.apiToken ||
-                !formData.projectKey
-              }
-            >
-              {testingConnection ? 'Testing...' : 'Test Connection'}
-            </Button>
           </Box>
         </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setConfigDialogOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
-            onClick={handleSaveInstance}
-            disabled={
-              !formData.name ||
-              !formData.domain ||
-              !formData.email ||
-              !formData.apiToken ||
-              !formData.projectKey
-            }
-          >
-            Save
-          </Button>
-        </DialogActions>
       </StyledDialog>
     </Box>
   );

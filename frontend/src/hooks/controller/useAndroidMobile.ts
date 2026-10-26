@@ -1,5 +1,6 @@
-import { useState, useRef, useCallback, useMemo, useEffect } from 'react';
+import { useState, useRef, useCallback, useMemo, useEffect, useContext } from 'react';
 
+import { HostDataContext } from '../../contexts/HostDataContext';
 import { Host } from '../../types/common/Host_Types';
 import { AndroidElement, AndroidApp } from '../../types/controller/Remote_Types';
 
@@ -106,12 +107,23 @@ export function useAndroidMobile(selectedHost: Host | null, deviceId: string | n
 
   const screenshotRef = useRef<HTMLImageElement>(null);
   const { postToHost, executeRemoteCommand } = useControllerApi(selectedHost, deviceId);
+  // Read the host registry without the provider's throwing wrapper: the remote panel is
+  // also rendered on the /remote-test page, for mock hosts the server has never heard
+  // of. Asking the server about those answered 400 on every load of the page — a
+  // request that can never succeed (BUG-0781).
+  const hostData = useContext(HostDataContext);
+  const hostIsRegistered = useMemo(() => {
+    if (!selectedHost?.host_name) return false;
+    const hosts = hostData?.getAllHosts?.() ?? [];
+    return hosts.some((h) => h.host_name === selectedHost.host_name);
+  }, [hostData, selectedHost]);
 
   // Auto-detect orientation: read the device's live rotation (via ADB dumpsys) instead of
   // requiring a manual toggle. Falls back silently to whatever toggleOrientation last set
   // if the host/ADB can't answer (e.g. older host build, device offline).
   const checkOrientation = useCallback(async () => {
     if (!selectedHost || !deviceId) return;
+    if (!hostIsRegistered) return;
     try {
       const result = await postToHost('/server/remote/getOrientation', {}, { includeDeviceId: true });
       if (!result?.success) return;
@@ -135,7 +147,7 @@ export function useAndroidMobile(selectedHost: Host | null, deviceId: string | n
     } catch (error) {
       console.warn('[@hook:useAndroidMobile] Orientation auto-detect failed:', error);
     }
-  }, [selectedHost, deviceId, postToHost, onOrientationChange]);
+  }, [selectedHost, deviceId, postToHost, onOrientationChange, hostIsRegistered]);
 
   // No polling interval: orientation only changes as a side effect of a tap (handled by the
   // post-tap check in handleTap/handleOverlayElementClick below), or a manual physical

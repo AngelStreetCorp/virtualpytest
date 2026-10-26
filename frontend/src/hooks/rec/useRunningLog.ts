@@ -52,6 +52,18 @@ export interface RunningLogData {
 
 const MAX_RUNNING_LOG_FAILURES = 3;
 const POLL_INTERVAL_MS = 2000;
+/**
+ * How many 404s in a row mean "this log is not coming soon": the poll then slows down.
+ *
+ * A 404 right after a run starts is normal: a testcase writes its running.log after the
+ * first block starts. But a run whose log never arrives — a deployment whose execution row
+ * is stuck in `running` while nothing runs on the host — must not be polled every two
+ * seconds for ever (BUG-0780). Fifteen misses are thirty seconds of grace; after that the
+ * poll backs off to SLOW_POLL_INTERVAL_MS instead of stopping, because a run that is queued
+ * (browser slot, device lock) writes its log late and still needs its overlay.
+ */
+const MAX_RUNNING_LOG_MISSES = 15;
+const SLOW_POLL_INTERVAL_MS = 15000;
 
 /**
  * Centralized polling for running.log. Single source of truth for script execution state.
@@ -64,16 +76,26 @@ export const useRunningLog = (
 ): { logData: RunningLogData | null; scriptName: string | null } => {
   const [logData, setLogData] = useState<RunningLogData | null>(null);
   const failureCountRef = useRef(0);
+  const missCountRef = useRef(0);
 
   useEffect(() => {
+    // A new device/host is a new run to wait for: its miss count starts from zero.
+    failureCountRef.current = 0;
+    missCountRef.current = 0;
     if (!enabled || !deviceId) {
-      failureCountRef.current = 0;
       setLogData(null);
       return;
     }
 
     let isCancelled = false;
     let intervalId: NodeJS.Timeout | null = null;
+    let paceMs = POLL_INTERVAL_MS;
+    const setPace = (ms: number) => {
+      if (ms === paceMs || isCancelled) return;
+      paceMs = ms;
+      if (intervalId) clearInterval(intervalId);
+      intervalId = setInterval(fetchLog, ms);
+    };
 
     const fetchLog = async () => {
       if (failureCountRef.current >= MAX_RUNNING_LOG_FAILURES) {
@@ -95,15 +117,22 @@ export const useRunningLog = (
             // the overlay never shows a days-old "finishing..." run.
             setLogData(isRunningLogStale(data?.start_time) ? null : data);
             failureCountRef.current = 0;
+            missCountRef.current = 0;
+            setPace(POLL_INTERVAL_MS);
           }
           return;
         }
 
         // Every caller polls only while a run is active, so a 404 means the run has not
         // written its log yet (a testcase writes it after its first block starts): keep
-        // polling. Only real errors count toward giving up.
+        // polling for a while. Only real errors count toward giving up — but a log that
+        // never arrives must not be asked for every two seconds forever (BUG-0780).
         if (response.status === 404) {
+          missCountRef.current += 1;
           if (!isCancelled) setLogData(null);
+          if (missCountRef.current >= MAX_RUNNING_LOG_MISSES && !isCancelled) {
+            setPace(SLOW_POLL_INTERVAL_MS);
+          }
           return;
         }
 

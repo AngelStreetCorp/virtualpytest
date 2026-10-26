@@ -1,0 +1,22 @@
+[Unit]
+Description=Run AI game jobs (CoC Flash, Tetris) on idle devices, one lease per run (game_dispatch.py)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=jndoye
+Group=jndoye
+Environment=HOME=/home/jndoye
+Environment=PATH=/home/jndoye/.local/bin:/usr/local/bin:/bin:/usr/sbin:/sbin
+# The lane runs from its own clone, never from the shared checkout of ~/virtualpytest (whose branch
+# the other Claude Code sessions on this host switch under each other). The clone is brought back
+# to main before every tick: a clone that is not synced runs the code it was deployed with for
+# ever, which is how the fix of the stall watcher and of the CoC job stayed on the shelf while the
+# lane kept playing the old game.
+ExecStartPre=-/home/jndoye/.local/bin/sync_lane_clone.sh /home/jndoye/.local/share/game-dispatch/repo
+# Jobs on (see `game_dispatch.py jobs`). The coc-flash job runs on MiniMax M3.1-Flash, the owner's
+# unlimited free plan, and is switched on by the user unit `vpt-flash-games.service` (TASK-164);
+# it has no end date.
+Environment=GAME_JOBS=tetris-web
+Environment=GAME_MAX_CONCURRENT=2
+ExecStart=/usr/bin/python3 /home/jndoye/.local/share/game-dispatch/repo/scripts/agent/game_dispatch.py tick

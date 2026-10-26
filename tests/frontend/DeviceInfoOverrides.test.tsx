@@ -11,8 +11,15 @@ import { MemoryRouter } from 'react-router-dom';
 // now feeds a useMemo and would re-run it on every render if freshly built.
 let deviceList: any[] = [];
 const getAllDevices = () => deviceList;
+// DeviceMaintenanceBadge (rendered inside the Select's MenuItem) calls
+// getAllHosts(). The host manager exposes both — stub the second one too so the
+// page can render at all. It is unused on the Mock side; returning an empty list
+// keeps the badge's device_id lookup as `undefined` (acceptable here, since the
+// tests check dropdown labels, not badge text).
+const getAllHosts = () => [];
 const hostData = {
   getAllDevices,
+  getAllHosts,
   selectedServer: 'https://server-a.example',
 };
 vi.mock('../../frontend/src/hooks/useHostManager', () => ({
@@ -165,5 +172,32 @@ describe('DeviceInfoOverrides page', () => {
     await waitFor(() =>
       expect(screen.queryByRole('tab', { name: 'Device' })).not.toBeInTheDocument(),
     );
+  });
+
+  it('auto-selects the first device when the page is opened without a deep link', async () => {
+    // Cold load without ?device_name=&host_name= — the user complaint was an
+    // empty dropdown with no obvious next step. The page should land directly
+    // on the first alphabetical device instead.
+    deviceList = [device('d1', 'living-room', 'host1'), device('d2', 'kitchen', 'host2')];
+
+    renderAt();
+
+    // Tabs render only while a device is selected — proves the auto-select fired.
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'Device' })).toBeInTheDocument());
+    // The first alphabetical device is "kitchen — host2".
+    expect(screen.getByRole('combobox', { name: 'Device' })).toHaveTextContent(/kitchen/);
+  });
+
+  it('shows the empty-state placeholder when no device carries any info keys', async () => {
+    // Devices exist on the server but none have device_info or gateway_info —
+    // there is nothing to override, so the dropdown stays empty by design.
+    deviceList = [
+      { device_id: 'd1', device_name: 'living-room', hostName: 'host1', device_info: {}, gateway_info: {} },
+    ];
+
+    renderAt();
+
+    openDropdown();
+    await waitFor(() => expect(optionLabels()).toEqual(['No devices with info']));
   });
 });

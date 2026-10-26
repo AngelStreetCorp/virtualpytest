@@ -308,6 +308,7 @@ def get_device_info_from_capture_folder(capture_folder):
     Returns:
         dict: Device info with keys:
             - device_id: Device identifier (e.g., 'device1', 'host')
+            - device_index: N of DEVICE<N> (1, 2, ...), None for the host-level device
             - device_name: Human-readable device name from env (e.g., 'Device 1')
             - device_model: Device model from env (e.g., 'H96_MAX', 'X96_MAX_PLUS')
             - stream_path: Video stream path
@@ -336,6 +337,7 @@ def get_device_info_from_capture_folder(capture_folder):
         host_stream_path = os.getenv('HOST_VIDEO_STREAM_PATH')
         device_info = {
             'device_id': 'host',
+            'device_index': None,
             'device_name': f"{host_name}_Host",
             'device_model': host_model,
             'stream_path': host_stream_path,
@@ -344,16 +346,27 @@ def get_device_info_from_capture_folder(capture_folder):
         _device_mapping_cache[capture_folder] = device_info
         return device_info
     
-    # Check DEVICE1-4
-    for i in range(1, 5):
+    # Check every DEVICE<N> that has a capture path (no upper limit on N)
+    device_numbers = sorted(
+        int(m.group(1)) for k in os.environ for m in [re.fullmatch(r'DEVICE(\d+)_VIDEO_CAPTURE_PATH', k)] if m)
+    for i in device_numbers:
         device_capture_path = os.getenv(f'DEVICE{i}_VIDEO_CAPTURE_PATH')
         device_name = os.getenv(f'DEVICE{i}_NAME', f'device{i}')
         device_model = os.getenv(f'DEVICE{i}_MODEL', 'unknown')
         device_stream_path = os.getenv(f'DEVICE{i}_VIDEO_STREAM_PATH')
         
+        if _norm_path(device_capture_path) == _norm_path(capture_path) and i > 4:
+            # Before TASK-90 only DEVICE1-4 were looked up; DEVICE5 and up fell through to the fallback below, so their
+            # device_id (alert and heatmap key) was the capture folder and their name and model were not read.
+            # Keep exactly that (output must not change) and only add the index, which the monitor profile needs.
+            device_info = {'device_id': capture_folder, 'device_index': i, 'device_name': capture_folder,
+                           'device_model': 'unknown', 'stream_path': None, 'capture_path': capture_folder}
+            _device_mapping_cache[capture_folder] = device_info
+            return device_info
         if _norm_path(device_capture_path) == _norm_path(capture_path):
             device_info = {
                 'device_id': f'device{i}',
+                'device_index': i,
                 'device_name': device_name,
                 'device_model': device_model,
                 'stream_path': device_stream_path,
@@ -363,7 +376,7 @@ def get_device_info_from_capture_folder(capture_folder):
             return device_info
     
     # Fallback
-    device_info = {'device_id': capture_folder, 'device_name': capture_folder, 'device_model': 'unknown', 'stream_path': None, 'capture_path': capture_folder}
+    device_info = {'device_id': capture_folder, 'device_index': None, 'device_name': capture_folder, 'device_model': 'unknown', 'stream_path': None, 'capture_path': capture_folder}
     _device_mapping_cache[capture_folder] = device_info
     return device_info
 

@@ -12,6 +12,7 @@ import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import LinkIcon from '@mui/icons-material/Link';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import { useTheme } from '../../../contexts/ThemeContext';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 // Metadata fields to hide from parameter display
 const HIDDEN_METADATA_FIELDS = ['description', 'default', 'required', 'optional', 'placeholder', 'hidden'];
@@ -107,11 +108,11 @@ export const InputDisplay: React.FC<InputDisplayProps> = ({
         }}
       >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flex: 1, minWidth: 0 }}>
-          <Typography fontSize={13} fontWeight="bold" color="#8b5cf6" sx={{ flexShrink: 0 }}>
+          <Typography fontSize="0.8125rem" fontWeight="bold" color="#8b5cf6" sx={{ flexShrink: 0 }}>
             Inputs ({displayParams.length})
           </Typography>
         </Box>
-        {expanded ? <ExpandLessIcon sx={{ fontSize: 16, color: '#8b5cf6', flexShrink: 0 }} /> : <ExpandMoreIcon sx={{ fontSize: 16, color: '#8b5cf6', flexShrink: 0 }} />}
+        {expanded ? <ExpandLessIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size, color: '#8b5cf6', flexShrink: 0 }} /> : <ExpandMoreIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size, color: '#8b5cf6', flexShrink: 0 }} />}
       </Box>
       
       <Collapse in={expanded}>
@@ -166,7 +167,7 @@ export const InputDisplay: React.FC<InputDisplayProps> = ({
                     : `${key}: ${displayValue.substring(0, 30)}${displayValue.length > 30 ? '...' : ''}`
                   }
                   size="small"
-                  icon={isLinked ? <LinkIcon sx={{ fontSize: 12, color: '#10b981' }} /> : undefined}
+                  icon={isLinked ? <LinkIcon sx={{ fontSize: TYPOGRAPHY.caption.size, color: '#10b981' }} /> : undefined}
                   onClick={(e) => {
                     e.stopPropagation(); // ✅ Prevent block selection
                     console.log('[@InputDisplay] Chip clicked:', { key, isLinked, onConfigureClick: !!onConfigureClick });
@@ -178,7 +179,7 @@ export const InputDisplay: React.FC<InputDisplayProps> = ({
                   }}
                   onDelete={isLinked && onUnlink ? () => onUnlink(key) : undefined}
                   sx={{ 
-                    fontSize: 16, 
+                    fontSize: TYPOGRAPHY.navbarItem.size, 
                     height: 26,
                     flex: 1,
                     bgcolor: isLinked 
@@ -207,7 +208,7 @@ export const InputDisplay: React.FC<InputDisplayProps> = ({
                       },
                     }}
                   >
-                    <ContentCopyIcon sx={{ fontSize: 12 }} />
+                    <ContentCopyIcon sx={{ fontSize: TYPOGRAPHY.caption.size }} />
                   </IconButton>
                 </Tooltip>
               </Box>

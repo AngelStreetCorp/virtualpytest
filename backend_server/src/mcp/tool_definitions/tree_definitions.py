@@ -318,5 +318,23 @@ def get_tools() -> List[Dict[str, Any]]:
                 "node"
             ]
         }
+    },
+    {
+        "name": "auto_layout_tree",
+        "description": "Lay the navigation tree out top to bottom (entry, home, then each level under its parent) and save the node positions. Call it once when a build is finished: nodes made by tools all start at (0, 0) and the editor shows them stacked on one spot. Only positions change. Example: auto_layout_tree(userinterface_name='example_web')",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "tree_id": {
+                    "type": "string",
+                    "description": "navigation tree ID, auto-resolved from userinterface_name"
+                },
+                "userinterface_name": {
+                    "type": "string",
+                    "description": "UI name for auto-resolving tree_id"
+                }
+            },
+            "required": []
+        }
     }
 ]

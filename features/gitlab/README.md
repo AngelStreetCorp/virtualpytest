@@ -16,6 +16,10 @@ GitLab side only, so it is enabled (or left off) independently of `cicd`.
 | `frontend/GitLabPage.tsx` | health strip, project picker, file tree + README, link out to GitLab |
 | `frontend/gitlabApi.ts` | typed calls to the routes above |
 
+**This feature is a GitLab browser and nothing else.** It reads an instance's projects, files and
+README, and links out to GitLab. It does not cut deliveries — no pins, no overlays, no zip, no
+tar.gz. Packaging lives in the rollout (see below); do not re-add it here without asking.
+
 Enable with the deny-list: a name in `DISABLED_FEATURES` is not deployed, not registered and not
 bundled. With `DISABLED_FEATURES=gitlab` the frontend identifiers do not even reach `dist/`.
 
@@ -24,7 +28,7 @@ bundled. With `DISABLED_FEATURES=gitlab` the frontend identifiers do not even re
 Either environment (no UI needed):
 
 ```
-GITLAB_URL=http://10.10.41.52     # no trailing slash; plain HTTP is supported
+GITLAB_URL=http://gitlab.internal     # no trailing slash; plain HTTP is supported
 GITLAB_TOKEN=glpat-…              # PAT with the `api` scope
 GITLAB_CA_BUNDLE=/path/ca.crt     # when the instance is https behind an internal CA
 GITLAB_INSECURE=1                 # last resort, skips TLS verification
@@ -40,6 +44,55 @@ bundle rather than `GITLAB_INSECURE`.
 the selected project — the same shape as `plugins.jira:view/:manage` in the core integrations
 routes. Triggering a pipeline additionally needs a signed-in user: it is a side effect on the
 customer's CI.
+
+## Packaging: not here
+
+Building a delivery is a **rollout** concern and lives with the rest of the rollout tooling, next to
+`build_customer_bundle.sh` / `deploy_customer.sh` / `delivery_note.sh`:
+
+| Where | What |
+|---|---|
+| `setup/proxmox/node/lib/customer_bundle.py` | the CLI: `candidates` lists production tags, overlay branches and usable formats; `build` clones the pinned core and the overlay and runs the builder |
+| `setup/proxmox/node/build_customer_bundle.sh` | the builder — owns staging, excludes, deny-list, `.env` guards, manifest, size ceiling, delivery note |
+
+It was a panel on this page until it was moved out; `lib/bundler.py` and
+`frontend/PackagePanel.tsx` were removed, along with the `/server/gitlab/package/*` routes. The
+isolated-checkout behaviour, the askpass token handling and the non-shallow-clone requirement all
+carried over unchanged — see the CLI docstring for why the non-shallow rule matters. Full rationale
+in `docs/tasks/TASK-91-gitlab-package-and-deploy.md`.
+
+An operator runs it:
+
+```bash
+VPT_GITLAB_TOKEN=glpat-… python3 setup/proxmox/node/lib/customer_bundle.py candidates \
+    --project group/customer-overlay --gitlab-url http://gitlab.internal
+VPT_GITLAB_TOKEN=glpat-… python3 setup/proxmox/node/lib/customer_bundle.py build \
+    --core github:main-2026.10.13-63726 --overlay gitlab:group/customer-overlay@main \
+    --gitlab-url http://gitlab.internal --format zip
+```
+
+Deploying the resulting bundle onto the customer's system stays `update_core.sh` on their side.
+
+## Keeping a customer overlay in GitLab
+
+The customer overlay (`vpt-customer-<codename>`, branch `prod`) lives on GitHub, which is the source of
+truth. The instance keeps a read-only copy, `<namespace>/vpt-customer-<codename>` with `prod` as the
+default branch, which this page browses. Rules: never commit in GitLab, and no `main` branch on either
+side (a leftover test `main` was deleted 2026-10-14).
+
+The instance is only routable from the Proxmox LAN, so sync from a host that can see it, not a laptop.
+The token is the one stored by this page's Settings form (`state_path('gitlab_instances.json')`, owned by
+the service user, read with `sudo -n`); hand it to git through a 0700 `GIT_ASKPASS` script, never in the
+URL or argv.
+
+```bash
+git bundle create /tmp/ov.bundle prod && scp /tmp/ov.bundle <lan-host>:/tmp/     # from the overlay clone
+git clone -b prod /tmp/ov.bundle /tmp/ov-sync                                    # on <lan-host>
+GIT_ASKPASS=<askpass> git -C /tmp/ov-sync push http://<gitlab>/gitlab/<namespace>/vpt-customer-<codename>.git prod
+```
+
+Check: `GET /api/v4/projects/<namespace>%2Fvpt-customer-<codename>/repository/branches` lists only `prod`,
+at the GitHub commit. Each overlay repo carries the same recipe in its own `GITLAB.md`.
 
 ## GitLab CE 19.4 constraints (verified live on 19.4.2, 2026-10-13)
 
@@ -63,7 +116,8 @@ repo, and a fresh instance has no root namespace until it is seeded.
 ## Tests
 
 ```bash
-python3 -m pytest tests/backend_server/test_gitlab.py -q     # 60 unit tests, no server needed
+python3 -m pytest tests/backend_server/test_gitlab.py -q   # 73 unit tests, no server needed
+python3 -m pytest tests/rollout/test_customer_bundle.py -q  # 22 bundler tests, no server needed
 ```
 
 `scripts/cicd_gitlab_e2e.py` drives a real instance end to end (tunnel it if the GitLab is not on
@@ -73,13 +127,19 @@ your network):
 GITLAB_URL=http://127.0.0.1:8183 GITLAB_TOKEN=glpat-… python3 scripts/cicd_gitlab_e2e.py
 ```
 
-## Not built yet: packaging and deploying from the page
+## Still open
 
-Reading and triggering is what this feature does today. The two goals that make it a customer
-product — package a release from the page (PIN + overlay tag -> zip -> `update_core`), and package
-straight from the linked repo — are specified in `docs/tasks/TASK-91-gitlab-package-and-deploy.md`.
-The shell tooling (`build_customer_bundle.sh`, `deploy_customer.sh --stage-only`) already exists and
-must be called, not reimplemented.
+Recorded in `docs/tasks/TASK-91-gitlab-package-and-deploy.md`:
+
+- **Pushing the artefact into GitLab** as a generic package or release, rather than only writing
+  it to a local directory, for a customer who cannot reach the machine that ran the build.
+
+**Goal B — serving the core from the customer's own GitLab — is answered and is not a change.** GitHub
+and GitLab are deliberately separate sources: GitHub is our public repo and needs internet access,
+GitLab is the customer's own and is what an air-gapped install has. `VPT_CORE_REMOTE` already takes
+any git remote, so pointing the core at a GitLab mirror is configuration, not a code path. The
+firewall is a rollout concern; the operator pushes the `vpt-*` files into the customer's GitLab by
+hand, and VirtualPyTest never pushes a bundle back.
 
 ## How to disable
 

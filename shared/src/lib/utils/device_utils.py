@@ -8,11 +8,96 @@ Centralized utilities for common device operations to avoid code duplication.
 
 import os
 import shutil
+import time
 from typing import Optional, Tuple
 
 # Android device models that support ADB screenshots
 _ADB_SCREENSHOT_MODELS = {'android_mobile', 'android_tablet', 'android_tv',
                           'runner_android_mobile', 'runner_android_tablet', 'runner_android_tv'}
+
+
+def _run_page_screenshot_path(screenshot_id: str = None) -> str:
+    """Where a run's own page screenshot is written (one directory per run)."""
+    import tempfile
+
+    run_id = (os.environ.get('VPT_RUN_ID') or '').strip() or f"pid{os.getpid()}"
+    # Nanoseconds, not milliseconds: two screenshots of the same step in the same run must
+    # not land on the same file.
+    stem = f"{time.time_ns()}_{screenshot_id}" if screenshot_id else str(time.time_ns())
+    return os.path.join(tempfile.gettempdir(), 'virtualpytest_run_shots', run_id, f"{stem}.png")
+
+
+def _shared_display_capture(device) -> bool:
+    """True when this device's screen capture photographs a display other runs share.
+
+    A host's `host_vnc` capture is a live x11grab of `DISPLAY=:1` — the one screen every
+    browser run on the host draws on. An HDMI capture belongs to the device alone.
+    """
+    try:
+        av_controller = device._get_controller('av')
+    except Exception:
+        return False
+    if av_controller is None:
+        return False
+    source = str(getattr(av_controller, 'capture_source', '') or '').lower()
+    return 'vnc' in source or 'x11grab' in source
+
+
+def _drives_its_own_browser(device) -> bool:
+    """True when the run has a web controller, i.e. it is a browser run on this device."""
+    try:
+        return device._get_controller('web') is not None
+    except Exception:
+        return False
+
+
+def capture_run_page_screenshot(device, screenshot_id: str = None) -> Optional[str]:
+    """Screenshot the page THIS run drives, or None when it drives none.
+
+    Every browser run on a host shares one X display (`DISPLAY=:1`) and therefore one
+    screen capture: the host's capture folder holds one image of the whole screen, and
+    `take_screenshot()` returns the newest of them. With two runs on the host the window
+    on top is regularly the other run's browser, so the image in a report showed the
+    wrong site (TASK-146). The page belongs to one run, so photograph it directly.
+
+    Never raises. A device that is not a browser run keeps the screen capture, which is
+    the right answer for it. Every miss says so on stdout, because a silent fallback is
+    how the first version of this shipped while changing nothing: the report still showed
+    the screen capture and nothing in the run log said why.
+    """
+    def _miss(reason: str) -> None:
+        print(f"📸 [device_utils] No run page screenshot ({reason}) — falling back to the screen capture")
+
+    try:
+        web_controller = device._get_controller('web')
+    except Exception as e:
+        _miss(f"{type(e).__name__}: {e}")
+        return None
+    if web_controller is None:
+        return None  # not a browser run: the screen capture is the right answer, not a fallback
+    capture = getattr(web_controller, 'capture_page_screenshot', None)
+    if not callable(capture):
+        _miss(f"the web controller ({type(web_controller).__name__}) cannot photograph its page")
+        return None
+    path = _run_page_screenshot_path(screenshot_id)
+    try:
+        taken = capture(path)
+        # The check has to be inside the try: an awaitable answer used to escape here as
+        # `stat: path should be string ... not coroutine`, which the caller reported as a
+        # capture failure instead of the miss it actually was.
+        if not isinstance(taken, str):
+            close = getattr(taken, 'close', None)
+            if callable(close):
+                close()  # do not leave a coroutine dangling for the run log to warn about
+            _miss("the run has no live page to photograph")
+            return None
+        if not os.path.exists(taken):
+            _miss(f"no image was written at {taken}")
+            return None
+    except Exception as e:
+        _miss(f"{type(e).__name__}: {e}")
+        return None
+    return taken
 
 
 def _try_adb_screenshot(device) -> Optional[str]:
@@ -79,18 +164,28 @@ def capture_screenshot_for_script(device, context, screenshot_id: str = None) ->
     try:
         screenshot_path = None
 
-        av_controller = device._get_controller('av')
-        if av_controller:
-            screenshot_path = av_controller.take_screenshot()
-            if screenshot_path:
-                # Copy from HOT to COLD if needed
-                from shared.src.lib.utils.build_url_utils import convert_hot_to_cold_path, is_hot_storage_path
-                if is_hot_storage_path(screenshot_path):
-                    cold_path = convert_hot_to_cold_path(screenshot_path)
-                    os.makedirs(os.path.dirname(cold_path), exist_ok=True)
-                    if os.path.exists(screenshot_path):
-                        shutil.copy2(screenshot_path, cold_path)
-                    screenshot_path = cold_path
+        # The run's own page first: a host shares one display between its runs, so the
+        # screen capture below can be the other run's window (TASK-146).
+        screenshot_path = capture_run_page_screenshot(device, screenshot_id)
+
+        if not screenshot_path and _drives_its_own_browser(device) and _shared_display_capture(device):
+            print("📸 [device_utils] No image for this step — this device's screen is shared between "
+                  "runs and a screen shot here would show another run's window")
+            return None
+
+        if not screenshot_path:
+            av_controller = device._get_controller('av')
+            if av_controller:
+                screenshot_path = av_controller.take_screenshot()
+                if screenshot_path:
+                    # Copy from HOT to COLD if needed
+                    from shared.src.lib.utils.build_url_utils import convert_hot_to_cold_path, is_hot_storage_path
+                    if is_hot_storage_path(screenshot_path):
+                        cold_path = convert_hot_to_cold_path(screenshot_path)
+                        os.makedirs(os.path.dirname(cold_path), exist_ok=True)
+                        if os.path.exists(screenshot_path):
+                            shutil.copy2(screenshot_path, cold_path)
+                        screenshot_path = cold_path
 
         # ADB fallback for Android devices without AV controller
         if not screenshot_path:
@@ -129,11 +224,32 @@ def capture_screenshot(device, context=None, log_prefix: str = "") -> Optional[s
         Screenshot path if successful, None otherwise
     """
     try:
-        av_controller = device._get_controller('av')
         screenshot_path = None
 
-        if av_controller:
-            screenshot_path = av_controller.take_screenshot()
+        # The run's own page first, on BOTH paths: a host shares one display between its
+        # runs, so the screen capture can be the other run's window (TASK-146, BUG-0757).
+        # The executor's initial and final report artifacts come through THIS legacy
+        # function, not through capture_screenshot_for_script — fixing only the latter left
+        # every report header still showing the shared screen, which is what the first
+        # deploy proved (2026-10-21: the run fell back to capture_000388253.jpg).
+        screenshot_path = capture_run_page_screenshot(device)
+
+        if not screenshot_path and _drives_its_own_browser(device) and _shared_display_capture(device):
+            # The executor asks for the run's "before" and "after" shots, and at both of
+            # those moments this run has no page: the first before it launches a browser,
+            # the last after it closes one. On a host whose screen is shared, the newest
+            # capture at those moments is the OTHER run's window -- so there is no honest
+            # image to take. Say so and take none (BUG-0757).
+            print("📸 [device_utils] No device shot for this browser run — this host's screen is "
+                  "shared between runs and the newest capture belongs to whichever run is on top")
+            if log_prefix:
+                print(f"ℹ️ {log_prefix} Device shot skipped (shared screen, no image of this run)")
+            return None
+
+        if not screenshot_path:
+            av_controller = device._get_controller('av')
+            if av_controller:
+                screenshot_path = av_controller.take_screenshot()
 
         # ADB fallback for Android devices without AV controller
         if not screenshot_path:

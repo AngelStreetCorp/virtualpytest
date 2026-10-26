@@ -4,6 +4,7 @@ import React from 'react';
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { useI18n } from '../../../i18n/useI18n';
 import type { GroupAck } from '../../../types/pages/groupControl.types';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 /**
  * One group member's status: a dot plus the last command's result word, in a
@@ -28,7 +29,7 @@ export const GroupStatusLed: React.FC<{ controlled: boolean; ack: GroupAck | nul
         <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: color, flexShrink: 0 }} />
         <Box
           component="span"
-          sx={{ fontSize: '0.7rem', fontWeight: 600, color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
+          sx={{ fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, color, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}
         >
           {label}
         </Box>

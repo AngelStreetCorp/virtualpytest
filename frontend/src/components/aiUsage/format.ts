@@ -24,6 +24,17 @@ export const fmtTime = (iso: string | null | undefined): string => {
     : formatDate(d, { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 };
 
+/** "09:06–15:13", the date once when both ends are on the same day ("20/10, 09:06–15:13"). */
+export const fmtTimeRange = (first: string, last: string): string => {
+  const a = new Date(first), b = new Date(last);
+  if (a.toDateString() !== b.toDateString()) return `${fmtTime(first)}–${fmtTime(last)}`;
+  return `${fmtTime(first)}–${formatDate(b, { hour: '2-digit', minute: '2-digit' })}`;
+};
+
+/** Always the full short form, never a bare "12/10": "12 Oct, 21:41" (month name in the app language). */
+export const fmtDateTime = (iso: string | null | undefined): string =>
+  iso ? formatDate(new Date(iso), { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '–';
+
 export const fmtSeconds = (ms: number): string =>
   ms >= 1000 ? `${formatNumber(ms / 1000, { maximumFractionDigits: 1 })} s` : `${Math.round(ms)} ms`;
 

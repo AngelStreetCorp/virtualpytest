@@ -1,102 +1,192 @@
 import React, { createContext, useContext, ReactNode, useEffect, useCallback } from 'react';
 import toast, { Toaster } from 'react-hot-toast';
+import { Box } from '@mui/material';
+import { useNavigate } from 'react-router-dom';
+import { notificationStore, notify, registerToastRenderer, type NotificationCategory, type NotificationScope, type NotificationSeverity } from './notificationStore';
+import { DigestToastBody } from '../components/notifications/DigestToastBody';
+import { DIGEST_TOAST_ID, type DigestSelection } from '../components/notifications/notificationDigestLogic';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { pillToastStyle, TOAST_PILL } from '../constants/toastStyle';
+import { TYPOGRAPHY } from '../constants/typography';
+import { useI18n } from '../i18n/useI18n';
 
 // Toast configuration with predefined colors
 
+/** A toast's click target: `to` is an in-app path, `onClick` runs instead. The label is the button text. */
+export interface ToastAction {
+  label: string;
+  to?: string;
+  onClick?: () => void;
+}
+
+export interface ToastOptions {
+  duration?: number;
+  /** Dedupes the toast, and (TASK-142) also writes it to the notification history under this id. */
+  id?: string;
+  action?: ToastAction;
+  /** Notification category (TASK-145). Default `action`: an error from something the user just did. */
+  category?: NotificationCategory;
+  /** Page that shows the cause, for the bell entry. Default: the toast action's `to`, else the current page. */
+  to?: string;
+  scope?: NotificationScope;
+}
+
 // Toast context interface
 interface ToastContextType {
-  // `id` lets callers dedupe a toast: repeated calls with the same id replace
-  // the existing toast instead of stacking a new one (react-hot-toast behavior).
-  showError: (message: string, options?: { duration?: number; id?: string }) => void;
-  showWarning: (message: string, options?: { duration?: number; id?: string }) => void;
-  showSuccess: (message: string, options?: { duration?: number; id?: string }) => void;
-  showInfo: (message: string, options?: { duration?: number; id?: string }) => void;
+  showError: (message: string, options?: ToastOptions) => void;
+  showWarning: (message: string, options?: ToastOptions) => void;
+  showSuccess: (message: string, options?: ToastOptions) => void;
+  showInfo: (message: string, options?: ToastOptions) => void;
+  /** TASK-166: the 24 h digest — one small pill, with the problems behind a caret. */
+  showDigest: (selection: DigestSelection) => void;
 }
+
+/** Toast body: the whole text is clickable and keyboard reachable when the toast has an action. */
+const ToastBody: React.FC<{ message: string; action: ToastAction; toastId: string; notifId?: string }> = ({ message, action, toastId, notifId }) => {
+  const P = useAgentChatPalette();
+  const navigate = useNavigate();
+  const { t } = useI18n();
+  const run = () => {
+    if (notifId) notificationStore.markRead(notifId);
+    toast.dismiss(toastId);
+    if (action.onClick) action.onClick();
+    else if (action.to) navigate(action.to);
+  };
+  // Skip = never again: the toast goes, and so does the bell entry; a producer that re-fires the id stays silent.
+  const skip = () => {
+    toast.dismiss(toastId);
+    if (notifId) notificationStore.dismiss(notifId);
+  };
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+      <Box
+        role="link"
+        tabIndex={0}
+        onClick={run}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            run();
+          }
+        }}
+        sx={{ cursor: 'pointer', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', '&:hover': { textDecoration: 'underline' }, '&:focus-visible': { outline: `2px solid ${P.accentText}`, outlineOffset: 2 } }}
+      >
+        {message}
+      </Box>
+      <Box
+        role="button"
+        tabIndex={0}
+        onClick={skip}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            skip();
+          }
+        }}
+        sx={{ flexShrink: 0, cursor: 'pointer', fontSize: TYPOGRAPHY.caption.size, color: P.textMuted, '&:hover': { color: P.textPrimary }, '&:focus-visible': { outline: `2px solid ${P.accentText}`, outlineOffset: 2 } }}
+      >
+        {t('Skip')}
+      </Box>
+    </Box>
+  );
+};
 
 // Create context
 const ToastContext = createContext<ToastContextType | undefined>(undefined);
 
-const getBaseToastStyle = () => ({
-  width: 'fit-content',
-  maxWidth: 'min(92vw, 900px)',
-  whiteSpace: 'nowrap' as const,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  fontSize: '14px',
-  fontWeight: '500',
-  padding: '12px 16px',
-  borderRadius: '8px',
-  boxShadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
-});
+/** Every toast is the same small pill (TASK-166): one line, plain text, no icon. */
+const getBaseToastStyle = () => ({ ...TOAST_PILL });
 
 // Toast provider component
 export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
-  // Toasts follow the theme: card surface with a light tint and border of the status colour
-  // (info = gold, never blue).
+  // Toasts follow the theme: a small pill in the status colour (info = gold, never blue).
   const P = useAgentChatPalette();
-  const tint = useCallback((c: string) => `color-mix(in srgb, ${c} 10%, ${P.surface})`, [P]);
-  const showError = useCallback((message: string, options?: { duration?: number; id?: string }) => {
-    toast.error(message, {
+  // Message node (clickable when the toast has an action) + history entry when it has an id.
+  const body = useCallback((severity: NotificationSeverity, message: string, options?: ToastOptions): React.ReactNode | ((t: { id: string }) => React.ReactNode) => {
+    if (options?.id && (severity === 'success' || severity === 'info')) {
+      notificationStore.add({ id: options.id, severity, message, to: options.action?.to, ts: Date.now() });
+    }
+    const action = options?.action;
+    if (!action) return message;
+    return (t: { id: string }) => <ToastBody message={message} action={action} toastId={t.id} notifId={options?.id} />;
+  }, []);
+
+  const renderError = useCallback((message: string, options?: ToastOptions) => {
+    toast(body('error', message, options) as any, {
       id: options?.id,
       duration: options?.duration || 4000,
-      style: {
-        ...getBaseToastStyle(),
-        background: tint(P.error),
-        color: P.error,
-        border: `1px solid ${P.error}`,
-      },
-      iconTheme: {
-        primary: P.error,
-        secondary: tint(P.error),
-      },
+      icon: null,
+      style: pillToastStyle(P.error, P.surfaceSolid),
     });
-  }, [P, tint]);
+  }, [P, body]);
 
-  const showWarning = useCallback((message: string, options?: { duration?: number; id?: string }) => {
-    toast(message, {
+  const renderWarning = useCallback((message: string, options?: ToastOptions) => {
+    toast(body('warning', message, options) as any, {
       id: options?.id,
       duration: options?.duration || 4000,
-      icon: '⚠️',
-      style: {
-        ...getBaseToastStyle(),
-        background: tint(P.warning),
-        color: P.warning,
-        border: `1px solid ${P.warning}`,
-      },
+      icon: null,
+      style: pillToastStyle(P.warning, P.surfaceSolid),
     });
-  }, [P, tint]);
+  }, [P, body]);
 
-  const showSuccess = useCallback((message: string, options?: { duration?: number; id?: string }) => {
-    toast.success(message, {
+  // Every error is a notification (contract #43): recorded for the bell and toasted only as the preferences say.
+  // The id is the episode key; without one the same text on the same page is the same problem.
+  const route = useCallback((severity: 'error' | 'warning', message: string, options?: ToastOptions) => {
+    const to = options?.to ?? options?.action?.to ?? `${window.location.pathname}${window.location.search}`;
+    notify({
+      id: options?.id ?? `${options?.category ?? 'action'}:${to}:${message}`,
+      category: options?.category ?? 'action',
+      severity,
+      message,
+      to,
+      scope: options?.scope,
+      action: options?.action,
+      duration: options?.duration,
+    });
+  }, []);
+  const showError = useCallback((message: string, options?: ToastOptions) => route('error', message, options), [route]);
+  const showWarning = useCallback((message: string, options?: ToastOptions) => route('warning', message, options), [route]);
+
+  useEffect(() => {
+    registerToastRenderer((n) => {
+      const o: ToastOptions = { id: n.id, action: n.action, duration: n.duration };
+      if (n.severity === 'error') renderError(n.message, o);
+      else renderWarning(n.message, o);
+    });
+    return () => registerToastRenderer(null);
+  }, [renderError, renderWarning]);
+
+  const showSuccess = useCallback((message: string, options?: ToastOptions) => {
+    toast(body('success', message, options) as any, {
       id: options?.id,
       duration: options?.duration || 3000,
-      style: {
-        ...getBaseToastStyle(),
-        background: tint(P.success),
-        color: P.success,
-        border: `1px solid ${P.success}`,
-      },
-      iconTheme: {
-        primary: P.success,
-        secondary: tint(P.success),
-      },
+      icon: null,
+      style: pillToastStyle(P.success, P.surfaceSolid),
     });
-  }, [P, tint]);
+  }, [P, body]);
 
-  const showInfo = useCallback((message: string, options?: { duration?: number; id?: string }) => {
-    toast(message, {
+  const showInfo = useCallback((message: string, options?: ToastOptions) => {
+    toast(body('info', message, options) as any, {
       id: options?.id,
       duration: options?.duration || 3000,
-      icon: 'ℹ️',
-      style: {
-        ...getBaseToastStyle(),
-        background: tint(P.accentText),
-        color: P.accentText,
-        border: `1px solid ${P.accentText}`,
-      },
+      icon: null,
+      style: pillToastStyle(P.accentText, P.surfaceSolid),
     });
-  }, [P, tint]);
+  }, [P, body]);
+
+  /** TASK-166: the 24 h digest. It is a summary of the history, so it adds no bell entry of its own. */
+  const showDigest = useCallback((selection: DigestSelection) => {
+    const color = selection.severity === 'error' ? P.error : P.warning;
+    toast(<DigestToastBody selection={selection} onDismiss={() => toast.dismiss(DIGEST_TOAST_ID)} />, {
+      id: DIGEST_TOAST_ID,
+      duration: 12000,
+      icon: null,
+      position: 'top-right',
+      // The caret opens a small list under the pill, so the bar must not clip it — and it must
+      // paint above the toasts that come after it, or the list is covered.
+      style: { ...pillToastStyle(color, P.surfaceSolid), overflow: 'visible' },
+    });
+  }, [P]);
 
   // Generic show function for AI integration
   const showToast = useCallback((message: string, severity: 'info' | 'success' | 'warning' | 'error') => {
@@ -124,6 +214,7 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
     showWarning,
     showSuccess,
     showInfo,
+    showDigest,
   };
 
   return (
@@ -134,13 +225,13 @@ export const ToastProvider: React.FC<{ children: ReactNode }> = ({ children }) =
         reverseOrder={false}
         gutter={8}
         containerClassName=""
-        containerStyle={{}}
+        containerStyle={{ top: 72 }}
         toastOptions={{
           className: '',
           duration: 4000,
           style: {
             ...getBaseToastStyle(),
-            background: P.surface,
+            background: P.surfaceSolid,
             color: P.textPrimary,
             border: `1px solid ${P.borderColor}`,
           },

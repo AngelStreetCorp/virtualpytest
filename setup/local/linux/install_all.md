@@ -17,7 +17,7 @@ sudo -v && ./setup/local/linux/install_all.sh [--no-grafana] [--no-storage] [--n
 | 2 storage (unless `--no-storage`) | `storage/install_storage.sh` | MinIO (`minio.service`, 9000/9001, `admin` / `MINIO_SECRET_KEY` from `.env`) + Redis (`redis-server`, 6379) |
 | 3 shared library | `shared/install_shared.sh` | `venv/` |
 | 4 server | `backend_server/install_server.sh` | `vpt-server.service` (5109), `vpt-heatmap.service` |
-| 5 host (unless `--no-host`) | `backend_host/install_host.sh` | `vpt-host` (6109), `vpt-vnc`, `vpt-stream`, `vpt-monitor`, … |
+| 5 host (unless `--no-host`) | `backend_host/install_host.sh` | `vpt-host` (6109), `vpt-vnc`, `vpt-stream`, `vpt-monitor-img`, … |
 | 6 frontend | `frontend/install_frontend.sh` | Node 22, production build, `vpt-frontend-prod.service` (5073) |
 | 7 Grafana (unless `--no-grafana`) | `monitoring/install_grafana.sh` | `grafana-server` (3000), datasource from `SUPABASE_DB_URI` |
 | start + summary | | `vpt-server`, `vpt-host`, `vpt-frontend-prod` started; URL table; open-mode warning |

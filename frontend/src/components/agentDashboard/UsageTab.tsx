@@ -4,6 +4,7 @@ import { Link as RouterLink } from 'react-router-dom';
 
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import { Usage, fetchUsage } from './api';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export const UsageTab: React.FC<{ days: number }> = ({ days }) => {
   const P = useAgentChatPalette();
@@ -32,8 +33,8 @@ export const UsageTab: React.FC<{ days: number }> = ({ days }) => {
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
       <Card sx={{ p: 1.75, bgcolor: P.surface }}>
-        <Typography sx={{ fontSize: '1rem', fontWeight: 600, mb: 0.5 }}>Token use, cost and credit</Typography>
-        <Typography sx={{ fontSize: '0.85rem', color: P.textSecondary }}>
+        <Typography sx={{ fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600, mb: 0.5 }}>Token use, cost and credit</Typography>
+        <Typography sx={{ fontSize: TYPOGRAPHY.body.size, color: P.textSecondary }}>
           Requests, tokens, speed, errors, cost and the OpenRouter credit per feature, model, team, user or script now live in{' '}
           <Link component={RouterLink} to="/monitoring/ai-usage">Monitoring → AI usage</Link>.
         </Typography>
@@ -41,8 +42,8 @@ export const UsageTab: React.FC<{ days: number }> = ({ days }) => {
 
       {!phone && (
         <Card sx={{ p: 1.75, bgcolor: P.surface }}>
-          <Typography sx={{ fontSize: '1rem', fontWeight: 600, mb: 1 }}>Decisions</Typography>
-          {decisions.length === 0 ? <Typography sx={{ fontSize: '0.85rem', color: P.textMuted }}>No decisions recorded in this window.</Typography> : (
+          <Typography sx={{ fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600, mb: 1 }}>Decisions</Typography>
+          {decisions.length === 0 ? <Typography sx={{ fontSize: TYPOGRAPHY.body.size, color: P.textMuted }}>No decisions recorded in this window.</Typography> : (
             <TableContainer>
               <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 420, '& .MuiTableCell-root': { overflowWrap: 'anywhere' } }}>
 <colgroup><col /><col style={{ width: 80 }} /><col style={{ width: 80 }} /><col style={{ width: 130 }} /></colgroup>
@@ -53,7 +54,7 @@ export const UsageTab: React.FC<{ days: number }> = ({ days }) => {
                 <TableBody>
                   {decisions.map((d) => (
                     <TableRow key={d.usage_key}>
-                      <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.78rem' }}>{d.usage_key}</TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace', fontSize: TYPOGRAPHY.caption.size }}>{d.usage_key}</TableCell>
                       <TableCell align="right" sx={{ color: P.success }}>{d.ok}</TableCell>
                       <TableCell align="right" sx={{ color: d.fail ? P.error : P.textSecondary }}>{d.fail}</TableCell>
                       <TableCell align="right">{d.outcome_known}</TableCell>
@@ -65,7 +66,7 @@ export const UsageTab: React.FC<{ days: number }> = ({ days }) => {
           )}
         </Card>
       )}
-      {phone && <Typography sx={{ fontSize: '0.75rem', color: P.textMuted }}>The decisions table is shown on wider screens.</Typography>}
+      {phone && <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted }}>The decisions table is shown on wider screens.</Typography>}
     </Box>
   );
 };

@@ -353,3 +353,17 @@ def test_rewrite_applies_the_masking_to_the_published_page():
             '<a href="https://platform.example.com/x">x</a></div>')
     out, _ = builder.rewrite_report_html(html, _classifier())
     assert '8713' not in out and "text='•••', timeout='20000 ms'" in out
+
+
+def test_timeline_html_link_points_at_the_timeline_picture(monkeypatch):
+    """timeline.html is a page (never copied); the snapshot links its timeline.jpg instead."""
+    page = (
+        '<html><body>'
+        '<a href="https://storage.example.com/virtualpytest/script-reports/model_x/run_1/timeline.html?X-Amz-Signature=f">Click</a>'
+        '</body></html>'
+    )
+    storage = FakeStorage(page)
+    monkeypatch.setattr(builder, 'get_cloudflare_utils', lambda: storage)
+    assert _build()['success']
+    assert [src.rsplit('/', 1)[-1] for src, _ in storage.copied] == ['timeline.jpg']
+    assert 'not included' not in _page(storage)

@@ -58,6 +58,26 @@ OVERLOAD_DETECTION_INTERVAL = 10  # Run expensive detections every N frames (2 s
 # Freeze detection threshold (percentage of pixels that must differ)
 FREEZE_THRESHOLD = 0.8  # 0.8% pixel difference = frozen - OPTIMIZATION: Increased from 2.0 to reduce false positives
 
+# Blackscreen + no_signal take priority over freeze. The same logic lives in
+# capture_monitor.py (priority suppression), but enforcing it at the source
+# guarantees it even if a downstream consumer reads `freeze=True` without
+# re-running the suppression block. See BUG-0504 for the screenshot where
+# device2 was all-black for 10m+ but classified as "freeze".
+# Capture cards output limited-range video black = 16 (vpt-mf1 frames are exactly 16), so "dark" must
+# sit above it; the old <=10 saw 0% dark and called a black screen a freeze.
+BLACK_LEVEL = 20
+BLACKSCREEN_LIT_LEVEL = 80        # a pixel above this is "lit" (real black/standby frames stay 7-16)
+BLACKSCREEN_LIT_PCT_MAX = 2.0     # >2% lit pixels over the FULL frame = a dark live scene, not black
+BLACKSCREEN_DARK_PCT_MIN = 80.0   # was 95% — old threshold missed very-near-black captures
+#                                  (HDMI unplugged in a dim room, last-led-frame leakage) and
+#                                  let freeze win. 80% keeps dark movies with subtitles in
+#                                  the freeze bucket without raising no-signal false alarms.
+# No-signal detection (SMPTE-style color bars). Brightness variance + low edge density +
+# high HSV saturation is the capture-card "no input" pattern from image_helpers.classify_special_state.
+NOSIG_SAT_MIN = 160.0
+NOSIG_CANNY_MAX = 4.0  # stbv1+ bars measured 2.39 (BUG: 2.0 missed them)
+NOSIG_STD_MIN = 40.0
+
 from shared.src.lib.utils.storage_path_utils import (
     is_ram_mode,
     get_segments_path,
@@ -82,45 +102,9 @@ from shared.src.lib.utils.image_utils import (
 )
 from shared.src.lib.utils import cv2_io
 
-def _motion_shape(diff, motion_thr=12, cell_thr=0.04, grid=4):
-    """Coarse SPATIAL classification of a frame-to-frame diff — the same motion signal freeze
-    detection already produces. Distinguishes full-frame motion (live TV) from a horizontal band
-    (carousel) or a compact box (picture-in-picture), so the monitor can tell "live motion" apart
-    from a moving UI. Pre-localize (raw shape only); capture_monitor fuses this with the localize
-    result + hysteresis to emit the final motion state. ~sub-ms on a 320x180 thumbnail.
-
-    Returns {kind, pct, cells, rows, cols}:
-      static : almost no change (freeze / still UI)
-      full   : motion distributed across the frame  -> live candidate
-      band   : wide + short horizontal strip        -> carousel candidate
-      box    : compact localized region             -> picture-in-picture candidate
-      minor  : some motion, no clear shape
-    """
-    h, w = diff.shape[:2]
-    m = diff > motion_thr
-    pct = round(float(m.mean()) * 100.0, 1)
-    ys = np.linspace(0, h, grid + 1).astype(int)
-    xs = np.linspace(0, w, grid + 1).astype(int)
-    cell = np.zeros((grid, grid), dtype=bool)
-    for r in range(grid):
-        for c in range(grid):
-            sub = m[ys[r]:ys[r + 1], xs[c]:xs[c + 1]]
-            if sub.size and sub.mean() > cell_thr:
-                cell[r, c] = True
-    cells = int(cell.sum())
-    rows = int(cell.any(axis=1).sum())
-    cols = int(cell.any(axis=0).sum())
-    if pct < 1.0:
-        kind = 'static'
-    elif cells >= (grid * grid) // 2 and rows >= 3 and cols >= 3:
-        kind = 'full'
-    elif rows <= 2 and cols >= 3:
-        kind = 'band'
-    elif rows <= 2 and cols <= 2 and cells == rows * cols and cells <= 3:
-        kind = 'box'                         # one SOLID compact block (not scattered spots)
-    else:
-        kind = 'minor'
-    return {'kind': kind, 'pct': pct, 'cells': cells, 'rows': rows, 'cols': cols}
+# Motion shape lives in shared/src/lib/utils/localize_verdict.py: Localize measures motion with the
+# same function (TASK-104), so the monitor and the button classify a diff identically.
+from shared.src.lib.utils.localize_verdict import motion_shape as _motion_shape
 
 
 def detect_freeze_pixel_diff(current_img, thumbnails_dir, filename, fps=5, queue_size=0, freeze_duration_ms=0):
@@ -423,7 +407,7 @@ def clear_zap_state(capture_dir):
             logger.warning(f"Failed to remove zap state file: {e}")
 
 
-def quick_blackscreen_check(img, threshold=10):
+def quick_blackscreen_check(img, threshold=BLACK_LEVEL):
     """Fast blackscreen check for zap monitoring (no edge detection needed) - OPTIMIZED"""
     img_height, img_width = img.shape
     header_y = int(img_height * 0.05)
@@ -651,8 +635,7 @@ def detect_issues(image_path, fps=5, queue_size=0, DEBUG=0, skip_freeze=False, s
     # ADAPTIVE: When overloaded, only detect every N frames (2 seconds) - OPTIMIZATION: Lowered threshold from 50 to 30
     start = time.perf_counter()
     
-    # Threshold = 10 (matches production - accounts for compression artifacts)
-    threshold = 10
+    threshold = BLACK_LEVEL
     
     # ✅ SKIP: If freeze incident is ongoing, don't waste CPU checking blackscreen
     if skip_blackscreen:
@@ -691,11 +674,22 @@ def detect_issues(image_path, fps=5, queue_size=0, DEBUG=0, skip_freeze=False, s
                 total_pixels = top_region.shape[0] * top_region.shape[1]
                 dark_pixels = np.sum(top_region <= threshold)
                 dark_percentage = (dark_pixels / total_pixels) * 100
-            
-            # ✅ THRESHOLD: Raised from 85% to 95% to avoid false positives on dark content
-            # Dark movies/credits (85-94% dark) should NOT trigger blackscreen
-            # Real blackscreens (channel change, technical issues) are 95-100% pure black
-            blackscreen = bool(dark_percentage > 95)
+
+            # Priority fix (BUG-0504): blackscreen beats freeze. The 95% threshold
+            # was too strict — a "no signal" / powered-off capture whose JPG has a
+            # handful of bright pixels (HDMI status overlay, last-led-frame leak) sits
+            # at dark_percentage in the 80-94% range, falls below 95%, and lets
+            # `freeze = True` (frame == frame == frame is trivially "frozen") win,
+            # reporting an all-black screen as FREEZE on the Incidents page.
+            # The same relaxation is mirrored by the capture_monitor priority block,
+            # but enforcing it at source means the JSON file already says "blackscreen"
+            # (not "freeze, suppressed downstream") and any consumer reading the
+            # frame directly sees the right type.
+            blackscreen = bool(dark_percentage >= BLACKSCREEN_DARK_PCT_MIN)
+            # Dark but LIVE scene (BUG-0646): the 5-70% region ignores the bottom quarter, where a
+            # lit stage floor / banner can sit. Black means uniformly dark on the whole frame.
+            if blackscreen and float(np.mean(img > BLACKSCREEN_LIT_LEVEL)) * 100 > BLACKSCREEN_LIT_PCT_MAX:
+                blackscreen = False
             timings['blackscreen'] = (time.perf_counter() - start) * 1000
             
             # Cache result for next frames (when overloaded) - OPTIMIZATION: Lowered threshold from 50 to 30
@@ -706,7 +700,34 @@ def detect_issues(image_path, fps=5, queue_size=0, DEBUG=0, skip_freeze=False, s
                     'percentage': dark_percentage,
                     'frame_number': frame_number
                 }
-    
+
+    # === STEP 2b: No-signal Detection (SMPTE-style colour bars) ===
+    # Mutually exclusive with blackscreen (no_signal is bright + saturated bars, blackscreen
+    # is nearly-uniform dark). Both take priority over freeze. Skipped under the same
+    # `skip_blackscreen` flag — both are "the display is not showing what we expect".
+    no_signal = False
+    if not skip_blackscreen and not blackscreen:
+        try:
+            # Re-read the JPG as colour (the BGR/HSV pipeline needs it); the JPEG is
+            # already in the OS page cache after STEP 1's grayscale read, so this is
+            # the libjpeg colour DCT pass, not a fresh disk read.
+            img_bgr = cv2.imread(image_path, cv2.IMREAD_REDUCED_COLOR_4)
+            if img_bgr is not None:
+                hsv_top = cv2.cvtColor(img_bgr[header_y:split_y, :], cv2.COLOR_BGR2HSV)
+                ns_gray = img[header_y:split_y, :]
+                ns_gray_std = float(ns_gray.std())
+                ns_sat = float(hsv_top[:, :, 1].mean())
+                ns_canny = float(cv2.Canny(ns_gray, 50, 150).mean())
+                no_signal = bool(
+                    ns_sat > NOSIG_SAT_MIN
+                    and ns_canny < NOSIG_CANNY_MAX
+                    and ns_gray_std > NOSIG_STD_MIN
+                )
+                timings['no_signal'] = (time.perf_counter() - start) * 1000
+        except Exception as e:
+            logger.debug(f"no_signal detection failed: {e}")
+            no_signal = False
+
     # === STEP 3: Bottom Content Check (ONLY if blackscreen - for zap confirmation) ===
     start = time.perf_counter()
     if blackscreen:
@@ -741,7 +762,7 @@ def detect_issues(image_path, fps=5, queue_size=0, DEBUG=0, skip_freeze=False, s
     
     # === STEP 4: Freeze Detection (Pixel diff - fastest & most accurate) ===
     start = time.perf_counter()
-    
+
     # ✅ SKIP: If blackscreen incident is ongoing, don't waste CPU checking freeze
     if skip_freeze:
         frozen = False
@@ -751,7 +772,7 @@ def detect_issues(image_path, fps=5, queue_size=0, DEBUG=0, skip_freeze=False, s
         # Load current frame thumbnail for freeze detection (compare thumbnails with thumbnails)
         current_thumbnail_filename = filename.replace('.jpg', '_thumbnail.jpg')
         current_thumbnail_path = os.path.join(thumbnails_dir, current_thumbnail_filename)
-        
+
         if os.path.exists(current_thumbnail_path):
             current_thumbnail = cv2_io.imread(current_thumbnail_path, cv2.IMREAD_GRAYSCALE)
             if current_thumbnail is not None:
@@ -760,8 +781,24 @@ def detect_issues(image_path, fps=5, queue_size=0, DEBUG=0, skip_freeze=False, s
                 frozen, freeze_details = False, {}
         else:
             frozen, freeze_details = False, {}
-        
-        timings['freeze'] = (time.perf_counter() - start) * 1000
+
+        # Structural priority fix (BUG-0504): when blackscreen OR no_signal is also
+        # detected on this frame, freeze loses. The capture_monitor priority block
+        # already does this downstream, but enforcing it here means:
+        #   - The JSON file at capture_NNNNNN.json already says `blackscreen=True,
+        #     freeze=False` (so reading archived captures / R2 uploads is consistent).
+        #   - A bug or skip in the downstream block can never resurrect `freeze=True`
+        #     for an all-black / no-signal frame.
+        # A "freeze" on an entirely empty or entirely static-vivid frame is almost
+        # never a real user-facing fault — it's the dark frame of a sleeping display
+        # or the SMPTE bars of a powered-off STB. Reporting it as freeze/macroblocks
+        # would bury the actual signal from operators.
+        if (blackscreen or no_signal) and frozen:
+            timings['freeze'] = (time.perf_counter() - start) * 1000
+            frozen = False
+            freeze_details = {**freeze_details, 'suppressed_by': 'priority_over_freeze' if blackscreen else 'priority_over_no_signal'}
+        else:
+            timings['freeze'] = (time.perf_counter() - start) * 1000
     
     # === STEP 5: Subtitle Detection - REMOVED ===
     # Subtitle OCR is now handled exclusively by subtitle_monitor.py (separate process)
@@ -877,9 +914,14 @@ def detect_issues(image_path, fps=5, queue_size=0, DEBUG=0, skip_freeze=False, s
         # Blackscreen (enhanced)
         'blackscreen': bool(blackscreen),
         'blackscreen_percentage': round(dark_percentage, 1),
-        'blackscreen_threshold': threshold,
+        'blackscreen_threshold': BLACKSCREEN_DARK_PCT_MIN,
         'blackscreen_region': '5-70%',
-        
+
+        # No-signal detection (SMPTE-style colour bars). Mutually exclusive with blackscreen
+        # at the dark_percentage level (a no-signal bar is bright), but BOTH take priority
+        # over freeze (a frozen image is not a user-facing fault when the device has no input).
+        'no_signal': bool(no_signal),
+
         # Zap detection (NEW)
         'zap': zap,
         'has_bottom_content': has_bottom_content,

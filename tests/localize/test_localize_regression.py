@@ -80,6 +80,9 @@ class _FakeHelpers:
         self.result = result
         self.calls: List[Tuple[Any, Any]] = []
 
+    def classify_special_state(self, img):
+        return None          # Localize v3 step 1 (TASK-104): never a black / no-signal frame here
+
     def identify_screen(self, img, node_fps):
         self.calls.append((img, node_fps))
         return self.result
@@ -100,7 +103,8 @@ def _build_matcher_result(node: Optional[str]) -> Dict[str, Any]:
 
 
 def _tier2_stub(expected: Dict[str, Any]) -> Dict[str, str]:
-    """Build a ``scv.screen_state`` stub from the row's ``expected`` Tier-2 fields.
+    """The four Tier-2 answers (``scv.loaded`` / ``overlay`` / ``playback`` / ``error`` stubs) from
+    the row's ``expected`` Tier-2 fields.
 
     The four keys the cascade returns — ``loaded``, ``overlay``, ``playback``,
     ``error`` — are all optional in the row's ``expected`` dict (a row may
@@ -108,7 +112,7 @@ def _tier2_stub(expected: Dict[str, Any]) -> Dict[str, str]:
     back to the cascade's own honest default of ``'unknown'`` so the merge in
     ``_screen_state`` still produces a complete Tier-2 dict.
 
-    The harness does NOT call the real ``scv.screen_state`` — that would couple
+    The harness does NOT call the real Tier-2 checks — that would couple
     the regression to the Tier-2 cascade's own behavior, which has its own
     tests. The point is to assert that ``localize_frame`` MERGES the four
     answers correctly into the payload.
@@ -292,9 +296,12 @@ def _run_row(monkeypatch, tmp_path, row: Dict[str, Any]) -> None:
     # has to return that value for BOTH the default run and the company-aware
     # re-check.
     expected = row.get('expected', {})
+    # _screen_state calls the four checks separately (each with its own input shape: a pct
+    # window for loaded, the frame for overlay, is_media + pct for playback, OCR tokens for
+    # error), so each is stubbed on its own.
     tier2_state = _tier2_stub(expected)
-    monkeypatch.setattr(scv, 'screen_state', lambda *a, **k: tier2_state)
-    monkeypatch.setattr(scv, 'error', lambda *a, **k: expected.get('error', 'unknown'))
+    for arm in ('loaded', 'overlay', 'playback', 'error'):
+        monkeypatch.setattr(scv, arm, lambda *a, _v=tier2_state[arm], **k: _v)
 
     # ── 3. Build the monitor and call localize_frame ─────────────────────────
     m = _make_monitor(monkeypatch, row)

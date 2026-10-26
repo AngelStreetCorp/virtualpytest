@@ -3,6 +3,7 @@ import React, { useRef, useEffect } from 'react';
 
 import { useBashDesktop } from '../../../hooks/controller/useBashDesktop';
 import { Host } from '../../../types/common/Host_Types';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface BashDesktopTerminalProps {
   host: Host;
@@ -68,7 +69,7 @@ export const BashDesktopTerminal = React.memo(function BashDesktopTerminal({
         sx={{
           margin: 0,
           fontFamily: 'monospace',
-          fontSize: '0.75rem',
+          fontSize: TYPOGRAPHY.caption.size,
           lineHeight: 1.2,
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
@@ -100,7 +101,7 @@ export const BashDesktopTerminal = React.memo(function BashDesktopTerminal({
           backgroundColor: '#1e1e1e',
           color: '#00ff00',
           fontFamily: 'monospace',
-          fontSize: '0.75rem',
+          fontSize: TYPOGRAPHY.caption.size,
           overflow: 'auto',
           border: '1px solid #333',
           mb: 1,
@@ -129,7 +130,7 @@ export const BashDesktopTerminal = React.memo(function BashDesktopTerminal({
             flex: 1,
             '& .MuiOutlinedInput-root': {
               fontFamily: 'monospace',
-              fontSize: '0.875rem',
+              fontSize: TYPOGRAPHY.body.size,
             },
           }}
         />

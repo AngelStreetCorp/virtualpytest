@@ -75,6 +75,8 @@ class VideoVerificationHelpers:
             elif command in ['DetectBlackscreen', 'DetectFreeze', 'DetectSubtitles', 'DetectSubtitlesAI']:
                 print(f"VideoVerification[{self.device_name}]: DEBUG: Calling _execute_content_analysis with image_paths: {image_paths}")
                 return self._execute_content_analysis(command, params, image_paths)
+            elif command == 'IsStandby':
+                return self._execute_is_standby(params)
             elif command == 'DetectMotionFromJson':
                 return self._execute_json_motion_analysis(params)
             elif command == 'DetectZapping':
@@ -120,6 +122,34 @@ class VideoVerificationHelpers:
             
         except Exception as e:
             return self._create_error_result(f'Video playback verification error: {str(e)}')
+
+    def _execute_is_standby(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """IsStandby: pass when the box is asleep (no HDMI signal / black output); `awake: true` passes when it is awake.
+
+        Polls the HDMI controller's get_signal_state() until the wanted state holds or `timeout` (ms) ends.
+        """
+        try:
+            av = self.controller.av_controller
+            if not hasattr(av, 'get_signal_state'):
+                return self._create_error_result('This capture controller cannot tell standby (no get_signal_state)')
+            want_standby = not bool(params.get('awake', False))
+            timeout_ms = int(params.get('timeout', 3000))
+            deadline = time.time() + timeout_ms / 1000.0
+            while True:
+                state = av.get_signal_state()
+                standby = state.get('standby')
+                if standby is not None and standby == want_standby:
+                    break
+                if time.time() >= deadline:
+                    break
+                time.sleep(0.5)
+            if standby is None:
+                return self._create_error_result('Cannot tell standby: no HDMI flag and no recent monitor frame')
+            success = standby == want_standby
+            message = f"Box is {'in standby' if standby else 'awake'} ({state.get('source')})"
+            return self._create_success_result(success, message, {**state, 'expected': 'awake' if not want_standby else 'standby', 'timeout': timeout_ms})
+        except Exception as e:
+            return self._create_error_result(f'IsStandby error: {str(e)}')
 
     def _execute_motion_detection(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """Execute motion detection verification."""
@@ -506,6 +536,25 @@ class VideoVerificationHelpers:
         from shared.src.lib.schemas.param_types import create_param, ParamType
         
         return [
+            {
+                'command': 'IsStandby',
+                'params': {
+                    'awake': create_param(
+                        ParamType.BOOLEAN,
+                        required=False,
+                        default=False,
+                        description="Pass when the box is awake instead of in standby"
+                    ),
+                    'timeout': create_param(
+                        ParamType.NUMBER,
+                        required=False,
+                        default=3000,
+                        description="Maximum time to wait for the state (ms)"
+                    )
+                },
+                'verification_type': 'video',
+                'description': 'Box is in standby (no HDMI signal / black output); awake=true for the opposite'
+            },
             {
                 'command': 'WaitForVideoToAppear',
                 'params': {

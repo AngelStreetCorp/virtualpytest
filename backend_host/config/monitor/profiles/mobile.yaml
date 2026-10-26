@@ -1,0 +1,12 @@
+# mobile: a phone or tablet (android_mobile, phone_agent, cloud_android_mobile). A phone can launch anything (a TV app, a game,
+# a web page), so there is no screen tree to match against: Localize runs tree-less (no userinterface needed), which gives
+# live (video / game motion) and signal (black screen), and the badge stays empty when it can name nothing. Blackscreen, freeze
+# and the motion state stay on (the same tv_app analyzer); the audio and subtitle services are off (a phone's sound is the game's
+# or the video's, not a TV channel's). It is the default for those models: see docs/agent/devices/MONITOR_PROFILES.md §1.
+# Not done: the app name from the foreground package (needs an adb / phone-agent read that can wedge the phone agent mid-run).
+name: mobile
+services: { img: true, audio: false, subtitle: false }
+img:
+  runtime: edge
+  analyzers:
+    - type: tv_app

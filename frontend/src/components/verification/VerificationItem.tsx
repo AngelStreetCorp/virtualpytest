@@ -1,3 +1,4 @@
+import { AppIcon } from '../../constants/icons';
 import {
   Close as CloseIcon,
   KeyboardArrowUp as KeyboardArrowUpIcon,
@@ -32,6 +33,7 @@ import { SearchableSelect, SearchableSelectOption } from '../common/SearchableSe
 import { ReferenceImagePreview } from './ReferenceImagePreview';
 import { VerificationControls, VerificationControlsLinkProps } from './VerificationControls';
 import { VerificationTestResults } from './VerificationTestResults';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface VerificationItemProps {
   verification: Verification;
@@ -102,6 +104,9 @@ interface VerificationItemProps {
   // Optional per-field data-linking (TestCase builder inline editor only).
   // Undefined in the navigation Node/Edge dialogs → no behavior change.
   linkProps?: VerificationControlsLinkProps;
+  // Rendered inside a CompactListRow: no own border, and Run / Remove live on
+  // the row summary instead of here.
+  bare?: boolean;
 }
 
 export const VerificationItem: React.FC<VerificationItemProps> = ({
@@ -136,6 +141,7 @@ export const VerificationItem: React.FC<VerificationItemProps> = ({
   isRecapturing = false,
   recaptureDisabled = false,
   linkProps,
+  bare = false,
 }) => {
   // Text references can be edited inline (and propagated on save) when the
   // host dialog opts in via allowReferenceEdit. Image references stay locked
@@ -155,7 +161,7 @@ export const VerificationItem: React.FC<VerificationItemProps> = ({
       .map(([internalKey, ref]) => ({
         value: internalKey,
         label: ref.name || internalKey,
-        icon: type === 'text' ? '📝' : '🖼️',
+        icon: <AppIcon name={type === 'text' ? 'text' : 'image'} />,
       }));
   const textReferenceOptions = React.useMemo(
     () => buildReferenceOptions('text'),
@@ -167,14 +173,18 @@ export const VerificationItem: React.FC<VerificationItemProps> = ({
   );
   return (
     <Box
-      sx={{
-        mb: 0.5,
-        px: 0.5,
-        py: 0.5,
-        border: '1px solid',
-        borderColor: 'divider',
-        borderRadius: 1,
-      }}
+      sx={
+        bare
+          ? { pt: 0.5 }
+          : {
+              mb: 0.5,
+              px: 0.5,
+              py: 0.5,
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 1,
+            }
+      }
     >
       {/* Line 1: Verification dropdown */}
       <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mb: 0.5 }}>
@@ -188,7 +198,7 @@ export const VerificationItem: React.FC<VerificationItemProps> = ({
             disabled={disabled}
             sx={{
               '& .MuiSelect-select': {
-                fontSize: '0.8rem',
+                fontSize: TYPOGRAPHY.body.size,
                 py: 0.5,
               },
             }}
@@ -220,7 +230,7 @@ export const VerificationItem: React.FC<VerificationItemProps> = ({
                 <MenuItem
                   key={`header-${category}`}
                   disabled
-                  sx={{ fontWeight: 'bold', fontSize: '0.65rem', minHeight: '20px' }}
+                  sx={{ fontWeight: 'bold', fontSize: TYPOGRAPHY.microMeta.size, minHeight: '20px' }}
                 >
                   {category.replace(/_/g, ' ').toUpperCase()}
                 </MenuItem>,
@@ -228,7 +238,7 @@ export const VerificationItem: React.FC<VerificationItemProps> = ({
                   <MenuItem
                     key={`${category}-${verification.command}-${vIndex}`}
                     value={verification.command}
-                    sx={{ pl: 3, fontSize: '0.7rem', minHeight: '24px' }}
+                    sx={{ pl: 3, fontSize: TYPOGRAPHY.caption.size, minHeight: '24px' }}
                   >
                     {verification.command
                       ? verification.command
@@ -243,7 +253,7 @@ export const VerificationItem: React.FC<VerificationItemProps> = ({
           </Select>
         </FormControl>
 
-        {onRun && (
+        {onRun && !bare && (
           <Tooltip title="Run this verification">
             <span>
               <IconButton
@@ -252,7 +262,7 @@ export const VerificationItem: React.FC<VerificationItemProps> = ({
                 disabled={!canRun || disabled}
                 sx={{ p: 0.5, minWidth: 24, width: 24, height: 24, ml: 0.25 }}
               >
-                {isRunning ? <CircularProgress size={14} /> : <PlayArrowIcon sx={{ fontSize: '1rem' }} />}
+                {isRunning ? <CircularProgress size={14} /> : <PlayArrowIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />}
               </IconButton>
             </span>
           </Tooltip>
@@ -266,7 +276,7 @@ export const VerificationItem: React.FC<VerificationItemProps> = ({
             disabled={!canMoveUp || disabled}
             sx={{ p: 0.25, minWidth: 0, width: 20, height: 16 }}
           >
-            <KeyboardArrowUpIcon sx={{ fontSize: '0.8rem' }} />
+            <KeyboardArrowUpIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
           </IconButton>
           <IconButton
             size="small"
@@ -274,19 +284,21 @@ export const VerificationItem: React.FC<VerificationItemProps> = ({
             disabled={!canMoveDown || disabled}
             sx={{ p: 0.25, minWidth: 0, width: 20, height: 16 }}
           >
-            <KeyboardArrowDownIcon sx={{ fontSize: '0.8rem' }} />
+            <KeyboardArrowDownIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
           </IconButton>
         </Box>
 
         {/* Remove button */}
+        {!bare && (
         <IconButton
           size="small"
           onClick={() => onRemoveVerification(index)}
           disabled={disabled}
           sx={{ p: 0.25, minWidth: 0, width: 20, height: 20 }}
         >
-          <CloseIcon sx={{ fontSize: '0.8rem' }} />
+          <CloseIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
         </IconButton>
+        )}
       </Box>
 
       {/* Line 2: Text Reference + Search Text - side by side */}
@@ -317,14 +329,14 @@ export const VerificationItem: React.FC<VerificationItemProps> = ({
             sx={{
               flex: 1,
               '& .MuiInputBase-input': {
-                fontSize: '0.8rem',
+                fontSize: TYPOGRAPHY.body.size,
               },
             }}
             InputProps={{
               readOnly: effectiveReferenceReadOnly,
               endAdornment: (
                 <InputAdornment position="end">
-                  <span style={{ fontSize: '0.9rem' }}>🔍</span>
+                  <span style={{ fontSize: TYPOGRAPHY.navbarItem.size }}><AppIcon name="search" /></span>
                 </InputAdornment>
               ),
             }}
@@ -361,7 +373,7 @@ export const VerificationItem: React.FC<VerificationItemProps> = ({
                       ml: 0.25,
                       mr: 0,
                       flexShrink: 0,
-                      '& .MuiFormControlLabel-label': { fontSize: '0.7rem' },
+                      '& .MuiFormControlLabel-label': { fontSize: TYPOGRAPHY.caption.size },
                     }}
                   />
                 </Tooltip>
@@ -389,11 +401,11 @@ export const VerificationItem: React.FC<VerificationItemProps> = ({
                 label="Icon"
                 size="small"
                 disabled={disabled}
-                sx={{ '& .MuiSelect-select': { fontSize: '0.8rem', py: 0.5 } }}
+                sx={{ '& .MuiSelect-select': { fontSize: TYPOGRAPHY.body.size, py: 0.5 } }}
               >
                 {['play', 'pause', 'stop', 'fast_forward', 'rewind', 'question_mark'].map(
                   (name) => (
-                    <MenuItem key={name} value={name} sx={{ fontSize: '0.75rem' }}>
+                    <MenuItem key={name} value={name} sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                       {name.replace(/_/g, ' ')}
                     </MenuItem>
                   ),
@@ -439,7 +451,7 @@ export const VerificationItem: React.FC<VerificationItemProps> = ({
                     {isRecapturing ? (
                       <CircularProgress size={14} />
                     ) : (
-                      <CameraAltIcon sx={{ fontSize: '1rem' }} />
+                      <CameraAltIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
                     )}
                   </IconButton>
                 </span>
@@ -471,7 +483,7 @@ export const VerificationItem: React.FC<VerificationItemProps> = ({
                   sx={{
                     ml: 0.25,
                     mr: 0,
-                    '& .MuiFormControlLabel-label': { fontSize: '0.7rem' },
+                    '& .MuiFormControlLabel-label': { fontSize: TYPOGRAPHY.caption.size },
                   }}
                 />
               </Tooltip>

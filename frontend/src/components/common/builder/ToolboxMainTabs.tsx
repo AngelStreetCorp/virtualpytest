@@ -9,6 +9,7 @@ import React from 'react';
 import { Box, Tabs, Tab } from '@mui/material';
 import ViewModuleIcon from '@mui/icons-material/ViewModule';
 import SettingsIcon from '@mui/icons-material/Settings';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 export type ToolboxMainTabValue = 'blocks' | 'config';
 
@@ -36,7 +37,7 @@ export const ToolboxMainTabs: React.FC<ToolboxMainTabsProps> = ({
           '& .MuiTab-root': {
             minHeight: 36,
             py: 0.5,
-            fontSize: 12,
+            fontSize: TYPOGRAPHY.caption.size,
             fontWeight: 500,
             textTransform: 'none',
           },
@@ -47,13 +48,13 @@ export const ToolboxMainTabs: React.FC<ToolboxMainTabsProps> = ({
       >
         <Tab 
           value="blocks" 
-          icon={<ViewModuleIcon sx={{ fontSize: 16 }} />}
+          icon={<ViewModuleIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />}
           iconPosition="start"
           label={`Functions (${blocksCount})`}
         />
         <Tab 
           value="config" 
-          icon={<SettingsIcon sx={{ fontSize: 16 }} />}
+          icon={<SettingsIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />}
           iconPosition="start"
           label={`Config (${configCount})`}
         />

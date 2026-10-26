@@ -204,18 +204,19 @@ def option_text(opt: Dict) -> str:
 
 
 def heuristic_choice(opts: List[Dict], our_hp_share: float = 1.0, last: Optional[str] = None,
-                     travelling: bool = False) -> Optional[str]:
+                     travelling: bool = False, must_catch: bool = False) -> Optional[str]:
     """Baseline: run from a wild battle below 30 % HP; catch a new species while the party is small once
     it is weak enough (until then attack gently to weaken it); while travelling (not training) run from a
     wild Pokémon far below our level (a cave's Zubats: little experience, PP and HP spent); else the move
     with the highest expected damage; with no damaging move left, run from a wild battle, or use a status
-    move other than the last one."""
+    move other than the last one. `must_catch` (BUG-0673: the Surf learner the party lacks) wants the catch at
+    any party size."""
     run = next((o for o in opts if o["kind"] == "run"), None)
     can_run = run is not None
     if can_run and our_hp_share < 0.3:
         return "run"
     moves = [o for o in opts if o["kind"] == "move"]
-    wanted = next((o for o in opts if o["kind"] == "catch" and o["facts"]["party_size"] <= CATCH_PARTY_MAX), None)
+    wanted = next((o for o in opts if o["kind"] == "catch" and (must_catch or o["facts"]["party_size"] <= CATCH_PARTY_MAX)), None)
     if wanted and (wanted["facts"]["enemy_hp_share"] <= CATCH_BELOW
                    or wanted["facts"].get("catch_chance", 0) >= CATCH_CHANCE_MIN):
         return "catch"
@@ -256,6 +257,11 @@ def main_menu_open(read: Read) -> bool:
     from .memory import screen_rows
     rows = screen_rows(read)
     return any("ATTAQ" in r for r in rows[12:18])
+
+
+def safari_menu_open(rows: List[str]) -> bool:
+    """The Safari battle menu (BALL / APPAT over CAILLOU / FUITE) is on screen."""
+    return len(rows) > 16 and "APPAT" in rows[14] and "FUITE" in rows[16]
 
 
 def party_text(read: Read) -> str:

@@ -8,10 +8,14 @@ import {
 
 import { 
   buildServerUrl, 
+  buildServerUrlForServer,
   buildCaptureUrl, 
   buildMetadataChunkUrl 
 } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
+
+/** How often the browser asks the server for the newest frame JSON (BUG-0836). */
+export const POLL_MS = 120;
 
 interface ErrorTrendData {
   blackscreenConsecutive: number;
@@ -38,6 +42,13 @@ interface UseMonitoringReturn {
   errorTrendData: ErrorTrendData | null;
   isLoading: boolean;
   analysisTimestamp: string | null;
+  /** Live capture FPS (sequence deltas of capture_*.jpg). Null until two frames land. */
+  captureFps: number | null;
+  /**
+   * The capture image the newest analysis came from, or null (archive mode, or before the first poll).
+   * Drawing the overlay on THIS instead of the live video removes the desync entirely (BUG-0836).
+   */
+  analysedFrameUrl: string | null;
   requestAIAnalysisForFrame: (imageUrl: string, sequence: string) => void; // Fire-and-forget (non-blocking)
   isAIAnalyzing: boolean;
 }
@@ -66,6 +77,13 @@ export const useMonitoring = ({
   const pollingIntervalRef = useRef<NodeJS.Timeout | null>(null);
   const fetchTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const isAudioSupported = device?.device_model !== 'host_vnc';
+  const [captureFps, setCaptureFps] = useState<number | null>(null);
+  // BUG-0836: the capture image the newest analysis was computed FROM. Showing it instead of the live video
+  // makes the boxes correct by construction: the picture and the boxes are then the same frame, so there is
+  // nothing to desync. See `analysedFrameUrl` in the return.
+  const [analysedFrameUrl, setAnalysedFrameUrl] = useState<string | null>(null);
+  const fpsInAnchorRef = useRef<{ seq: number; at: number } | null>(null);
+  const fpsInSamplesRef = useRef<number[]>([]);
   
   // Use refs for values that should NOT trigger effect re-runs
   const isLoadingRef = useRef(isLoading);
@@ -121,6 +139,17 @@ export const useMonitoring = ({
       localize: data.localize,
       // Motion classification (live / carousel / pip / static) - only present when classified
       motion: data.motion,
+      // Monitor profile output (TASK-90): boxes, events and KPIs of profiles other than tv_app
+      profile: data.profile,
+      frame_size: data.frame_size,
+      observations: data.observations,
+      events: data.events,
+      kpis: data.kpis,
+      incidents: data.incidents,
+      ui: data.ui,
+      focus: data.focus,
+      telemetry: data.telemetry,
+      captured_at: data.captured_at,
       // NEW: Nested zapping structures (primary data source)
       zap: data.zap,
       zap_cache: data.zap_cache,
@@ -208,7 +237,9 @@ export const useMonitoring = ({
   } | null> => {
     try {
       const result = await api.post<{ success?: boolean; json_data?: any; filename?: string; timestamp?: string }>(
-        buildServerUrl('/server/monitoring/latest-json'),
+        host?.server_url
+          ? buildServerUrlForServer(host.server_url, '/server/monitoring/latest-json')
+          : buildServerUrl('/server/monitoring/latest-json'),
         {
           host_name: host.host_name,
           device_id: device?.device_id || 'device1',
@@ -322,6 +353,17 @@ export const useMonitoring = ({
             last_action_executed: nearestFrame.last_action_executed,
             last_action_timestamp: nearestFrame.last_action_timestamp,
             action_params: nearestFrame.action_params,
+            // Monitor profile output (TASK-90), as the monitor wrote it into the 10-minute chunk
+            profile: nearestFrame.profile,
+            frame_size: nearestFrame.frame_size,
+            observations: nearestFrame.observations,
+            events: nearestFrame.events,
+            kpis: nearestFrame.kpis,
+            incidents: nearestFrame.incidents,
+            ui: nearestFrame.ui ?? chunkData.ui, // the monitor writes the ui block once per chunk, not per frame
+            focus: nearestFrame.focus,
+            telemetry: nearestFrame.telemetry,
+            captured_at: nearestFrame.captured_at,
             // Zapping detection (nested structures)
             zap: nearestFrame.zap,
             zap_cache: nearestFrame.zap_cache,
@@ -335,6 +377,7 @@ export const useMonitoring = ({
             aiDescription: null,
           };
           setAnalysisHistory([snapshot]);
+          setAnalysedFrameUrl(null);        // archive: the picture comes from the chunk timeline, not one capture
           if (isLoadingRef.current) setIsLoading(false);
           console.log(`[useMonitoring] Archive analysis updated for ${nearestFrame.timestamp}`);
         } else {
@@ -355,6 +398,10 @@ export const useMonitoring = ({
       setAnalysisHistory([]);
       setIsLoading(true);
       setLastProcessedSequence('');
+      setCaptureFps(null);
+      setAnalysedFrameUrl(null);
+      fpsInAnchorRef.current = null;
+      fpsInSamplesRef.current = [];
       if (pollingIntervalRef.current) {
         clearInterval(pollingIntervalRef.current);
         pollingIntervalRef.current = null;
@@ -366,7 +413,10 @@ export const useMonitoring = ({
       return;
     }
 
-    // Live mode only: 500ms polling
+    // Live mode only: POLL_MS polling (BUG-0836). This was 500ms, more than half of the whole overlay
+    // lag: the monitor writes a frame JSON every sample_hz period, so polling at half that rate meant
+    // the boxes on screen were often a whole second of scene behind the video they were drawn on. Every
+    // 100ms of poll here is 100ms of boxes sitting NEXT to their objects instead of on them.
     let isMounted = true;
     
     const pollLatestData = async () => {
@@ -377,6 +427,23 @@ export const useMonitoring = ({
         const latestData = await fetchLatestMonitoringData();
         if (!isMounted || !latestData) return;
         if (latestData.sequence === lastProcessedSequenceRef.current) return;
+
+        const seq = Number(latestData.sequence);
+        if (Number.isFinite(seq)) {
+          const now =
+            typeof performance !== 'undefined' && performance.now ? performance.now() : Date.now();
+          const prev = fpsInAnchorRef.current;
+          if (prev && seq > prev.seq && now - prev.at >= 400) {
+            const sample = (seq - prev.seq) / ((now - prev.at) / 1000);
+            if (sample > 0 && sample < 120) {
+              const samples = fpsInSamplesRef.current;
+              samples.push(sample);
+              if (samples.length > 4) samples.shift();
+              setCaptureFps(Math.round(samples.reduce((a, b) => a + b, 0) / samples.length));
+            }
+          }
+          fpsInAnchorRef.current = { seq, at: now };
+        }
 
         const { analysis, subtitleAnalysis } = parseJsonData(latestData.jsonData);
         if (!analysis) return;
@@ -390,6 +457,7 @@ export const useMonitoring = ({
         };
 
         setAnalysisHistory(prev => [...prev, snapshot].slice(-10));
+        setAnalysedFrameUrl(latestData.imageUrl);
         setLastProcessedSequence(latestData.sequence);
         if (isLoadingRef.current) setIsLoading(false);
 
@@ -417,7 +485,7 @@ export const useMonitoring = ({
     };
 
     pollLatestData();
-    pollingIntervalRef.current = setInterval(pollLatestData, 500);
+    pollingIntervalRef.current = setInterval(pollLatestData, POLL_MS);
 
     return () => {
       isMounted = false;
@@ -504,6 +572,8 @@ export const useMonitoring = ({
     errorTrendData: computeErrorTrends(),
     isLoading,
     analysisTimestamp: latestSnapshot?.timestamp || null,
+    captureFps,
+    analysedFrameUrl,
     requestAIAnalysisForFrame,
     isAIAnalyzing: false, // AI disabled
   };

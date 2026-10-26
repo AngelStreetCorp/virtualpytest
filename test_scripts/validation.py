@@ -332,16 +332,6 @@ def validate_with_recovery(max_iteration: int = None, edges: str = None, subtree
         })
         if hasattr(context, 'write_running_log'):
             context.write_running_log()
-        context.emit_progress(
-            message=skip_msg,
-            step={
-                'from_node': from_label,
-                'to_node': to_label,
-                'success': False,
-                'error': f'Skipped: {reason}',
-                'skipped': True,
-            },
-        )
 
     # Execute each transition. Two phases per step:
     #   1) reposition: if the device's tracked position differs from this step's
@@ -403,15 +393,6 @@ def validate_with_recovery(max_iteration: int = None, edges: str = None, subtree
         ))
 
         step_success = bool(result.get('success', False))
-        context.emit_progress(
-            message=f"Step {i+1}/{len(validation_sequence)}: {from_node} → {target}",
-            step={
-                'from_node': from_node,
-                'to_node': target,
-                'success': step_success,
-                'error': result.get('error') if not step_success else None,
-            },
-        )
 
         if step_success:
             print(f"✅ [validation] Step {i+1} successful")

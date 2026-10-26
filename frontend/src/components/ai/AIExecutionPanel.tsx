@@ -7,19 +7,24 @@
  * lifecycle: Send → Run → Running → Success/Failed.
  */
 
+import { AppIcon } from '../../constants/icons';
 import React, { useEffect } from 'react';
 import { Box, Typography, TextField, Button, CircularProgress } from '@mui/material';
 
 import { Host, Device } from '../../types/common/Host_Types';
 import { UserinterfaceSelector } from '../common';
 import { useAIExecutionPanel } from '../../hooks/useAIExecutionPanel';
+import { RecOverlayPanel } from '../rec/RecOverlayPanel';
+import { useI18n } from '../../i18n/useI18n';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface AIExecutionPanelProps {
   host: Host;
   device: Device;
   isControlActive: boolean;
   isVisible: boolean;
+  onClose: () => void;
   // Export disambiguation state to parent for modal rendering
   onDisambiguationDataChange?: (
     data: any,
@@ -35,6 +40,7 @@ export const AIExecutionPanel: React.FC<AIExecutionPanelProps> = ({
   device,
   isControlActive,
   isVisible,
+  onClose,
   onDisambiguationDataChange,
   onExecutingChange,
 }) => {
@@ -55,6 +61,7 @@ export const AIExecutionPanel: React.FC<AIExecutionPanelProps> = ({
   } = useAIExecutionPanel({ host, device, onDisambiguationDataChange });
 
   const P = useAgentChatPalette();
+  const { t } = useI18n();
 
   useEffect(() => {
     onExecutingChange?.(isExecuting);
@@ -94,48 +101,21 @@ export const AIExecutionPanel: React.FC<AIExecutionPanelProps> = ({
   }
 
   return (
-    <Box
-      sx={{
-        position: 'absolute',
-        top: 10,
-        right: 10,
-        // Sit above the stream caption/transcript/restart overlays (which use hardcoded
-        // ~1250–1000040 z-indexes). The disambiguation modal is portaled to <body>, so it
-        // still renders above this panel regardless of this value.
-        zIndex: 1000050,
-        pointerEvents: 'auto',
-        width: '420px',
-        backgroundColor: 'rgba(0,0,0,0.9)',
-        borderRadius: 2,
-        border: `1px solid ${P.borderColor}`,
-        backdropFilter: 'blur(10px)',
-      }}
+    <RecOverlayPanel
+      title={t('AI Prompt')}
+      onClose={onClose}
+      headerExtra={
+        <UserinterfaceSelector
+          deviceModel={device.device_model}
+          value={selectedUserinterface}
+          onChange={setSelectedUserinterface}
+          label=""
+          size="small"
+          fullWidth={false}
+          sx={{ minWidth: 150, maxWidth: 220 }}
+        />
+      }
     >
-      <Box sx={{ p: 2 }}>
-        {/* Title + interface selector on one line */}
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            gap: 1,
-            mb: 1.5,
-          }}
-        >
-          <Typography variant="subtitle1" sx={{ color: P.textPrimary, fontWeight: 600, whiteSpace: 'nowrap' }}>
-            AI Prompt
-          </Typography>
-          <UserinterfaceSelector
-            deviceModel={device.device_model}
-            value={selectedUserinterface}
-            onChange={setSelectedUserinterface}
-            label=""
-            size="small"
-            fullWidth={false}
-            sx={{ minWidth: 150, maxWidth: 220 }}
-          />
-        </Box>
-
         <TextField
           size="small"
           fullWidth
@@ -164,14 +144,14 @@ export const AIExecutionPanel: React.FC<AIExecutionPanelProps> = ({
               </Box>
             ) : executionStatus === 'success' ? (
               <Typography variant="body2" sx={{ color: P.success }}>
-                ✓ Done: “{actionLabel}”
+                <AppIcon name="success" /> Done: “{actionLabel}”
               </Typography>
             ) : executionStatus === 'fail' ? (
               <Typography variant="body2" sx={{ color: P.error }}>
-                ✕ Failed: “{actionLabel}”
+                <AppIcon name="error" /> Failed: “{actionLabel}”
               </Typography>
             ) : (
-              <Typography variant="body2" sx={{ color: P.textSecondary, fontSize: '0.85rem', whiteSpace: 'pre-line' }}>
+              <Typography variant="body2" sx={{ color: P.textSecondary, fontSize: TYPOGRAPHY.body.size, whiteSpace: 'pre-line' }}>
                 {analysis}
               </Typography>
             )}
@@ -188,7 +168,6 @@ export const AIExecutionPanel: React.FC<AIExecutionPanelProps> = ({
         >
           {button.label}
         </Button>
-      </Box>
-    </Box>
+    </RecOverlayPanel>
   );
 };

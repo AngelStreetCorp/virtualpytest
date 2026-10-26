@@ -9,7 +9,7 @@
 | Status    | Fixed, deployed on the gcloud VM 2026-09-27                   |
 | Severity  | Medium                                                       |
 | Area      | backend_host, frontend (VNC iframe), setup/docker            |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | becb88e027, 86a1957a42 (entrypoint export)                   |
 
 ---
@@ -22,8 +22,8 @@ On a Docker install (`setup/docker`) the host's VNC tile on `/device-control` sh
 ## Why native hosts don't prompt
 
 Not because they are configured better. Their deployed `/usr/share/novnc/vnc_lite.html` is an
-old copy that hardcodes `readQueryVariable('password', 'admin1234')`, and their VNC password is
-still `admin1234` ([BUG-0107](BUG-0107-2026-09-15-vnc-console-and-websockify-open-to-the-internet.md)
+old copy that hardcodes `readQueryVariable('password', '<default-password>')`, and their VNC password is
+still `<default-password>` ([BUG-0107](BUG-0107-2026-09-15-vnc-console-and-websockify-open-to-the-internet.md)
 left it unrotated on purpose). The Docker image serves Debian's stock noVNC page (`novnc` 1:1.6.0-2,
 `/usr/share/novnc/vnc_lite.html`, `readQueryVariable('password')` with no default) and a
 per-install password from `entrypoint.sh`, so noVNC has nothing to send and prompts.

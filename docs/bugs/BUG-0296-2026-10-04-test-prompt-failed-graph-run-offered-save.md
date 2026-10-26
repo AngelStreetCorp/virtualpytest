@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — a failing graph could be saved and then replayed as the prompt's test |
 | Area      | `features/ai-test/frontend/components/TestPromptResults.tsx` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

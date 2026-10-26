@@ -24,14 +24,6 @@
       #status {
         text-align: center;
       }
-      #sendCtrlAltDelButton {
-        position: fixed;
-        top: 0px;
-        right: 0px;
-        border: 1px outset;
-        padding: 5px 5px 4px 5px;
-        cursor: pointer;
-      }
       #screen {
         flex: 1;
         overflow: hidden;
@@ -69,16 +61,9 @@
         desktopName = e.detail.name;
       }
 
-      function sendCtrlAltDel() {
-        rfb.sendCtrlAltDel();
-        return false;
-      }
-
       function status(text) {
         document.getElementById('status').textContent = text;
       }
-
-      document.getElementById('sendCtrlAltDelButton').onclick = sendCtrlAltDel;
 
       const host = window.location.hostname;
       const port = window.location.port || (window.location.protocol === 'https:' ? '443' : '6072');
@@ -115,7 +100,6 @@
   <body>
     <div id="top_bar">
       <div id="status">Loading</div>
-      <div id="sendCtrlAltDelButton">Send CtrlAltDel</div>
     </div>
     <div id="screen"></div>
   </body>

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                                          |
 | Severity  | High (every web script on the host, once one browser has been left behind; 6 min instead of 50 s) |
 | Area      | `backend_host/src/controllers/web/playwright.py`, `backend_host/src/lib/utils/playwright_utils.py` |
-| Fixed in  | Unreleased                                                                                      |
+| Fixed in  | build 90145 |
 | Commit    | `29a289e81`                                                                                     |
 
 ---

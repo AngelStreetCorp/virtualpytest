@@ -17,6 +17,7 @@ import {
 } from '@mui/material';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { useAgentChatPalette, AGENT_CHAT_PALETTE } from '../../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface ToolboxAccordionProps {
   /** Unique identifier for this accordion */
@@ -76,7 +77,7 @@ export const ToolboxAccordion: React.FC<ToolboxAccordionProps> = ({
       }}
     >
       <AccordionSummary
-        expandIcon={<ExpandMoreIcon sx={{ fontSize: 16, color: 'text.secondary' }} />}
+        expandIcon={<ExpandMoreIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size, color: 'text.secondary' }} />}
         sx={{
           minHeight: '36px !important',
           px: 1.5,
@@ -95,14 +96,14 @@ export const ToolboxAccordion: React.FC<ToolboxAccordionProps> = ({
         }}
       >
         <Typography 
-          fontSize={13} 
+          fontSize="0.8125rem" 
           fontWeight={500}
           sx={{ color: 'text.primary' }}
         >
           {title}
         </Typography>
         <Typography 
-          fontSize={11} 
+          fontSize="0.6875rem" 
           sx={{ color: 'text.disabled', mr: 1 }}
         >
           {count}

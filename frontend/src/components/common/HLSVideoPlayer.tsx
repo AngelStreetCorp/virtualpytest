@@ -7,7 +7,7 @@ import { useHostSession } from '../../hooks/useHostSession';
 import { useLatencyDebug } from '../../hooks/useLatencyDebug';
 import { isGatedHostPath } from '../../utils/buildUrlUtils';
 import { debugLog } from '../../utils/debugLog';
-import { LIVE_HLS_CONFIG } from './hlsLiveConfig';
+import { LIVE_HLS_CONFIG, LIVE_STALL_TARGET_LATENCY_S } from './hlsLiveConfig';
 
 // Proxy for Hls.isSupported() usable before the dynamic hls.js import. When MSE is
 // available, hls.js is the ONLY valid engine for .m3u8: Chromium answers
@@ -117,6 +117,20 @@ export function HLSVideoPlayer({
   const [ffmpegStuck, setFfmpegStuck] = useState(false);
   const [visibleError, setVisibleError] = useState<string | null>(null); // Debounced error shown to user
   const errorDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The host answered 404 for the manifest: ffmpeg is not writing this capture at
+  // all. Retrying cannot succeed, and it used to — the error handler called
+  // cleanupStream(), which ends in setStreamError(null) and wiped the very message
+  // it had just set (React batches both writes in one handler, last one wins), so
+  // the "terminal" 404 branch left streamError === null, streamLoaded === false and
+  // streamUrl set. That is precisely the state the "Loading stream..." overlay
+  // renders on, and the destroyed instance then let the "activated while not loaded"
+  // effect re-init, so the card re-requested the same missing manifest every 6 s
+  // forever. Measured live 2026-10-22: vpt-lenovo6/device1 showed "Loading stream..."
+  // for 60 s+ with a 404 on every single manifest request.
+  // A ref (not just state) because initializeStream's guard must not re-create the
+  // callback — that is what let the re-init loop start in the first place.
+  const manifestMissingRef = useRef(false);
+  const [manifestMissing, setManifestMissing] = useState(false);
 
   const maxRetries = 5;
   const maxSegmentFailures = 10; // Stop after 10 consecutive segment failures
@@ -448,6 +462,18 @@ export function HLSVideoPlayer({
       return;
     }
 
+    // The host 404'd the manifest, so ffmpeg is not writing this capture. Refuse to
+    // re-init: the caller that would re-arm us is the "stream activated while not
+    // loaded" effect, and with no instance and streamLoaded=false it fires on every
+    // render, re-requesting the same missing manifest. Reading a ref keeps this guard
+    // out of initializeStream's dependency list, so adding it cannot re-create the
+    // callback and re-trigger the effects that call it. Cleared by a URL change
+    // (below) and by handleManualRestart, which is what the error box's Retry uses.
+    if (manifestMissingRef.current) {
+      debugLog('[@component:HLSVideoPlayer] Manifest is missing (404), refusing to initialize stream');
+      return;
+    }
+
     // Reject re-entrant calls while an init is already running its async setup.
     // The init sets streamLoaded=false then awaits the hls.js import; during that yield
     // the "stream activated while not loaded" effect would otherwise fire another init,
@@ -628,6 +654,26 @@ export function HLSVideoPlayer({
       // Latency correction removed - allow users to scrub back without auto-correction
 
       hls.on(HLS.Events.ERROR, (_event, data) => {
+        // A live stall means the link cannot hold the 1 s target: sit further behind live.
+        // hls.js's own per-stall increase is capped at one target duration (~1 s for the
+        // 0.4 s tier), which on a WiFi host still stalled 10 s per 74 s; at 3 s it was ~0 s.
+        // Raising the target alone does not move the playhead, so the player stayed at the
+        // edge and kept stalling: step back into the already-loaded back buffer at once.
+        if (
+          !isArchiveMode &&
+          data.details === 'bufferStalledError' &&
+          (hls.targetLatency ?? 0) < LIVE_STALL_TARGET_LATENCY_S
+        ) {
+          const target = hls.targetLatency ?? 0;
+          hls.targetLatency = LIVE_STALL_TARGET_LATENCY_S;
+          const video = videoRef.current;
+          if (video && video.seekable.length > 0) {
+            video.currentTime = Math.max(
+              video.seekable.start(0),
+              video.currentTime - (LIVE_STALL_TARGET_LATENCY_S - target),
+            );
+          }
+        }
         // Ignore buffer-related errors and transient network timeouts - they are temporary and self-recovering
         if (data.details === 'bufferStalledError' ||
             data.details === 'bufferSeekOverHole' ||
@@ -642,6 +688,17 @@ export function HLSVideoPlayer({
 
         // Check for segment loading failures (404 errors indicating FFmpeg stuck)
         if (data.details === 'fragLoadError' && data.response?.code === 404) {
+          // A live player that fell behind asks for segments the host has already archived away: the playlist lists
+          // ~2 min, the hot folder keeps 20-80 s (the archiver merges each minute into the 24 h recording and deletes
+          // it). That is not a stuck ffmpeg: jump to the live edge and load from there. The next fragment that loads
+          // resets the counter; only when the newest segments fail too does it reach the threshold (BUG-0950).
+          const liveEdge = hls.liveSyncPosition;
+          const video = videoRef.current;
+          if (!isArchiveMode && liveEdge != null && video && video.currentTime < liveEdge - 1) {
+            console.warn('[@component:HLSVideoPlayer] Segment gone (archived) - jumping to the live edge', data.frag?.url);
+            video.currentTime = liveEdge;
+            hls.startLoad(liveEdge);
+          }
           setSegmentFailureCount((prev) => {
             // Don't increment if already at max - prevents counter from going beyond threshold
             if (prev >= maxSegmentFailures) {
@@ -706,9 +763,17 @@ export function HLSVideoPlayer({
             data.response?.code === 404
           ) {
             console.warn('[@component:HLSVideoPlayer] Manifest 404 - stopping retries and cleaning up');
-            setStreamError('Stream manifest not found (404). Stream is unavailable.');
-            // Clean up HLS instance to stop further requests
+            // ORDER MATTERS: cleanupStream() ends in setStreamError(null), so it must
+            // run BEFORE the message is set. Setting the error first meant React
+            // batched setStreamError(message) then setStreamError(null) in the same
+            // handler and kept the null — the player fell straight back into the
+            // "Loading stream..." state with no error and no way out.
             cleanupStream();
+            manifestMissingRef.current = true;
+            setManifestMissing(true);
+            // Contains "manifest not found", so the debounce effect below shows it
+            // immediately instead of waiting out errorDisplayDelay.
+            setStreamError('Stream manifest not found (404). Stream is unavailable.');
             return;
           }
 
@@ -801,6 +866,11 @@ export function HLSVideoPlayer({
   // Manual restart handler - clears all errors and reinitializes stream
   const handleManualRestart = useCallback(() => {
     debugLog('[@component:HLSVideoPlayer] Manual restart triggered');
+    // Clear the 404 terminal state first, otherwise the guard added to
+    // initializeStream refuses the re-init and Retry does nothing. This is the
+    // operator's way back once ffmpeg is writing the capture again.
+    manifestMissingRef.current = false;
+    setManifestMissing(false);
     // Reset all error states
     setStreamError(null);
     setSegmentFailureCount(0);
@@ -848,6 +918,15 @@ export function HLSVideoPlayer({
         // Stay on hls.js: the watchdog hard-restart, visibility handler and the
         // Retry button all route back through handleManualRestart to recover.
         console.warn('[@component:HLSVideoPlayer] Max retries reached, awaiting restart (watchdog/visibility/manual)');
+        // Say what is actually true. The message left in place at this point is the
+        // transient "Stream connection issues. Retrying..." — which, after the last
+        // retry, describes work that is no longer happening, so the card reads as
+        // busy rather than finished. "Give up" is a terminal state the operator can
+        // act on, and it contains no terminal marker so it still honours the 10 s
+        // debounce (a stream that recovers on its own should not flash an error).
+        setStreamError(
+          `Stream unavailable after ${maxRetries} retries. Check the device, then press Retry.`,
+        );
       }
       return;
     }
@@ -911,6 +990,11 @@ export function HLSVideoPlayer({
     }
 
     debugLog('[@component:HLSVideoPlayer] URL changed - initializing:', streamUrl);
+    // A different URL is a different capture: give the 404 terminal state a fresh
+    // chance, so switching quality or device re-arms the player even after a manifest
+    // was declared missing for the previous URL.
+    manifestMissingRef.current = false;
+    setManifestMissing(false);
     // Reset error states but don't cleanup (preserve if possible)
     setStreamError(null);
     setRetryCount(0);
@@ -1177,8 +1261,14 @@ export function HLSVideoPlayer({
           flying, so this line is always true exactly when it is most wrong.
           Worse, this overlay is zIndex 10 — above RecHostPreview's drone overlay
           at zIndex 3 — so it painted straight over "Connecting…". The drone
-          overlay is the only status a drone should show. */}
-      {!isDrone && !streamLoaded && !visibleError && streamUrl && isStreamActive && (
+          overlay is the only status a drone should show.
+
+          `manifestMissing` is excluded as well as `visibleError`: this overlay is
+          the exact state (streamUrl set, streamLoaded false, no visible error) that
+          the 404 path used to land in, so leaving it in the condition would keep the
+          "Loading stream…" text on screen underneath the error box even after the
+          terminal state was fixed. If a 404 is known, this line is a lie. */}
+      {!isDrone && !streamLoaded && !visibleError && !manifestMissing && streamUrl && isStreamActive && (
         <Box
           sx={{
             position: 'absolute',

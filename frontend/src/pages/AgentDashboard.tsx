@@ -8,6 +8,7 @@ import { Overview, fetchOverview, fmtAgo, fmtTokens } from '../components/agentD
 import { PageTitle, StatTiles, pageSurfaceSx, segmentedSx } from '../components/common/PageChrome';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
 import { useProfile } from '../hooks/auth/useProfile';
+import { TYPOGRAPHY } from '../constants/typography';
 
 const WINDOWS = [{ h: 1, l: '1 h' }, { h: 24, l: '24 h' }, { h: 168, l: '7 d' }, { h: 720, l: '30 d' }];
 
@@ -88,7 +89,7 @@ const AgentDashboard: React.FC = () => {
         <>
           {error && <Alert severity="error" sx={{ mb: 1.5 }}>{error}</Alert>}
           {!error && data && agents.length === 0 && (
-            <Typography sx={{ color: P.textMuted, fontSize: '0.9rem' }}>
+            <Typography sx={{ color: P.textMuted, fontSize: TYPOGRAPHY.navbarItem.size }}>
               No agents reported for this team. Nothing is recorded until an agent runs.
             </Typography>
           )}
@@ -98,16 +99,16 @@ const AgentDashboard: React.FC = () => {
 
           {agents.length > 0 && (
             <Card sx={{ mt: 2, bgcolor: P.surface }}>
-              <Typography sx={{ fontSize: '1rem', fontWeight: 600, px: 1.75, pt: 1.5, pb: 0.75 }}>Recent errors</Typography>
+              <Typography sx={{ fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600, px: 1.75, pt: 1.5, pb: 0.75 }}>Recent errors</Typography>
               {recentErrors.length === 0 ? (
-                <Typography sx={{ fontSize: '0.85rem', color: P.textMuted, px: 1.75, pb: 1.5 }}>No errors in this window.</Typography>
+                <Typography sx={{ fontSize: TYPOGRAPHY.body.size, color: P.textMuted, px: 1.75, pb: 1.5 }}>No errors in this window.</Typography>
               ) : recentErrors.map((e, i) => (
                 <Box key={i} onClick={() => { const a = agents.find((g) => g.name === e.agent); if (a) setLogAgentId(a.id); }}
                   sx={{ display: 'flex', gap: 1.25, px: 1.75, py: 0.9, borderTop: `1px solid ${P.borderColor}`, cursor: 'pointer', '&:hover': { bgcolor: P.hoverBg }, alignItems: 'baseline', minWidth: 0 }}>
-                  <Typography sx={{ fontSize: '0.75rem', color: P.textMuted, flexShrink: 0, width: 72 }}>{fmtAgo(e.ts)}</Typography>
-                  <Typography sx={{ fontSize: '0.8rem', color: P.textSecondary, flexShrink: 0 }}>{e.agent} · {e.part}</Typography>
-                  <Typography noWrap sx={{ fontSize: '0.8rem', color: P.error, flex: 1, minWidth: 0 }}>{e.summary}</Typography>
-                  {e.count > 1 && <Typography sx={{ fontSize: '0.75rem', color: P.textMuted, flexShrink: 0 }}>x{e.count}</Typography>}
+                  <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted, flexShrink: 0, width: 72 }}>{fmtAgo(e.ts)}</Typography>
+                  <Typography sx={{ fontSize: TYPOGRAPHY.body.size, color: P.textSecondary, flexShrink: 0 }}>{e.agent} · {e.part}</Typography>
+                  <Typography noWrap sx={{ fontSize: TYPOGRAPHY.body.size, color: P.error, flex: 1, minWidth: 0 }}>{e.summary}</Typography>
+                  {e.count > 1 && <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted, flexShrink: 0 }}>x{e.count}</Typography>}
                 </Box>
               ))}
             </Card>

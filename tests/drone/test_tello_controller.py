@@ -29,7 +29,7 @@ def _make(idle_timeout_s: float = 30.0, keepalive_s: float = 5.0):
                    start_pose=Pose(100, 100, 0, 0))
     sim.start()
     ctrl = TelloRemoteController(tello_ip=sim_ip(3), state_port=state_port, local_ip="127.0.0.1",
-                                 name="t3", keepalive_s=keepalive_s)
+                                 local_cmd_port=_free_udp_port(), name="t3", keepalive_s=keepalive_s)
     ctrl.connect()
     return sim, ctrl
 
@@ -81,8 +81,8 @@ def test_guard_refusal_returns_false_and_sends_nothing(rig):
     assert abs(ctrl.pose().y - 100) < 1e-6  # dead reckoning untouched
     ctrl.set_peers(lambda: [])
 
-    # Raw SDK text is still guarded: rc (open-loop sticks) is not on the allow list.
-    r = ctrl.execute_command("sdk", {"cmd": "rc 0 50 0 0"})
+    # Raw SDK text is still guarded: `go` (absolute flight) is not on the allow list.
+    r = ctrl.execute_command("sdk", {"cmd": "go 50 50 0 30"})
     assert r["success"] is False and r["blocked"] is True
     assert ctrl.commands_sent == sent
 
@@ -119,7 +119,7 @@ def test_height_ceiling_clips_up(rig):
 def test_low_battery_refuses_takeoff(rig):
     sim, ctrl = rig
     sim.battery = 30.0
-    assert ctrl.execute_command("get_telemetry")["success"]
+    assert ctrl.execute_command("link")["success"]
     time.sleep(0.4)  # a fresh state datagram with the low battery
     r = ctrl.execute_command("takeoff")
     assert r["success"] is False and r["blocked"] is True and "battery" in r["error"]
@@ -180,6 +180,7 @@ def test_press_key_mapping(rig):
 
 def test_telemetry_and_raw_sdk_read(rig):
     _sim, ctrl = rig
+    assert ctrl.execute_command("link")["success"]
     t = ctrl.execute_command("get_telemetry")
     assert t["success"] is True and t["telemetry"]["bat"] > 90 and t["output_data"]["airborne"] is False
     r = ctrl.execute_command("sdk", {"cmd": "battery?"})
@@ -253,7 +254,150 @@ def test_factory_and_capabilities():
     assert configs["av"]["params"]["rtsp_url"] == "udp://0.0.0.0:11111"
     assert configs["remote"]["implementation"] == "tello"
     assert configs["remote"]["params"] == {"tello_ip": "10.200.1.2", "state_port": 8890,
-                                           "video_port": 11111, "name": "Tello 1"}
+                                           "video_port": 11111, "name": "Tello 1", "device_id": "device6"}
 
     skipped = create_controller_configs_from_device_info(base)
     assert skipped["remote"]["params"].get("_skip_controller") is True
+
+
+class _FirstSenderOnlyTello:
+    """A Tello that, like the real one, only answers the address:port of its first `command`."""
+
+    def __init__(self, state_port: int):
+        self.sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.sock.bind(("127.0.0.1", 0))
+        self.sock.settimeout(0.2)
+        self.port = self.sock.getsockname()[1]
+        self.state_port = state_port
+        self.owner = None
+        self.received = []
+        self._stop = False
+        import threading
+        self._t = threading.Thread(target=self._loop, daemon=True)
+        self._t.start()
+
+    def _loop(self):
+        while not self._stop:
+            if self.owner:
+                self.sock.sendto(b"bat:76;templ:45;temph:48;vgx:0;vgy:0;vgz:0;h:0;", ("127.0.0.1", self.state_port))
+            try:
+                data, addr = self.sock.recvfrom(2048)
+            except (socket.timeout, OSError):
+                continue
+            self.received.append((data, addr))
+            if self.owner is None and data == b"command":
+                self.owner = addr
+            if addr == self.owner:
+                self.sock.sendto(b"76" if data == b"battery?" else b"ok", addr)
+
+    def stop(self):
+        self._stop = True
+        self._t.join(1)
+        self.sock.close()
+
+
+def test_every_command_leaves_from_the_one_port_the_drone_answers():
+    """Take-off timed out on vpt-pi4: only the first `command` was answered. A re-link (after a
+    land, an endpoint change, a restart) must come from the same local port again."""
+    state_port = _free_udp_port()
+    drone = _FirstSenderOnlyTello(state_port)
+    ctrl = TelloRemoteController(tello_ip="127.0.0.1", cmd_port=drone.port, state_port=state_port,
+                                 local_ip="127.0.0.1", local_cmd_port=_free_udp_port(), name="first")
+    try:
+        assert ctrl.execute_command("link")["success"] is True
+        ctrl._release_link()
+        r = ctrl.execute_command("link")
+        assert r["success"] is True, r
+        assert ctrl.execute_command("sdk", {"cmd": "battery?"})["reply"] == "76"
+        assert len({addr for _, addr in drone.received}) == 1
+    finally:
+        ctrl.disconnect()
+        drone.stop()
+
+
+def test_status_carries_battery_temperature_and_speed_while_landed():
+    state_port = _free_udp_port()
+    drone = _FirstSenderOnlyTello(state_port)
+    ctrl = TelloRemoteController(tello_ip="127.0.0.1", cmd_port=drone.port, state_port=state_port,
+                                 local_ip="127.0.0.1", local_cmd_port=_free_udp_port(), name="bat")
+    try:
+        assert ctrl.execute_command("link")["success"] is True
+        status = ctrl.get_status()
+        assert status["linked"] is True
+        assert status["telemetry"] == {"bat": 76, "templ": 45, "temph": 48, "h": 0,
+                                       "vgx": 0, "vgy": 0, "vgz": 0}
+        assert status["state_age_s"] is not None
+    finally:
+        ctrl.disconnect()
+        drone.stop()
+
+
+def test_landing_keeps_the_link_so_the_battery_stays_live(rig):
+    _sim, ctrl = rig
+    assert ctrl.execute_command("takeoff")["success"]
+    assert ctrl.execute_command("land")["success"]
+    assert ctrl.client is not None and ctrl.get_status()["telemetry"].get("bat")
+
+
+def test_telemetry_never_blocks_the_request_on_an_unreachable_drone():
+    """vpt-host runs gevent without monkey patching: a blocking recv on a request froze every
+    stream on the host. A read answers at once and links in the background, with a back-off."""
+    ctrl = TelloRemoteController(tello_ip="127.0.0.1", cmd_port=_free_udp_port(), state_port=_free_udp_port(),
+                                 local_ip="127.0.0.1", local_cmd_port=_free_udp_port(), name="offline")
+    started = time.time()
+    r = ctrl.execute_command("get_telemetry")
+    assert r["success"] is False and time.time() - started < 0.5
+    deadline = time.time() + 8
+    while ctrl._linking and time.time() < deadline:
+        time.sleep(0.1)
+    assert ctrl._link_failed_at > 0  # the background link ran and failed
+    ctrl.execute_command("get_telemetry")
+    assert ctrl._linking is False  # backing off: no second link right away
+
+
+def test_rc_joystick_reaches_the_drone_capped_and_stops_on_release(rig):
+    sim, ctrl = rig
+    assert ctrl.execute_command("rc", {"lr": 0, "fb": 50, "ud": 0, "yaw": 0})["success"] is False  # landed
+    assert ctrl.execute_command("takeoff")["success"]
+    r = ctrl.execute_command("rc", {"lr": 0, "fb": 100, "ud": 0, "yaw": -20})
+    assert r["success"] is True and r["sent"] == "rc 0 60 0 -20" and r["clipped_from"] == "rc 0 100 0 -20"
+    time.sleep(0.3)
+    assert sim._rc == (0, 60, 0, -20)
+    assert ctrl.execute_command("rc", {"lr": 0, "fb": 0, "ud": 0, "yaw": 0})["success"]
+    time.sleep(0.3)
+    assert sim._rc == (0, 0, 0, 0)
+
+
+def test_land_on_the_ground_is_success_and_a_new_takeoff_is_accepted(rig):
+    """BUG: the Tello answers `error` to `land` on the floor; that left airborne=True and the guard pose
+    at takeoff height, so the UI showed 'Land: error' and refused the next takeoff ('already flying')."""
+    sim, ctrl = rig
+    assert ctrl.execute_command("takeoff")["success"]
+    assert ctrl.execute_command("land")["success"] and not sim.flying
+
+    # The state stream must show the floor before the second land (the sim publishes at 10 Hz).
+    deadline = time.time() + 3
+    while time.time() < deadline and (ctrl._state().get("h") or 0) > 10:
+        time.sleep(0.05)
+
+    # The stale state the owner hit: the backend still believes it is flying.
+    ctrl.airborne = True
+    ctrl.guard.pose.z = 80
+
+    r = ctrl.execute_command("land")  # the sim answers `error` (not flying)
+    assert r["success"] is True and r["already_grounded"] is True and r["message"] == "Already on the ground"
+    assert ctrl.airborne is False and ctrl.pose().z == 0
+    assert ctrl.execute_command("get_telemetry")["airborne"] is False
+
+    r = ctrl.execute_command("takeoff")
+    assert r["success"] is True and ctrl.airborne and sim.flying
+
+
+def test_land_error_in_the_air_is_still_a_failure(rig):
+    """The idempotent land only applies when the state stream says the floor; never hide a real failure."""
+    _sim, ctrl = rig
+    assert ctrl.execute_command("takeoff")["success"]
+    ctrl._raw = lambda cmd, timeout_s: "error"
+    ctrl._state = lambda: {"h": 80}
+    r = ctrl.execute_command("land")
+    assert r["success"] is False and ctrl.airborne is True

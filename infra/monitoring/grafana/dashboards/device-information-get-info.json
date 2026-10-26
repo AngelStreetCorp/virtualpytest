@@ -22,6 +22,19 @@
   "links": [],
   "panels": [
     {
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "collapsed": false,
+      "panels": []
+    },
+    {
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "supabase-postgres"
@@ -45,7 +58,7 @@
         "h": 3,
         "w": 24,
         "x": 0,
-        "y": 0
+        "y": 1
       },
       "id": 1,
       "options": {
@@ -78,570 +91,584 @@
       "type": "stat"
     },
     {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "json-view"
-            },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Device Info (JSON)"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 600
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Report"
-            },
-            "properties": [
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "markdown"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "User Interface"
-            },
-            "properties": [
-              {
-                "id": "custom.width",
-                "value": 288
-              }
-            ]
-          }
-        ]
-      },
+      "type": "row",
+      "title": "Details",
       "gridPos": {
-        "h": 7,
+        "h": 1,
         "w": 24,
         "x": 0,
-        "y": 3
+        "y": 4
       },
-      "id": 9,
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Last Scanned"
-          }
-        ]
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
+      "id": 101,
+      "collapsed": true,
+      "panels": [
         {
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT DISTINCT ON (device_name)\n  device_name as \"Device\",\n  userinterface_name as \"User Interface\",\n  host_name as \"Host\",\n  COALESCE(metadata->>'variant', 'base') as \"Variant\",\n  ci.info as \"Device Info (JSON)\",\n  started_at as \"Last Scanned\",\n  ROUND(execution_time_ms::decimal / 1000, 1) as \"Duration (s)\",\n  ('<a href=\"' || html_report_r2_url || '\" target=\"_blank\">report</a>') as \"Report\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) sr\nLEFT JOIN LATERAL (\n  SELECT (sr.metadata->'info') || COALESCE(jsonb_object_agg(o.info_key, to_jsonb(o.corrected_value)), '{}'::jsonb) AS info\n  FROM (SELECT * FROM device_info_overrides /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) o\n  WHERE o.team_id = sr.team_id AND o.device_name = sr.device_name AND o.host_name = sr.host_name\n    AND o.userinterface_name IS NOT DISTINCT FROM COALESCE(sr.userinterface_name, '')\n    AND o.info_source = 'device'\n) ci ON true\nWHERE script_name IN ('get_info', 'device_get_info')\n  AND success::text IN ($success)\n  AND ci.info IS NOT NULL\n  AND $__timeFilter(started_at)\n  AND ('${user_interface:csv}' = '' OR userinterface_name = ANY(string_to_array('${user_interface:csv}', ',')))\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND (COALESCE(metadata->>'variant', 'Base') IN (${variant:sqlstring}))\nORDER BY device_name, started_at DESC",
-          "refId": "A"
-        }
-      ],
-      "title": "Latest Device Info",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "inspect": false
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Device Info (JSON)"
-            },
-            "properties": [
-              {
-                "id": "custom.cellOptions",
-                "value": {
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
                   "type": "json-view"
-                }
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Device Info (JSON)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 600
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "User Interface"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 288
+                  }
+                ]
               }
             ]
           },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Report"
+          "gridPos": {
+            "h": 7,
+            "w": 24,
+            "x": 0,
+            "y": 5
+          },
+          "id": 9,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "countRows": false,
+              "fields": "",
+              "reducer": [
+                "sum"
+              ],
+              "show": false
             },
-            "properties": [
+            "showHeader": true,
+            "sortBy": [
               {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "markdown"
-                }
+                "desc": true,
+                "displayName": "Last Scanned"
               }
             ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 24,
-        "x": 0,
-        "y": 10
-      },
-      "id": 10,
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT DISTINCT ON (device_name)\n  device_name as \"Device\",\n  userinterface_name as \"User Interface\",\n  host_name as \"Host\",\n  COALESCE(metadata->>'variant', 'base') as \"Variant\",\n  ci.info as \"Device Info (JSON)\",\n  started_at as \"Last Scanned\",\n  ROUND(execution_time_ms::decimal / 1000, 1) as \"Duration (s)\",\n  ('<a href=\"' || html_report_r2_url || '\" target=\"_blank\">report</a>') as \"Report\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) sr\nLEFT JOIN LATERAL (\n  SELECT (sr.metadata->'info') || COALESCE(jsonb_object_agg(o.info_key, to_jsonb(o.corrected_value)), '{}'::jsonb) AS info\n  FROM (SELECT * FROM device_info_overrides /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) o\n  WHERE o.team_id = sr.team_id AND o.device_name = sr.device_name AND o.host_name = sr.host_name\n    AND o.userinterface_name IS NOT DISTINCT FROM COALESCE(sr.userinterface_name, '')\n    AND o.info_source = 'device'\n) ci ON true\nWHERE script_name IN ('get_info', 'device_get_info')\n  AND success::text IN ($success)\n  AND ci.info IS NOT NULL\n  AND $__timeFilter(started_at)\n  AND ('${user_interface:csv}' = '' OR userinterface_name = ANY(string_to_array('${user_interface:csv}', ',')))\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND (COALESCE(metadata->>'variant', 'Base') IN (${variant:sqlstring}))\nORDER BY device_name, started_at DESC",
+              "refId": "A"
+            }
           ],
-          "show": false
+          "title": "Latest Device Info",
+          "type": "table"
         },
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Last Scanned"
-          }
-        ]
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
         {
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT DISTINCT ON (device_name)\n  device_name as \"Device\",\n  userinterface_name as \"UI\",\n  host_name as \"Host\",\n  COALESCE(metadata->>'variant', 'base') as \"Variant\",\n  ci.info->>'build_version' as \"Build Version\",\n  ci.info->>'hardware_version' as \"HW Version\",\n  COALESCE(ci.info->>'software_version', ci.info->>'softwareversion') as \"SW Version\",\n  COALESCE(ci.info->>'serial_number_stb', ci.info->>'seriennummer_stb') as \"Serial STB\",\n  COALESCE(ci.info->>'application_version', ci.info->>'anwendungsversion') as \"App Version\",\n  started_at as \"Last Scanned\",\n  ROUND(execution_time_ms::decimal / 1000, 1) as \"Duration (s)\",\n  ('<a href=\"' || html_report_r2_url || '\" target=\"_blank\">report</a>') as \"Report\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) sr\nLEFT JOIN LATERAL (\n  SELECT (sr.metadata->'info') || COALESCE(jsonb_object_agg(o.info_key, to_jsonb(o.corrected_value)), '{}'::jsonb) AS info\n  FROM (SELECT * FROM device_info_overrides /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) o\n  WHERE o.team_id = sr.team_id AND o.device_name = sr.device_name AND o.host_name = sr.host_name\n    AND o.userinterface_name IS NOT DISTINCT FROM COALESCE(sr.userinterface_name, '')\n    AND o.info_source = 'device'\n) ci ON true\nWHERE script_name IN ('get_info', 'device_get_info')\n  AND success::text IN ($success)\n  AND $__timeFilter(started_at)\n  AND ('${user_interface:csv}' = '' OR userinterface_name = ANY(string_to_array('${user_interface:csv}', ',')))\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND (COALESCE(metadata->>'variant', 'Base') IN (${variant:sqlstring}))\n  AND userinterface_name = 'stb_tv'\nORDER BY device_name, started_at DESC",
-          "refId": "A"
-        }
-      ],
-      "title": "STB TV",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "inspect": false
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
               }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Device Info (JSON)"
             },
-            "properties": [
+            "overrides": [
               {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "json-view"
-                }
+                "matcher": {
+                  "id": "byName",
+                  "options": "Device Info (JSON)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "json-view"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
               }
             ]
           },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Report"
+          "gridPos": {
+            "h": 4,
+            "w": 24,
+            "x": 0,
+            "y": 12
+          },
+          "id": 10,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "countRows": false,
+              "fields": "",
+              "reducer": [
+                "sum"
+              ],
+              "show": false
             },
-            "properties": [
+            "showHeader": true,
+            "sortBy": [
               {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "markdown"
-                }
+                "desc": true,
+                "displayName": "Last Scanned"
               }
             ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 24,
-        "x": 0,
-        "y": 14
-      },
-      "id": 11,
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT DISTINCT ON (device_name)\n  device_name as \"Device\",\n  userinterface_name as \"UI\",\n  host_name as \"Host\",\n  COALESCE(metadata->>'variant', 'base') as \"Variant\",\n  ci.info->>'build_version' as \"Build Version\",\n  ci.info->>'hardware_version' as \"HW Version\",\n  COALESCE(ci.info->>'software_version', ci.info->>'softwareversion') as \"SW Version\",\n  COALESCE(ci.info->>'serial_number_stb', ci.info->>'seriennummer_stb') as \"Serial STB\",\n  COALESCE(ci.info->>'application_version', ci.info->>'anwendungsversion') as \"App Version\",\n  started_at as \"Last Scanned\",\n  ROUND(execution_time_ms::decimal / 1000, 1) as \"Duration (s)\",\n  ('<a href=\"' || html_report_r2_url || '\" target=\"_blank\">report</a>') as \"Report\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) sr\nLEFT JOIN LATERAL (\n  SELECT (sr.metadata->'info') || COALESCE(jsonb_object_agg(o.info_key, to_jsonb(o.corrected_value)), '{}'::jsonb) AS info\n  FROM (SELECT * FROM device_info_overrides /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) o\n  WHERE o.team_id = sr.team_id AND o.device_name = sr.device_name AND o.host_name = sr.host_name\n    AND o.userinterface_name IS NOT DISTINCT FROM COALESCE(sr.userinterface_name, '')\n    AND o.info_source = 'device'\n) ci ON true\nWHERE script_name IN ('get_info', 'device_get_info')\n  AND success::text IN ($success)\n  AND $__timeFilter(started_at)\n  AND ('${user_interface:csv}' = '' OR userinterface_name = ANY(string_to_array('${user_interface:csv}', ',')))\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND (COALESCE(metadata->>'variant', 'Base') IN (${variant:sqlstring}))\n  AND userinterface_name = 'stb_tv'\nORDER BY device_name, started_at DESC",
+              "refId": "A"
+            }
           ],
-          "show": false
+          "title": "STB TV",
+          "type": "table"
         },
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Last Scanned"
-          }
-        ]
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
         {
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT DISTINCT ON (device_name)\n  device_name as \"Device\",\n  userinterface_name as \"UI\",\n  host_name as \"Host\",\n  COALESCE(metadata->>'variant', 'base') as \"Variant\",\n  ci.info->>'OS' as \"OS\",\n  ci.info->>'OV' as \"OV\",\n  ci.info->>'Build' as \"Build\",\n  ci.info->>'Device' as \"Device Type\",\n  ci.info->>'Conviva' as \"Conviva\",\n  ci.info->>'CPE_1_ID' as \"CPE 1 ID\",\n  ci.info->>'CPE_2_ID' as \"CPE 2 ID\",\n  ci.info->>'Device_IP' as \"Device IP\",\n  ci.info->>'Customer_HH' as \"Customer HH\",\n  ci.info->>'Video_Player' as \"Video Player\",\n  ci.info->>'Connection_Type' as \"Connection\",\n  ci.info->>'Mqtt_Cpe_Status' as \"MQTT CPE Status\",\n  ci.info->>'Mqtt_Broker_Status' as \"MQTT Broker\",\n  ci.info->>'OV_Disk_Status' as \"OV Disk\",\n  ci.info->>'OV_Engine_State' as \"OV Engine\",\n  ci.info->>'OV_Power_Status' as \"OV Power\",\n  ci.info->>'OV_Network_Status' as \"OV Network\",\n  ci.info->>'OV_Download_Enabled' as \"OV Download\",\n  ci.info->>'Last_MQTT_status_check' as \"Last MQTT Check\",\n  started_at as \"Last Scanned\",\n  ROUND(execution_time_ms::decimal / 1000, 1) as \"Duration (s)\",\n  ('<a href=\"' || html_report_r2_url || '\" target=\"_blank\">report</a>') as \"Report\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) sr\nLEFT JOIN LATERAL (\n  SELECT (sr.metadata->'info') || COALESCE(jsonb_object_agg(o.info_key, to_jsonb(o.corrected_value)), '{}'::jsonb) AS info\n  FROM (SELECT * FROM device_info_overrides /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) o\n  WHERE o.team_id = sr.team_id AND o.device_name = sr.device_name AND o.host_name = sr.host_name\n    AND o.userinterface_name IS NOT DISTINCT FROM COALESCE(sr.userinterface_name, '')\n    AND o.info_source = 'device'\n) ci ON true\nWHERE script_name IN ('get_info', 'device_get_info')\n  AND success::text IN ($success)\n  AND $__timeFilter(started_at)\n  AND ('${user_interface:csv}' = '' OR userinterface_name = ANY(string_to_array('${user_interface:csv}', ',')))\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND (COALESCE(metadata->>'variant', 'Base') IN (${variant:sqlstring}))\n  AND userinterface_name = 'stb_android_mobile'\nORDER BY device_name, started_at DESC",
-          "refId": "A"
-        }
-      ],
-      "title": "STB Android Mobile",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "inspect": false
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
               }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Device Info (JSON)"
             },
-            "properties": [
+            "overrides": [
               {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "json-view"
-                }
+                "matcher": {
+                  "id": "byName",
+                  "options": "Device Info (JSON)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "json-view"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
               }
             ]
           },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Report"
+          "gridPos": {
+            "h": 4,
+            "w": 24,
+            "x": 0,
+            "y": 16
+          },
+          "id": 11,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "countRows": false,
+              "fields": "",
+              "reducer": [
+                "sum"
+              ],
+              "show": false
             },
-            "properties": [
+            "showHeader": true,
+            "sortBy": [
               {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "markdown"
-                }
+                "desc": true,
+                "displayName": "Last Scanned"
               }
             ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 24,
-        "x": 0,
-        "y": 18
-      },
-      "id": 12,
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT DISTINCT ON (device_name)\n  device_name as \"Device\",\n  userinterface_name as \"UI\",\n  host_name as \"Host\",\n  COALESCE(metadata->>'variant', 'base') as \"Variant\",\n  ci.info->>'OS' as \"OS\",\n  ci.info->>'OV' as \"OV\",\n  ci.info->>'Build' as \"Build\",\n  ci.info->>'Device' as \"Device Type\",\n  ci.info->>'Conviva' as \"Conviva\",\n  ci.info->>'CPE_1_ID' as \"CPE 1 ID\",\n  ci.info->>'CPE_2_ID' as \"CPE 2 ID\",\n  ci.info->>'Device_IP' as \"Device IP\",\n  ci.info->>'Customer_HH' as \"Customer HH\",\n  ci.info->>'Video_Player' as \"Video Player\",\n  ci.info->>'Connection_Type' as \"Connection\",\n  ci.info->>'Mqtt_Cpe_Status' as \"MQTT CPE Status\",\n  ci.info->>'Mqtt_Broker_Status' as \"MQTT Broker\",\n  ci.info->>'OV_Disk_Status' as \"OV Disk\",\n  ci.info->>'OV_Engine_State' as \"OV Engine\",\n  ci.info->>'OV_Power_Status' as \"OV Power\",\n  ci.info->>'OV_Network_Status' as \"OV Network\",\n  ci.info->>'OV_Download_Enabled' as \"OV Download\",\n  ci.info->>'Last_MQTT_status_check' as \"Last MQTT Check\",\n  started_at as \"Last Scanned\",\n  ROUND(execution_time_ms::decimal / 1000, 1) as \"Duration (s)\",\n  ('<a href=\"' || html_report_r2_url || '\" target=\"_blank\">report</a>') as \"Report\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) sr\nLEFT JOIN LATERAL (\n  SELECT (sr.metadata->'info') || COALESCE(jsonb_object_agg(o.info_key, to_jsonb(o.corrected_value)), '{}'::jsonb) AS info\n  FROM (SELECT * FROM device_info_overrides /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) o\n  WHERE o.team_id = sr.team_id AND o.device_name = sr.device_name AND o.host_name = sr.host_name\n    AND o.userinterface_name IS NOT DISTINCT FROM COALESCE(sr.userinterface_name, '')\n    AND o.info_source = 'device'\n) ci ON true\nWHERE script_name IN ('get_info', 'device_get_info')\n  AND success::text IN ($success)\n  AND $__timeFilter(started_at)\n  AND ('${user_interface:csv}' = '' OR userinterface_name = ANY(string_to_array('${user_interface:csv}', ',')))\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND (COALESCE(metadata->>'variant', 'Base') IN (${variant:sqlstring}))\n  AND userinterface_name = 'stb_android_mobile'\nORDER BY device_name, started_at DESC",
+              "refId": "A"
+            }
           ],
-          "show": false
+          "title": "STB Android Mobile",
+          "type": "table"
         },
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Last Scanned"
-          }
-        ]
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
         {
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT DISTINCT ON (device_name)\n  device_name as \"Device\",\n  userinterface_name as \"UI\",\n  host_name as \"Host\",\n  COALESCE(metadata->>'variant', 'base') as \"Variant\",\n  ci.info->>'Hardware_version' as \"HW Version\",\n  ci.info->>'Software_version' as \"SW Version\",\n  ci.info->>'Cable_modem_serial_number' as \"Serial Number\",\n  ci.info->>'MAC_address' as \"MAC Address\",\n  ci.info->>'IPv4_address' as \"IPv4 Address\",\n  ci.info->>'Default_gateway' as \"Gateway\",\n  ci.info->>'IPv4_DNS_servers' as \"DNS Servers\",\n  ci.info->>'System_up_time' as \"System Uptime\",\n  ci.info->>'IPv4_lease_expire' as \"Lease Expire\",\n  ci.info->>'Network_access' as \"Network Access\",\n  ci.info->>'Standard_specification_compliant' as \"DOCSIS\",\n  started_at as \"Last Scanned\",\n  ROUND(execution_time_ms::decimal / 1000, 1) as \"Duration (s)\",\n  ('<a href=\"' || html_report_r2_url || '\" target=\"_blank\">report</a>') as \"Report\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) sr\nLEFT JOIN LATERAL (\n  SELECT (sr.metadata->'info') || COALESCE(jsonb_object_agg(o.info_key, to_jsonb(o.corrected_value)), '{}'::jsonb) AS info\n  FROM (SELECT * FROM device_info_overrides /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) o\n  WHERE o.team_id = sr.team_id AND o.device_name = sr.device_name AND o.host_name = sr.host_name\n    AND o.userinterface_name IS NOT DISTINCT FROM COALESCE(sr.userinterface_name, '')\n    AND o.info_source = 'device'\n) ci ON true\nWHERE script_name IN ('get_info', 'device_get_info')\n  AND success::text IN ($success)\n  AND $__timeFilter(started_at)\n  AND ('${user_interface:csv}' = '' OR userinterface_name = ANY(string_to_array('${user_interface:csv}', ',')))\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND (COALESCE(metadata->>'variant', 'Base') IN (${variant:sqlstring}))\n  AND userinterface_name = 'example_gui'\nORDER BY device_name, started_at DESC",
-          "refId": "A"
-        }
-      ],
-      "title": "IAD GUI",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "inspect": false
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
               }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Device Info (JSON)"
             },
-            "properties": [
+            "overrides": [
               {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "json-view"
-                }
+                "matcher": {
+                  "id": "byName",
+                  "options": "Device Info (JSON)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "json-view"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
               }
             ]
           },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Report"
+          "gridPos": {
+            "h": 4,
+            "w": 24,
+            "x": 0,
+            "y": 20
+          },
+          "id": 12,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "countRows": false,
+              "fields": "",
+              "reducer": [
+                "sum"
+              ],
+              "show": false
             },
-            "properties": [
+            "showHeader": true,
+            "sortBy": [
               {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "markdown"
-                }
+                "desc": true,
+                "displayName": "Last Scanned"
               }
             ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 24,
-        "x": 0,
-        "y": 22
-      },
-      "id": 13,
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT DISTINCT ON (device_name)\n  device_name as \"Device\",\n  userinterface_name as \"UI\",\n  host_name as \"Host\",\n  COALESCE(metadata->>'variant', 'base') as \"Variant\",\n  ci.info->>'Hardware_version' as \"HW Version\",\n  ci.info->>'Software_version' as \"SW Version\",\n  ci.info->>'Cable_modem_serial_number' as \"Serial Number\",\n  ci.info->>'MAC_address' as \"MAC Address\",\n  ci.info->>'IPv4_address' as \"IPv4 Address\",\n  ci.info->>'Default_gateway' as \"Gateway\",\n  ci.info->>'IPv4_DNS_servers' as \"DNS Servers\",\n  ci.info->>'System_up_time' as \"System Uptime\",\n  ci.info->>'IPv4_lease_expire' as \"Lease Expire\",\n  ci.info->>'Network_access' as \"Network Access\",\n  ci.info->>'Standard_specification_compliant' as \"DOCSIS\",\n  started_at as \"Last Scanned\",\n  ROUND(execution_time_ms::decimal / 1000, 1) as \"Duration (s)\",\n  ('<a href=\"' || html_report_r2_url || '\" target=\"_blank\">report</a>') as \"Report\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) sr\nLEFT JOIN LATERAL (\n  SELECT (sr.metadata->'info') || COALESCE(jsonb_object_agg(o.info_key, to_jsonb(o.corrected_value)), '{}'::jsonb) AS info\n  FROM (SELECT * FROM device_info_overrides /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) o\n  WHERE o.team_id = sr.team_id AND o.device_name = sr.device_name AND o.host_name = sr.host_name\n    AND o.userinterface_name IS NOT DISTINCT FROM COALESCE(sr.userinterface_name, '')\n    AND o.info_source = 'device'\n) ci ON true\nWHERE script_name IN ('get_info', 'device_get_info')\n  AND success::text IN ($success)\n  AND $__timeFilter(started_at)\n  AND ('${user_interface:csv}' = '' OR userinterface_name = ANY(string_to_array('${user_interface:csv}', ',')))\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND (COALESCE(metadata->>'variant', 'Base') IN (${variant:sqlstring}))\n  AND userinterface_name = 'example_gui'\nORDER BY device_name, started_at DESC",
+              "refId": "A"
+            }
           ],
-          "show": false
+          "title": "IAD GUI",
+          "type": "table"
         },
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Last Scanned"
-          }
-        ]
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
         {
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT DISTINCT ON (device_name)\n  device_name as \"Device\",\n  userinterface_name as \"UI\",\n  host_name as \"Host\",\n  COALESCE(metadata->>'variant', 'base') as \"Variant\",\n  ci.info->>'device' as \"Device Type\",\n  ci.info->>'conviva' as \"Conviva\",\n  ci.info->>'video_player' as \"Video Player\",\n  ci.info->>'connection_type' as \"Connection Time\",\n  ci.info->>'settings' as \"Settings\",\n  ci.info->>'information' as \"Information\",\n  ci.info->>'en' as \"Info Text\",\n  ci.info->>'©_dolby_audio' as \"Dolby Audio\",\n  started_at as \"Last Scanned\",\n  ROUND(execution_time_ms::decimal / 1000, 1) as \"Duration (s)\",\n  ('<a href=\"' || html_report_r2_url || '\" target=\"_blank\">report</a>') as \"Report\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) sr\nLEFT JOIN LATERAL (\n  SELECT (sr.metadata->'info') || COALESCE(jsonb_object_agg(o.info_key, to_jsonb(o.corrected_value)), '{}'::jsonb) AS info\n  FROM (SELECT * FROM device_info_overrides /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) o\n  WHERE o.team_id = sr.team_id AND o.device_name = sr.device_name AND o.host_name = sr.host_name\n    AND o.userinterface_name IS NOT DISTINCT FROM COALESCE(sr.userinterface_name, '')\n    AND o.info_source = 'device'\n) ci ON true\nWHERE script_name IN ('get_info', 'device_get_info')\n  AND success::text IN ($success)\n  AND $__timeFilter(started_at)\n  AND ('${user_interface:csv}' = '' OR userinterface_name = ANY(string_to_array('${user_interface:csv}', ',')))\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND (COALESCE(metadata->>'variant', 'Base') IN (${variant:sqlstring}))\n  AND userinterface_name = 'stb_android_tv'\nORDER BY device_name, started_at DESC",
-          "refId": "A"
-        }
-      ],
-      "title": "STB Android TV",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "inspect": false
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
           },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
               }
-            ]
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Field Value"
             },
-            "properties": [
+            "overrides": [
               {
-                "id": "custom.width",
-                "value": 400
+                "matcher": {
+                  "id": "byName",
+                  "options": "Device Info (JSON)"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "json-view"
+                    }
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
               }
             ]
           },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Report"
+          "gridPos": {
+            "h": 4,
+            "w": 24,
+            "x": 0,
+            "y": 24
+          },
+          "id": 13,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "countRows": false,
+              "fields": "",
+              "reducer": [
+                "sum"
+              ],
+              "show": false
             },
-            "properties": [
+            "showHeader": true,
+            "sortBy": [
               {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "markdown"
-                }
+                "desc": true,
+                "displayName": "Last Scanned"
               }
             ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 12,
-        "w": 24,
-        "x": 0,
-        "y": 26
-      },
-      "id": 8,
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT DISTINCT ON (device_name)\n  device_name as \"Device\",\n  userinterface_name as \"UI\",\n  host_name as \"Host\",\n  COALESCE(metadata->>'variant', 'base') as \"Variant\",\n  ci.info->>'device' as \"Device Type\",\n  ci.info->>'conviva' as \"Conviva\",\n  ci.info->>'video_player' as \"Video Player\",\n  ci.info->>'connection_type' as \"Connection Time\",\n  ci.info->>'settings' as \"Settings\",\n  ci.info->>'information' as \"Information\",\n  ci.info->>'en' as \"Info Text\",\n  ci.info->>'©_dolby_audio' as \"Dolby Audio\",\n  started_at as \"Last Scanned\",\n  ROUND(execution_time_ms::decimal / 1000, 1) as \"Duration (s)\",\n  ('<a href=\"' || html_report_r2_url || '\" target=\"_blank\">report</a>') as \"Report\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) sr\nLEFT JOIN LATERAL (\n  SELECT (sr.metadata->'info') || COALESCE(jsonb_object_agg(o.info_key, to_jsonb(o.corrected_value)), '{}'::jsonb) AS info\n  FROM (SELECT * FROM device_info_overrides /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) o\n  WHERE o.team_id = sr.team_id AND o.device_name = sr.device_name AND o.host_name = sr.host_name\n    AND o.userinterface_name IS NOT DISTINCT FROM COALESCE(sr.userinterface_name, '')\n    AND o.info_source = 'device'\n) ci ON true\nWHERE script_name IN ('get_info', 'device_get_info')\n  AND success::text IN ($success)\n  AND $__timeFilter(started_at)\n  AND ('${user_interface:csv}' = '' OR userinterface_name = ANY(string_to_array('${user_interface:csv}', ',')))\n  AND ('${host:csv}' = '' OR host_name = ANY(string_to_array('${host:csv}', ',')))\n  AND ('${device_name:csv}' = '' OR device_name = ANY(string_to_array('${device_name:csv}', ',')))\n  AND (COALESCE(metadata->>'variant', 'Base') IN (${variant:sqlstring}))\n  AND userinterface_name = 'stb_android_tv'\nORDER BY device_name, started_at DESC",
+              "refId": "A"
+            }
           ],
-          "show": false
+          "title": "STB Android TV",
+          "type": "table"
         },
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Last Scanned"
-          }
-        ]
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
         {
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT \n  device_name as \"Device\",\n  userinterface_name as \"User Interface\",\n  host_name as \"Host\",\n  COALESCE(metadata->>'variant', 'base') as \"Variant\",\n  metadata->'info' as \"Device Info (JSON)\",\n  started_at as \"Scanned At\",\n  ROUND(execution_time_ms::decimal / 1000, 1) as \"Duration (s)\",\n  ('<a href=\"' || html_report_r2_url || '\" target=\"_blank\">report</a>') as \"Report\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results\nWHERE script_name IN ('get_info', 'device_get_info')\n  AND success::text IN ($success)\n  AND metadata->'info' IS NOT NULL\n  AND $__timeFilter(started_at)\nORDER BY started_at DESC\nLIMIT 500",
-          "refId": "A"
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Field Value"
+                },
+                "properties": [
+                  {
+                    "id": "custom.width",
+                    "value": 400
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "gridPos": {
+            "h": 12,
+            "w": 24,
+            "x": 0,
+            "y": 28
+          },
+          "id": 8,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "countRows": false,
+              "fields": "",
+              "reducer": [
+                "sum"
+              ],
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Last Scanned"
+              }
+            ]
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT \n  device_name as \"Device\",\n  userinterface_name as \"User Interface\",\n  host_name as \"Host\",\n  COALESCE(metadata->>'variant', 'base') as \"Variant\",\n  metadata->'info' as \"Device Info (JSON)\",\n  started_at as \"Scanned At\",\n  ROUND(execution_time_ms::decimal / 1000, 1) as \"Duration (s)\",\n  ('<a href=\"' || html_report_r2_url || '\" target=\"_blank\">report</a>') as \"Report\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results\nWHERE script_name IN ('get_info', 'device_get_info')\n  AND success::text IN ($success)\n  AND metadata->'info' IS NOT NULL\n  AND $__timeFilter(started_at)\nORDER BY started_at DESC\nLIMIT 500",
+              "refId": "A"
+            }
+          ],
+          "title": "All Executions",
+          "type": "table"
         }
-      ],
-      "title": "All Executions",
-      "type": "table"
+      ]
     }
   ],
   "preload": false,

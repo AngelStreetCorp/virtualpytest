@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lol-dataset"
+version = "0.1.0"
+description = "Builds per-tick (10 Hz) entity tables, events, features and a coverage report from a League of Legends replay capture."
+readme = "README.md"
+requires-python = ">=3.9"
+# license: left to the owner (no licence file yet)
+dependencies = [
+  "numpy>=1.24,<2",
+  "opencv-python>=4.8,<5",
+  "Pillow>=10.0",
+  "pytesseract>=0.3.10",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=7"]
+
+[project.scripts]
+lol-dataset = "lol_dataset.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["lol_dataset*"]

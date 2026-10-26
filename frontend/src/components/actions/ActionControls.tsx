@@ -2,6 +2,7 @@ import { Box, TextField } from '@mui/material';
 import React from 'react';
 
 import type { Action } from '../../types/controller/Action_Types';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface ActionControlsProps {
   action: Action;
@@ -121,7 +122,7 @@ export const ActionControls: React.FC<ActionControlsProps> = ({
         fullWidth
         sx={{
           '& .MuiInputBase-input': {
-            fontSize: '0.8rem',
+            fontSize: TYPOGRAPHY.body.size,
             py: 0.5,
           },
         }}

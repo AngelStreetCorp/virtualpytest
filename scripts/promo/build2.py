@@ -33,6 +33,8 @@ RAW22 = build.HERE / "raw22"
 RAW23 = build.HERE / "raw23"
 RAW24 = build.HERE / "raw24"
 RAW25 = build.HERE / "raw25"
+import os
+RAWD = Path(os.environ.get("DRONE_RAW") or build.HERE / "out" / "drone_pre")   # drone_capture.js take: drone.mp4 + drone.marks.json
 
 
 def marks_of(name, root=None):
@@ -646,6 +648,93 @@ def video_layouts():
     ]
 
 
+# Storyboard 32 v2 (docs/tasks/video-storyboards/32-drone-tello.md), words verbatim. Silent build: the "voice" lines are
+# stored for the voice-over pass the controller adds after the owner listens. YouTube words (no URLs; chapters re-timed
+# from the final SRT after the build, first 0:00, none for the end card):
+DRONE_YOUTUBE = {
+    "title": "Fly a drone from the Device page, with live video | VirtualPyTest",
+    "description": ("A Tello drone is a device like any other in VirtualPyTest. From the Device page you see the paired drone, open its live camera,\n"
+                    "take control and fly it with the remote: take off, rotate, climb, descend and land. The same controller is used by the test scripts.\n"
+                    "A later video shows an AI agent working with the drone.\n\nOpen source & free\n\nChapters — see meta/draft_32.json."),
+    "tags": "virtualpytest, drone, tello, device control, remote control, drone remote, live video, test automation, robotics, open source",
+}
+
+
+def video_drone():
+    # raw + marks: DRONE_RAW (dir with drone.mp4), DRONE_MARKS (marks file, default <dir>/drone.marks.json)
+    marks_path = Path(os.environ.get("DRONE_MARKS") or RAWD / "drone.marks.json")
+    d = json.load(open(marks_path))
+    if d.get("status") != "OK":
+        if os.environ.get("DRONE_ACCEPT_PARTIAL") == "1":
+            print(f"!!! PARTIAL BUILD: take status {d.get('status')} accepted by DRONE_ACCEPT_PARTIAL=1 for {marks_path} "
+                  f"(footage reviewed by eye, derived marks: {d.get('derived_marks_note', 'none')})", flush=True)
+        else:
+            raise SystemExit(f"drone take is not OK (status {d.get('status')}): retake, or DRONE_ACCEPT_PARTIAL=1 for a reviewed raw")
+    m = {}
+    for mk in d["marks"]:
+        m[mk["label"]] = mk["t"]   # a later mark of the same label (a second Scan attempt) wins
+    if "tile-start" in m:   # PROMO_START_PAIRED=1 take: no Scan beat
+        v = RAWD / "drone.mp4"
+        def sc(i, title, cap, name, speed, capmax, voice, tail=0.5, end=None):
+            return ("clip", i, title, cap, v, m[f"{name}-start"], m[end or f"{name}-end"] + tail, speed, capmax, {"voice": voice})
+        scenes = [
+            ("card", "A drone is just another device", "Take control and fly it from the Device page", ["DEVICE PAGE", "DRONE", "REMOTE"], None, 3.5,
+             {"voice": "A drone is just another device in VirtualPyTest.", "big_size": 80}),
+            sc(1, "Tile", "A drone on the Device page", "tile", 1.0, 3.5, "Here is a Tello drone, paired and live on the Device page."),
+            sc(2, "Live view", "Open its live view", "rec", 1.0, 5.0, "Open its live view."),
+            sc(3, "Control", "Take control", "control", 1.0, 6.0, "Take control, and the drone remote appears."),
+            sc(4, "Take off", "Take off", "takeoff", 2.0, 8.0, "Take off from the remote."),
+            sc(5, "Rotate right", "Rotate right", "rotate_right", 1.3, 8.0, "Rotate right."),
+            sc(6, "Rotate left", "Rotate left", "rotate_left", 1.2, 8.0, "Then rotate left."),
+            sc(7, "Climb", "Climb", "up", 1.0, 7.5, "Climb."),
+            sc(8, "Descend", "Descend", "down", 1.0, 8.0, "And descend."),
+        ]
+        n = 9
+        if "forward-start" in m:   # only a take that really ran the pad pushes
+            scenes += [sc(n, "Forward", "Forward", "forward", 1.0, 5.0, "Fly forward."),
+                       sc(n + 1, "Back", "Back", "back", 1.0, 5.0, "And back.")]; n += 2
+        scenes.append(sc(n, "Land", "Land", "land", 1.0, 10.0, "Then land.", tail=0.0))
+        n += 1
+        ai_dir = os.environ.get("DRONE_AI_RAW")   # dir with drone_ai.mp4 + drone_ai.marks.json (the Atlas capture)
+        if ai_dir:
+            am = {mk["label"]: mk["t"] for mk in json.load(open(Path(ai_dir) / "drone_ai.marks.json"))["marks"]}
+            av = Path(ai_dir) / "drone_ai.mp4"
+            scenes.append(("pair", n, "AI agent", "AI agent reads the drone", [
+                (av, am["ai-start"], am["ai-sent"] + 1.5, 1.0, 12.0),
+                (av, am["ai-reply"], am["ai-end"] + 0.5, 1.0, 12.0)],
+                {"voice": "Now we ask the AI agent about the drone, and it reads back the battery level, the altitude and the temperature."}))
+        scenes.append(("card", "virtualpytest.com", "Open source", "OPEN SOURCE  ·  FREE", None, 4.0,
+                       {"voice": "VirtualPyTest is open source, at virtualpytest dot com."}))
+        return scenes
+    a2 = "beat2-action2" if "beat2-action2" in m else "beat2-action"
+    p2 = "beat2-picked2" if "beat2-picked2" in m else "beat2-picked"
+    v = RAWD / "drone.mp4"
+    return [
+        ("card", "A drone is just another device", "Pair it, see it, fly it from the Device page", ["DEVICE PAGE", "DRONE"], None, 3.5,
+         {"voice": "A drone is just another device.", "big_size": 80}),
+        ("clip", 1, "Not paired", "A drone, not paired yet", v, m["beat1-start"], m["beat1-end"] + 0.5, 1.0, 3.5,
+         {"voice": "Here is a Tello drone, not paired yet."}),
+        ("clip", 2, "Scan", "Scan for the drone", v, m[a2], min(m[p2] + 3.0, m["beat3-loaded"]), 1.0, 6.0,
+         {"voice": "Click Scan, and the platform looks for the drone's Wi-Fi."}),
+        ("clip", 3, "Paired", "Paired, live video", v, m["beat3-loaded"], m["beat3-end"] + 0.5, 1.0, 4.5,
+         {"voice": "It pairs by itself, and the camera goes live."}),
+        ("clip", 4, "REC view", "Open it big", v, m["beat4-click"], m["beat4-end"] + 0.5, 1.0, 5.0,
+         {"voice": "Open the preview full size."}),
+        ("clip", 5, "Control", "Take control", v, m["beat5-click"], m["beat5-end"] + 0.5, 1.0, 6.0,
+         {"voice": "Take control, and the drone remote appears."}),
+        ("clip", 6, "Take off", "Take off", v, m["beat6-click"], m["beat6-end"] + 0.5, 1.0, 8.0,
+         {"voice": "Tap take off twice, and the drone rises."}),
+        ("clip", 7, "Rotate right", "Rotate right", v, m["beat7-start"], m["beat7-end"] + 0.5, 1.0, 8.0,
+         {"voice": "Rotate right, three steps."}),
+        ("clip", 8, "Rotate left", "Rotate left", v, m["beat8-start"], m["beat8-end"] + 0.5, 1.0, 8.0,
+         {"voice": "Wait, then rotate back left."}),
+        ("clip", 9, "Land", "Land", v, m["beat10-click"], m["beat10-end"] + 0.3, 1.0, 10.0,
+         {"voice": "Land, and the drone is back on the floor."}),
+        ("card", "virtualpytest.com", "Open source", "OPEN SOURCE  ·  FREE", None, 4.0,
+         {"voice": "VirtualPyTest is open source, at virtualpytest dot com."}),
+    ]
+
+
 def video_group():
     # Storyboard 25b v5 (validated 2026-10-12). Each beat: the action (sped up) then the hold, cut parts of one recording.
     m = marks_of("group", RAW25); v = RAW25 / "group.mp4"
@@ -715,6 +804,7 @@ VIDEOS = {
     "whatsnew": (video_whatsnew, "virtualpytest_22_whats_new.mp4"),
     "grafana": (video_grafana, "virtualpytest_20_atlas_grafana.mp4"),
     "layouts": (video_layouts, "virtualpytest_25a_layouts.mp4"),
+    "drone": (video_drone, "virtualpytest_32_drone.mp4"),
 }
 
 if __name__ == "__main__":

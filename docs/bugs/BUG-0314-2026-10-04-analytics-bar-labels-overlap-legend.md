@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low - cosmetic, legend unreadable                                                        |
 | Area      | `frontend/src/components/agent-chat/AnalyticsArtifactViewer.tsx`                                                       |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `c92efe050e`                                                     |
 
 ---

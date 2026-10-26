@@ -23,12 +23,17 @@ metadata:
 
 subagents: []
 
-available_skills:
-  - validate
-  - analyze
+# TASK-175: the 'validate' / 'analyze' skills this listed never existed. Sherlock answers from the tools below
+# (the result reads and the re-classification its write.script_results permission allows).
+available_skills: []
 
 skills:
   - get_analysis_queue_status
+  - get_execution_results
+  - get_script_execution_status
+  - get_testcase_execution_status
+  - update_execution_analysis
+  - search_docs
 
 permissions:
   devices:

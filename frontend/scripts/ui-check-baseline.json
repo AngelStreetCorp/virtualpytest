@@ -2,10 +2,7 @@
   "page-colour src/pages/AgentChat.tsx": 7,
   "page-colour src/pages/BuildCampaigns.tsx": 2,
   "page-colour src/pages/HLSDebugPage.tsx": 1,
-  "page-colour src/pages/OpenRouterDebug.tsx": 2,
-  "page-colour src/pages/Rec.tsx": 1,
   "page-colour src/pages/RunLabels.tsx": 1,
-  "page-colour src/pages/RunTests.tsx": 1,
   "page-colour src/pages/Tenants.tsx": 1,
-  "page-colour src/pages/UserInterface.tsx": 3
+  "page-colour src/pages/UserInterface.tsx": 2
 }

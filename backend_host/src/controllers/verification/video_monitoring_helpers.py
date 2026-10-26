@@ -164,10 +164,45 @@ class VideoMonitoringHelpers:
                 'total': 0
             }
     
-    def get_latest_monitoring_json(self) -> Dict[str, Any]:
+    def _latest_capture_only(self, capture_folder: str) -> Optional[Dict[str, Any]]:
+        """Newest capture_N.jpg as a frame with no analysis. A device without a monitor
+        (tv_lite / pc profile) writes captures but never a metadata JSON."""
+        latest = None
+        try:
+            with os.scandir(capture_folder) as entries:
+                for entry in entries:
+                    name = entry.name
+                    if not (entry.is_file() and re.fullmatch(r'capture_\d+\.jpg', name)):
+                        continue
+                    try:
+                        ctime = entry.stat().st_ctime
+                    except OSError:
+                        continue
+                    if latest is None or ctime > latest[0]:
+                        latest = (ctime, name, entry.path)
+        except Exception as e:
+            print(f"MonitoringHelpers[{self.device_name}]: Capture scan error: {e}")
+            return None
+        if not latest:
+            return None
+        ctime, name, path = latest
+        return {
+            'success': True,
+            'capture_only': True,
+            # capture_path carries the /stream/<captureN>/ segment the heatmap builds image URLs from
+            'json_data': {'monitoring_off': True, 'capture_path': path},
+            'filename': name[:-len('.jpg')] + '.json',
+            'timestamp': ctime,
+        }
+
+    def get_latest_monitoring_json(self, capture_fallback: bool = False) -> Dict[str, Any]:
         """
         Get the latest available JSON analysis file for monitoring.
         
+        Args:
+            capture_fallback: with no analysis JSON, return the newest capture instead
+                (marked capture_only), so a device with no monitor still has a picture.
+
         Returns:
             Dictionary with latest JSON file information
         """
@@ -189,6 +224,10 @@ class VideoMonitoringHelpers:
             metadata_folder = get_capture_storage_path(device_folder, 'metadata')
             
             if not os.path.exists(metadata_folder):
+                if capture_fallback:
+                    fallback = self._latest_capture_only(capture_folder)
+                    if fallback:
+                        return fallback
                 return {
                     'success': False,
                     'error': f'Metadata folder not found: {metadata_folder}'
@@ -196,6 +235,10 @@ class VideoMonitoringHelpers:
             
             latest_json = self._find_latest_metadata_json(metadata_folder)
             if not latest_json:
+                if capture_fallback:
+                    fallback = self._latest_capture_only(capture_folder)
+                    if fallback:
+                        return fallback
                 return {
                     'success': False,
                     'error': 'No JSON analysis files found'

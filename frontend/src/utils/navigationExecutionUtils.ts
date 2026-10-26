@@ -1,4 +1,4 @@
-import { buildServerUrl } from './buildUrlUtils';
+import { buildHostServerUrl } from './buildUrlUtils';
 import { waitForExecutionSocketEvent, ExecutionSocketEvent } from './executionSocketWait';
 
 /**
@@ -70,13 +70,14 @@ export async function waitForNavigationOutcome(
   executionId: string,
   hostName: string,
   deviceId: string,
-  options: { pollIntervalMs?: number; timeoutMs?: number } = {},
+  options: { pollIntervalMs?: number; timeoutMs?: number; host?: { server_url?: string } | null } = {},
 ): Promise<ExecutionSocketEvent> {
   const pollIntervalMs = options.pollIntervalMs ?? STATUS_POLL_INTERVAL_MS;
   const timeoutMs = options.timeoutMs ?? NAVIGATION_TIMEOUT_MS;
   const stop = new AbortController();
 
-  const statusUrl = buildServerUrl(
+  const statusUrl = buildHostServerUrl(
+    options.host,
     `/server/navigation/execution/${executionId}/status?host_name=${encodeURIComponent(hostName)}&device_id=${encodeURIComponent(deviceId)}`,
   );
 
@@ -153,6 +154,8 @@ export async function executeNavigationAsync(params: {
   targetNodeId?: string;  // UUID parameter
   targetNodeLabel?: string;  // Label parameter
   hostName: string;
+  /** The host object: the run goes to the server that owns it (several servers / "All servers"). */
+  host?: { server_url?: string } | null;
   deviceId: string;
   userinterfaceName: string;
   currentNodeId?: string;
@@ -173,6 +176,7 @@ export async function executeNavigationAsync(params: {
     targetNodeId,
     targetNodeLabel,
     hostName,
+    host,
     deviceId,
     userinterfaceName,
     currentNodeId,
@@ -186,7 +190,7 @@ export async function executeNavigationAsync(params: {
     throw new Error('Either targetNodeId or targetNodeLabel must be provided');
   }
 
-  const executionUrl = buildServerUrl(`/server/navigation/execute/${treeId}`);
+  const executionUrl = buildHostServerUrl(host, `/server/navigation/execute/${treeId}`);
 
   // Lowercase the variant before sending; the DB CHECK constraint enforces
   // lowercase. Empty string / whitespace coerces to null (= base run).
@@ -236,7 +240,7 @@ export async function executeNavigationAsync(params: {
       onProgress(`Navigating to ${targetNodeLabel || targetNodeId}...`);
     }
 
-    const socketEvent = await waitForNavigationOutcome(executionId, hostName, deviceId);
+    const socketEvent = await waitForNavigationOutcome(executionId, hostName, deviceId, { host });
     const finalResult = socketEvent.result;
     if (!finalResult) {
       throw new Error(socketEvent.error || 'Navigation execution failed');

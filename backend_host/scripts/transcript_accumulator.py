@@ -32,6 +32,18 @@ os.environ['VECLIB_MAXIMUM_THREADS'] = '1'   # macOS Accelerate
 # os.environ['TORCH_NUM_THREADS'] = '2'      # PyTorch - REMOVED (torch no longer used)
 
 import sys
+
+# TASK-90: idle (a few MB: no OpenCV, no workers, no watches) while no device on this host has a
+# profile that needs this service; checked again every 60 s.
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+if __name__ == '__main__':
+    # PC-host idle gate (BUG-0563). On a host whose every device runs `pc` (or `tv_lite` /
+    # `caption_playback`-with-`services.audio: false`), this call loops every 60 s, holding only the
+    # python interpreter: no Whisper model, no audio device handles, no per-capture worker. The same
+    # single source of truth as the imager (`folders_needing_service`) is used; see
+    # `shared.src.lib.utils.monitor_service` module docstring.
+    from shared.src.lib.utils.monitor_service import wait_until_needed
+    wait_until_needed('audio', 'vpt-monitor-audio')
 import json
 import subprocess
 import logging
@@ -361,6 +373,10 @@ def merge_minute_to_chunk(capture_folder: str, hour: int, chunk_index: int, minu
                 'has_audio': has_audio,
                 'skip_reason': skip_reason
             }
+            if minute_data.get('caption_source'):   # caption_playback devices only (TASK-103): machine | broadcaster | none
+                chunk_data['minute_statuses'][str(minute_offset)]['caption_source'] = minute_data['caption_source']
+                chunk_data['minute_statuses'][str(minute_offset)]['subtitle_frames'] = minute_data.get('subtitle_frames', 0)
+                chunk_data['minute_statuses'][str(minute_offset)]['subtitle_checked'] = minute_data.get('subtitle_checked', 0)
             
             # Apply timestamp offset to convert minute-relative times (0-60s) to chunk-relative times
             # Example: minute 3 segments at 0-60s become 180-240s in the chunk
@@ -370,6 +386,9 @@ def merge_minute_to_chunk(capture_folder: str, hour: int, chunk_index: int, minu
                 offset_seg = seg.copy()
                 offset_seg['start'] = seg.get('start', 0) + time_offset_seconds
                 offset_seg['end'] = seg.get('end', 0) + time_offset_seconds
+                if seg.get('words'):
+                    offset_seg['words'] = [{**wd, 'start': round(wd['start'] + time_offset_seconds, 2),
+                                            'end': round(wd['end'] + time_offset_seconds, 2)} for wd in seg['words']]
                 offset_segments.append(offset_seg)
             
             existing_starts = {s.get('start') for s in chunk_data['segments']}
@@ -462,6 +481,10 @@ def merge_minute_to_chunk(capture_folder: str, hour: int, chunk_index: int, minu
         device_base_path = get_device_base_path(capture_folder)
         from backend_host.scripts.hot_cold_archiver import update_transcript_manifest
         update_transcript_manifest(device_base_path, hour, chunk_index, chunk_path, has_mp3=has_mp3)
+        
+        if new_segments and minute_data.get('caption_source') == 'machine':   # caption_playback devices only (TASK-103 goal 6)
+            from backend_host.src.lib.utils.caption_translate import translate_chunk_async
+            translate_chunk_async(chunk_path, chunk_data.get('language'))
         
         # NOTE: AI translation now on-demand via /host/transcript/translate-chunk endpoint
         # No automatic 10-minute translation to reduce CPU load
@@ -905,9 +928,15 @@ class TranscriptMonitor:
         monitored_devices,
         enable_transcription=False,
         transcription_workers=1,
-        max_inflight_per_device=1
+        max_inflight_per_device=1,
+        transcribe_params=None
     ):
         self.monitored_devices = monitored_devices
+        # {capture folder: caption settings or None}: the devices that are transcribed. None = legacy host-wide
+        # ENABLE_TRANSCRIPTION=true (every device, tv_app behaviour); a dict = caption_playback (TASK-103).
+        self.transcribe_params = transcribe_params if transcribe_params is not None else \
+            ({d['device_folder']: None for d in monitored_devices} if enable_transcription else {})
+        enable_transcription = bool(self.transcribe_params)
         self.enable_transcription = enable_transcription
         self.transcription_workers = max(1, int(transcription_workers))
         self.max_inflight_per_device = max(1, int(max_inflight_per_device))
@@ -971,6 +1000,8 @@ class TranscriptMonitor:
         
         for device_info in self.monitored_devices:
             device_folder = device_info['device_folder']
+            if device_folder not in self.transcribe_params:
+                continue
             
             # Watch COLD temp directory for 1min MP3 files (same location as segments/temp)
             from shared.src.lib.utils.storage_path_utils import get_cold_storage_path
@@ -1040,6 +1071,8 @@ class TranscriptMonitor:
         
         for device_info in self.monitored_devices:
             device_folder = device_info['device_folder']
+            if device_folder not in self.transcribe_params:
+                continue
             
             from shared.src.lib.utils.storage_path_utils import get_cold_storage_path, calculate_chunk_location
             audio_cold = get_cold_storage_path(device_folder, 'audio')
@@ -1263,8 +1296,33 @@ class TranscriptMonitor:
                         minute_offset = slot  # Slot number IS the minute offset within the 10min chunk
                         logger.info(f"[{device_folder}] 🎵 Transcribing 1min: {hour}h/chunk_{chunk_index}/minute_{minute_offset} (source={source_queue}, {queue_status})")
                         
-                        result = transcribe_audio(mp3_path, model_name='tiny', skip_silence_check=True, device_id=device_folder)
+                        caps = self.transcribe_params.get(device_folder)   # caption_playback settings, None = legacy host-wide
+                        subtitle_info = None
+                        if caps:
+                            subtitle_info = self._broadcaster_subtitle_minute(device_folder, mp3_path)
+                        if subtitle_info and subtitle_info[0]:
+                            logger.info(f"[{device_folder}] ⏭️  minute {minute_offset} carries broadcaster subtitles ({subtitle_info[1]}/{subtitle_info[2]} frames): no machine captions")
+                            merge_minute_to_chunk(device_folder, hour, chunk_index, {
+                                'minute_offset': minute_offset,
+                                'language': 'unknown',
+                                'transcript': '',
+                                'segments': [],
+                                'skip_reason': 'broadcaster_subtitles',
+                                'caption_source': 'broadcaster',
+                                'subtitle_frames': subtitle_info[1],
+                                'subtitle_checked': subtitle_info[2],
+                            }, has_mp3=False)
+                            self._finish_item(item, source_queue, device_folder)
+                            continue
+                        if caps:
+                            result = transcribe_audio(mp3_path, model_name=caps['whisper_model'], skip_silence_check=True,
+                                                      device_id=device_folder, language=caps['language'], word_timestamps=True)
+                        else:
+                            result = transcribe_audio(mp3_path, model_name='tiny', skip_silence_check=True, device_id=device_folder)
                         segments = result.get('segments', [])
+                        caption_extra = ({'caption_source': 'machine' if segments else 'none',
+                                          'subtitle_frames': subtitle_info[1] if subtitle_info else 0,
+                                          'subtitle_checked': subtitle_info[2] if subtitle_info else 0} if caps else {})
                         
                         if segments:
                             transcript = ' '.join([s.get('text', '').strip() for s in segments])
@@ -1276,7 +1334,8 @@ class TranscriptMonitor:
                                 'minute_offset': minute_offset,
                                 'language': result.get('language', 'unknown'),
                                 'transcript': transcript,
-                                'segments': segments
+                                'segments': segments,
+                                **caption_extra
                             }
                             merge_minute_to_chunk(device_folder, hour, chunk_index, minute_data, has_mp3=False)
                             if self.corrector:
@@ -1296,6 +1355,7 @@ class TranscriptMonitor:
                                 'transcript': '',
                                 'segments': [],
                                 'skip_reason': 'no_speech',
+                                **caption_extra
                             }, has_mp3=False)
                     else:
                         logger.warning(f"[{device_folder}] ⚠️  1min MP3 not found (may have been archived): {mp3_path}")
@@ -1326,6 +1386,27 @@ class TranscriptMonitor:
     
     
     
+    def _finish_item(self, item, source_queue, device_folder):
+        """Release the queue slot, item key and device slot the worker took for `item` (the early-exit twin of the end of the loop)."""
+        if source_queue == 'inotify':
+            self.file_event_queue.task_done()
+        elif source_queue == 'scan':
+            self.scan_queue.task_done()
+        self._release_item_key(item)
+        if device_folder:
+            self._release_device_slot(device_folder)
+
+    def _broadcaster_subtitle_minute(self, device_folder, mp3_path):
+        """(has_subtitles, frames_with_subtitles, frames_checked) for the minute this 1-minute MP3 closes: the frame JSONs
+        written in the 65 s before the file (TASK-103 goal 7). Never raises: unknown means transcribe."""
+        try:
+            from backend_host.src.lib.utils.caption_vtt import decide_subtitle_minute, subtitle_flags_for_window
+            end = os.path.getmtime(mp3_path)
+            return decide_subtitle_minute(subtitle_flags_for_window(get_metadata_path(device_folder), end - 68, end - 3))
+        except Exception as e:
+            logger.warning(f"[{device_folder}] subtitle check failed ({e}); transcribing the minute")
+            return None
+
     def _start_audio_workers(self):
         """Start audio detection workers (5s interval per device)"""
         logger.info("Starting audio detection workers...")
@@ -1641,7 +1722,7 @@ class TranscriptMonitor:
                             'segment_file': segment_filename,
                             # Service mode, so /host/transcript/status can tell "transcription
                             # disabled" from "nothing to transcribe" (rewritten every <=30 s).
-                            'transcription': self.enable_transcription
+                            'transcription': device_folder in self.transcribe_params
                         }
                         with open(audio_status_path + '.tmp', 'w') as f:
                             json.dump(audio_status_data, f, separators=(',', ':'))
@@ -1702,7 +1783,7 @@ class TranscriptMonitor:
                 if latest_json_filename:
                     detection_result['filename'] = latest_json_filename
 
-                # No incident reporting here: vpt-monitor owns the audio_loss lifecycle. It reads
+                # No incident reporting here: vpt-monitor-img owns the audio_loss lifecycle. It reads
                 # the audio_status.json written above and stores the alert's frame; opening the
                 # incident here too made a second, image-less audio_loss alert (BUG-0427).
 
@@ -1884,6 +1965,10 @@ def main():
     # ships ENABLE_TRANSCRIPTION=false; enable on a specific host with a systemd
     # drop-in rather than flipping ExecStart fleet-wide.
     env_enable_transcription = _env_bool('ENABLE_TRANSCRIPTION', False)
+    # TASK-103: ENABLE_TRANSCRIPTION=true still transcribes every device (tv_app behaviour). Otherwise a device is
+    # transcribed when its monitor profile has a `captions` section (caption_playback). DISABLE_TRANSCRIPTION=true is the
+    # hard off for a host that must never transcribe, whatever the profiles say.
+    env_disable_transcription = _env_bool('DISABLE_TRANSCRIPTION', False)
 
     # Parse command-line arguments
     parser = argparse.ArgumentParser(
@@ -1916,7 +2001,7 @@ Examples:
     )
     args = parser.parse_args()
     
-    enable_transcription = args.transcript
+    host_wide_transcription = args.transcript and not env_disable_transcription
     transcription_workers = max(1, int(args.workers))
     max_inflight_per_device = max(1, int(args.max_inflight_per_device))
     
@@ -1951,21 +2036,16 @@ Examples:
 
     logger.info("=" * 80)
     logger.info("Transcript Accumulator - Audio Detection & Transcription Service")
+    from shared.src.lib.utils.monitor_profile import resolve_monitor_profile
+    logger.info(f"Monitor profile (host level): {resolve_monitor_profile(None)}")
     logger.info("=" * 80)
-    logger.info(f"Mode: {'🎤 TRANSCRIPTION ENABLED' if enable_transcription else '🔇 AUDIO DETECTION ONLY (lightweight)'}")
+    logger.info(f"Transcription: host-wide={host_wide_transcription}, hard off={env_disable_transcription}, devices with captions are decided per device below")
     logger.info(
         f"Worker config: workers={transcription_workers}, "
         f"max_inflight_per_device={max_inflight_per_device}"
     )
     logger.info("=" * 80)
     logger.info("Architecture: inotify event-driven (zero CPU when idle)")
-    if enable_transcription:
-        logger.info("Watches: 1min MP3 files in COLD /audio/temp/ (instant transcription)")
-        logger.info("Scans: 1min /audio/temp/ + 10min /audio/{hour}/ (backfill/recovery)")
-        logger.info("Processing: MP3 → JSON transcript (Whisper tiny model)")
-    else:
-        logger.info("Audio Detection: Checks segments every 5-10s for audio presence")
-        logger.info("Transcription: DISABLED (Whisper not loaded, saves CPU)")
     logger.info("=" * 80)
     
     try:
@@ -1975,9 +2055,14 @@ Examples:
         
         # Build monitored devices list (all devices now support audio with PulseAudio)
         monitored_devices = []
+        from shared.src.lib.utils.monitor_profile import folders_needing_service
+        needed = set(folders_needing_service('audio', [os.path.basename(b) for b in base_dirs]))
         
         for base_dir in base_dirs:
             device_folder = os.path.basename(base_dir)
+            if device_folder not in needed:
+                logger.info(f"  [{device_folder}] profile does not use the audio service, skipped")
+                continue
             
             # Map capture folder to device_id via .env
             device_info = get_device_info_from_capture_folder(device_folder)
@@ -1997,14 +2082,26 @@ Examples:
             return
         
         logger.info(f"Monitoring {len(monitored_devices)} devices")
+        folders = [d['device_folder'] for d in monitored_devices]
+        if env_disable_transcription:
+            transcribe_params = {}
+        elif host_wide_transcription:
+            transcribe_params = {f: None for f in folders}
+        else:
+            from shared.src.lib.utils.monitor_profile import folders_with_captions
+            transcribe_params = folders_with_captions(folders)
+        enable_transcription = bool(transcribe_params)
+        for f, caps in transcribe_params.items():
+            logger.info(f"  [{f}] 🎤 transcribed: {caps if caps else 'host-wide ENABLE_TRANSCRIPTION=true'}")
         if enable_transcription:
             logger.info("Whisper model will be loaded on first transcription (global singleton)")
         else:
-            logger.info("Whisper model will NOT be loaded (transcription disabled)")
+            logger.info("Whisper model will NOT be loaded (no device transcribed, saves CPU)")
         
         monitor = TranscriptMonitor(
             monitored_devices,
             enable_transcription=enable_transcription,
+            transcribe_params=transcribe_params,
             transcription_workers=transcription_workers,
             max_inflight_per_device=max_inflight_per_device
         )

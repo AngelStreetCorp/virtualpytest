@@ -2981,8 +2981,9 @@
           "type": "table"
         }
       ],
-      "title": "Web - YouTube",
-      "type": "row"
+      "title": "Details",
+      "type": "row",
+      "description": "Web - YouTube"
     }
   ],
   "preload": false,

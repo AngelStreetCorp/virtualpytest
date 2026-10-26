@@ -1,0 +1,31 @@
+# NOTE: template for reference. Hosts install units by hand / install_host.sh (update_core.sh does not).
+# Installed as vpt-timeline.service. Off for every device until DEVICE{N}_TIMELINE=true (or TIMELINE_ALL=true) is in .env.
+[Unit]
+Description=VirtualPyTest Timeline thumbnail sprites (TASK-94)
+After=network.target vpt-archiver.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=vpt_user
+Group=vpt_user
+WorkingDirectory=%PROJECT_ROOT%
+EnvironmentFile=-%PROJECT_ROOT%/.env
+Environment=PYTHONPATH=%PROJECT_ROOT%/shared/lib:%PROJECT_ROOT%/backend_host/src
+Environment=PATH=%PROJECT_ROOT%/venv/bin:/usr/bin:/usr/local/bin
+Environment=MALLOC_ARENA_MAX=2
+ExecStart=%PROJECT_ROOT%/venv/bin/python backend_host/scripts/timeline/service.py
+Restart=always
+RestartSec=15
+StandardOutput=journal
+StandardError=journal
+
+# Low priority: must never starve capture/detection. One ffmpeg decode at a time (~2 s per chunk on vpt-pi1).
+Nice=15
+CPUWeight=20
+CPUQuota=40%
+IOSchedulingClass=idle
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

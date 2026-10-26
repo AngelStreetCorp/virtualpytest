@@ -12,8 +12,13 @@
 
 import { Alert } from '../types/pages/Monitoring_Types';
 
-/** Incident types the capture monitor raises, as stored in alerts.incident_type. */
-export type IncidentFocusType = 'freeze' | 'blackscreen' | 'no_audio';
+/** Incident types the capture monitor raises, as stored in alerts.incident_type.
+ *  BUG-0504: `no_signal` added — a capture with no HDMI input (SMPTE colour bars,
+ *  or all-black with no live source) is its own alert type that takes priority over
+ *  freeze. The deep link from the heatmap must route to the no-signal card so the
+ *  operator can drill in from the same URL shape.
+ */
+export type IncidentFocusType = 'freeze' | 'blackscreen' | 'no_signal' | 'no_audio';
 
 export interface IncidentFocus {
   host: string;

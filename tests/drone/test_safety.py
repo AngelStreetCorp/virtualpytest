@@ -84,9 +84,8 @@ def test_battery_gates():
     g = guard(z=0, tel={"bat": 39, "temph": 40})
     ok, _, reason = g.check("takeoff")
     assert not ok and "battery" in reason
-    g = guard(z=0, tel={"bat": 80, "temph": 85})
-    ok, _, reason = g.check("takeoff")
-    assert not ok and "temperature" in reason
+    g = guard(z=0, tel={"bat": 80, "temph": 90})
+    assert g.check("takeoff")[0]  # heat is the drone's call, not a software gate
     assert guard(z=0).check("takeoff")[0]
 
 
@@ -194,3 +193,20 @@ def test_yaw_is_taken_from_the_imu_once_airborne():
     tel["yaw"] = -170  # IMU wraps at +-180
     g.check("forward 50")
     assert g.pose.yaw_deg == pytest.approx((180 - 190) % 360)
+
+
+def test_rc_joystick_is_capped_and_kept_inside_the_height_band():
+    from shared.src.lib.drone.safety import RC_MAX, SafetyGuard, SafetyLimits
+    from shared.src.lib.drone.sim.world import Pose
+    tel = {"bat": 80, "h": 100}
+    g = SafetyGuard(SafetyLimits(max_h=150), Pose(100, 100, 0, 0), telemetry=lambda: tel)
+    assert g.check("rc 0 0 0 0") == (True, "rc 0 0 0 0", "ok")  # the stop always passes
+    assert g.check("rc 10 0 0 0")[0] is False  # not flying
+    g.apply("takeoff")
+    assert g.check("rc 100 -100 0 50")[1] == f"rc {RC_MAX} -{RC_MAX} 0 50"
+    tel["h"] = 150
+    assert g.check("rc 0 0 40 0")[1] == "rc 0 0 0 0"  # ceiling
+    tel["h"] = 30
+    assert g.check("rc 0 0 -40 0")[1] == "rc 0 0 0 0"  # floor
+    tel["bat"] = 15
+    assert g.check("rc 10 0 0 0")[1] == "land"

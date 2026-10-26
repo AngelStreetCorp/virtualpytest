@@ -1,0 +1,33 @@
+{
+ "title": "Fly a drone from the Device page, with live video | VirtualPyTest",
+ "description": "A Tello drone is a device like any other in VirtualPyTest. From the Device page you see the paired drone, open its live camera, take control and fly it with the remote: take off, rotate, climb, descend and land.\n\nThe same controller is used by the test scripts. A later video shows an AI agent working with the drone.\n\nOpen source & free\n\nChapters\n0:00 A drone on the Device page and its live view\n0:15 Take control and take off\n0:29 Rotate right and left\n0:44 Climb, descend and land",
+ "tags": [
+  "virtualpytest",
+  "drone",
+  "tello",
+  "device control",
+  "remote control",
+  "drone remote",
+  "live video",
+  "test automation",
+  "robotics",
+  "open source"
+ ],
+ "privacy": "public",
+ "category": "28",
+ "id": "YWJ1uz8KHCo",
+ "promo_check": {
+  "at": "2026-10-14T09:31:29+0200",
+  "passed": true,
+  "counters": {
+   "banned_text": 0,
+   "black_frames": 0,
+   "dark_tiles": 0,
+   "flashes": 0,
+   "caption_overflow": 0,
+   "duration_over_90s": 0,
+   "voice_mismatch": 0,
+   "voice_silent": 0
+  }
+ }
+}

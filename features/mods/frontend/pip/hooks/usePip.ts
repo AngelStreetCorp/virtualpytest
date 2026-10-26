@@ -1,12 +1,12 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 
 import { useWorkspaceContext } from '../../../../../frontend/src/contexts/workspace/WorkspaceContext';
 import { useHostData } from '../../../../../frontend/src/hooks/useHostManager';
 import { useModStore } from '../../../../../frontend/src/mods/core/hooks/useModStore';
 import type { Device, Host } from '../../../../../frontend/src/types/common/Host_Types';
-import { isPaused, remoteShown, selectDevice, toggleRemote } from '../actions';
+import { clampPosition, isPaused, remoteShown, selectDevice, setCollapsed, setPosition, toggleRemote } from '../actions';
 import { pipStore } from '../data/store';
-import type { PipSelection } from '../types';
+import type { PipPosition, PipSelection } from '../types';
 
 /** PiP state plus the hosts/devices the workspace allows, and the chosen one resolved. */
 export const usePip = () => {
@@ -28,6 +28,24 @@ export const usePip = () => {
     return { host: h, device: h?.devices.find((d) => d.device_id === sel?.deviceId) ?? null };
   }, [hosts, state.selection]);
 
+  const setPos = useCallback(
+    (next: PipPosition, rect: DOMRect, viewportW: number, viewportH: number) =>
+      pipStore.update((s) => setPosition(s, next, rect, viewportW, viewportH)),
+    [],
+  );
+
+  // Re-clamp a stored position that no longer fits (window was resized down after a drag).
+  // The overlay calls this once per viewport resize so the panel cannot reopen clipped.
+  const reclamp = useCallback((rect: DOMRect, viewportW: number, viewportH: number) => {
+    const { position } = pipStore.get();
+    if (!position) return;
+    const safeRect = { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom };
+    const clamped = clampPosition(position, safeRect, viewportW, viewportH);
+    if (clamped.x !== position.x || clamped.y !== position.y) {
+      pipStore.update((s) => ({ ...s, position: clamped }));
+    }
+  }, []);
+
   return {
     state,
     hosts,
@@ -37,5 +55,8 @@ export const usePip = () => {
     showRemote: remoteShown(state),
     select: (selection: PipSelection | null) => pipStore.update((s) => selectDevice(s, selection)),
     toggleRemote: () => pipStore.update(toggleRemote),
+    setCollapsed: (collapsed: boolean) => pipStore.update((s) => setCollapsed(s, collapsed)),
+    setPosition: setPos,
+    reclampPosition: reclamp,
   };
 };

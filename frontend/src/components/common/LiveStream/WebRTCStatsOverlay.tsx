@@ -1,6 +1,7 @@
 import { Box, Typography } from '@mui/material';
 
 import type { WebRTCStats } from '../../../types/controller/WebRTC_Types';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 const fmt = (v: number | null, digits: number, unit = '') => (v == null ? 'n/a' : `${v.toFixed(digits)}${unit}`);
 
@@ -19,7 +20,7 @@ export const WebRTCStatsOverlay = ({ stats }: { stats: WebRTCStats }) => (
       backgroundColor: 'rgba(0,0,0,0.72)',
       color: 'primary.main',
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-      fontSize: 12,
+      fontSize: TYPOGRAPHY.caption.size,
       lineHeight: 1.35,
       pointerEvents: 'none',
       border: '1px solid',

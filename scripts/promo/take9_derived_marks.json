@@ -1,0 +1,8 @@
+{"status": "FAILED", "derived_marks_note": "take 9 (real flight): the script threw in the Down check; the footage is good. down-end, land-start, land-end and end were read off the frames of drone.mp4 (see the notes below), the rest are the script's own marks.",
+ "frame_notes": "H 1.2 m until ~58 s, Down presses from ~54 s, H 0.9/0.8 at 58 s, 0.5 m from ~60 s; 'Landing...' from ~62.5 s; H 0.0 and the Release button fading at ~65.5 s; floor view afterwards; the file ends at 69.5 s.",
+ "marks": [
+  {"label":"tile-start","t":0},{"label":"tile-end","t":3.0},{"label":"rec-start","t":3.6},{"label":"rec-end","t":8.2},
+  {"label":"control-start","t":8.2},{"label":"control-end","t":13.5},{"label":"takeoff-start","t":13.5},{"label":"takeoff-end","t":28.4},
+  {"label":"rotate_right-start","t":28.4},{"label":"rotate_right-end","t":37.6},{"label":"rotate_left-start","t":37.6},{"label":"rotate_left-end","t":46.4},
+  {"label":"up-start","t":46.4},{"label":"up-end","t":53.8},{"label":"down-start","t":53.8},{"label":"down-end","t":61.0},
+  {"label":"land-start","t":61.0},{"label":"land-end","t":68.5},{"label":"end","t":68.5}]}

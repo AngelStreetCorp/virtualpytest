@@ -8,7 +8,7 @@
 | Reported  | 2026-09-15                                                                                      |
 | Status    | **FIXED 2026-09-15**, verified end to end. The tunnel stays — see Part 5; DNS should go back to the CNAME. |
 | Severity  | High (the rpitest fleet intermittently vanishes from the UI)                                     |
-| Area      | `vpt-pi1` (rpitest.angelstreet.io) · Cloudflare · `backend_server` `/server/system/getAllHosts`   |
+| Area      | `vpt-pi1` (<pi-server-host>) · Cloudflare · `backend_server` `/server/system/getAllHosts`   |
 | Fixed in  | — (internal: our own lab transport, no product change)                                            |
 
 ---
@@ -38,7 +38,7 @@ the frontend. It was working until ~2026-09-14.
 
 ## Part 1 — the transport fault (FIXED, and it was real)
 
-`https://rpitest.angelstreet.io` returned Cloudflare **522** on roughly half of all
+`https://<pi-server-host>` returned Cloudflare **522** on roughly half of all
 requests, hanging ~15s first (Cloudflare's origin-connect timeout).
 
 **The decisive measurement** — correlate requests against the Pi's own nginx access log:
@@ -73,12 +73,12 @@ The tunnel dials **outbound**, so the failing inbound path is bypassed entirely.
 
 - Tunnel **`rpitest`**, id `74e1fcb9-211d-4c7a-895f-8e793a0ef465`
 - Config `/etc/cloudflared/config.yml`; systemd unit `cloudflared`, enabled (survives reboot)
-- `rpitest.angelstreet.io` is now a **CNAME to the tunnel**, no longer an A record
+- `<pi-server-host>` is now a **CNAME to the tunnel**, no longer an A record
 
 Config decisions worth keeping:
 
 - Origin is **`https://localhost:443`**, not `:80` — the `:80` vhost is a 301 to https and would loop.
-- nginx serves the **snakeoil self-signed** cert, hence `noTLSVerify: true` + `originServerName: rpitest.angelstreet.io`.
+- nginx serves the **snakeoil self-signed** cert, hence `noTLSVerify: true` + `originServerName: <pi-server-host>`.
 - `keepAliveTimeout: 90s` for streams / VNC / Socket.IO.
 
 **Measured back to back, in the same minute:**
@@ -311,7 +311,7 @@ is a 1:1 ratio, i.e. **zero connection reuse**.
 
 ### The cause, in one line of nginx
 
-`proxy:/etc/nginx/sites-enabled/virtualpytest`, the `rpitest.angelstreet.io` block:
+`proxy:/etc/nginx/sites-enabled/virtualpytest`, the `<pi-server-host>` block:
 
 ```nginx
 location / {
@@ -373,7 +373,7 @@ Worth doing as well:
   this one crosses a consumer router, but the others pay needless handshakes too.
 
 Once this is deployed and inbound holds without it, `cloudflared` can be removed and
-`rpitest.angelstreet.io` pointed back at an A record.
+`<pi-server-host>` pointed back at an A record.
 
 
 ---
@@ -383,7 +383,7 @@ Once this is deployed and inbound holds without it, `cloudflared` can be removed
 ### The block that actually mattered
 
 Part 4 named the proxy, but the first fix went to the wrong server block. The HLS
-traffic does not use the `rpitest.angelstreet.io` vhost at all — it comes through
+traffic does not use the `<pi-server-host>` vhost at all — it comes through
 `snippets/vpt-app-locations.conf`:
 
 ```nginx
@@ -398,7 +398,7 @@ Two consequences worth remembering:
 
 - No upstream block and no `Connection ""`, so **every segment opened a new TCP+TLS
   connection**.
-- It hardcodes the **IP**, so this traffic never resolved `rpitest.angelstreet.io` and
+- It hardcodes the **IP**, so this traffic never resolved `<pi-server-host>` and
   **never went through the tunnel** — which is precisely why the tunnel changed nothing
   for the reported symptom.
 
@@ -443,7 +443,7 @@ So the two fixes address two different halves and both are needed:
 
 - **the nginx keepalive fix** carries the heavy traffic — the ~1400 req/min of HLS
   segments, which go proxy -> origin IP and never touch Cloudflare. That path is 0/30.
-- **the tunnel** carries browser and API access to `rpitest.angelstreet.io`, which does
+- **the tunnel** carries browser and API access to `<pi-server-host>`, which does
   go through Cloudflare. Without it, ~20% of those requests time out.
 
 `cloudflared` has been re-enabled and holds 4 registered connections.
@@ -472,9 +472,9 @@ load-bearing.
 
 ## Leftovers from the tunnel work
 
-- DNS record `rpitest-tunnel.angelstreet.io` (CNAME, the staging name) still exists in
+- DNS record `<pi-server-tunnel-host>` (CNAME, the staging name) still exists in
   Cloudflare and can be deleted — it is already out of the tunnel ingress.
 - The router's inbound 443 port-forward is now unused and could be closed.
-- Reverting the tunnel, if ever needed: point `rpitest.angelstreet.io` back to an A
+- Reverting the tunnel, if ever needed: point `<pi-server-host>` back to an A
   record for `<origin-ip>` and `systemctl disable --now cloudflared`. That restores the
   ~50% 522 behaviour, so only do it if the tunnel itself is implicated.

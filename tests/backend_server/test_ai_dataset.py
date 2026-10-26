@@ -41,7 +41,39 @@ def _row(sid, family="banner", **kw):
     return row
 
 
+class FakeBody:
+    """The streaming body of a boto3 get_object answer."""
+
+    def __init__(self, data: bytes):
+        self._data = data
+
+    def read(self, amt=None):
+        return self._data if amt is None else self._data[:amt]
+
+
+class FakeS3Client:
+    def __init__(self, body: bytes = b"\x00\xff\xd8\xff-jpeg", content_type: str = "image/jpeg",
+                 error: Exception = None):
+        self.body = body
+        self.content_type = content_type
+        self.error = error
+        self.keys = []
+
+    def get_object(self, Bucket=None, Key=None):  # noqa: N803 (boto3 spelling)
+        self.keys.append((Bucket, Key))
+        if self.error:
+            raise self.error
+        return {"Body": FakeBody(self.body), "ContentType": self.content_type}
+
+
 class FakeStorage:
+    def __init__(self, client=None):
+        self.bucket_name = "vpt-training"
+        self.s3_client = client or FakeS3Client()
+
+    def set_client(self, client):
+        self.s3_client = client
+
     def generate_presigned_url(self, key, expires_in=3600):
         return {"success": True, "url": f"https://signed.example/{key}?exp={expires_in}"}
 
@@ -111,7 +143,9 @@ def env(monkeypatch):
         return list(state["offtree"].get(team_id, []))
 
     monkeypatch.setattr(samples_db, "get_offtree_labels", fake_offtree)
-    monkeypatch.setattr(cloudflare_utils, "get_training_storage", lambda: FakeStorage())
+    storage = FakeStorage()
+    monkeypatch.setattr(cloudflare_utils, "get_training_storage", lambda: storage)
+    state["storage"] = storage
     # Review must not depend on the capture switch.
     monkeypatch.setattr(training_samples, "enabled", lambda: False)
 
@@ -190,15 +224,16 @@ def test_list_is_team_scoped(env):
     assert ids == ["mine"]
 
 
-def test_list_signs_images_and_proposes_labels(env):
+def test_list_points_at_the_image_route_and_proposes_labels(env):
     env["rows"]["run"] = _row("run", ground_truth={"channel_number": "101"}, label_source="run",
                               model_answer={"channel_number": "102", "channel_name": "BBC"})
     env["rows"]["model"] = _row("model", model_answer={"channel_number": "5", "channel_name": "",
                                                        "program_name": "News", "confidence": 0.9})
     body = _list(env).get_json()
     by_id = {s["id"]: s for s in body["samples"]}
-    assert by_id["run"]["image_url"].startswith("https://signed.example/")
-    assert "exp=3600" in by_id["run"]["image_url"]
+    # The screenshot is served by the app itself: the browser cannot read the
+    # training bucket (BUG-0775).
+    assert by_id["run"]["image_path"] == "/server/training-samples/run/image"
     # y on a run-label row keeps the run label, not the model answer
     assert by_id["run"]["proposed_label"] == {"channel_number": "101"}
     # otherwise the model answer mapped onto the family schema (empty fields dropped)
@@ -211,6 +246,71 @@ def test_guess_source_is_none_without_a_guess(env):
     env["rows"]["s1"] = _row("s1", family="screen-id", model_answer={"content": "no idea"})
     sample = _list(env).get_json()["samples"][0]
     assert sample["proposed_label"] is None and sample["guess_source"] is None
+
+
+# ---- the screenshot ---------------------------------------------------------------------
+
+def _image(env, sid, team=TEAM, role="admin"):
+    return env["client"].get(f"/server/training-samples/{sid}/image?team_id={team}",
+                              headers={"X-Test-Role": role})
+
+
+def test_image_route_serves_the_screenshot(env):
+    """The server reads the object and hands the bytes over (BUG-0775)."""
+    env["rows"]["s1"] = _row("s1")
+    storage = env["storage"]
+
+    resp = _image(env, "s1")
+    assert resp.status_code == 200
+    assert resp.mimetype == "image/jpeg"
+    assert resp.data == storage.s3_client.body
+    assert resp.headers["X-Content-Type-Options"] == "nosniff"
+    # the object key comes from the database, never from the request
+    assert storage.s3_client.keys == [("vpt-training", f"{TEAM}/banner/m/s1.jpg")]
+
+
+@pytest.mark.parametrize("ctype", ["text/html", "application/octet-stream", "application/javascript"])
+def test_image_route_refuses_a_non_image_content_type(env, ctype):
+    env["rows"]["s1"] = _row("s1")
+    env["storage"].set_client(FakeS3Client(body=b"<script>alert(1)</script>", content_type=ctype))
+    resp = _image(env, "s1")
+    assert resp.status_code == 415
+    assert b"script" not in resp.data
+
+
+def test_image_route_does_not_buffer_an_oversized_object(env, monkeypatch):
+    env["rows"]["s1"] = _row("s1")
+    monkeypatch.setattr(routes, "IMAGE_MAX_BYTES", 8)
+    env["storage"].set_client(FakeS3Client(body=b"x" * 100))
+    assert _image(env, "s1").status_code == 413
+
+
+def test_image_route_refuses_another_team_and_unknown_samples(env):
+    env["rows"]["mine"] = _row("mine")
+    env["rows"]["theirs"] = _row("theirs", team_id="22222222-2222-2222-2222-222222222222")
+    assert _image(env, "theirs").status_code == 404
+    assert _image(env, "nope").status_code == 404
+
+
+def test_image_route_says_when_a_sample_has_no_screenshot(env):
+    env["rows"]["s1"] = _row("s1", object_key=None)
+    resp = _image(env, "s1")
+    assert resp.status_code == 404
+    assert resp.get_json()["error"] == "This sample has no screenshot"
+
+
+def test_image_route_reports_a_storage_failure(env):
+    env["rows"]["s1"] = _row("s1")
+    env["storage"].set_client(FakeS3Client(error=RuntimeError("minio is down")))
+    resp = _image(env, "s1")
+    assert resp.status_code == 502
+    assert "could not be read" in resp.get_json()["error"]
+
+
+def test_image_route_needs_the_team_and_a_permission(env):
+    env["rows"]["s1"] = _row("s1")
+    assert env["client"].get("/server/training-samples/s1/image").status_code == 400
+    assert _image(env, "s1", role="viewer").status_code == 403
 
 
 def test_model_that_saw_no_banner_proposes_no_banner(env):

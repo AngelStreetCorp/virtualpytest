@@ -8,7 +8,8 @@ writes the call log. No call site passes it, so adding a call site needs no attr
 Fields (all optional strings): ``origin`` (``ui`` | ``api`` | ``script`` | ``chat`` | ``monitoring`` |
 ``background`` | ``mcp`` | ``public`` | ``settings_test`` | ``eval``), ``user_id``, ``route``, ``script_name``,
 ``script_result_id``, ``campaign_id``, ``host_name``, ``device_id``, ``device_model``,
-``userinterface_name``, ``session_id``, ``client_hash`` (public Ask), ``job`` (scheduled job name).
+``userinterface_name``, ``session_id``, ``client_hash`` (public Ask), ``job`` (scheduled job name),
+``ref_type`` / ``ref_id`` / ``ref_kind`` (what the call was about: an alert, its id, its incident type).
 
 Rules:
 - Flask entry points bind in ``before_request`` and clear in ``teardown_request``.
@@ -29,7 +30,8 @@ from contextlib import contextmanager
 from typing import Any, Callable, Iterator, Optional
 
 FIELDS = ("origin", "user_id", "route", "script_name", "script_result_id", "campaign_id", "host_name",
-          "device_id", "device_model", "userinterface_name", "session_id", "client_hash", "job")
+          "device_id", "device_model", "userinterface_name", "session_id", "client_hash", "job", "ref_type", "ref_id",
+          "ref_kind", "project_id")
 ORIGINS = ("ui", "api", "script", "chat", "monitoring", "background", "mcp", "public", "settings_test", "eval",
            "unknown")
 HEADER = "X-VPT-Caller"

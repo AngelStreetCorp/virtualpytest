@@ -21,8 +21,8 @@ import urllib.request
 
 HOST_BASE = {
     "host-clone-1": "https://virtualpytest.angelstreet.io",
-    "vpt-pi1": "https://rpitest.angelstreet.io",
-    "vpt-pi3": "https://rpitest.angelstreet.io",
+    "vpt-pi1": "https://vpt-pi1.angelstreet.io",
+    "vpt-pi3": "https://vpt-pi1.angelstreet.io",
     "vpt-pi4": "https://vpt-pi4.angelstreet.io",
 }
 

@@ -259,6 +259,7 @@ def register_all_server_routes(app):
         # Import all route modules
         from routes import (
             server_system_routes,
+            server_platform_update_routes,
             server_web_routes,
             server_core_routes,
             auto_proxy,
@@ -275,6 +276,7 @@ def register_all_server_routes(app):
             server_navigation_execution_routes,
             server_devicemodel_routes,
             server_drone_routes,
+            server_lol_overlay_routes,
             server_remote_routes,
             server_ai_routes,
             server_ai_routing_routes,
@@ -287,6 +289,7 @@ def register_all_server_routes(app):
             server_requirements_routes,
             server_executable_routes,
             server_userinterface_routes,
+            server_match_runs_routes,
             server_ai_userinterface_routes,
             server_execution_results_routes,
             server_script_routes,
@@ -299,9 +302,14 @@ def register_all_server_routes(app):
             server_ai_queue_routes,
             server_api_testing_routes,
             server_device_flags_routes,
+            server_device_favorites_routes,
+            server_notification_prefs_routes,
+            server_notifications_routes,
+            server_executable_favorites_routes,
             server_restart_routes,
             server_deployment_routes,
             server_masterchief_routes,
+            server_activity_routes,
             server_builder_routes,
             server_settings_routes,
             mcp_routes,
@@ -321,6 +329,11 @@ def register_all_server_routes(app):
             server_users_routes,
             server_grafana_routes,
             server_workspaces_routes,
+            server_projects_routes,
+            server_projects_overview_routes,
+            server_projects_executive_routes,
+            server_projects_in_scope_routes,
+            server_team_member_routes,
             server_device_info_overrides_routes,
             server_agent_routes,
             agent_registry_routes,
@@ -337,11 +350,14 @@ def register_all_server_routes(app):
             server_run_share_routes,
             server_quality_routes,
             server_custom_reports_routes,
+            server_custom_pages_routes,
             server_tql_routes,
             server_manual_routes,
             server_live_routes,
             server_report_snapshots_routes,
             server_share_public_routes,
+            server_themes_routes,
+            server_dashboard_routes,
         )
         # Import via absolute package path to avoid module alias split with emit callers
         # that import backend_server.src.routes.server_system_socket_routes.
@@ -351,6 +367,7 @@ def register_all_server_routes(app):
         blueprints = [
             # Core system routes (keep these - have server logic)
             (server_system_routes.server_system_bp, 'System management'),
+            (server_platform_update_routes.server_platform_update_bp, 'Platform update'),
             (server_web_routes.server_web_bp, 'Web interface'),
             (server_core_routes.server_core_bp, 'Server core API'),
             (server_control_routes.server_control_bp, 'Device control operations'),
@@ -364,10 +381,12 @@ def register_all_server_routes(app):
             (server_analytics_routes.server_analytics_bp, 'Monitoring > Analytics aggregates (before auto_proxy: it would proxy an unknown section to a host)'),
             (server_verification_routes.server_verification_bp, 'Verification operations'),
             (server_devicemodel_routes.server_devicemodel_bp, 'Device model management'),
+            (server_lol_overlay_routes.server_lol_overlay_bp, 'LoL overlay live data proxy to the host'),
             (server_drone_routes.server_drone_bp, 'Drone proxy (Tello skill for AI agents, TASK-32 + phase 2)'),
             (server_remote_routes.server_remote_bp, 'Remote control proxy (must register BEFORE auto_proxy so /server/remote/executeCommandGroup is not swallowed by the generic proxy)'),
             (server_ai_routes.server_ai_bp, 'AI operations'),
             (server_ai_routing_routes.server_ai_routing_bp, 'AI usage routing: endpoints/profiles/routes + gateway (TASK-30)'),
+            (server_activity_routes.server_activity_bp, 'Activity feed (TASK-127): read-only view over audit tables'),
             (server_masterchief_routes.server_masterchief_bp, 'Masterchief ops (TASK-71): narrow elevated-op surface, service key rejected, audit row per attempt'),
             # server_ai_testcase_routes DELETED - replaced by unified /server/testcase/execute-from-prompt
             (server_stream_proxy_routes.server_stream_proxy_bp, 'Stream proxy'),
@@ -380,6 +399,7 @@ def register_all_server_routes(app):
             (server_requirements_routes.server_requirements_bp, 'Requirements management'),
             (server_executable_routes.server_executable_bp, 'Unified executable listing (scripts + testcases)'),
             (server_userinterface_routes.server_userinterface_bp, 'User interface management'),
+            (server_match_runs_routes.server_match_runs_bp, 'Matcher history (match_runs)'),
             (server_ai_userinterface_routes.server_ai_userinterface_bp, 'AI-learned UI knowledge base (DB-backed; see docs/agent/navigation/AI_USERINTERFACE.md)'),
             (server_execution_results_routes.server_execution_results_bp, 'Execution results'),
             (server_script_routes.server_script_bp, 'Script management'),
@@ -391,6 +411,10 @@ def register_all_server_routes(app):
             (server_ai_queue_routes.server_ai_queue_bp, 'AI queue monitoring'),
             (server_api_testing_routes.server_api_testing_bp, 'API testing system'),
             (server_device_flags_routes.device_flags_bp, 'Device flags management'),
+            (server_device_favorites_routes.server_device_favorites_bp, 'Per-user device favorites (TASK-99)'),
+            (server_notification_prefs_routes.server_notification_prefs_bp, 'Notification preferences (TASK-145)'),
+            (server_notifications_routes.server_notifications_bp, 'Notification history per user (TASK-145)'),
+            (server_executable_favorites_routes.server_executable_favorites_bp, 'Per-user executable favorites (TASK-100)'),
             (server_restart_routes.server_restart_bp, 'Restart operations'),
             (server_deployment_routes.server_deployment_bp, 'Deployment management'),
             (server_navigation_execution_routes.server_navigation_execution_bp, 'Navigation execution with cache population'),
@@ -413,6 +437,11 @@ def register_all_server_routes(app):
             (server_users_routes.server_users_bp, 'Users management'),
             (server_grafana_routes.server_grafana_bp, 'Grafana user provisioning integration'),
             (server_workspaces_routes.server_workspaces_bp, 'Workspace management'),
+            (server_projects_routes.server_projects_bp, 'Projects management (TASK-65)'),
+            (server_projects_overview_routes.server_projects_overview_bp, 'Projects overview endpoint (TASK-65 G3)'),
+            (server_projects_executive_routes.server_projects_executive_bp, 'Projects executive endpoint (TASK-65 G4)'),
+            (server_projects_in_scope_routes.server_projects_in_scope_bp, 'Projects in-scope + manual linking endpoint (TASK-65 / BUG-0578)'),
+            (server_team_member_routes.server_team_member_bp, 'Team-member heartbeat (TASK-65)'),
             (server_device_info_overrides_routes.server_device_info_overrides_bp, 'Device info value corrections (OCR overrides)'),
 
             # Auto proxy (replaces 11 pure proxy route files + 18 verification proxy routes - navigation-execution now handled separately)
@@ -439,11 +468,14 @@ def register_all_server_routes(app):
             (server_run_share_routes.server_run_share_bp, 'Public share snapshots + token-only GET + export (TASK-42)'),
             (server_quality_routes.server_quality_bp, 'Flaky / slow / never-executed endpoints (TASK-42)'),
             (server_custom_reports_routes.server_custom_reports_bp, 'Custom reports CRUD (TASK-42)'),
+            (server_custom_pages_routes.server_custom_pages_bp, 'Custom pages CRUD + sharing (TASK-139)'),
             (server_tql_routes.server_tql_bp, 'TQL parser validation (TASK-42)'),
             (server_manual_routes.server_manual_bp, 'Manual session lifecycle + finalize (TASK-42)'),
             (server_live_routes.server_live_bp, 'Live task status + stop (TASK-42)'),
             (server_report_snapshots_routes.server_report_snapshots_bp, 'Report snapshots: create / list / revoke a shared link (TASK-49)'),
             (server_share_public_routes.server_share_public_bp, 'Public viewer of a shared report snapshot (secret link key, TASK-49)'),
+            (server_themes_routes.server_themes_bp, 'Provided colour themes from config/themes (TASK-102)'),
+            (server_dashboard_routes.server_dashboard_bp, 'Dashboard cards: summary + admin system (TASK-123)'),
         ]
         
         registered_count = 0
@@ -496,6 +528,9 @@ def register_all_server_routes(app):
 
 # Global registry for persistent agents with background workers
 _background_agents = {}
+# The exit cleanup runs from the signal handler AND from atexit. This flag makes it
+# run ONCE, so the stop cannot burn the unit's TimeoutStopSec twice over (TASK-169).
+_cleanup_done = False
 
 
 def start_agent_background_workers():
@@ -554,8 +589,19 @@ def start_agent_background_workers():
 
 
 def setup_server_cleanup():
-    """Setup cleanup handlers for server. Returns cleanup callback for signal handling."""
+    """Setup cleanup handlers for server. Returns cleanup callback for signal handling.
+
+    The cleanup runs from the signal handler AND from atexit, so it used to stop the
+    background agents twice: `stop_background()` joins its worker thread with a
+    timeout, so N agents cost N x timeout — twice. That is a lot of waiting inside
+    the unit's `TimeoutStopSec=30`, and the server was SIGKILLed instead of stopped
+    (vpt-pi1, 2026-10-23, TASK-169). The cleanup now runs ONCE.
+    """
     def cleanup():
+        global _cleanup_done
+        if _cleanup_done:
+            return
+        _cleanup_done = True
         print("[@backend_server:cleanup] Cleaning up server resources...")
         for agent_id, agent in _background_agents.items():
             try:
@@ -620,6 +666,8 @@ def main():
     configure_global_frontend_auth_guard(app)
     from backend_server.src.lib.ai_caller_binding import install_ai_caller_binding
     install_ai_caller_binding(app)
+    from backend_server.src.lib.audit_emitter import init_audit
+    init_audit(app)
     
     # STEP 3: Register ALL routes
     if not register_all_server_routes(app):

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                                         |
 | Severity  | Critical (a web host stops running tests, then stops answering SSH, until the VM is reset)     |
 | Area      | `backend_host/src/controllers/web/playwright.py`, `backend_host/src/lib/utils/playwright_utils.py`, `backend_host/src/lib/utils/webkit_utils.py` |
-| Fixed in  | Unreleased                                                                                     |
+| Fixed in  | build 90145 |
 | Commit    | `048bd9ad1`                                                                                    |
 
 ---

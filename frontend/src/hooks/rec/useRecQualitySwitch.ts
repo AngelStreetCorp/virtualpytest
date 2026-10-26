@@ -1,9 +1,14 @@
 import { useState, useCallback, useRef, useEffect, type MouseEvent } from 'react';
 
 import { Host } from '../../types/common/Host_Types';
-import { buildServerUrl, getStreamMediaSequence, pollForFreshStream } from '../../utils/buildUrlUtils';
+import { buildHostServerUrl, getStreamMediaSequence, pollForFreshStream } from '../../utils/buildUrlUtils';
 
 export type QualityLevel = 'low' | 'sd' | 'hd' | 'hd_plus';
+
+// Once the restarted stream is confirmed, the overlay normally clears on the HLS player's
+// ready signal (~1.5 s). Under WebRTC the HLS player is unmounted once WebRTC plays again,
+// so that signal never comes: clear the overlay after this grace instead of waiting forever.
+const QUALITY_READY_FALLBACK_MS = 3000;
 
 // Last-known stream quality per host+device, kept alive across modal open/close
 // for the page session. Seeds the toggle's initial state so reopening the modal
@@ -53,6 +58,7 @@ export const useRecQualitySwitch = (
   const isQualitySwitchingRef = useRef<boolean>(false);
   const pollingIntervalRef = useRef<(() => void) | NodeJS.Timeout | null>(null);
   const qualitySwitchRetryCountRef = useRef<number>(0);
+  const readyFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hasUserSwitchedRef = useRef<boolean>(false);
 
   // On open, sync the toggle to the stream's actual quality (shared per-device
@@ -62,8 +68,10 @@ export const useRecQualitySwitch = (
     let cancelled = false;
     (async () => {
       try {
+        // The host's OWNING server: with "All servers" the selected server may not know it.
         const response = await fetch(
-          buildServerUrl(
+          buildHostServerUrl(
+            { server_url: host.server_url },
             `/server/system/getStreamQuality?host_name=${encodeURIComponent(
               host.host_name
             )}&device_id=${encodeURIComponent(deviceId)}`
@@ -85,14 +93,22 @@ export const useRecQualitySwitch = (
     return () => {
       cancelled = true;
     };
-  }, [host.host_name, deviceId]);
+  }, [host.host_name, host.server_url, deviceId]);
 
   const setIsQualitySwitchingState = useCallback((value: boolean) => {
     isQualitySwitchingRef.current = value;
     setIsQualitySwitching(value);
   }, []);
 
+  const clearReadyFallback = useCallback(() => {
+    if (readyFallbackRef.current) {
+      clearTimeout(readyFallbackRef.current);
+      readyFallbackRef.current = null;
+    }
+  }, []);
+
   const stopPolling = useCallback(() => {
+    clearReadyFallback();
     if (pollingIntervalRef.current) {
       if (typeof pollingIntervalRef.current === 'function') {
         pollingIntervalRef.current();
@@ -101,7 +117,7 @@ export const useRecQualitySwitch = (
       }
       pollingIntervalRef.current = null;
     }
-  }, []);
+  }, [clearReadyFallback]);
 
   const pollForNewStream = useCallback(
     (targetQuality: QualityLevel, baselineSequence: number) => {
@@ -112,6 +128,8 @@ export const useRecQualitySwitch = (
           qualitySwitchRetryCountRef.current = 0;
           setShouldPausePlayer(false);
           pollingIntervalRef.current = null;
+          clearReadyFallback();
+          readyFallbackRef.current = setTimeout(() => setIsQualitySwitchingState(false), QUALITY_READY_FALLBACK_MS);
         },
         (_error: string) => {
           if (qualitySwitchRetryCountRef.current === 0) {
@@ -120,7 +138,7 @@ export const useRecQualitySwitch = (
             setTimeout(async () => {
               try {
                 const retryBaseline = await getStreamMediaSequence(host, deviceId);
-                const response = await fetch(buildServerUrl('/server/system/setStreamQuality'), {
+                const response = await fetch(buildHostServerUrl(host, '/server/system/setStreamQuality'), {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({
@@ -158,7 +176,7 @@ export const useRecQualitySwitch = (
       );
       pollingIntervalRef.current = cleanup as (() => void) | NodeJS.Timeout;
     },
-    [host, deviceId, showError, setIsQualitySwitchingState]
+    [host, deviceId, showError, setIsQualitySwitchingState, clearReadyFallback]
   );
 
   const switchQuality = useCallback(
@@ -185,7 +203,7 @@ export const useRecQualitySwitch = (
         // never resetting to a low sequence — see pollForFreshStream).
         const baselineSequence = await getStreamMediaSequence(host, deviceId);
 
-        const response = await fetch(buildServerUrl('/server/system/setStreamQuality'), {
+        const response = await fetch(buildHostServerUrl(host, '/server/system/setStreamQuality'), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -223,9 +241,10 @@ export const useRecQualitySwitch = (
 
   const handlePlayerReady = useCallback(() => {
     if (isQualitySwitchingRef.current) {
+      clearReadyFallback();
       setIsQualitySwitchingState(false);
     }
-  }, [setIsQualitySwitchingState]);
+  }, [setIsQualitySwitchingState, clearReadyFallback]);
 
   const resetOnClose = useCallback(() => {
     stopPolling();

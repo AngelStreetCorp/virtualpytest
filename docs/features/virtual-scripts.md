@@ -1,64 +1,79 @@
-# ⚡ Virtual Scripts
+# Virtual Scripts
 
-**Write a test in your browser. Run it immediately. No deployment.**
+**Write a test in your browser and run it straight away. Nothing to deploy.**
 
-Virtual Scripts let anyone author and edit test scripts straight from the web interface and run them right away on a real device — skipping the usual edit → commit → deploy → restart cycle entirely.
-
----
-
-## The Problem
-
-Changing a normal test script means going through a full deployment:
-- ❌ Edit the file, commit it, push it, wait for it to roll out to every test machine
-- ❌ Minutes of turnaround just to try one small idea
-- ❌ Requires developer tooling (git, command line) that not every QA tester wants to touch
-- ❌ Testing a quick "what if" means going through the same pipeline as a real release
+Anyone can write a test in the web app and run it on a real device right away. No commit, deployment or restart.
 
 ---
 
-## The VirtualPyTest Solution
+## Why it exists
 
-✅ **Edit in the browser** — a full code editor, no local setup or git required
-✅ **Run instantly** — hit Run and it executes on any connected device right away, no deployment step
-✅ **Safe promotion path** — move a script through Dev → Test → Production stages, so experiments never put what's live at risk
-✅ **Automatic version history** — every saved change is recorded; roll back to any earlier version whenever you need to
-✅ **Shared building blocks** — common helper code can be reused across scripts instead of copy-pasted into each one
-✅ **Behaves exactly like a normal test** — same reports, logs, run history, and scheduling; nothing extra to learn
+A normal test script needs a full release before a change can run.
 
----
+<div data-technical>
 
-## How It Works, In Plain Terms
+- You edit the file, commit it, push it, and wait for it to reach every test machine.
+- A small idea can take minutes to try.
+- You need developer tools, such as git and a command line, which many testers do not want to touch.
+- A quick "what if" goes through the same process as a real release.
 
-1. **Write it.** Open the Virtual Scripts editor and write your test like any other — same tools, same building blocks.
-2. **Run it.** Pick a device and hit Run. The script executes immediately — there's no separate deployment step to wait on.
-3. **Promote it, when ready.** Keep experimenting freely in your personal Dev copy. Once it's solid, promote it to Test, and later to Production — each stage is a deliberate, separate step.
-4. **Roll back if needed.** Every save is kept in history, so a bad edit is never permanent — restore any previous version in a click.
+</div>
 
 ---
 
-## How It Helps
+## What you get
 
-- Try a test idea in seconds instead of waiting on a release cycle
-- Let QA testers author and iterate on scripts without needing developer tooling
-- Keep experimentation in Dev completely separate from what's actually scheduled in Production
-- Turn an existing script into an instantly-editable Virtual Script (and back) without losing anything
+- **Editing in the browser.** A full code editor. No local setup and no git.
+- **Instant runs.** Press Run, and the script runs on any connected device.
+- **A safe way to promote.** A script moves through Dev, Test and Production. Experiments never put the live version at risk.
+- **Version history.** Every save is kept. You can go back to any earlier version.
+
+<div data-technical>
+
+- **Shared building blocks.** Common helper code can be reused across scripts, instead of copied into each one.
+- **Works like any other test.** Same reports, logs, run history and scheduling. Nothing new to learn.
+
+</div>
 
 ---
 
-## Where to Find It
+## How it works
 
-- **Build → Virtual Scripts** in the navigation menu
-- Runs alongside regular scripts everywhere else in the product — **Run Tests**, **Scheduling**, and **Campaigns** all treat a Virtual Script exactly like any other test
+1. **Write it.** Write your test in the Virtual Scripts editor.
+2. **Run it.** Pick a device and press Run.
+3. **Promote it.** Experiment in your Dev copy. Promote it to Test, then Production, when it is solid.
+4. **Roll back if needed.** Every save is kept. Restore an earlier version in one click.
+
+---
+
+## What it is good for
+
+- Try a test idea in seconds, not in a release cycle.
+- Let QA testers write and change scripts without developer tools.
+
+<div data-technical>
+
+- Keep Dev experiments apart from what runs on a schedule in Production.
+- Turn an existing script into an editable Virtual Script, and back again, without losing anything.
+
+</div>
+
+---
+
+## Where to find it
+
+- **Build → Virtual Scripts** in the navigation menu.
+- Elsewhere, a Virtual Script works like any regular script. **Run Tests**, **Scheduling** and **Campaigns** treat it the same way.
 
 ---
 
 ## Next Steps
 
-- 🧪 [Test Automation](./test-automation.md) - The test-building concepts Virtual Scripts share
-- 📊 [Real-time Analytics](./analytics.md) - See run results and history
-- 🔁 [CI/CD](./cicd.md) - Automate scheduled runs
+- [Test Automation](./test-automation.md): the test-building ideas Virtual Scripts share
+- [Real-time Analytics](./analytics.md): see run results and history
+- [CI/CD](./cicd.md): automate scheduled runs
 
 ---
 
-**Ready to write your first Virtual Script?**
-➡️ [Get Started](../get-started/README.md)
+**Ready to write your first script?**
+[Get Started](../get-started/README.md)

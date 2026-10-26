@@ -1,0 +1,591 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "description": "Image telemetry from the img monitor (TASK-157): frames, JPEG throughput, frame age, drops per device; monitor and ffmpeg CPU/RSS and load per core per host. Buckets of 60 s, kept 7 days. Needs IMG_TELEMETRY=true on the host.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "id": 1,
+      "title": "Frames arrived per second (monitor view)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "spanNulls": false,
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "drawStyle": "line"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT bucket_start AS time, host_name || ' / ' || device_id AS metric, AVG(arrived_fps::float) AS value FROM (SELECT * FROM image_telemetry_buckets /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR (device_id = '_host' AND host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k))))) image_telemetry_buckets WHERE $__timeFilter(bucket_start) AND host_name IN (${host:sqlstring}) AND device_id <> '_host' AND arrived_fps IS NOT NULL GROUP BY 1,2 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "description": "Frames the img monitor saw per second, counted before its drain. This is the capture rate seen by the monitor, not the stream FPS."
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "id": 2,
+      "title": "Image throughput (JPEG on disk)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bps",
+          "custom": {
+            "spanNulls": false,
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "drawStyle": "line"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT bucket_start AS time, host_name || ' / ' || device_id AS metric, AVG(estimated_image_throughput_bps::float) AS value FROM (SELECT * FROM image_telemetry_buckets /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR (device_id = '_host' AND host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k))))) image_telemetry_buckets WHERE $__timeFilter(bucket_start) AND host_name IN (${host:sqlstring}) AND device_id <> '_host' AND estimated_image_throughput_bps IS NOT NULL GROUP BY 1,2 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "description": "Estimated image throughput: sum of JPEG bytes x 8 / window. Not the ffmpeg stream bitrate and not network."
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "id": 3,
+      "title": "Frame age p95 when analysed",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ms",
+          "custom": {
+            "spanNulls": false,
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "drawStyle": "line"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT bucket_start AS time, host_name || ' / ' || device_id AS metric, AVG(frame_age_p95_ms::float) AS value FROM (SELECT * FROM image_telemetry_buckets /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR (device_id = '_host' AND host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k))))) image_telemetry_buckets WHERE $__timeFilter(bucket_start) AND host_name IN (${host:sqlstring}) AND device_id <> '_host' AND frame_age_p95_ms IS NOT NULL GROUP BY 1,2 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "description": "How old a frame is when the monitor starts on it (upper bound of the p95 histogram bucket). Rising = the monitor is behind."
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "id": 4,
+      "title": "Frames dropped (drained or skipped)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "spanNulls": false,
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "drawStyle": "line"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT bucket_start AS time, host_name || ' / ' || device_id AS metric, SUM(frames_dropped::float) AS value FROM (SELECT * FROM image_telemetry_buckets /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR (device_id = '_host' AND host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k))))) image_telemetry_buckets WHERE $__timeFilter(bucket_start) AND host_name IN (${host:sqlstring}) AND device_id <> '_host' AND frames_dropped IS NOT NULL GROUP BY 1,2 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "description": "Frames the monitor discarded to stay on the newest one. A few per window is normal under load; a steady stream means the monitor is saturated."
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "id": 5,
+      "title": "Monitor CPU / ffmpeg CPU (% of one core)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 15
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "custom": {
+            "spanNulls": false,
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "drawStyle": "line"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT bucket_start AS time, host_name || ' monitor' AS metric, cpu_pct_monitor::float AS value FROM (SELECT * FROM image_telemetry_buckets /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR (device_id = '_host' AND host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k))))) image_telemetry_buckets WHERE $__timeFilter(bucket_start) AND host_name IN (${host:sqlstring}) AND device_id = '_host' AND cpu_pct_monitor IS NOT NULL UNION ALL SELECT bucket_start, host_name || ' ffmpeg', cpu_pct_ffmpeg::float FROM (SELECT * FROM image_telemetry_buckets /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR (device_id = '_host' AND host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k))))) image_telemetry_buckets WHERE $__timeFilter(bucket_start) AND host_name IN (${host:sqlstring}) AND device_id = '_host' AND cpu_pct_ffmpeg IS NOT NULL ORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "id": 6,
+      "title": "Monitor / ffmpeg RSS",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 15
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "spanNulls": false,
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "drawStyle": "line"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT bucket_start AS time, host_name || ' monitor' AS metric, rss_monitor_bytes::float AS value FROM (SELECT * FROM image_telemetry_buckets /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR (device_id = '_host' AND host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k))))) image_telemetry_buckets WHERE $__timeFilter(bucket_start) AND host_name IN (${host:sqlstring}) AND device_id = '_host' AND rss_monitor_bytes IS NOT NULL UNION ALL SELECT bucket_start, host_name || ' ffmpeg', rss_ffmpeg_bytes::float FROM (SELECT * FROM image_telemetry_buckets /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR (device_id = '_host' AND host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k))))) image_telemetry_buckets WHERE $__timeFilter(bucket_start) AND host_name IN (${host:sqlstring}) AND device_id = '_host' AND rss_ffmpeg_bytes IS NOT NULL ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "description": "A monitor RSS that only climbs over days is a leak (BUG-0095, BUG-0474 shape)."
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "id": 7,
+      "title": "Load per core (1 min)",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "spanNulls": false,
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "drawStyle": "line"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT bucket_start AS time, host_name AS metric, load_per_core::float AS value FROM (SELECT * FROM image_telemetry_buckets /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR (device_id = '_host' AND host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k))))) image_telemetry_buckets WHERE $__timeFilter(bucket_start) AND host_name IN (${host:sqlstring}) AND device_id = '_host' AND load_per_core IS NOT NULL ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "description": "1-minute load average divided by logical CPU count. About 1 = full. Empty on Windows."
+    },
+    {
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "id": 8,
+      "title": "Queue depth max and DB samples dropped",
+      "type": "timeseries",
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 22
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "spanNulls": false,
+            "lineWidth": 1,
+            "fillOpacity": 0,
+            "showPoints": "auto",
+            "drawStyle": "line"
+          },
+          "min": 0
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "editorMode": "code",
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT bucket_start AS time, host_name || ' / ' || device_id || ' queue' AS metric, queue_depth_max::float AS value FROM (SELECT * FROM image_telemetry_buckets /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR (device_id = '_host' AND host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k))))) image_telemetry_buckets WHERE $__timeFilter(bucket_start) AND host_name IN (${host:sqlstring}) AND device_id <> '_host' UNION ALL SELECT bucket_start, host_name || ' telemetry rows dropped', samples_dropped::float FROM (SELECT * FROM image_telemetry_buckets /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR (device_id = '_host' AND host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k))))) image_telemetry_buckets WHERE $__timeFilter(bucket_start) AND host_name IN (${host:sqlstring}) AND device_id = '_host' ORDER BY 1",
+          "refId": "A"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Details",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 29
+      },
+      "id": 101,
+      "collapsed": true,
+      "panels": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "id": 9,
+          "title": "Latest per device",
+          "type": "table",
+          "gridPos": {
+            "h": 8,
+            "w": 24,
+            "x": 0,
+            "y": 30
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {},
+              "min": 0
+            },
+            "overrides": []
+          },
+          "options": {},
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT DISTINCT ON (host_name, device_id) host_name AS \"Host\", device_id AS \"Device\", bucket_start AS \"Bucket\", arrived_fps AS \"fps in\", ROUND(estimated_image_throughput_bps/1000.0) AS \"kbps (JPEG)\", frame_age_p95_ms AS \"age p95 ms\", frames_dropped AS \"dropped\", image_bytes AS \"bytes\" FROM (SELECT * FROM image_telemetry_buckets /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR (device_id = '_host' AND host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k))))) image_telemetry_buckets WHERE $__timeFilter(bucket_start) AND host_name IN (${host:sqlstring}) AND device_id <> '_host' ORDER BY host_name, device_id, bucket_start DESC",
+              "refId": "A"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "preload": false,
+  "refresh": "1m",
+  "schemaVersion": 41,
+  "tags": [
+    "hosts",
+    "monitoring",
+    "image"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "None",
+          "value": "none"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "includeAll": false,
+        "label": "Workspace",
+        "multi": false,
+        "name": "workspace",
+        "query": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Allowed devices",
+        "multi": false,
+        "name": "allowed_devices",
+        "query": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT DISTINCT host_name FROM (SELECT * FROM image_telemetry_buckets /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR (device_id = '_host' AND host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k))))) image_telemetry_buckets WHERE $__timeFilter(bucket_start) ORDER BY host_name",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Host",
+        "multi": true,
+        "name": "host",
+        "options": [],
+        "query": "SELECT DISTINCT host_name FROM (SELECT * FROM image_telemetry_buckets /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR (device_id = '_host' AND host_name = ANY(ARRAY(SELECT split_part(k, ':', 1) FROM unnest(string_to_array(${allowed_devices:sqlstring}, '|')) AS k))))) image_telemetry_buckets WHERE $__timeFilter(bucket_start) ORDER BY host_name",
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "browser",
+  "title": "Image Telemetry",
+  "uid": "vpt-image-telemetry"
+}

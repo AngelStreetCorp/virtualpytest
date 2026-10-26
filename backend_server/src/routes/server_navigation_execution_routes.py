@@ -227,6 +227,33 @@ def get_navigation_execution_status(execution_id):
     
     return jsonify(response_data), status_code
     
+@server_navigation_execution_bp.route('/execution/<execution_id>/cancel', methods=['POST'])
+@handle_route_exceptions('navigation_execution:cancel_navigation_execution')
+def cancel_navigation_execution(execution_id):
+    """Stop a running async navigation before its next edge (TASK-140 G7).
+
+    Query parameters: device_id, host_name (required), team_id.
+    """
+    device_id = request.args.get('device_id')
+    host_name = request.args.get('host_name')
+    if not host_name:
+        return jsonify({'success': False, 'error': 'host_name query parameter is required'}), 400
+
+    query_params = {}
+    if device_id:
+        query_params['device_id'] = device_id
+    if request.args.get('team_id'):
+        query_params['team_id'] = request.args.get('team_id')
+
+    response_data, status_code = proxy_to_host_with_params(
+        f'/host/navigation/execution/{execution_id}/cancel',
+        'POST',
+        {},
+        query_params,
+        timeout=5
+    )
+    return jsonify(response_data), status_code
+
 @server_navigation_execution_bp.route('/preview/<tree_id>/<node_id>', methods=['GET'])
 @handle_route_exceptions('navigation_execution:get_navigation_preview_with_executor')
 def get_navigation_preview_with_executor(tree_id, node_id):

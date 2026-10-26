@@ -46,6 +46,12 @@ except ImportError as exc:  # pragma: no cover - environment dependent
 pytestmark = pytest.mark.unit
 
 
+@pytest.fixture(autouse=True)
+def _no_quick_step(monkeypatch):
+    # These tests script the model's calls of the main tool loop; the quick step (TASK-140) would use one.
+    monkeypatch.setenv("ATLAS_QUICK_STEP", "off")
+
+
 # --------------------------------------------------------------------------
 # Fake Anthropic-protocol objects
 # --------------------------------------------------------------------------
@@ -334,6 +340,58 @@ def test_require_tool_use_rejects_toolless_answer(make_manager):
         and "without consulting any tool" in m["content"]
         for m in second_request
     )
+
+
+# --------------------------------------------------------------------------
+# 5. Answer budget (BUG-0752): a docs question ran 220 s and ~40 tool calls
+# --------------------------------------------------------------------------
+
+def test_tool_call_budget_forces_a_final_answer(make_manager):
+    calls = [Resp([tool_b("search_docs", {"query": f"q{i}"}, bid=f"tu_{i}")], stop="tool_use") for i in range(12)]
+    manager, stub, session = make_manager(calls + [Resp([text_b("Here is what I found.")])])
+    assert manager.load_skill("search-docs")
+    assert manager._active_skill.max_tool_calls == 12
+
+    events = run_chat(manager, session, NEUTRAL_MSG)
+
+    assert not errors(events), f"unexpected errors: {[e.content for e in errors(events)]}"
+    assert len(stub.messages.requests) == 13
+    final = stub.messages.requests[-1]
+    assert final["tool_choice"] == {"type": "none"}
+    last_user = [m for m in final["messages"] if m["role"] == "user"][-1]["content"]
+    assert any(isinstance(b, dict) and b.get("type") == "text" and "Budget reached" in b["text"] for b in last_user)
+    assert [e.content for e in events if e.type == EventType.MESSAGE][-1] == "Here is what I found."
+    assert "ANSWER BUDGET: at most 12 tool calls" in stub.messages.requests[0]["system"][0]["text"]
+
+
+def test_tool_use_past_the_budget_is_never_run(make_manager):
+    calls = [Resp([tool_b("search_docs", {"query": f"q{i}"}, bid=f"tu_{i}")], stop="tool_use") for i in range(13)]
+    manager, stub, session = make_manager(calls)
+    ran = []
+    manager.tool_bridge.execute = lambda name, inp, **kw: ran.append(name) or {"content": [{"type": "text", "text": "ok"}]}
+    assert manager.load_skill("search-docs")
+
+    events = run_chat(manager, session, NEUTRAL_MSG)
+
+    assert len(ran) == 12, "the 13th call (in the final round) must not run"
+    final = [e.content for e in events if e.type == EventType.MESSAGE][-1]
+    assert "answer budget" in final
+
+
+def test_think_budget_forces_a_final_answer(make_manager, monkeypatch):
+    manager, stub, session = make_manager([
+        Resp([tool_b("read_doc", {"path": "INDEX.md"}, bid="tu_a")], stop="tool_use"),
+        Resp([text_b("Answer from INDEX.md.")]),
+    ])
+    assert manager.load_skill("search-docs")
+    clock = iter(range(0, 10_000, 30))  # every time.time() call moves 30 s: the first model call already spends > 20 s
+    monkeypatch.setattr("agent.core.manager.time.time", lambda: next(clock))
+
+    events = run_chat(manager, session, NEUTRAL_MSG)
+
+    assert len(stub.messages.requests) == 2
+    assert stub.messages.requests[1]["tool_choice"] == {"type": "none"}
+    assert [e.content for e in events if e.type == EventType.MESSAGE][-1] == "Answer from INDEX.md."
 
 
 def test_router_offers_analytics_core_tools_for_analytics_questions(make_manager):

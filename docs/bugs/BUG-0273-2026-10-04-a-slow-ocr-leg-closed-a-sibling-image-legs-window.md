@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — a hop failed on a screen that showed its target     |
 | Area      | `backend_host/src/services/verifications/verification_executor.py` (`_execute_shared_window`) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `this commit`                                                |
 
 ---

@@ -2,6 +2,7 @@ import { render, screen } from '@testing-library/react';
 import React from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { BrowserRouter } from 'react-router-dom';
+import { CustomThemeProvider } from '../../frontend/src/contexts/ThemeContext';
 
 import Documentation from '../../frontend/src/pages/Documentation';
 
@@ -28,10 +29,17 @@ describe('Documentation page', () => {
   });
 
   it('renders an error state when documentation cannot be loaded', async () => {
+    // Documentation.tsx imports `useTypography` from the project's contexts/ThemeContext,
+    // which calls the local `useTheme()` and throws "useTheme must be used within a
+    // ThemeProvider" without the project's own CustomThemeProvider. Mount it the same
+    // way the real App does, instead of mocking the hook — that keeps the error-state
+    // branch the test is asserting intact.
     render(
-      <BrowserRouter>
-        <Documentation />
-      </BrowserRouter>,
+      <CustomThemeProvider>
+        <BrowserRouter>
+          <Documentation />
+        </BrowserRouter>
+      </CustomThemeProvider>,
     );
 
     expect(

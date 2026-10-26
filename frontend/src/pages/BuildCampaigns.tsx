@@ -30,15 +30,17 @@ import {
 } from '../utils/executionListCache';
 import { getCampaignBadge } from '../config/constants';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { dangerButtonSx } from '../components/common/PageChrome';
+import { TYPOGRAPHY } from '../constants/typography';
 
 /** "1 · Details" — numbered step label for the campaign form, with an optional hint. */
 const SectionLabel: React.FC<{ n: number; label: string; hint?: string; P: ReturnType<typeof useAgentChatPalette> }> = ({ n, label, hint, P }) => (
   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: n > 1 ? 0.75 : 0 }}>
-    <Box sx={{ width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.7rem', fontWeight: 700, color: P.accentText, bgcolor: `${P.accent}26` }}>
+    <Box sx={{ width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: TYPOGRAPHY.caption.size, fontWeight: 700, color: P.accentText, bgcolor: `${P.accent}26` }}>
       {n}
     </Box>
-    <Typography sx={{ fontSize: '0.85rem', fontWeight: 600 }}>{label}</Typography>
-    {hint && <Typography sx={{ fontSize: '0.75rem', color: P.textMuted }}>{hint}</Typography>}
+    <Typography sx={{ fontSize: TYPOGRAPHY.body.size, fontWeight: 600 }}>{label}</Typography>
+    {hint && <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted }}>{hint}</Typography>}
   </Box>
 );
 
@@ -395,11 +397,31 @@ const BuildCampaigns: React.FC = () => {
         script_configurations: normalizedScriptConfigurations,
       };
 
+      // TASK-65 G10: pass `X-Project-Id` so the server auto-tags the new
+      // (or updated) campaign with the current project's tag (mirrors G5's
+      // `current_project_from_id` path). The header is read from the same
+      // localStorage slot AgentChat and the executable list already use —
+      // a project not picked means no header, no auto-tag (legacy behaviour).
+      const headers: Record<string, string> = {};
+      if (typeof window !== 'undefined') {
+        const projectId = window.localStorage.getItem('virtualpytest:project_id');
+        if (projectId && projectId !== 'all') {
+          headers['X-Project-Id'] = projectId;
+        }
+      }
       let response: any;
       if (editingCampaignId) {
-        response = await api.put<any>(buildServerUrl(`/server/campaigns/updateCampaign/${editingCampaignId}`), payload);
+        response = await api.put<any>(
+          buildServerUrl(`/server/campaigns/updateCampaign/${editingCampaignId}`),
+          payload,
+          { headers },
+        );
       } else {
-        response = await api.post<any>(buildServerUrl('/server/campaigns/createCampaign'), payload);
+        response = await api.post<any>(
+          buildServerUrl('/server/campaigns/createCampaign'),
+          payload,
+          { headers },
+        );
       }
 
       if (!response?.success || !response?.campaign) {
@@ -424,10 +446,10 @@ const BuildCampaigns: React.FC = () => {
     <Box sx={{ p: isMobile ? 0.25 : isTablet ? 0.75 : 1 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: isCompact ? 'flex-start' : 'center', mb: 2, gap: 1, flexDirection: isCompact ? 'column' : 'row' }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Typography component="h1" sx={{ fontSize: '1.5rem', fontWeight: 600 }}>Build Campaign</Typography>
+          <Typography component="h1" sx={{ fontSize: TYPOGRAPHY.pageTitle.size, fontWeight: 600 }}>Build Campaign</Typography>
           {editingCampaignId ? (
-            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25, borderRadius: 999, fontSize: '0.75rem', fontWeight: 600, color: P.accentText, bgcolor: `${P.accent}26`, border: `1px solid ${P.accent}66` }}>
-              <EditIcon sx={{ fontSize: 14 }} /> Editing {campaignConfig.name || ''}
+            <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, px: 1, py: 0.25, borderRadius: 999, fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, color: P.accentText, bgcolor: `${P.accent}26`, border: `1px solid ${P.accent}66` }}>
+              <EditIcon sx={{ fontSize: TYPOGRAPHY.body.size }} /> Editing {campaignConfig.name || ''}
             </Box>
           ) : null}
         </Box>
@@ -439,11 +461,10 @@ const BuildCampaigns: React.FC = () => {
             <Button
               size="small"
               variant="outlined"
-              color="error"
               startIcon={<DeleteIcon />}
               onClick={handleDeleteCampaign}
               disabled={deletingCampaign}
-              sx={{ textTransform: 'none' }}
+              sx={{ ...(dangerButtonSx(P) as object),  textTransform: 'none' }}
             >
               {deletingCampaign ? 'Deleting...' : 'Delete'}
             </Button>
@@ -601,9 +622,9 @@ const BuildCampaigns: React.FC = () => {
           <Card>
             <CardContent>
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1, gap: 1, flexDirection: isCompact ? 'column' : 'row' }}>
-                <Typography sx={{ fontSize: '1rem', fontWeight: 600 }}>
+                <Typography sx={{ fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600 }}>
                   Existing campaigns
-                  <Box component="span" sx={{ ml: 1, fontSize: '0.72rem', fontWeight: 600, px: 1, py: 0.25, borderRadius: 999, color: P.textSecondary, bgcolor: P.hoverBg }}>
+                  <Box component="span" sx={{ ml: 1, fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, px: 1, py: 0.25, borderRadius: 999, color: P.textSecondary, bgcolor: P.hoverBg }}>
                     {filteredExistingCampaigns.length}
                   </Box>
                 </Typography>
@@ -644,13 +665,13 @@ const BuildCampaigns: React.FC = () => {
                             size="small"
                             label={badge.label}
                             color={badge.color}
-                            sx={{ height: '16px', fontSize: '0.6rem', minWidth: '24px' }}
+                            sx={{ height: '16px', fontSize: TYPOGRAPHY.microMeta.size, minWidth: '24px' }}
                           />
                           <Typography
                             variant="body2"
                             sx={{
                               fontWeight: 600,
-                              fontSize: '0.82rem',
+                              fontSize: TYPOGRAPHY.body.size,
                               flex: 1,
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
@@ -680,7 +701,7 @@ const BuildCampaigns: React.FC = () => {
                               onClick={() => loadCampaignForEditing(item)}
                               disabled={loadingCampaign === item.id}
                               sx={{
-                                py: 0, px: 1, minWidth: 52, fontSize: '0.72rem', flexShrink: 0, textTransform: 'none',
+                                py: 0, px: 1, minWidth: 52, fontSize: TYPOGRAPHY.caption.size, flexShrink: 0, textTransform: 'none',
                                 borderColor: P.accent, color: editingCampaignId === item.id ? '#1a1a1a' : P.accentText,
                                 bgcolor: editingCampaignId === item.id ? P.accent : 'transparent',
                                 '&:hover': { borderColor: P.accent, bgcolor: editingCampaignId === item.id ? P.accentHover : `${P.accent}1a` },

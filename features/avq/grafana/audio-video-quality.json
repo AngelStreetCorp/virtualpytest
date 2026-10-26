@@ -14,7 +14,7 @@
       }
     ]
   },
-  "description": "Audio/Video Quality (AVQ) \u2014 per-device KPIs from quality_metrics. Filter by host/device.",
+  "description": "Audio/Video Quality (AVQ) — per-device KPIs from quality_metrics. Filter by host/device.",
   "editable": true,
   "graphTooltip": 1,
   "links": [],
@@ -322,7 +322,7 @@
       "datasource": {
         "uid": "supabase-postgres"
       },
-      "title": "Video MOS \u2014 per device",
+      "title": "Video MOS — per device",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
@@ -368,7 +368,7 @@
       "datasource": {
         "uid": "supabase-postgres"
       },
-      "title": "Audio MOS \u2014 per device",
+      "title": "Audio MOS — per device",
       "type": "timeseries",
       "gridPos": {
         "x": 12,
@@ -414,7 +414,7 @@
       "datasource": {
         "uid": "supabase-postgres"
       },
-      "title": "Video \u2014 Bluriness / Blockiness / Jerkiness",
+      "title": "Video — Bluriness / Blockiness / Jerkiness",
       "type": "timeseries",
       "gridPos": {
         "x": 0,
@@ -493,7 +493,7 @@
       "datasource": {
         "uid": "supabase-postgres"
       },
-      "title": "Audio \u2014 Audio Level / Loudness / Saturation / Silence",
+      "title": "Audio — Audio Level / Loudness / Saturation / Silence",
       "type": "timeseries",
       "gridPos": {
         "x": 12,

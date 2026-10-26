@@ -39,6 +39,34 @@ OUTPUT_SNYK_SHARED_JSON = DOCS_SECURITY / "snyk-shared-report.json"
 # here so the committed dashboard reflects the same triage decisions.
 SNYK_POLICY = Path(".snyk")
 
+# Report type scale, in px, one entry per rendered role. This report is a dense list of
+# one-line findings read at a glance while triaging, and it renders inside an iframe next
+# to the app chrome, so the px steps are deliberately finer than the app's rem scale.
+# Every value moved up two steps from the original (the 9/10/11/12 ladder); keeping them
+# in one table means the ladder stays even instead of one role drifting out of line.
+# The prose roles (body/issue/section title) carry the reading, so they take the full
+# step; the mono location column widens with it so a longer path is not truncated
+# earlier than before.
+REPORT_FONT = {
+    'body': 14,
+    'h1': 16,
+    'timestamp': 12,
+    'metricValue': 30,
+    'metricLabel': 11,
+    'summaryInfo': 12,
+    'filterBtn': 12,
+    'sectionArrow': 12,
+    'sectionTitle': 13,
+    'sectionCounts': 13,
+    'jsonLink': 12,
+    'issue': 13,
+    'issueLoc': 12,
+    'issueFix': 12,
+}
+# .issue-loc keeps the characters-per-line it had at the old size (200px at 10px mono),
+# scaled with the font so a path is not cut off sooner than before.
+REPORT_LOC_MIN_WIDTH = 240
+
 
 def load_snyk_ignores():
     """Return [(rule_id, path_glob)] from the `ignore:` block of .snyk (repo-root relative)."""
@@ -376,7 +404,7 @@ def generate_html_report():
             background: var(--vpt-page);
             color: var(--vpt-text);
             padding: 12px;
-            font-size: 12px;
+            font-size: {REPORT_FONT['body']}px;
         }}
         .header {{
             display: flex;
@@ -384,8 +412,8 @@ def generate_html_report():
             align-items: center;
             margin-bottom: 10px;
         }}
-        .header h1 {{ font-size: 14px; color: var(--vpt-text); }}
-        .timestamp {{ font-size: 10px; color: var(--vpt-muted); }}
+        .header h1 {{ font-size: {REPORT_FONT['h1']}px; color: var(--vpt-text); }}
+        .timestamp {{ font-size: {REPORT_FONT['timestamp']}px; color: var(--vpt-muted); }}
         
         /* Summary Card */
         .summary {{
@@ -403,9 +431,9 @@ def generate_html_report():
             gap: 24px;
         }}
         .metric {{ text-align: center; }}
-        .metric-value {{ font-size: 28px; font-weight: 700; line-height: 1; }}
-        .metric-label {{ font-size: 9px; color: var(--vpt-muted); text-transform: uppercase; margin-top: 2px; }}
-        .summary-info {{ font-size: 10px; color: var(--vpt-muted); }}
+        .metric-value {{ font-size: {REPORT_FONT['metricValue']}px; font-weight: 700; line-height: 1; }}
+        .metric-label {{ font-size: {REPORT_FONT['metricLabel']}px; color: var(--vpt-muted); text-transform: uppercase; margin-top: 2px; }}
+        .summary-info {{ font-size: {REPORT_FONT['summaryInfo']}px; color: var(--vpt-muted); }}
         
         .high {{ color: var(--vpt-error); }}
         .medium {{ color: var(--vpt-warning); }}
@@ -423,7 +451,7 @@ def generate_html_report():
             border-radius: 4px;
             background: transparent;
             color: var(--vpt-text-2);
-            font-size: 10px;
+            font-size: {REPORT_FONT['filterBtn']}px;
             cursor: pointer;
             transition: all 0.2s;
         }}
@@ -456,13 +484,13 @@ def generate_html_report():
             gap: 8px;
         }}
         .section-arrow {{
-            font-size: 10px;
+            font-size: {REPORT_FONT['sectionArrow']}px;
             color: var(--vpt-muted);
             transition: transform 0.2s;
         }}
         .section.expanded .section-arrow {{ transform: rotate(90deg); }}
         .section-title {{
-            font-size: 11px;
+            font-size: {REPORT_FONT['sectionTitle']}px;
             font-weight: 600;
             color: var(--vpt-text-2);
             text-transform: uppercase;
@@ -470,12 +498,12 @@ def generate_html_report():
         .section-counts {{
             display: flex;
             gap: 8px;
-            font-size: 11px;
+            font-size: {REPORT_FONT['sectionCounts']}px;
         }}
         .section-counts span {{ opacity: 0.8; }}
         .section-counts .ignored {{ color: var(--vpt-text-2); font-weight: 400; margin-left: 4px; }}
         .json-link {{
-            font-size: 10px;
+            font-size: {REPORT_FONT['jsonLink']}px;
             color: var(--vpt-accent-text);
             text-decoration: none;
             padding: 2px 6px;
@@ -497,7 +525,7 @@ def generate_html_report():
             gap: 10px;
             padding: 6px 12px;
             border-left: 3px solid var(--vpt-border);
-            font-size: 11px;
+            font-size: {REPORT_FONT['issue']}px;
         }}
         .issue:nth-child(odd) {{ background: var(--vpt-subtle); }}
         .issue.high {{ border-left-color: var(--vpt-error); }}
@@ -512,8 +540,8 @@ def generate_html_report():
         .issue-loc {{
             color: var(--vpt-muted);
             font-family: monospace;
-            font-size: 10px;
-            min-width: 200px;
+            font-size: {REPORT_FONT['issueLoc']}px;
+            min-width: {REPORT_LOC_MIN_WIDTH}px;
         }}
         .issue-text {{
             color: var(--vpt-text-2);
@@ -524,7 +552,7 @@ def generate_html_report():
         }}
         .issue-fix {{
             color: var(--vpt-success);
-            font-size: 10px;
+            font-size: {REPORT_FONT['issueFix']}px;
         }}
         .no-issues {{
             padding: 12px;

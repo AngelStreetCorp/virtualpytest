@@ -81,7 +81,7 @@ def parse_llm_move(text: str, legal: List[str]) -> tuple:
     return (move if move in legal else None), reasoning
 
 
-def make_llm_decider(team_id: Optional[str]) -> Decider:
+def make_llm_decider(team_id: Optional[str], ai_usage=None) -> Decider:
     """Per-move decision through the AI gateway (blocking call)."""
     from shared.src.lib.ai import gateway
 
@@ -99,6 +99,8 @@ def make_llm_decider(team_id: Optional[str]) -> Decider:
             LLM_USAGE, build_llm_prompt(rows, score, legal),
             system=LLM_SYSTEM, max_tokens=LLM_MAX_TOKENS, temperature=0.0, team_id=team_id,
         )
+        if ai_usage is not None:
+            ai_usage.record(f"move {ai_usage.totals()['calls'] + 1}", result, int((time.time() - started) * 1000))
         usage = result.get("usage") or {}
         call = {
             "llm_called": True,

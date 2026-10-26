@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low — the choice was not saved and the panel showed *Failed to apply disambiguation*; generating again asked the same question |
 | Area      | `frontend/src/hooks/useAIExecutionPanel.ts` (AI panel in the stream modal) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

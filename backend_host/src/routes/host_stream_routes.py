@@ -3,6 +3,7 @@ VirtualPyTest - Host Stream File Serving Routes
 Serves HLS video streams (.m3u8, .ts) and related files when Nginx is not available
 """
 
+import gzip
 import os
 from flask import Blueprint, send_from_directory, request, current_app, jsonify
 from werkzeug.utils import secure_filename
@@ -128,7 +129,7 @@ def serve_stream_file(device_folder, content_type, filename):
             return response
 
         # Valid content types
-        valid_types = ['segments', 'captures', 'thumbnails', 'metadata', 'audio', 'transcript', 'reports']
+        valid_types = ['segments', 'captures', 'thumbnails', 'metadata', 'audio', 'transcript', 'reports', 'ads']  # ads: ad_meter's break thumbnails
         if content_type not in valid_types:
             return jsonify({
                 'success': False,
@@ -229,6 +230,14 @@ def serve_stream_file(device_folder, content_type, filename):
             response.headers.add('Cache-Control', 'no-cache, no-store, must-revalidate')
             response.headers.add('Pragma', 'no-cache')
             response.headers.add('Expires', '0')
+            # The live playlist lists ~300 segments (~28 KB) and every player refetches it
+            # each 0.4 s; gzip makes it ~1.7 KB. On a host behind slow WiFi the plain
+            # transfer was what made the slow fetches that stalled the player.
+            if response.status_code == 200 and 'gzip' in request.headers.get('Accept-Encoding', ''):
+                response.direct_passthrough = False
+                response.set_data(gzip.compress(response.get_data(), compresslevel=1))
+                response.headers['Content-Encoding'] = 'gzip'
+                response.headers.add('Vary', 'Accept-Encoding')
         elif filename == 'latest.jpg':
             # TASK-48: the always-current frame ffmpeg rewrites 5x/s in place; the
             # image branch's max-age would freeze every tile on a stale picture.

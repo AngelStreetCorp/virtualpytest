@@ -7,6 +7,7 @@ Simplified single-table approach for campaign tracking that links to script_resu
 
 import os
 import sys
+import time
 from datetime import datetime, timezone
 from typing import Dict, List, Any, Optional
 from uuid import uuid4
@@ -191,6 +192,22 @@ def update_campaign_execution_result(
         return False
 
 
+# A read may repair, but not on every 20 s dashboard poll: at most once per team per interval.
+RECONCILE_MIN_INTERVAL_SECONDS = 300
+_last_reconcile_by_team: Dict[str, float] = {}
+
+
+def _parse_ts(value: Any) -> Optional[datetime]:
+    """An ISO timestamp as an aware datetime, or None when it is missing or unreadable."""
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace('Z', '+00:00'))
+    except (TypeError, ValueError):
+        return None
+    return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+
+
 def reconcile_stale_campaign_executions(
     team_id: str,
     default_timeout_seconds: int = 3600,
@@ -199,10 +216,16 @@ def reconcile_stale_campaign_executions(
     """Close campaign rows left running after their worker disappeared.
 
     A campaign is reconciled from its linked script results when every expected
-    script has a finalized ``execution_time_ms``. If the campaign has exceeded
-    its configured timeout plus a grace period, it is failed even when the
-    worker never produced a script result. The team filter is mandatory so a
-    read-side repair cannot cross tenant boundaries.
+    script has a finalized ``execution_time_ms``. Otherwise it is closed only when
+    its worker is gone, and age alone is no proof of that: the nightlies are
+    configured with 120 minutes and legitimately run for 170. The evidence is
+    silence: no campaign start, script start, script update or script completion
+    for longer than the configured timeout plus a grace period. Such a row is
+    closed ``aborted`` (what the host sweep writes) with the time of its last
+    activity and a message that names the cause. A campaign whose every script is
+    finished is closed from its results whatever its age; the silence rule applies
+    only to unfinished ones and never before the limit. The team filter is
+    mandatory so a read-side repair cannot cross tenant boundaries.
     """
     if not team_id:
         return 0
@@ -227,13 +250,8 @@ def reconcile_stale_campaign_executions(
         now = datetime.now(timezone.utc)
         for campaign in rows:
             campaign_id = campaign.get('id')
-            try:
-                started_at = datetime.fromisoformat(
-                    str(campaign.get('started_at', '')).replace('Z', '+00:00')
-                )
-                if started_at.tzinfo is None:
-                    started_at = started_at.replace(tzinfo=timezone.utc)
-            except (TypeError, ValueError):
+            started_at = _parse_ts(campaign.get('started_at'))
+            if started_at is None:
                 continue
 
             execution_config = campaign.get('execution_config') or {}
@@ -246,13 +264,13 @@ def reconcile_stale_campaign_executions(
                 )
             except (TypeError, ValueError):
                 timeout_seconds = default_timeout_seconds
-            stale = (now - started_at).total_seconds() > timeout_seconds + grace_seconds
+            silence_limit = timeout_seconds + grace_seconds
 
             result_ids = [str(value) for value in (campaign.get('script_result_ids') or [])]
             expected_scripts = len(campaign.get('script_configurations') or [])
             script_rows = chunked_in(
                 lambda chunk: supabase.table('script_results')
-                .select('id, success, execution_time_ms, completed_at')
+                .select('id, success, skipped, execution_time_ms, started_at, completed_at, updated_at')
                 .eq('team_id', team_id)
                 .in_('id', chunk),
                 result_ids)
@@ -265,7 +283,11 @@ def reconcile_stale_campaign_executions(
             )
 
             if all_scripts_final:
-                status = 'completed' if all(row.get('success') for row in script_rows) else 'failed'
+                # A skipped row (the run never executed because it was not
+                # configured) is not a failure: it did not look at anything.
+                status = 'completed' if all(
+                    row.get('success') or row.get('skipped') for row in script_rows
+                ) else 'failed'
                 completed_values = [row.get('completed_at') for row in script_rows if row.get('completed_at')]
                 completed_at = max(completed_values) if completed_values else now.isoformat()
                 execution_time_ms = sum(
@@ -278,14 +300,33 @@ def reconcile_stale_campaign_executions(
                     'execution_time_ms': execution_time_ms,
                     'updated_at': now.isoformat(),
                 }
-            elif not stale:
-                continue
+            elif (now - started_at).total_seconds() <= silence_limit:
+                continue  # unfinished and younger than the limit: nothing to judge
             else:
+                stamps = [started_at] + [
+                    ts for row in script_rows
+                    for ts in (_parse_ts(row.get('started_at')),
+                               _parse_ts(row.get('completed_at')),
+                               _parse_ts(row.get('updated_at')))
+                    if ts is not None
+                ]
+                last_activity = max(stamps)
+                silent_seconds = (now - last_activity).total_seconds()
+                if silent_seconds <= silence_limit:
+                    continue  # scripts are still reporting: the worker is alive
+                succeeded = sum(
+                    1 for row in script_rows if row.get('success') or row.get('skipped')
+                )
                 update_data = {
-                    'status': 'failed',
+                    'status': 'aborted',
                     'success': False,
-                    'completed_at': now.isoformat(),
-                    'error_message': 'Campaign execution became stale before completion',
+                    'completed_at': last_activity.isoformat(),
+                    'error_message': (
+                        f'Campaign execution abandoned: no activity for '
+                        f'{int(silent_seconds // 60)} min (limit {int(silence_limit // 60)} min); '
+                        f'{len(script_rows)} of {expected_scripts} expected script results recorded, '
+                        f'{succeeded} succeeded'
+                    ),
                     'updated_at': now.isoformat(),
                 }
 
@@ -365,9 +406,12 @@ def get_campaign_results(
 
         supabase = get_supabase()
 
-        # Repair rows whose host worker disappeared before reading results. The
-        # reconciliation is team-scoped and uses the same database client.
-        reconcile_stale_campaign_executions(team_id)
+        # Repair rows whose host worker disappeared, but rarely: this read is the
+        # dashboard's 20 s poll. The repair is team-scoped and uses the same client.
+        now_mono = time.monotonic()
+        if now_mono - _last_reconcile_by_team.get(team_id, -RECONCILE_MIN_INTERVAL_SECONDS) >= RECONCILE_MIN_INTERVAL_SECONDS:
+            _last_reconcile_by_team[team_id] = now_mono
+            reconcile_stale_campaign_executions(team_id)
 
         # Build query for campaigns
         query = supabase.table('campaign_executions').select('*').eq('team_id', team_id)

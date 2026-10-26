@@ -40,6 +40,9 @@ import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { getScriptDisplayName, isAIScript } from '../../utils/executionUtils';
 import { UnifiedExecutableSelector, ExecutableItem } from '../common/UnifiedExecutableSelector';
 import { StyledDialog } from '../common/StyledDialog';
+import { dangerIconSx } from '../common/PageChrome';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 // Framework parameters are configured at runtime, not at campaign-build time.
 const FRAMEWORK_PARAMS = ['host', 'device'];
@@ -74,6 +77,7 @@ export const ScriptSequenceBuilder: React.FC<ScriptSequenceBuilderProps> = ({
   hideAddButton = false,
   matchRunTestsStyle = false,
 }) => {
+  const P = useAgentChatPalette();
   const [addScriptDialogOpen, setAddScriptDialogOpen] = useState(false);
   const [selectedExecutableToAdd, setSelectedExecutableToAdd] = useState<ExecutableItem | null>(null);
   const [expandedScript, setExpandedScript] = useState<string | false>(false);
@@ -174,8 +178,8 @@ export const ScriptSequenceBuilder: React.FC<ScriptSequenceBuilderProps> = ({
                       : undefined
                   }
                   onChange={(e) => handleTestcaseInputChange(scriptIndex, input.name, e.target.value)}
-                  InputLabelProps={{ style: { fontSize: '0.75rem' } }}
-                  inputProps={{ style: { fontSize: '0.75rem' } }}
+                  InputLabelProps={{ style: { fontSize: TYPOGRAPHY.caption.size } }}
+                  inputProps={{ style: { fontSize: TYPOGRAPHY.caption.size } }}
                   sx={{ width: 200 }}
                 />
               ))}
@@ -193,7 +197,7 @@ export const ScriptSequenceBuilder: React.FC<ScriptSequenceBuilderProps> = ({
             bgcolor: 'background.default',
             borderRadius: 1,
             fontFamily: 'monospace',
-            fontSize: '0.75rem',
+            fontSize: TYPOGRAPHY.caption.size,
           }}>
             <div>{'${previous.output_name}'} — get from previous script</div>
             <div>{'${script_1.output_name}'} — get from script #1</div>
@@ -321,7 +325,7 @@ export const ScriptSequenceBuilder: React.FC<ScriptSequenceBuilderProps> = ({
                   }}
                 >
                   <AccordionSummary
-                    expandIcon={<ExpandMoreIcon sx={{ fontSize: 18 }} />}
+                    expandIcon={<ExpandMoreIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />}
                     sx={{
                       minHeight: 34,
                       px: 1,
@@ -336,13 +340,13 @@ export const ScriptSequenceBuilder: React.FC<ScriptSequenceBuilderProps> = ({
                         label={isTestcase ? 'TC' : 'S'}
                         size="small"
                         color={isTestcase ? 'secondary' : 'primary'}
-                        sx={{ height: '16px', fontSize: '0.6rem', minWidth: '24px', flexShrink: 0 }}
+                        sx={{ height: '16px', fontSize: TYPOGRAPHY.microMeta.size, minWidth: '24px', flexShrink: 0 }}
                       />
                       <Typography
                         variant="body2"
                         sx={{
                           fontWeight: 600,
-                          fontSize: '0.82rem',
+                          fontSize: TYPOGRAPHY.body.size,
                           flex: 1,
                           overflow: 'hidden',
                           textOverflow: 'ellipsis',
@@ -359,7 +363,7 @@ export const ScriptSequenceBuilder: React.FC<ScriptSequenceBuilderProps> = ({
                             disabled={index === 0}
                             sx={{ p: 0.25 }}
                           >
-                            <ArrowUpwardIcon sx={{ fontSize: 14 }} />
+                            <ArrowUpwardIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                           </IconButton>
                           <IconButton
                             size="small"
@@ -367,17 +371,16 @@ export const ScriptSequenceBuilder: React.FC<ScriptSequenceBuilderProps> = ({
                             disabled={index === scripts.length - 1}
                             sx={{ p: 0.25 }}
                           >
-                            <ArrowDownwardIcon sx={{ fontSize: 14 }} />
+                            <ArrowDownwardIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                           </IconButton>
                         </>
                       ) : null}
                       <IconButton
                         size="small"
-                        color="error"
                         onClick={(e) => { e.stopPropagation(); onRemoveScript(index); }}
-                        sx={{ p: 0.25 }}
+                        sx={{ ...dangerIconSx(P), p: 0.25 }}
                       >
-                        <DeleteIcon sx={{ fontSize: 16 }} />
+                        <DeleteIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
                       </IconButton>
                     </Box>
                   </AccordionSummary>
@@ -390,8 +393,8 @@ export const ScriptSequenceBuilder: React.FC<ScriptSequenceBuilderProps> = ({
                         size="small"
                         fullWidth
                         placeholder="Optional description for this script execution..."
-                        InputLabelProps={{ style: { fontSize: '0.75rem' } }}
-                        inputProps={{ style: { fontSize: '0.75rem' } }}
+                        InputLabelProps={{ style: { fontSize: TYPOGRAPHY.caption.size } }}
+                        inputProps={{ style: { fontSize: TYPOGRAPHY.caption.size } }}
                       />
                       {renderScriptParameters(script, index)}
                     </Stack>
@@ -407,7 +410,7 @@ export const ScriptSequenceBuilder: React.FC<ScriptSequenceBuilderProps> = ({
                 onChange={handleAccordionChange(scriptId, script.script_name, script.testcase_id)}
                 elevation={0}
               >
-                <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ fontSize: 18 }} />}>
+                <AccordionSummary expandIcon={<ExpandMoreIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, width: '100%', mr: 2 }}>
                     <Chip label={`${index + 1}`} size="small" color="primary" sx={{ minWidth: 32 }} />
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1, minWidth: 0 }}>

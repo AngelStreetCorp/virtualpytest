@@ -27,6 +27,37 @@ EV_CAPTURE = 'capture'    # {fps, max_side, quality}; fps 0 stops
 EV_CMD = 'cmd'            # {id, name, params} with ack {ok, result?, error?}
 EV_UNPAIR = 'unpair'      # {}
 
+# --- drone bridge (TASK-167) -----------------------------------------------------
+# The phone holds the Wi-Fi conversation with the drone(s) and relays it over this
+# channel. The host sidecar presents the drone as a local UDP peer, so everything
+# below is framed around the drone's own three SDK channels.
+#
+# `drone` is the host-side device slot name ('device3'), so one phone can carry
+# several drones and the host can address each of them independently.
+EV_DRONE_CMD = 'drone_cmd'      # {drone, cmd} with ack {ok, reply}
+EV_DRONE_STATE = 'drone_state'  # {drone, text}   - the drone's state datagram
+EV_DRONE_VIDEO = 'drone_video'  # {drone, bytes}  - one RTP video packet (binary)
+EV_DRONE_STATUS = 'drone_status'  # {drones: [{id, ip}], hotspot: bool}
+
+# A drone only answers the address:port that sent its first `command` after
+# power-on, so the phone keeps ONE command socket for every drone and tells the
+# drones apart by source address. These are the phone's socket numbers on the
+# hotspot interface, not the drone's (the drone's are 8889/8890/11111).
+DRONE_PHONE_CMD_PORT = 8889
+DRONE_PHONE_STATE_PORT = 8890
+DRONE_PHONE_VIDEO_PORT = 11111
+# How long the host waits for the phone to acknowledge a drone command. The
+# round trip is phone -> drone -> phone -> host, so it carries the drone's own
+# latency twice plus the cellular hop.
+DRONE_CMD_TIMEOUT_S = 15
+# How long a drone's video may be silent before the host says the link is dead.
+DRONE_VIDEO_STALE_S = 10.0
+# Commands the drone never answers. `rc` holds the stick values until the next
+# one, so the host sends it without waiting - and the bridge must not wait
+# either: the joystick streams at 10 Hz, and a wait per stick value would cap
+# the stick at one command per round trip.
+DRONE_NO_REPLY_COMMANDS = ('rc',)
+
 # --- commands (cmd.name) ----------------------------------------------------------
 CMD_TAP = 'tap'                  # {x, y}
 CMD_SWIPE = 'swipe'              # {x1, y1, x2, y2, duration_ms}

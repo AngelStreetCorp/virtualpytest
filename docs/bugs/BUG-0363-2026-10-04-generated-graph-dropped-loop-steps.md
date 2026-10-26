@@ -9,7 +9,7 @@
 | Status    | Fixed (deployed to hosts 2026-10-04)                         |
 | Severity  | High                                                         |
 | Area      | backend_host / AI graph generation                           |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `fdf5d952a`                                                  |
 
 ---

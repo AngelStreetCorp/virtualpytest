@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium (DOM report is the primary way to inspect captured screens) |
 | Area      | backend_server `/server/userinterface/domReport` · frontend Interface page |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---
@@ -17,9 +17,9 @@
 ## Symptom
 
 Logged into `https://virtualpytest.angelstreet.io`, the selected server is
-`https://rpitest.angelstreet.io`, and "DOM report" is opened from
+`https://<pi-server-host>`, and "DOM report" is opened from
 `/configuration/interface`. The new tab lands on
-`https://rpitest.angelstreet.io/server/userinterface/domReport?userinterface=…&team_id=…` and the
+`https://<pi-server-host>/server/userinterface/domReport?userinterface=…&team_id=…` and the
 server returns:
 
 ```json
@@ -44,9 +44,9 @@ A `window.open(...)` navigation is a plain browser GET — it cannot carry the `
 header, so only the cookie matters. The cookie is written host-only with
 `document.cookie = "${name}=${value}; Path=/server/; SameSite=Strict; Secure"`. Without a
 `Domain` attribute, the browser binds it to the SPA's own host (`virtualpytest.angelstreet.io`)
-and does not send it on the cross-origin navigation to `rpitest.angelstreet.io`.
+and does not send it on the cross-origin navigation to `<pi-server-host>`.
 
-`rpitest.angelstreet.io` therefore receives a credential-less request and returns 401 from
+`<pi-server-host>` therefore receives a credential-less request and returns 401 from
 `auth_middleware._require_user_auth_probe()` (`auth_middleware.py:425-441`).
 
 This is the exact limitation called out in BUG-0057's "Follow-ups" section:
@@ -105,6 +105,6 @@ primitive the rest of the app already uses for "open this report in a new tab" �
   passes (existing HTML endpoint + new URL endpoint).
 - `cd frontend && ./node_modules/.bin/tsc --noEmit` passes.
 - Manual: open `https://virtualpytest.angelstreet.io/configuration/interface`, select
-  `rpitest.angelstreet.io` as the server, click "DOM report" — the new tab opens on
+  `<pi-server-host>` as the server, click "DOM report" — the new tab opens on
   `virtualpytest.angelstreet.io/virtualpytest/navigation/<safe>/dom_report.html?X-Amz-…`
   (signed URL against the public proxy) and renders the report.

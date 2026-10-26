@@ -19,7 +19,7 @@ docs/tasks/TASK-73-atlas-testing-progressive.md.
 """
 from typing import Dict, Any, List
 from ..utils.api_client import MCPAPIClient
-from ..utils.mcp_formatter import MCPFormatter
+from ..utils.mcp_formatter import ErrorCategory, MCPFormatter
 
 
 class SystemOpsTools:
@@ -52,7 +52,7 @@ class SystemOpsTools:
         if not isinstance(result, dict) or not result.get('success'):
             err = (result or {}).get('error', 'unknown error') if isinstance(result, dict) else 'invalid response'
             return self.formatter.format_error(
-                f'❌ check_storage failed: {err}', category='backend'
+                f'❌ check_storage failed: {err}', category=ErrorCategory.BACKEND
             )
         rows = result.get('rows') or []
         host = result.get('host', host_name)
@@ -95,7 +95,7 @@ class SystemOpsTools:
         result = self.api.get(f'/host/system/pingHost', params={'host_name': host_name})
         if not isinstance(result, dict):
             return self.formatter.format_error(
-                'ping_host got an invalid response', category='backend'
+                'ping_host got an invalid response', category=ErrorCategory.BACKEND
             )
         if not result.get('success'):
             err = result.get('error', 'TCP connect failed')

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High                                                         |
 | Area      | ai-agent                                                     |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 
 ## What happened
 Every dashboard Atlas generated (canvas auto-drafts and "create a dashboard") opened in Grafana with all panels in error: `db query error: pq: column "__all" does not exist`. The variable queries worked; every panel query failed on the default view (all variables on All). Found by opening `atlas-draft-4ea3e0f4cce0dbd3b76e` in a logged-in browser and reading the `/api/ds/query` responses.

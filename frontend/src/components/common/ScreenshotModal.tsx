@@ -1,7 +1,9 @@
+import { AppIcon } from '../../constants/icons';
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 
 import { getZIndex } from '../../utils/zIndexUtils';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface ScreenshotModalProps {
   open: boolean;
@@ -84,8 +86,8 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
           border: 'none',
           background: 'rgba(0, 0, 0, 0.6)',
           color: '#fff',
-          fontSize: '24px',
-          lineHeight: '40px',
+          fontSize: TYPOGRAPHY.pageTitle.size,
+          lineHeight: '2.5rem',
           cursor: 'pointer',
           display: 'flex',
           alignItems: 'center',
@@ -93,7 +95,7 @@ export const ScreenshotModal: React.FC<ScreenshotModalProps> = ({
           zIndex: getZIndex('SCREENSHOT_MODAL') + 1,
         }}
       >
-        ✕
+        <AppIcon name="close" />
       </button>
       {/* Full-size screenshot */}
       <img

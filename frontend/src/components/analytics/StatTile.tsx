@@ -1,5 +1,6 @@
 import { Box, Typography } from '@mui/material';
 import React from 'react';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 /**
  * A label / big number / caption tile.
@@ -54,9 +55,9 @@ export const StatTile: React.FC<StatTileProps> = ({
       noWrap
       sx={
         dense
-          ? { fontSize: '0.68rem', lineHeight: 1 }
+          ? { fontSize: TYPOGRAPHY.microMeta.size, lineHeight: 1 }
           : {
-              fontSize: '0.625rem',
+              fontSize: TYPOGRAPHY.microMeta.size,
               fontWeight: 600,
               letterSpacing: '0.06em',
               textTransform: 'uppercase',
@@ -80,7 +81,7 @@ export const StatTile: React.FC<StatTileProps> = ({
       {value}
     </Typography>
     {sub != null && (
-      <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.6875rem' }}>
+      <Typography variant="caption" color="text.secondary" sx={{ fontSize: TYPOGRAPHY.microMeta.size }}>
         {sub}
       </Typography>
     )}

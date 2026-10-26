@@ -1,0 +1,60 @@
+== Q1 r1 total 26380 chars
+     4913  python3 features/code-graph/scripts/gen_code_index.py --query call_host --max-files 1000 2>&1 | head -300
+       42  grep -rnE "call_host\s*\(" --include=*.py . | grep -vE "def call_host" | grep -vE "^\./(backend_server/(scripts|src)|features/(ai-test|mobile-app))" | head -40
+     5032  grep -rnE "call_host\s*\(" --include='*.py' . | grep -vE "def call_host" | grep -vE "^\./(backend_server/(scripts|src)/|features/(ai-test|mobile-app))" | head -
+     1997  grep -rlE "call_host\s*\(" --include='*.py' . | sort
+    11434  for f in backend_server/src/mcp/tools/transcript_tools.py backend_server/src/mcp/utils/screenshot_capture.py backend_server/src/routes/server_lol_overlay_routes
+     2962  sed -n 100,125p shared/src/lib/utils/build_url_utils.py; grep -n "^def \|^    def " shared/src/lib/utils/build_url_utils.py | sed -n 1,30p
+== Q1 r2 total 4913 chars
+     4913  python3 features/code-graph/scripts/gen_code_index.py --query call_host --max-files 1000 2>&1 | head -300
+== Q1 r3 total 10191 chars
+     4913  python3 features/code-graph/scripts/gen_code_index.py --query call_host --max-files 500 2>&1 | head -300
+       42  grep -rlE "call_host\s*\(" --include=*.py . | grep -v node_modules | sort
+     1997  grep -rlE 'call_host[[:space:]]*\(' --include='*.py' . | grep -v node_modules | sort
+     2426  for f in backend_server/src/mcp/tools/transcript_tools.py backend_server/src/mcp/utils/screenshot_capture.py backend_server/src/routes/server_lol_overlay_routes
+      813  sed -n 112,122p shared/src/lib/utils/build_url_utils.py; sed -n 10,20p tests/backend_server/test_code_refs.py
+== Q2 r1 total 6119 chars
+     6119  python3 features/code-graph/scripts/gen_code_index.py --query execute_navigation 2>&1 | head -80
+== Q2 r2 total 6119 chars
+     6119  python3 features/code-graph/scripts/gen_code_index.py --query execute_navigation --max-files 200 2>&1 | head -150
+== Q2 r3 total 6119 chars
+     6119  python3 features/code-graph/scripts/gen_code_index.py --query execute_navigation 2>&1 | head -80
+== Q3 r1 total 10977 chars
+     4090  python3 features/code-graph/scripts/gen_code_index.py --query identify_screen --max-files 200 2>&1 | head -80
+       42  grep -rlE "identify_screen\s*\(" --include=*.py . | sort
+     6845  grep -rnE "identify_screen\s*\(" --include='*.py' . | grep -vE "def identify_screen" | cut -c1-150
+== Q3 r2 total 5718 chars
+     4090  python3 features/code-graph/scripts/gen_code_index.py --query identify_screen --max-files 200 2>&1 | head -80
+       42  grep -rn "identify_screen" --include=*.py . | grep -v "def identify_screen" | grep -E "identify_screen\s*\(" | grep -v "^\S*:\s*[0-9]*:\s*#" | cut -d: -f1 | sor
+      843  grep -rnE "identify_screen\s*\(" --include='*.py' . | grep -vE "def identify_screen" | grep -vE "^[^:]*:[0-9]+:\s*#" | cut -d: -f1 | sort | uniq -c
+      743  grep -nE "identify_screen\s*\(" shared/src/lib/utils/localize_verdict.py backend_host/scripts/monitor_localize.py
+== Q3 r3 total 11041 chars
+     4090  python3 features/code-graph/scripts/gen_code_index.py --query identify_screen --max-files 200 2>&1 | head -100
+       42  grep -rn --include=*.py "identify_screen\s*(" . | grep -v "def identify_screen" | grep -v "^\./frontend" | awk -F: '{print $1}' | sort | uniq -c
+     6909  grep -rn --include='*.py' 'identify_screen[[:space:]]*(' . | grep -v 'def identify_screen' | grep -v 'node_modules' | cut -c1-170
+== Q4 r1 total 7960 chars
+     6128  python3 features/code-graph/scripts/gen_code_index.py --query execute_navigation 2>&1 | head -40; grep -n "execute_navigation" -B4 backend_server/src/routes/ser
+       90  grep -n "server_control_bp = " backend_server/src/routes/server_control_routes.py; grep -rnE "navigation/execute['\"\`?]|navigation/execute\b[^/]" frontend/src 
+       42  grep -rnE "control/navigation|navigation/execute" frontend --include=*.ts --include=*.tsx --include=*.js -l --exclude-dir=node_modules | head; grep -rnE "contro
+     1540  grep -rnE "control/navigation|navigation/execute" frontend --exclude-dir=node_modules | head -20
+       31  grep -rnE "control/navigation/execute|/navigation/execute['\"\`]" frontend/src frontend/*.ts frontend/e2e frontend/tests 2>/dev/null | head -20
+      129  grep -rnE "navigation/execute" frontend --exclude-dir=node_modules --exclude-dir=public --exclude-dir=dist | head -20
+== Q4 r2 total 7862 chars
+     5798  python3 features/code-graph/scripts/gen_code_index.py --query execute_navigation 2>&1 | head -40; grep -n -B3 "def execute_navigation" backend_server/src/routes
+      133  grep -n "server_control_bp *=" backend_server/src/routes/server_control_routes.py; grep -rn "navigation/execute" frontend/src | grep -v "navigation/execute/" | 
+      606  grep -rn "control/navigation/execute" frontend --exclude-dir=node_modules | head; grep -rn "navigation/execute['\"\`]" frontend --exclude-dir=node_modules | hea
+     1325  grep -rn "navigation/execute\|/navigation/execute" frontend/src | head -20; grep -rn "server/control" frontend/src | head
+== Q4 r3 total 6996 chars
+     6128  python3 features/code-graph/scripts/gen_code_index.py --query execute_navigation 2>&1 | head -40; grep -n "execute_navigation" -B4 backend_server/src/routes/ser
+      133  grep -n "server_control_bp *=" backend_server/src/routes/server_control_routes.py; grep -rnE "navigation/execute['\"\`?]|navigation/execute\b" frontend/src --in
+      606  grep -rnE "control/navigation/execute|navigation/execute" frontend --exclude-dir=node_modules --exclude-dir=dist | grep -v "execute/"
+      129  grep -rnE "control/navigation|navigation/execute|'/navigation/execute|serverControl.*navigation" frontend/src | head
+== Q5 r1 total 12222 chars
+    10030  python3 features/code-graph/scripts/gen_code_index.py --query call_host --depth 2 --no-tests --max-files 500 2>&1 | head -400
+     2192  grep -n "_fetch_screenshot_bytes" backend_server/scripts/auto_classify_unknowns.py backend_server/scripts/match_runs_worker.py backend_server/src/mcp/utils/scre
+== Q5 r2 total 11790 chars
+    10030  python3 features/code-graph/scripts/gen_code_index.py --query call_host --depth 2 --no-tests --max-files 500 2>&1 | head -400
+     1760  grep -n "_fetch_screenshot_bytes" backend_server/scripts/auto_classify_unknowns.py backend_server/scripts/match_runs_worker.py backend_server/src/mcp/utils/scre
+== Q5 r3 total 14468 chars
+    10030  python3 features/code-graph/scripts/gen_code_index.py --query call_host --depth 2 --no-tests --max-files 500 2>&1 | head -400
+     4438  for q in _fetch_screenshot_bytes request_stop backup_host _wait_health _roll_host deploy_host _restore_host; do echo "=== $q"; python3 features/code-graph/scrip

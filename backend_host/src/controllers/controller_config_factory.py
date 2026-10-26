@@ -9,15 +9,26 @@ from shared.src.lib.utils.storage_path_utils import get_device_base_path
 from shared.src.lib.config.device_capabilities import (
     DEVICE_CONTROLLER_MAP,
     CONTROLLER_VERIFICATION_MAP,
-    get_device_capabilities
+    get_device_capabilities,
+    model_spelling_note,
+    normalize_device_model
 )
 
 def create_controller_configs_from_device_info(device_config: dict) -> dict:
     """Create controller configurations for a device."""
-    device_model = device_config.get('model', device_config.get('device_model'))
-    
-    # Creating configs for device model: {device_model}
-    
+    # DEVICE{i}_MODEL is typed by hand, so the model arrives spelled the way the operator
+    # wrote it. Resolve it to the canonical DEVICE_CONTROLLER_MAP key before the lookup:
+    # an unrecognised name misses the map and returns {} — a device registered with NO
+    # controllers, so Take Control answers "Unsupported device" and no remote ever appears
+    # (BUG-0749). `androidtv`, `andoridtv`, `appletv` and `firetv_vega` now build exactly
+    # what `android_tv`, `apple_tv` and `fire_tv_vega` build.
+    raw_model = device_config.get('model', device_config.get('device_model'))
+    device_model = normalize_device_model(raw_model)
+
+    spelling = model_spelling_note(raw_model, device_model)
+    if spelling:
+        print(f"[@controller_factory:create_controller_configs_from_device_info] model {spelling}")
+
     if device_model not in DEVICE_CONTROLLER_MAP:
         print(f"[@controller_factory:create_controller_configs_from_device_info] ERROR: Unknown device model: {device_model}")
         print(f"[@controller_factory:create_controller_configs_from_device_info] ERROR: Available models: {list(DEVICE_CONTROLLER_MAP.keys())}")
@@ -36,8 +47,15 @@ def create_controller_configs_from_device_info(device_config: dict) -> dict:
         }
         created_controllers.append(f"av:{av_impl}")
     
-    # Create Remote controllers - support multiple remotes like desktop controllers
+    # Create Remote controllers - support multiple remotes like desktop controllers.
+    # An adb remote needs DEVICE{i}_IP or DEVICE{i}_ADB_SERIAL: without either, a Fire TV
+    # driven by IRTrans alone would also get a dead adb remote (and adb verification).
+    skipped_impls = set()
     for remote_impl in device_mapping['remote']:
+        if remote_impl in ADB_REMOTES and not (device_config.get('device_ip') or device_config.get('adb_serial')):
+            print(f"[@controller_factory:create_controller_configs_from_device_info] Skipping Remote controller {remote_impl} - no DEVICE_IP or ADB_SERIAL")
+            skipped_impls.add(remote_impl)
+            continue
         # Use unique keys for multiple remote controllers (like desktop controllers)
         if len(device_mapping['remote']) > 1:
             # Multiple remotes - use specific keys like remote_android_tv, remote_ir_remote
@@ -148,6 +166,8 @@ def create_controller_configs_from_device_info(device_config: dict) -> dict:
     verification_types = []
     for controller_list in device_mapping.values():
         for controller_impl in controller_list:
+            if controller_impl in skipped_impls:
+                continue
             verification_types.extend(CONTROLLER_VERIFICATION_MAP.get(controller_impl, []))
     
     # Remove duplicates and create verification controller configs
@@ -175,6 +195,11 @@ def get_controller_type_for_device(device_model: str, action_type: str) -> str:
     Returns:
         Controller type key to use with get_controller()
     """
+    # Same spelling tolerance as create_controller_configs_from_device_info, but silent:
+    # this is a lookup called per action, and the correction was already logged when the
+    # device was built.
+    device_model = normalize_device_model(device_model)
+
     if device_model not in DEVICE_CONTROLLER_MAP:
         # Default routing for unknown device models
         if action_type == 'web':
@@ -335,6 +360,10 @@ def _get_av_params(implementation: str, device_config: dict) -> dict:
             'token': device_config.get('switch_procon_token'),
         }
     return base_params
+
+# Remotes that reach the device over adb (ip:port or USB serial).
+ADB_REMOTES = ('android_mobile', 'android_tv', 'vega')
+
 
 def _get_remote_params(implementation: str, device_config: dict) -> dict:
     """Get parameters for Remote controllers."""
@@ -499,14 +528,47 @@ def _get_remote_params(implementation: str, device_config: dict) -> dict:
             print(f"[@controller_factory:_get_remote_params] WARNING: Missing Tello configuration for {device_id} - skipping tello controller")
             print(f"[@controller_factory:_get_remote_params] WARNING: To enable the Tello remote, set: DEVICE{device_num}_TELLO_IP=<drone-address>  # 192.168.10.1, or 10.200.<n>.2 with scripts/drone/tello_netns.sh")
             print(f"[@controller_factory:_get_remote_params] WARNING: Optional: DEVICE{device_num}_TELLO_STATE_PORT=8890 (8889+n), DEVICE{device_num}_TELLO_VIDEO_PORT=11111 (11110+n)")
+            print(f"[@controller_factory:_get_remote_params] WARNING: Two drones on one host also need DEVICE{device_num}_TELLO_LOCAL_IP=192.168.10.<n> (per-radio source address, scripts/drone/tello_prio.sh)")
             return {'_skip_controller': True, 'reason': 'Missing Tello configuration'}
 
         return {
             'tello_ip': tello_ip,
+            'cmd_port': int(device_config.get('tello_cmd_port') or 8889),
             'state_port': int(device_config.get('tello_state_port') or 8890),
             'video_port': int(device_config.get('tello_video_port') or 11111),
+            # Source address the drone's radio is reached from. Needed as soon as two dongles sit
+            # on one host: both Tello APs answer to 192.168.10.1, so without a per-drone source the
+            # kernel picks one radio for both. scripts/drone/tello_prio.sh pairs the address here
+            # with an `ip rule from`, which is what keeps the two links apart.
+            'local_ip': device_config.get('tello_local_ip') or '0.0.0.0',
+            # The port the client binds locally for this drone's conversation. A drone
+            # behind the host's drone bridge (TASK-160) needs its own, or two bridged
+            # drones on one host would share one local port.
+            'local_cmd_port': int(device_config.get('tello_local_cmd_port') or 8889),
             'name': device_config.get('device_name') or 'tello',
+            'device_id': device_config.get('device_id', ''),
         }
+
+    elif implementation == 'samsung_tizen':
+        tizen_ip = device_config.get('tizen_ip')
+        if not tizen_ip:
+            device_id = device_config.get('device_id', 'DEVICE1')
+            device_num = device_id.replace('device', '').upper()
+            print(f"[@controller_factory:_get_remote_params] WARNING: Missing Tizen configuration for {device_id} - skipping samsung_tizen remote")
+            print(f"[@controller_factory:_get_remote_params] WARNING: To enable the Samsung Tizen network remote, set: DEVICE{device_num}_TIZEN_IP=<tv-ip>")
+            print(f"[@controller_factory:_get_remote_params] WARNING: Optional: DEVICE{device_num}_TIZEN_PORT=8002, DEVICE{device_num}_TIZEN_TOKEN=<cached>, DEVICE{device_num}_TIZEN_TOKEN_FILE=<path>")
+            return {'_skip_controller': True, 'reason': 'Missing Tizen configuration'}
+
+        params = {
+            'tv_ip': tizen_ip,
+            'tv_port': int(device_config.get('tizen_port') or 8002),
+            'device_name': device_config.get('device_name') or 'Samsung Tizen TV',
+        }
+        if device_config.get('tizen_token'):
+            params['token'] = device_config.get('tizen_token')
+        if device_config.get('tizen_token_file'):
+            params['token_file'] = device_config.get('tizen_token_file')
+        return params
 
     # Unknown implementation, returning empty params
     return {}

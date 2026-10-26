@@ -48,6 +48,9 @@ export type Permission =
   | 'reports.defects:edit'
   | 'reports.share:create'
   | 'reports.manual:execute'
+  // Custom pages (TASK-139): open a page / create, edit and share pages. Each block still needs its own permission.
+  | 'pages.custom:view'
+  | 'pages.custom:edit'
   // Monitoring
   | 'monitoring.incidents:view'
   | 'monitoring.heatmap:view'
@@ -67,6 +70,7 @@ export type Permission =
   | 'plugins.grafana:view'
   | 'plugins.langfuse:view'
   | 'plugins.postman:view'
+  | 'plugins.postman:manage'
   | 'plugins.jira:view'
   | 'plugins.jira:manage'
   | 'plugins.testrail:view'
@@ -106,6 +110,8 @@ export type Permission =
   | 'org.workspaces:view'
   | 'org.workspaces:create'
   | 'org.workspaces:edit'
+  // Projects (TASK-65 G6)
+  | 'team:projects:create'
   | 'org.workspaces:delete'
   | 'org.workspaces:manage_members';
 
@@ -150,12 +156,13 @@ export const ALL_PERMISSIONS: Permission[] = [
   'execution.build:view', 'execution.build:use',
   'reports.tests:view', 'reports.tests:share', 'reports.campaigns:view', 'reports.models:view', 'reports.dependency:view',
   'reports.runs:edit', 'reports.defects:edit', 'reports.share:create', 'reports.manual:execute',
+  'pages.custom:view', 'pages.custom:edit',
   'monitoring.incidents:view', 'monitoring.heatmap:view', 'monitoring.ai_queue:view',
   'monitoring.public_ask:view',
   'interface:view', 'interface:create', 'interface:edit', 'interface:delete',
   'ai_agent:view', 'ai_agent:use',
   'ai.training:view', 'ai.training:review',
-  'plugins.grafana:view', 'plugins.langfuse:view', 'plugins.postman:view',
+  'plugins.grafana:view', 'plugins.langfuse:view', 'plugins.postman:view', 'plugins.postman:manage',
   'plugins.jira:view', 'plugins.jira:manage', 'plugins.testrail:view', 'plugins.testrail:manage', 'plugins.slack:view',
   'plugins.gitlab:view', 'plugins.gitlab:manage',
   'settings.general:view', 'settings.general:edit',
@@ -173,6 +180,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'org.invite:send',
   'org.workspaces:view', 'org.workspaces:create', 'org.workspaces:edit',
   'org.workspaces:delete', 'org.workspaces:manage_members',
+  'team:projects:create',
 ];
 
 // All admin-expanded permissions (used when role === 'admin')
@@ -271,8 +279,11 @@ export const PAGE_PERMISSIONS: Record<string, Permission> = {
   '/test-results/manual': 'reports.manual:execute',
   '/monitoring/incidents': 'monitoring.incidents:view',
   '/monitoring/heatmap': 'monitoring.heatmap:view',
+  '/monitoring/timeline': 'monitoring.heatmap:view',
   '/monitoring/ai-queue': 'monitoring.ai_queue:view',
   '/monitoring/ai-usage': 'monitoring.ai_queue:view',
+  '/monitoring/localize': 'monitoring.ai_queue:view',
+  '/monitoring/localize-coverage': 'monitoring.ai_queue:view',
   '/grafana-dashboard': 'plugins.grafana:view',
   '/langfuse-dashboard': 'plugins.langfuse:view',
   '/api/workspaces': 'plugins.postman:view',
@@ -284,7 +295,7 @@ export const PAGE_PERMISSIONS: Record<string, Permission> = {
   '/configuration/logs': 'settings.logs:view',
   '/configuration/models': 'settings.models:view',
   '/configuration/settings': 'settings.general:view',
-  '/configuration/code-deployment': 'settings.code_deploy:view',
+  '/configuration/platform-update': 'settings.code_deploy:view',
   '/configuration/run-command': 'system.hosts:run_command',
   '/training-review': 'ai.training:view',
   '/status': 'settings.status:view',
@@ -292,10 +303,19 @@ export const PAGE_PERMISSIONS: Record<string, Permission> = {
   '/roles': 'org.roles:view',
   '/teams': 'org.teams:view',
   '/workspaces': 'org.workspaces:view',
+  '/pages': 'pages.custom:view',
 };
 
 /** The permission a page needs, from the most specific PAGE_PERMISSIONS key covering `path`. */
 export function requiredPermissionForPath(path: string): Permission | null {
+  // A malformed nav item or a feature-contributed item without a `path` used
+  // to reach this function as `undefined`, then crash on `path.startsWith`
+  // and take the whole top nav down with it. A pathless entry has no page
+  // route to gate, so the answer is "no permission required" — let the row
+  // render and trust `renderMenuItem` to surface whatever action or link it
+  // does carry. Matches what `requiredPermissionForPath(undefined)` would
+  // semantically mean if we didn't crash.
+  if (typeof path !== 'string' || path.length === 0) return null;
   let best: string | null = null;
   for (const key of Object.keys(PAGE_PERMISSIONS)) {
     const covers = key === '/' ? path === '/' : path === key || path.startsWith(`${key}/`);

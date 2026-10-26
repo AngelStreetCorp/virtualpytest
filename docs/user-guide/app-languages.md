@@ -20,8 +20,13 @@ report has its own `EN | FR | DE` switch, and both share the same choice. See [R
 
 ## A link in a given language
 
-Add `?lang=fr` (or `de`, `en`) to an app link, for example `https://<your-server>/?lang=de`. The app opens in that
-language and remembers it.
+To send someone a link that opens in a given language, add the language to the link: French, German or English. The app opens in that language and remembers it.
+
+<div data-technical>
+
+Add `?lang=fr` (or `de`, `en`) to an app link, for example `https://<your-server>/?lang=de`.
+
+</div>
 
 ## What stays as it is
 

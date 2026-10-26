@@ -12,7 +12,7 @@ sys.path.insert(0, os.path.normpath(os.path.join(_test_dir, "..", "..")))
 sys.path.insert(0, _test_dir)
 
 from ai_routing_fixtures import clear_routing, endpoint, install_routing, profile, route  # noqa: E402
-from shared.src.lib.ai import call_log, caller, gateway, router  # noqa: E402
+from shared.src.lib.ai import call_log, caller, gateway, prices, router  # noqa: E402
 from shared.src.lib.ai.provider_client import CallUsage  # noqa: E402
 
 TEAM = "11111111-1111-1111-1111-111111111111"
@@ -95,9 +95,9 @@ def test_build_row_carries_caller_routing_usage_and_provider_cost(monkeypatch):
     assert row["effort_sent"] == "off" and "bogus" not in row and row["parse_ok"] is True and row["server"] == "srv"
 
 
-def test_origin_defaults_to_unknown_and_eval_test_labels_win(monkeypatch):
+def test_origin_defaults_to_background_and_eval_test_labels_win(monkeypatch):
     res, hop = _resolution(monkeypatch)
-    assert call_log.build_row(res, hop, ok=True, ms=1)["origin"] == "unknown"
+    assert call_log.build_row(res, hop, ok=True, ms=1)["origin"] == "background"
     pinned = router.resolve_profile("default", "vision.banner", TEAM)
     with caller.bound(origin="script"):
         assert call_log.build_row(pinned, pinned.primary, ok=True, ms=1)["origin"] == "eval"
@@ -157,6 +157,43 @@ def test_a_full_queue_drops_rows_without_blocking(monkeypatch):
     call_log.submit({"a": 1})
     call_log.submit({"a": 2})
     assert call_log.dropped() == before + 1
+
+
+def test_a_tokenless_call_is_free_on_the_coding_plan_and_unknown_on_a_metered_endpoint(monkeypatch):
+    """The VLM endpoint reports no tokens: the call is in the plan (free), not "no price"."""
+    install_routing(monkeypatch, "ok", snapshot={
+        "endpoints": {"ep-mm": endpoint("ep-mm", "minimax", preset="minimax")},
+        "profiles": {"p-mm": profile("p-mm", "minimax-m3", model="minimax-m3", endpoint_id="ep-mm")},
+        "routes": [route("r1", "vision", "p-mm")]})
+    res = router.resolve("vision.banner", TEAM)
+    prices.set_for_tests([], [])
+    try:
+        row = call_log.build_row(res, res.primary, ok=True, ms=5, tokens_in=0, tokens_out=0)
+        assert row["cost"] == 0.0 and row["cost_source"] == "price_table"
+        install_routing(monkeypatch, "ok", snapshot={
+            "endpoints": {"ep-or": endpoint("ep-or", "or", preset="openrouter")},
+            "profiles": {"p-or": profile("p-or", "gpt", model="gpt-4.1-mini", endpoint_id="ep-or")},
+            "routes": [route("r2", "vision", "p-or")]})
+        res2 = router.resolve("vision.banner", TEAM)
+        row2 = call_log.build_row(res2, res2.primary, ok=True, ms=5, tokens_in=0, tokens_out=0)
+        assert "cost" not in row2 and row2["cost_source"] == "none"
+    finally:
+        prices.set_for_tests(None)
+
+
+def test_a_reported_call_without_tokens_is_free_on_the_coding_plan(monkeypatch):
+    """The VLM endpoint reports no tokens and the caller reports the call itself: the plan covers it."""
+    prices.set_for_tests([], [{"name": "minimax-vlm", "preset": "minimax_vlm"},
+                              {"name": "openrouter", "preset": "openrouter"}])
+    try:
+        row = call_log.reported_row({"usage": "vision.alert_triage", "profile": "p", "endpoint": "minimax-vlm",
+                                     "model": "minimax-vlm", "ok": True, "tokens_in": 0, "tokens_out": 0})
+        assert row["cost"] == 0.0 and row["cost_source"] == "price_table"
+        metered = call_log.reported_row({"usage": "u", "profile": "p", "endpoint": "openrouter", "model": "gpt",
+                                         "ok": True, "tokens_in": 0, "tokens_out": 0})
+        assert "cost" not in metered and metered["cost_source"] == "none"
+    finally:
+        prices.set_for_tests(None)
 
 
 def test_reported_row_uses_the_forwarded_caller():

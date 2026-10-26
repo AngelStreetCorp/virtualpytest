@@ -17,7 +17,6 @@ import {
   Typography,
   Card,
   CardContent,
-  CircularProgress,
   Alert,
   IconButton,
   Collapse,
@@ -28,6 +27,7 @@ import {
   DialogContentText,
   DialogActions,
   Chip,
+  Skeleton,
   ToggleButton,
   ToggleButtonGroup,
   Table,
@@ -40,15 +40,17 @@ import {
   Tooltip,
 } from '@mui/material';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
-import { PageTitle, StatTiles, pageSurfaceSx, segmentedSx } from '../components/common/PageChrome';
+import { PageTitle, StatTiles, dangerButtonSx, pageSurfaceSx, segmentedSx } from '../components/common/PageChrome';
 import React, { useState, useEffect } from 'react';
 
 import JevWhy, { analysisTypeLabel, getJev } from '../components/common/JevWhy';
+import { TableRowsSkeleton } from '../components/common/ReportSkeleton';
 import { StyledDialog } from '../components/common/StyledDialog';
 import { useAIQueue, AIQueueStatus, LastAnalyzedResult } from '../hooks/pages/useAIQueue';
 import { discardReason } from '../utils/discardReason';
 import { formatToLocalTime } from '../utils/dateUtils';
 import { getCached, setCached } from '../utils/pageCache';
+import { TYPOGRAPHY } from '../constants/typography';
 
 type QueueView = 'incidents' | 'scripts';
 
@@ -120,14 +122,6 @@ const AIQueueMonitor: React.FC = () => {
     setClearDialog({ open: false, queueType: 'all', queueName: '' });
   };
 
-  if (loading) {
-    return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-        <CircularProgress />
-      </Box>
-    );
-  }
-
   const selectedQueue = queueStatus?.queues[queueView];
   const selectedAnalysis = queueStatus?.analysis_24h?.[queueView];
   const hasQueues = Boolean(queueStatus && (queueStatus.queues.incidents.length > 0 || queueStatus.queues.scripts.length > 0));
@@ -197,12 +191,11 @@ const AIQueueMonitor: React.FC = () => {
             </ToggleButtonGroup>
             <Button
               variant="outlined"
-              color="error"
               size="small"
               startIcon={<ClearAllIcon />}
               onClick={() => handleClearQueue('all', 'All Queues')}
               disabled={!hasQueues}
-              sx={{ textTransform: 'none' }}
+              sx={{ ...dangerButtonSx(P), textTransform: 'none' }}
             >
               Clear all
             </Button>
@@ -216,8 +209,29 @@ const AIQueueMonitor: React.FC = () => {
         </Alert>
       )}
 
-      {queueStatus && (
-        <>
+      {!queueStatus && loading ? (
+        // Tile row still loading: draw 4 bordered placeholders that match StatTileSkeleton.
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
+          {[0, 1, 2, 3].map((i) => (
+            <Box
+              key={i}
+              sx={{
+                flex: '1 1 180px',
+                minWidth: 160,
+                p: 2,
+                border: `1px solid ${P.borderColor}`,
+                borderRadius: 2,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1,
+              }}
+            >
+              <Skeleton variant="text" width={88} height={18} />
+              <Skeleton variant="text" width={72} height={32} />
+            </Box>
+          ))}
+        </Box>
+      ) : queueStatus ? (
         <StatTiles
           large
           tiles={[
@@ -227,10 +241,58 @@ const AIQueueMonitor: React.FC = () => {
             { label: 'Pending', value: selectedQueue?.length ?? 0, color: (selectedQueue?.length ?? 0) > 0 ? P.accentText : undefined, active: resultFilter === 'pending', onClick: () => toggleResult('pending'), title: 'Click to show the pending queue, click again to clear' },
           ]}
         />
-        </>
-      )}
+      ) : null}
 
-      {queueStatus && (
+      {!queueStatus && loading ? (
+        <Grid container spacing={2}>
+          <Grid item xs={12}>
+            <Card>
+              <CardContent sx={{ py: 1.5 }}>
+                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Typography sx={{ fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600 }}>
+                      Analysed in the last 24h
+                    </Typography>
+                  </Box>
+                </Box>
+                <TableContainer component={Paper} variant="outlined">
+                  <Table size="small" sx={{
+                    tableLayout: 'fixed',
+                    '& .MuiTableRow-root': { height: '40px' },
+                    '& .MuiTableCell-root': {
+                      px: 1, py: 0.5, fontSize: TYPOGRAPHY.body.size,
+                      whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                    },
+                  }}>
+                    <TableHead>
+                      <TableRow>
+                        <TableCell sx={{ py: 1, width: queueView === 'scripts' ? undefined : 150 }}>
+                          <strong>{queueView === 'scripts' ? 'Script' : 'Incident Type'}</strong>
+                        </TableCell>
+                        {queueView === 'incidents' && (
+                          <TableCell sx={{ py: 1, width: 110 }}><strong>Host</strong></TableCell>
+                        )}
+                        <TableCell sx={{ py: 1, width: 90 }}><strong>Status</strong></TableCell>
+                        <TableCell sx={{ py: 1, width: 190 }}><strong>Discard</strong></TableCell>
+                        <TableCell sx={{ py: 1, width: 110 }}><strong>Analyzed By</strong></TableCell>
+                        <TableCell sx={{ py: 1, width: 95 }}><strong>Comment</strong></TableCell>
+                        <TableCell sx={{ py: 1, width: 190 }}><strong>Analyzed At</strong></TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      <TableRowsSkeleton
+                        widths={queueView === 'incidents' ? [150, 110, 90, 190, 110, 95, 190] : [200, 90, 190, 110, 95, 190]}
+                        rows={12}
+                        rowHeight={40}
+                      />
+                    </TableBody>
+                  </Table>
+                </TableContainer>
+              </CardContent>
+            </Card>
+          </Grid>
+        </Grid>
+      ) : queueStatus ? (
         <Grid container spacing={2}>
           {/* Last 24h Analyzed Table */}
           {resultFilter !== 'pending' && <Grid item xs={12}>
@@ -238,7 +300,7 @@ const AIQueueMonitor: React.FC = () => {
               <CardContent sx={{ py: 1.5 }}>
                 <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Typography sx={{ fontSize: '1rem', fontWeight: 600 }}>
+                    <Typography sx={{ fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600 }}>
                       Analysed in the last 24h
                     </Typography>
                   </Box>
@@ -251,7 +313,7 @@ const AIQueueMonitor: React.FC = () => {
                     '& .MuiTableCell-root': {
                       px: 1,
                       py: 0.5,
-                      fontSize: '0.875rem',
+                      fontSize: TYPOGRAPHY.body.size,
                       whiteSpace: 'nowrap',
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
@@ -343,7 +405,7 @@ const AIQueueMonitor: React.FC = () => {
                                       label={discardReason(item.discard_comment)}
                                       variant={reasonFilter === discardReason(item.discard_comment) ? 'filled' : 'outlined'}
                                       onClick={() => setReasonFilter((cur) => (cur === discardReason(item.discard_comment) ? null : discardReason(item.discard_comment)))}
-                                      sx={{ height: 20, fontSize: '0.7rem' }}
+                                      sx={{ height: 20, fontSize: TYPOGRAPHY.caption.size }}
                                     />
                                   </Tooltip>
                                 )}
@@ -391,7 +453,7 @@ const AIQueueMonitor: React.FC = () => {
                       <Typography variant="h6" sx={{ my: 0 }}>
                         {queueView === 'incidents' ? 'Incidents Queue' : 'Scripts Queue'}
                       </Typography>
-                      <Box component="span" sx={{ fontSize: '0.72rem', fontWeight: 600, px: 1, py: 0.25, borderRadius: 999, color: selectedQueue.length > 0 ? P.accentText : P.textSecondary, bgcolor: selectedQueue.length > 0 ? `${P.accent}26` : P.hoverBg }}>
+                      <Box component="span" sx={{ fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, px: 1, py: 0.25, borderRadius: 999, color: selectedQueue.length > 0 ? P.accentText : P.textSecondary, bgcolor: selectedQueue.length > 0 ? `${P.accent}26` : P.hoverBg }}>
                         {selectedQueue.length} pending
                       </Box>
                     </Box>
@@ -421,7 +483,7 @@ const AIQueueMonitor: React.FC = () => {
                           </Typography>
                           <Box sx={{ maxHeight: 280, overflowY: 'auto' }}>
                             {selectedQueue.items.slice(0, 50).map((item, index) => (
-                              <Box key={index} sx={{ mb: 1, p: 1, borderRadius: 0.5, fontSize: '0.75rem' }}>
+                              <Box key={index} sx={{ mb: 1, p: 1, borderRadius: 0.5, fontSize: TYPOGRAPHY.caption.size }}>
                                 <Typography variant="caption" sx={{ fontWeight: 'bold' }}>
                                   ID: {item.id}
                                 </Typography>
@@ -444,7 +506,7 @@ const AIQueueMonitor: React.FC = () => {
             </Grid>
           )}
         </Grid>
-      )}
+      ) : null}
 
       {/* Clear Queue Dialog */}
       <StyledDialog
@@ -462,7 +524,7 @@ const AIQueueMonitor: React.FC = () => {
         </DialogContent>
         <DialogActions>
           <Button onClick={cancelClearQueue} color="primary">Cancel</Button>
-          <Button onClick={confirmClearQueue} color="error" variant="contained">Clear Queue</Button>
+          <Button onClick={confirmClearQueue} variant="contained" sx={dangerButtonSx(P)}>Clear Queue</Button>
         </DialogActions>
       </StyledDialog>
 

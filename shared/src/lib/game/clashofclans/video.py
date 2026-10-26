@@ -36,6 +36,9 @@ from typing import Any, List, Optional
 # Why 150? adb screenrecord's hard cap is 180 s on most encoders; 150
 # gives us a 30 s grace before the chunk closes itself.
 CHUNK_S = 150
+# 1 Mbps: low quality on purpose (owner, 2026-10-21): recordings are only kept 1 day on the host, a 600 MB run video was filling the SD card.
+BIT_RATE = 1_000_000
+PULL_TIMEOUT_S = 240
 SDCARD_TEMPLATE = "/sdcard/coc_rec_{n}.mp4"
 LOCAL_CHUNK_DIR = "/var/lib/vpt/coc_frames/rec_chunks"
 
@@ -163,6 +166,7 @@ class VideoRecorder:
                     "screenrecord",
                     f"--time-limit={self._chunk_s}",
                     "--output-format=mp4",
+                    f"--bit-rate={BIT_RATE}",
                     SDCARD_TEMPLATE.format(n=self._chunk_index),
                 ]
                 proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL,
@@ -211,7 +215,7 @@ class VideoRecorder:
         try:
             out = subprocess.run(
                 ["adb", "-s", serial, "pull", sdcard_path, local_path],
-                capture_output=True, timeout=30,
+                capture_output=True, timeout=PULL_TIMEOUT_S,
             )
             return out.returncode == 0 and os.path.exists(local_path) \
                    and os.path.getsize(local_path) > 0
@@ -273,6 +277,11 @@ class VideoRecorder:
             self._final_path = self._local_chunks[0]
             return self._final_path
         self._final_path = out_path
+        for c in self._local_chunks:  # joined: the chunks are a second copy of the same run
+            try:
+                os.unlink(c)
+            except OSError:
+                pass
         return self._final_path
 
 

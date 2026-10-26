@@ -1,0 +1,10 @@
+[Unit]
+Description=Run the Pokemon long-play dispatcher every minute (TASK-33)
+
+[Timer]
+OnBootSec=60
+OnUnitActiveSec=60
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target

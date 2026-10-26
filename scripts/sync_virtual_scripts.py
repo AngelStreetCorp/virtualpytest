@@ -66,6 +66,9 @@ API_KEY = os.environ.get("API_KEY", "")
 VERIFY_SSL = os.environ.get("VERIFY_SSL", "false").lower() in {"1", "true", "yes"}
 
 HEADERS = {"Content-Type": "application/json"}
+AUTO_SIGN = os.environ.get("AUTO_SIGN_TOKEN", "")   # test-token header (scripts/agent/auto_sign_token.sh)
+if AUTO_SIGN:
+    HEADERS["X-Auto-Sign"] = AUTO_SIGN
 if API_KEY:
     HEADERS["X-API-Key"] = API_KEY
     HEADERS["Authorization"] = f"Bearer {API_KEY}"

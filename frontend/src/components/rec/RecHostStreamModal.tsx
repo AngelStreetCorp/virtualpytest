@@ -1,5 +1,5 @@
 import { Box } from '@mui/material';
-import React, { useState, useCallback, useEffect, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
 import toast from 'react-hot-toast';
 
 import { VNCStateProvider } from '../../contexts/VNCStateContext';
@@ -22,19 +22,27 @@ import type { Ambiguity, AutoCorrection } from '../../types/aiagent/AIDisambigua
 import type { LiveStreamTransport, WhepStatus } from '../../types/controller/WebRTC_Types';
 import { Host, Device } from '../../types/common/Host_Types';
 import { getZIndex } from '../../utils/zIndexUtils';
-import { calculateVncScaling } from '../../utils/vncUtils';
 import { getLockTimingLines } from '../../utils/recUtils';
+import { whepFallbackNotice } from '../../utils/whepFallback';
 import { AIExecutionPanel } from '../ai';
+import { RecGotoNodePanel } from './RecGotoNodePanel';
+import { RecRunScriptPanel } from './RecRunScriptPanel';
+import { RecVoicePanel } from './RecVoicePanel';
 import { PromptDisambiguation } from '../ai/PromptDisambiguation';
 import { AIImageQueryModal } from '../monitoring';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 
 import { RecStreamModalHeader } from './RecStreamModalHeader';
 import { RecStreamContainer } from './RecStreamContainer';
+import { CaptionPlaybackPlayer } from './CaptionPlaybackPlayer';
+import { CAPTION_PROFILE, DEFAULT_DELAY_S } from '../../utils/captionPlayback';
+import { LolLiveOverlay } from '../game/lol/LolLiveOverlay';
 import { RecPanelManager } from './RecPanelManager';
 import { ScriptRunningOverlay } from './ScriptRunningOverlay';
 import { RunningScriptNameBadge } from './RunningScriptNameBadge';
+import { DeviceLockBadge, lockBadgeShows } from './DeviceLockBadge';
 import { useBackToClose } from '../../hooks/useBackToClose';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface RecHostStreamModalProps {
   host: Host;
@@ -48,8 +56,10 @@ interface RecHostStreamModalProps {
   // this modal are unaffected.
   minimalControls?: boolean;
   reusePreviewStream?: boolean;
+  // Open in archive mode at this host time of day (seconds since midnight, h*3600+m*60+s), e.g. from the Timeline page.
+  initialArchiveTime?: number | null;
   onPersistentStreamTargetChange?: (target: HTMLElement | null) => void;
-  onPersistentStreamStateChange?: (state: { muted: boolean; interactive: boolean; shouldPause: boolean; onPlayerReady: () => void; transport: LiveStreamTransport; reconnectKey: string; onWebRTCFailed: () => void; onWebRTCStatusChange: (status: WhepStatus) => void }) => void;
+  onPersistentStreamStateChange?: (state: { muted: boolean; interactive: boolean; shouldPause: boolean; onPlayerReady: () => void; transport: LiveStreamTransport; reconnectKey: string; onWebRTCFailed: (reason: string) => void; onWebRTCStatusChange: (status: WhepStatus) => void }) => void;
 }
 
 export const RecHostStreamModal: React.FC<RecHostStreamModalProps> = ({
@@ -61,6 +71,7 @@ export const RecHostStreamModal: React.FC<RecHostStreamModalProps> = ({
   initialPoster = null,
   minimalControls = false,
   reusePreviewStream = false,
+  initialArchiveTime = null,
   onPersistentStreamTargetChange,
   onPersistentStreamStateChange,
 }) => {
@@ -80,6 +91,7 @@ export const RecHostStreamModal: React.FC<RecHostStreamModalProps> = ({
         initialPoster={initialPoster}
         minimalControls={minimalControls}
         reusePreviewStream={reusePreviewStream}
+        initialArchiveTime={initialArchiveTime}
         onPersistentStreamTargetChange={onPersistentStreamTargetChange}
         onPersistentStreamStateChange={onPersistentStreamStateChange}
       />
@@ -95,11 +107,12 @@ const RecHostStreamModalContent: React.FC<{
   initialPoster: string | null;
   minimalControls: boolean;
   reusePreviewStream: boolean;
+  initialArchiveTime: number | null;
   onPersistentStreamTargetChange?: (target: HTMLElement | null) => void;
-  onPersistentStreamStateChange?: (state: { muted: boolean; interactive: boolean; shouldPause: boolean; onPlayerReady: () => void; transport: LiveStreamTransport; reconnectKey: string; onWebRTCFailed: () => void; onWebRTCStatusChange: (status: WhepStatus) => void }) => void;
-}> = ({ host, device, onClose, showRemoteByDefault, initialPoster, minimalControls, reusePreviewStream, onPersistentStreamTargetChange, onPersistentStreamStateChange }) => {
+  onPersistentStreamStateChange?: (state: { muted: boolean; interactive: boolean; shouldPause: boolean; onPlayerReady: () => void; transport: LiveStreamTransport; reconnectKey: string; onWebRTCFailed: (reason: string) => void; onWebRTCStatusChange: (status: WhepStatus) => void }) => void;
+}> = ({ host, device, onClose, showRemoteByDefault, initialPoster, minimalControls, reusePreviewStream, initialArchiveTime, onPersistentStreamTargetChange, onPersistentStreamStateChange }) => {
   const deviceId = device?.device_id || 'device1';
-  const { showError } = useToast();
+  const { showError, showWarning } = useToast();
 
   // Hide the global floating "Ask AI" Fab while this fullscreen stream modal is open.
   const { pushFloatingButtonSuppress, popFloatingButtonSuppress } = useAIContext();
@@ -108,7 +121,7 @@ const RecHostStreamModalContent: React.FC<{
     return () => popFloatingButtonSuppress();
   }, [pushFloatingButtonSuppress, popFloatingButtonSuppress]);
 
-  const { isDesktopDevice, isMobileModel, hasPowerControl } = useRecDeviceChecks(device);
+  const { isDesktopDevice, isMobileModel, hasPowerControl, canTakeControl } = useRecDeviceChecks(device);
 
   const {
     isControlActive,
@@ -127,16 +140,31 @@ const RecHostStreamModalContent: React.FC<{
     requireTreeId: false,
   });
 
-  const modes = useRecModalModes(showRemoteByDefault, isControlActive, isDesktopDevice);
+  const modes = useRecModalModes(
+    showRemoteByDefault,
+    isControlActive,
+    isDesktopDevice,
+    initialArchiveTime != null,
+    !!host.system_stats?.monitor_overlay_on?.includes(deviceId),
+  );
 
   const quality = useRecQualitySwitch(host, deviceId, showError);
 
   // HLS / WebRTC live view toggle (RTC button next to the quality group).
   const streamTransport = useStreamTransport(host.host_name, deviceId, device?.stream_protocol);
-  const handleWebRTCFailed = useCallback(() => {
-    streamTransport.setTransport('hls');
-    showError('WebRTC unavailable — back on HLS');
-  }, [streamTransport.setTransport, showError]);
+  const deviceLabel = device?.device_name || deviceId;
+  const handleWebRTCFailed = useCallback(
+    (reason: string) => {
+      streamTransport.setTransport('hls');
+      // Scoped to the device: the id is per device (not per page) so six devices failing give
+      // six bell rows instead of one that overwrites the others, and the link goes to that
+      // device instead of whatever page the modal was opened from — a modal never changes the
+      // URL, so `to` used to default to the heatmap the operator was looking at.
+      const { message, ...options } = whepFallbackNotice({ hostName: host.host_name, deviceLabel, deviceId, reason });
+      showError(message, options);
+    },
+    [streamTransport.setTransport, showError, host.host_name, deviceLabel, deviceId],
+  );
 
   const [currentSegmentUrl, setCurrentSegmentUrl] = useState<string | null>(null);
   const capture = useRecCaptureActions(
@@ -144,7 +172,8 @@ const RecHostStreamModalContent: React.FC<{
     device,
     currentSegmentUrl,
     modes.isLiveMode,
-    modes.restartMode
+    modes.restartMode,
+    streamTransport.transport
   );
 
   const layout = useRecStreamLayout(
@@ -206,6 +235,36 @@ const RecHostStreamModalContent: React.FC<{
   // An AI prompt run is a testcase execution, which writes the same running.log as a
   // deployment — poll it during the run so the step/action/verification overlay shows.
   const [isAiExecuting, setIsAiExecuting] = useState(false);
+  // One panel at a time from the Actions menu; the AI flag itself lives in useRecModalModes.
+  const [activePanel, setActivePanel] = useState<'ai' | 'goto' | 'script' | 'voice' | null>(null);
+  const { aiAgentMode, handleToggleAiAgent } = modes;
+  const handleSelectPanel = useCallback(
+    (panel: 'ai' | 'goto' | 'script' | 'voice') => {
+      const closing = activePanel === panel;
+      // Leaving the AI panel (closing it or switching to Go to node / Run script) turns AI mode off.
+      if (activePanel === 'ai' && aiAgentMode) handleToggleAiAgent();
+      if (closing) {
+        setActivePanel(null);
+        return;
+      }
+      if (panel === 'ai') {
+        if (!isControlActive) {
+          handleToggleAiAgent(); // shows the "take control first" warning
+          return;
+        }
+        if (!aiAgentMode) handleToggleAiAgent();
+      }
+      setActivePanel(panel);
+    },
+    [activePanel, aiAgentMode, handleToggleAiAgent, isControlActive],
+  );
+  // AI mode can be reset by other modes (live/archive, monitoring, restart): follow it.
+  useEffect(() => {
+    if (activePanel === 'ai' && !aiAgentMode) setActivePanel(null);
+  }, [activePanel, aiAgentMode]);
+  useEffect(() => {
+    if (!isControlActive) setActivePanel((p) => (p === 'goto' || p === 'script' || p === 'voice' ? null : p));
+  }, [isControlActive]);
   const { logData: runningLogData } = useRunningLog(
     host,
     device?.device_id,
@@ -285,9 +344,29 @@ const RecHostStreamModalContent: React.FC<{
     [modes.isLiveMode, modes.monitoringMode]
   );
 
+  // TASK-103: a caption_playback device is watched delay_s behind live from the archive, with captions.
+  const captionPlayback = useMemo(() => {
+    if (isControlActive || host.system_stats?.monitor_profiles?.[deviceId] !== CAPTION_PROFILE) return null;
+    return { delayS: host.system_stats?.monitor_profile_params?.[deviceId]?.delay_s ?? DEFAULT_DELAY_S };
+  }, [isControlActive, host.system_stats, deviceId]);
+
   const handleReleaseControl = useCallback(() => {
     modes.resetOnReleaseControl();
   }, [modes]);
+
+  // Belt-and-braces for the Control button's `disabled`: a click that lands on a
+  // stale render (capabilities just arrived, view re-rendered) must not lock a
+  // device that has no remote to drive.
+  const handleToggleControl = useCallback(() => {
+    if (!canTakeControl) {
+      showWarning('No remote configured for this device');
+      return;
+    }
+    handleDeviceControl();
+  }, [canTakeControl, handleDeviceControl, showWarning]);
+
+  // LoL zones/inputs overlay: off by default, offered on desktop (host_vnc) devices only.
+  const [lolOverlayOn, setLolOverlayOn] = useState(false);
 
   const [isMuted, setIsMuted] = useState<boolean>(true);
   const canReusePreviewStream =
@@ -388,11 +467,12 @@ const RecHostStreamModalContent: React.FC<{
           isLiveMode={modes.isLiveMode}
           currentQuality={quality.currentQuality}
           streamTransport={streamTransport.transport}
+          streamProtocol={device?.stream_protocol}
           onToggleStreamTransport={streamTransport.toggleTransport}
           isMuted={isMuted}
           isControlActive={isControlActive}
           isControlLoading={isControlLoading}
-          aiAgentMode={modes.aiAgentMode}
+          canTakeControl={canTakeControl}
           showWeb={modes.showWeb}
           isDesktopDevice={isDesktopDevice}
           hasPowerControl={!!hasPowerControl}
@@ -403,10 +483,14 @@ const RecHostStreamModalContent: React.FC<{
           onToggleLiveMode={modes.handleToggleLiveMode}
           onQualityChange={quality.handleQualityChange}
           onToggleMute={() => setIsMuted((prev) => !prev)}
-          onToggleControl={handleDeviceControl}
+          onToggleControl={handleToggleControl}
           onToggleMonitoring={modes.handleToggleMonitoring}
+          lolOverlayAvailable={isDesktopDevice}
+          lolOverlayOn={lolOverlayOn}
+          onToggleLolOverlay={() => setLolOverlayOn((v) => !v)}
           onToggleRestart={modes.handleToggleRestart}
-          onToggleAiAgent={modes.handleToggleAiAgent}
+          activePanel={activePanel}
+          onSelectPanel={handleSelectPanel}
           onToggleWeb={modes.handleToggleWeb}
           onClose={handleClose}
         />
@@ -438,6 +522,9 @@ const RecHostStreamModalContent: React.FC<{
             />
           )}
 
+          {captionPlayback ? (
+            <CaptionPlaybackPlayer host={host} deviceId={deviceId} delayS={captionPlayback.delayS} />
+          ) : (
           <RecStreamContainer
             host={host}
             device={device}
@@ -447,6 +534,7 @@ const RecHostStreamModalContent: React.FC<{
             monitoringMode={modes.monitoringMode}
             restartMode={modes.restartMode}
             isLiveMode={modes.isLiveMode}
+            archiveSeek={initialArchiveTime != null ? { time: initialArchiveTime, nonce: 1 } : null}
             isControlActive={isControlActive}
             currentQuality={quality.currentQuality}
             isQualitySwitching={quality.isQualitySwitching}
@@ -458,7 +546,6 @@ const RecHostStreamModalContent: React.FC<{
             showRemote={modes.showRemote}
             showWeb={modes.showWeb}
             finalStreamContainerDimensions={layout.finalStreamContainerDimensions}
-            calculateVncScaling={calculateVncScaling}
             onPlayerReady={handlePlayerReady}
             onVideoTimeUpdate={handleVideoTimeUpdate}
             onCurrentSegmentChange={setCurrentSegmentUrl}
@@ -469,11 +556,15 @@ const RecHostStreamModalContent: React.FC<{
             errorTrendData={monitoringData.errorTrendData || undefined}
             analysisTimestamp={monitoringData.analysisTimestamp || undefined}
             isAIAnalyzing={monitoringData.isAIAnalyzing}
+            captureFps={monitoringData.captureFps}
             onMeasuredAreaChange={handleMeasuredAreaChange}
             persistentStream={canReusePreviewStream}
             onPersistentStreamTargetChange={onPersistentStreamTargetChange}
             persistentWebRtcStatus={persistentWhepStatus}
           />
+          )}
+
+          {lolOverlayOn && isDesktopDevice && <LolLiveOverlay host={host} />}
 
           <RecPanelManager
             host={host}
@@ -486,11 +577,39 @@ const RecHostStreamModalContent: React.FC<{
             onReleaseControl={handleReleaseControl}
           />
 
+          {activePanel === 'goto' && isControlActive && device && (
+            <RecGotoNodePanel
+              host={host}
+              device={device}
+              isControlActive={isControlActive}
+              onClose={() => setActivePanel(null)}
+            />
+          )}
+
+          {activePanel === 'voice' && isControlActive && device && (
+            <RecVoicePanel
+              host={host}
+              device={device}
+              isControlActive={isControlActive}
+              onClose={() => setActivePanel(null)}
+            />
+          )}
+
+          {activePanel === 'script' && isControlActive && device && (
+            <RecRunScriptPanel
+              host={host}
+              device={device}
+              isControlActive={isControlActive}
+              onClose={() => setActivePanel(null)}
+            />
+          )}
+
           <AIExecutionPanel
             host={host}
             device={device!}
             isControlActive={isControlActive}
-            isVisible={modes.aiAgentMode && isControlActive}
+            isVisible={activePanel === 'ai' && modes.aiAgentMode && isControlActive}
+            onClose={() => handleSelectPanel('ai')}
             onDisambiguationDataChange={handleDisambiguationDataChange}
             onExecutingChange={setIsAiExecuting}
           />
@@ -502,16 +621,37 @@ const RecHostStreamModalContent: React.FC<{
             />
           )}
 
-          {!runningLogData && (hasNamedDeployment || lockOwnerLabel) && (
+          {/* Bottom-right carries the SCRIPT only. It used to print the owner here as well, and
+              once DeviceLockBadge took the operator name to bottom-left the same words
+              appeared in both corners — verified live, where a manual-control tile read the
+              operator's name twice: once in the blue lock and once in this black pill. One
+              corner, one fact: WHO is on the device (left, blue lock), WHAT is running
+              (right, here). */}
+          {!runningLogData && hasNamedDeployment && (
             <RunningScriptNameBadge
-              scriptName={hasNamedDeployment ? deploymentScriptLabel : null}
-              ownerName={lockOwnerLabel}
+              scriptName={deploymentScriptLabel}
               sx={{
                 right: layout.scriptNameRightOffset || 8,
                 bottom: 8,
                 zIndex: 25,
+                // Same reasoning as the tile: RunningScriptNameBadge's 85% default is wide
+                // enough to reach the blue lock at bottom-left on a narrow stream area.
+                maxWidth: lockBadgeShows(lockOwnerLabel) ? '46%' : '85%',
               }}
-              textSx={{ fontWeight: 'bold', fontSize: '0.75rem' }}
+              textSx={{ fontWeight: 'bold', fontSize: TYPOGRAPHY.caption.size }}
+            />
+          )}
+
+          {/* Who holds the device, bottom-left (owner 2026-10-22). Names the operator only —
+              the script name already has the bottom-right badge above. Suppressed while the
+              running-log overlay is up: that overlay already owns this corner with its own
+              lock chip, and the two stacked on top of each other unreadably. */}
+          {!runningLogData && (
+            <DeviceLockBadge
+              ownerName={lockOwnerLabel}
+              scriptLockActive={hasNamedDeployment}
+              timing={lockTiming}
+              sx={{ zIndex: 25 }}
             />
           )}
         </Box>

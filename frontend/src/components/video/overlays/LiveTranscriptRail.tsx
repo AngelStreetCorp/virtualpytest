@@ -3,6 +3,7 @@ import { Box, Typography, IconButton } from '@mui/material';
 import React, { useEffect, useRef } from 'react';
 
 import { LiveTranscriptLine } from '../hooks/useLiveTranscriptFeed';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface LiveTranscriptRailProps {
   lines: LiveTranscriptLine[];
@@ -71,12 +72,12 @@ export const LiveTranscriptRail: React.FC<LiveTranscriptRailProps> = ({ lines, s
           flexShrink: 0,
         }}
       >
-        <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, letterSpacing: 0.5 }}>
+        <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, letterSpacing: 0.5 }}>
           TRANSCRIPT
         </Typography>
         {onClose && (
           <IconButton size="small" onClick={onClose} sx={{ color: 'white', p: 0.25 }}>
-            <Close sx={{ fontSize: '1rem' }} />
+            <Close sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
           </IconButton>
         )}
       </Box>
@@ -97,20 +98,20 @@ export const LiveTranscriptRail: React.FC<LiveTranscriptRailProps> = ({ lines, s
         }}
       >
         {lines.length === 0 ? (
-          <Typography sx={{ fontSize: '0.75rem', color: 'rgba(255, 255, 255, 0.5)' }}>
+          <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: 'rgba(255, 255, 255, 0.5)' }}>
             Waiting for speech…
           </Typography>
         ) : (
           orderedLines.map((line) => (
             <Box key={line.id} sx={{ mb: 1 }}>
               <Typography
-                sx={{ fontSize: '0.65rem', color: 'rgba(255, 255, 255, 0.5)', lineHeight: 1.2 }}
+                sx={{ fontSize: TYPOGRAPHY.microMeta.size, color: 'rgba(255, 255, 255, 0.5)', lineHeight: 1.2 }}
               >
                 {line.timestamp}
               </Typography>
               <Typography
                 title={line.rawText ? `Original: ${line.rawText}` : undefined}
-                sx={{ fontSize: '0.8rem', lineHeight: 1.35, color: line.corrected ? '#9be7ff' : 'inherit' }}
+                sx={{ fontSize: TYPOGRAPHY.body.size, lineHeight: 1.35, color: line.corrected ? '#9be7ff' : 'inherit' }}
               >
                 {line.text}
               </Typography>

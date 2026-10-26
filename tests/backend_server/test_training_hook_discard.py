@@ -82,7 +82,20 @@ def test_alert_discard_labels_every_sample_as_no_incident(env):
     assert resp.status_code == 200 and resp.get_json() == {"status": "success"}
     assert env["lookups"] == [(TEAM, "alert_id", "alert-1")]
     assert env["attached"] == [(s, TEAM, {"incident_type": None}, "human") for s in ("s1", "s2", "s3")]
-    assert env["alert_lookups"] == []
+    assert env["alert_lookups"] == ["alert-1"]  # one lookup: its screen id teaches the screen memory (BUG-0746)
+
+
+def test_a_person_s_discard_and_keep_through_the_route_teach_the_screen(env, monkeypatch):
+    """BUG-0746: the route had stopped calling the screen-memory teacher on a Discard."""
+    from shared.src.lib.database import screen_fingerprints_db as sdb
+    taught = []
+    monkeypatch.setattr(alerts_routes, "get_alert_by_id",
+                        lambda i: {"id": i, "incident_type": "freeze", "metadata": {"screen_id": "scr-1"}})
+    monkeypatch.setattr(sdb, "set_human_verdict", lambda s, e, a: taught.append((s, e, a)))
+    _alert(env, {"discard": True, "check_type": "manual"})
+    _alert(env, {"discard": False, "check_type": "manual"})
+    _alert(env, {"discard": True, "check_type": "ai"})
+    assert taught == [("scr-1", True, "alert-1"), ("scr-1", False, "alert-1")]
 
 
 def test_alert_manual_confirm_labels_with_the_alert_type(env):

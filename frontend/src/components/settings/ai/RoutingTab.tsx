@@ -7,21 +7,24 @@ import {
   Add as AddIcon,
   Delete as DeleteIcon,
   Edit as EditIcon,
+  ExpandMore as ExpandMoreIcon,
+  Search as SearchIcon,
+  UnfoldLess as UnfoldLessIcon,
+  UnfoldMore as UnfoldMoreIcon,
 } from '@mui/icons-material';
 import {
   Alert,
   Box,
   Button,
-  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControlLabel,
   Grid,
   IconButton,
+  InputAdornment,
   MenuItem,
   Table,
   TableBody,
@@ -32,14 +35,18 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 
 import { useConfirmDialog } from '../../../hooks/useConfirmDialog';
 import { ConfirmDialog } from '../../common/ConfirmDialog';
+import SettingRow from '../../common/SettingRow';
 import type { AiTabContext } from '../AiRoutingSettings';
 
 import { TEAM_ID, aiApi, errorMessage, numOrNull, strOrNull, type RoutePayload } from './api';
 import { isResolutionError, type AiProfile, type AiRoute, type AiUsage } from './types';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../../constants/typography';
+import { neutralButtonSx, toggleSx } from '../../common/PageChrome';
 
 const ROOT_KEYS = new Set(['agent', 'vision', 'text']);
 
@@ -76,6 +83,39 @@ const buildTree = (usages: AiUsage[]): TreeRow[] => {
   };
   roots.forEach((r) => walk(r, 0));
   return rows;
+};
+
+const OPEN_STORAGE_KEY = 'virtualpytest:ai-routing-open';
+
+const loadOpen = (rows: TreeRow[]): Set<string> => {
+  try {
+    const saved = localStorage.getItem(OPEN_STORAGE_KEY);
+    if (saved) return new Set(JSON.parse(saved) as string[]);
+  } catch {
+    // storage unavailable: fall through to the default
+  }
+  return new Set(rows.filter((r) => r.depth === 0).map((r) => r.usage.key));
+};
+
+/** Index one past the last descendant of rows[i] (rows are depth-first). */
+const subtreeEnd = (rows: TreeRow[], i: number): number => {
+  let j = i + 1;
+  while (j < rows.length && rows[j].depth > rows[i].depth) j++;
+  return j;
+};
+
+const Highlight: React.FC<{ text: string; query: string }> = ({ text, query }) => {
+  const at = query ? text.toLowerCase().indexOf(query) : -1;
+  if (at < 0) return <>{text}</>;
+  return (
+    <>
+      {text.slice(0, at)}
+      <Box component="mark" sx={{ bgcolor: 'warning.light', color: 'inherit', borderRadius: 0.5 }}>
+        {text.slice(at, at + query.length)}
+      </Box>
+      {text.slice(at + query.length)}
+    </>
+  );
 };
 
 interface RouteForm {
@@ -127,6 +167,36 @@ export const RoutingTab: React.FC<{ ctx: AiTabContext; canEditTeam: boolean }> =
   const [form, setForm] = useState<RouteForm>(formFrom(null));
   const [saving, setSaving] = useState(false);
   const [dialogError, setDialogError] = useState<string | null>(null);
+
+  const P = useAgentChatPalette();
+  const [open, setOpen] = useState<Set<string>>(() => loadOpen(rows));
+  const [query, setQuery] = useState('');
+  const [onlyOverridden, setOnlyOverridden] = useState(false);
+  const [onlyCalls, setOnlyCalls] = useState(false);
+  const [onlyFallback, setOnlyFallback] = useState(false);
+  const q = query.trim().toLowerCase();
+  const filtering = Boolean(q) || onlyOverridden || onlyCalls || onlyFallback;
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(OPEN_STORAGE_KEY, JSON.stringify([...open]));
+    } catch {
+      // storage unavailable: the state just isn't remembered
+    }
+  }, [open]);
+
+  const parentKeys = useMemo(
+    () => rows.filter((_r, i) => subtreeEnd(rows, i) > i + 1).map((r) => r.usage.key),
+    [rows],
+  );
+  const toggleOpen = (key: string) =>
+    setOpen((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(key)) next.add(key);
+      return next;
+    });
+  const openToLevel = (level: number) =>
+    setOpen(new Set(rows.filter((r, i) => r.depth < level && subtreeEnd(rows, i) > i + 1).map((r) => r.usage.key)));
 
   const set = <K extends keyof RouteForm>(key: K, value: RouteForm[K]) =>
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -256,7 +326,7 @@ export const RoutingTab: React.FC<{ ctx: AiTabContext; canEditTeam: boolean }> =
           {chip}
           {eff.split_arm && <Chip size="small" variant="outlined" label={`split arm: ${eff.split_arm}`} />}
         </Box>
-        {fallbacks.length > 0 && (
+        {fallbacks.length > 0 && eff.via === usage.key && (
           <Typography variant="caption" color="text.secondary" display="block">
             fallback: {fallbacks.map((h) => `${h.profile} (${h.model})`).join(' → ')}
           </Typography>
@@ -306,7 +376,7 @@ export const RoutingTab: React.FC<{ ctx: AiTabContext; canEditTeam: boolean }> =
                 variant="outlined"
                 color={route.team_id ? 'primary' : 'default'}
                 label={route.team_id ? 'team' : 'default'}
-                sx={{ height: 18, fontSize: 10 }}
+                sx={{ height: 18, fontSize: TYPOGRAPHY.microMeta.size }}
               />
               <Typography variant="caption">
                 {profileName(route.profile_id)}
@@ -318,11 +388,11 @@ export const RoutingTab: React.FC<{ ctx: AiTabContext; canEditTeam: boolean }> =
               {editable && (
                 <>
                   <IconButton size="small" onClick={() => openRoute(usage, route.team_id, route)} sx={{ p: 0.25 }}>
-                    <EditIcon sx={{ fontSize: 14 }} />
+                    <EditIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                   </IconButton>
                   {!isProtectedRoot(route) && (
                     <IconButton size="small" onClick={() => remove(route)} sx={{ p: 0.25 }}>
-                      <DeleteIcon sx={{ fontSize: 14 }} />
+                      <DeleteIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                     </IconButton>
                   )}
                 </>
@@ -334,6 +404,53 @@ export const RoutingTab: React.FC<{ ctx: AiTabContext; canEditTeam: boolean }> =
     );
   };
 
+  const rowMatches = (usage: AiUsage): boolean => {
+    const eff = config.effective[usage.key];
+    const hop = eff && !isResolutionError(eff) ? eff.chain[0] : undefined;
+    if (q) {
+      const hay = [
+        usage.label,
+        usage.key,
+        hop?.profile,
+        hop?.model,
+        hop?.endpoint,
+        ...config.routes.filter((r) => r.usage_key === usage.key).map((r) => profileName(r.profile_id)),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+      if (!hay.includes(q)) return false;
+    }
+    if (onlyOverridden && !config.routes.some((r) => r.usage_key === usage.key && r.team_id)) return false;
+    if (onlyCalls && !stats[usage.key]?.calls) return false;
+    if (onlyFallback && !(eff && !isResolutionError(eff) && eff.chain.length > 1 && stats[usage.key]?.fallbacks)) return false;
+    return true;
+  };
+
+  const visibleRows = useMemo(() => {
+    const out: { row: TreeRow; hiddenCount: number; isOpen: boolean }[] = [];
+    const keep = filtering ? rows.map((r) => rowMatches(r.usage)) : [];
+    if (filtering) {
+      for (let i = rows.length - 1; i >= 0; i--) {
+        if (!keep[i]) {
+          const end = subtreeEnd(rows, i);
+          for (let j = i + 1; j < end; j++) if (keep[j]) keep[i] = true;
+        }
+      }
+    }
+    let hideBelow = -1;
+    rows.forEach((row, i) => {
+      if (hideBelow >= 0 && row.depth > hideBelow) return;
+      hideBelow = -1;
+      if (filtering && !keep[i]) return;
+      const count = subtreeEnd(rows, i) - i - 1;
+      const isOpen = filtering || open.has(row.usage.key);
+      if (count > 0 && !isOpen) hideBelow = row.depth;
+      out.push({ row, hiddenCount: count, isOpen });
+    });
+    return out;
+  }, [rows, open, q, onlyOverridden, onlyCalls, onlyFallback, filtering, config.effective, config.routes, stats]);
+
   const editingRoot = editing?.route ? isProtectedRoot(editing.route) : false;
   const dialogProfiles = editing ? compatibleProfiles(editing.usage, editing.teamId) : [];
   // Keep the route's current profiles selectable even if no longer "compatible" (e.g. disabled).
@@ -344,6 +461,49 @@ export const RoutingTab: React.FC<{ ctx: AiTabContext; canEditTeam: boolean }> =
 
   return (
     <Box>
+      <Box display="flex" gap={1} alignItems="center" flexWrap="wrap" mb={1}>
+        <TextField
+          size="small"
+          placeholder="Search usage, key, profile, model or endpoint"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          sx={{ flex: 1, minWidth: 220 }}
+          InputProps={{
+            startAdornment: (
+              <InputAdornment position="start">
+                <SearchIcon fontSize="small" />
+              </InputAdornment>
+            ),
+          }}
+        />
+        <Button size="small" startIcon={<UnfoldMoreIcon />} onClick={() => setOpen(new Set(parentKeys))} sx={neutralButtonSx(P)}>
+          Expand all
+        </Button>
+        <Button size="small" startIcon={<UnfoldLessIcon />} onClick={() => setOpen(new Set())} sx={neutralButtonSx(P)}>
+          Collapse all
+        </Button>
+      </Box>
+      <Box display="flex" gap={1} alignItems="center" flexWrap="wrap" mb={1}>
+        <Button size="small" onClick={() => setOnlyOverridden((v) => !v)} sx={toggleSx(P, onlyOverridden)}>
+          Overridden only
+        </Button>
+        <Button size="small" onClick={() => setOnlyCalls((v) => !v)} sx={toggleSx(P, onlyCalls)}>
+          Has calls (24h)
+        </Button>
+        <Button size="small" onClick={() => setOnlyFallback((v) => !v)} sx={toggleSx(P, onlyFallback)}>
+          Used fallback
+        </Button>
+        <Box flex={1} />
+        <Typography variant="caption" color="text.secondary">
+          Show
+        </Typography>
+        <Button size="small" onClick={() => openToLevel(1)} sx={neutralButtonSx(P)}>
+          Level 1
+        </Button>
+        <Button size="small" onClick={() => openToLevel(2)} sx={neutralButtonSx(P)}>
+          Level 2
+        </Button>
+      </Box>
 
       <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 560, '& .MuiTableCell-root': { overflowWrap: 'anywhere' } }}>
 <colgroup><col style={{ width: 200 }} /><col /><col style={{ width: 100 }} />{(canEditTeam || admin) && <col style={{ width: 90 }} />}</colgroup>
@@ -356,20 +516,64 @@ export const RoutingTab: React.FC<{ ctx: AiTabContext; canEditTeam: boolean }> =
           </TableRow>
         </TableHead>
         <TableBody>
-          {rows.map(({ usage, depth }) => {
+          {visibleRows.length === 0 && (
+            <TableRow>
+              <TableCell colSpan={4} align="center" sx={{ py: 3 }}>
+                <Typography variant="body2" color="text.secondary">
+                  No usage matches.{' '}
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      setQuery('');
+                      setOnlyOverridden(false);
+                      setOnlyCalls(false);
+                      setOnlyFallback(false);
+                    }}
+                  >
+                    Clear filters
+                  </Button>
+                </Typography>
+              </TableCell>
+            </TableRow>
+          )}
+          {visibleRows.map(({ row: { usage, depth }, hiddenCount, isOpen }) => {
             const hasTeamRoute = config.routes.some(
               (r) => r.usage_key === usage.key && r.team_id && !scopeLabel(r),
             );
             return (
               <TableRow key={usage.key} sx={{ verticalAlign: 'top' }}>
-                <TableCell sx={{ pl: 1 + depth * 3 }}>
+                <TableCell sx={{ pl: 0.5 + depth * 2.5 }}>
+                  <Box display="flex" alignItems="flex-start" gap={0.25}>
+                    {hiddenCount > 0 ? (
+                      <IconButton
+                        size="small"
+                        onClick={() => toggleOpen(usage.key)}
+                        disabled={filtering}
+                        aria-label={isOpen ? `Collapse ${usage.label}` : `Expand ${usage.label}`}
+                        sx={{ p: 0.25 }}
+                      >
+                        <ExpandMoreIcon
+                          fontSize="small"
+                          sx={{ transform: isOpen ? 'none' : 'rotate(-90deg)', transition: 'transform .12s' }}
+                        />
+                      </IconButton>
+                    ) : (
+                      <Box sx={{ width: 24, flex: 'none' }} />
+                    )}
+                    <Box minWidth={0}>
                   <Tooltip title={usage.description}>
                     <Typography variant="body2" fontWeight={depth === 0 ? 600 : 400}>
-                      {usage.label}
+                      <Highlight text={usage.label} query={q} />
+                      {hiddenCount > 0 && !isOpen && (
+                        <Typography component="span" variant="caption" color="text.secondary">
+                          {' '}
+                          · {hiddenCount} hidden
+                        </Typography>
+                      )}
                     </Typography>
                   </Tooltip>
                   <Typography variant="caption" color="text.secondary" sx={{ fontFamily: 'monospace' }}>
-                    {usage.key}
+                    <Highlight text={usage.key} query={q} />
                   </Typography>
                   {usage.needs.length > 0 && depth === 0 && (
                     <Typography variant="caption" color="text.secondary">
@@ -378,6 +582,8 @@ export const RoutingTab: React.FC<{ ctx: AiTabContext; canEditTeam: boolean }> =
                     </Typography>
                   )}
                   {renderRoutes(usage)}
+                    </Box>
+                  </Box>
                 </TableCell>
                 <TableCell>{renderEffective(usage)}</TableCell>
                 <TableCell>{renderStats(usage.key)}</TableCell>
@@ -530,10 +736,7 @@ export const RoutingTab: React.FC<{ ctx: AiTabContext; canEditTeam: boolean }> =
             </Grid>
             {!editingRoot && (
               <Grid item xs={6} sm={8}>
-                <FormControlLabel
-                  control={<Checkbox checked={form.enabled} onChange={(e) => set('enabled', e.target.checked)} />}
-                  label="Enabled"
-                />
+<SettingRow title="Enabled" checked={form.enabled} onChange={(on) => set('enabled', on)} />
               </Grid>
             )}
           </Grid>

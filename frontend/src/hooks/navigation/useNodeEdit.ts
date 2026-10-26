@@ -9,7 +9,7 @@ import { Host } from '../../types/common/Host_Types';
 import { NodeForm, UINavigationNode } from '../../types/pages/Navigation_Types';
 import { Verification } from '../../types/verification/Verification_Types';
 import { api } from '../../utils/apiClient';
-import { buildServerUrl } from '../../utils/buildUrlUtils';
+import { buildHostServerUrl, buildServerUrl } from '../../utils/buildUrlUtils';
 import { RecordAs, useVerification } from '../verification/useVerification';
 
 export interface UseNodeEditProps {
@@ -210,7 +210,7 @@ export const useNodeEdit = ({
           if (!selectedHost?.host_name) {
             blockedByNoHost = true;
             console.error(
-              '[useNodeEdit] ⚠️ Text reference differs from node but no host is selected — ' +
+              '[useNodeEdit] Text reference differs from node but no host is selected — ' +
                 'cannot propagate to verifications_references.',
             );
             continue;
@@ -223,7 +223,7 @@ export const useNodeEdit = ({
           });
 
           try {
-            await api.post(buildServerUrl('/server/verification/text/saveText'), {
+            await api.post(buildHostServerUrl(selectedHost, '/server/verification/text/saveText'), {
               host_name: selectedHost.host_name,
               reference_name: refName, // un-suffixed DB name
               userinterface_name: referenceKey,

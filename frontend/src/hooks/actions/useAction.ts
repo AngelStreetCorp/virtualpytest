@@ -3,7 +3,7 @@ import { useState, useCallback, useEffect } from 'react';
 import { useDeviceData } from '../../contexts/device/DeviceDataContext';
 import type { EdgeAction } from '../../types/controller/Action_Types';
 
-import { buildServerUrl, buildServerUrlWithParams } from '../../utils/buildUrlUtils';
+import { buildHostServerUrl, buildHostServerUrlWithParams } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
 import { waitForExecutionSocketEvent } from '../../utils/executionSocketWait';
 
@@ -192,7 +192,7 @@ export const useAction = () => {
           `[useAction] Fetching from: /server/action/executeBatch with host: ${currentHost?.host_name} and device: ${currentDeviceId}`,
         );
 
-        const responseData = await api.post(buildServerUrl('/server/action/executeBatch'), {
+        const responseData = await api.post(buildHostServerUrl(currentHost, '/server/action/executeBatch'), {
           host_name: currentHost.host_name,
           device_id: currentDeviceId,
           // Editor-driven Edge Run / action batch = interactive test. Marks
@@ -223,7 +223,7 @@ export const useAction = () => {
 
             try {
               const statusResponse = await api.get<any>(
-                buildServerUrlWithParams(`/server/action/execution/${executionId}/status`, {
+                buildHostServerUrlWithParams(currentHost, `/server/action/execution/${executionId}/status`, {
                   host_name: currentHost.host_name,
                   device_id: currentDeviceId || undefined,
                 }),
@@ -307,7 +307,7 @@ export const useAction = () => {
         if (error instanceof DOMException && error.name === 'AbortError') {
           return {
             success: false,
-            message: '⏹️ Action execution aborted by user',
+            message: 'Action execution aborted by user',
             error: 'Action execution aborted by user',
           };
         }
@@ -335,7 +335,7 @@ export const useAction = () => {
 
     if (runningExecutionId && currentHost && currentDeviceId) {
       try {
-        await api.post(buildServerUrl('/server/action/abortExecution'), {
+        await api.post(buildHostServerUrl(currentHost, '/server/action/abortExecution'), {
           host_name: currentHost.host_name,
           device_id: currentDeviceId,
           execution_id: runningExecutionId,
@@ -361,9 +361,8 @@ export const useAction = () => {
     if (!result.results || result.results.length === 0) {
       // No per-action breakdown available — surface the summary message
       // (already formatted as "Execution X/Y passed in Xm:YYs"), prefixed
-      // with the success/failure marker so panel bgcolor matching works.
-      const icon = result.success ? '✅' : '❌';
-      return `${icon} ${result.message}`;
+      // with the words "Execution completed" / "Execution failed" so panel colour matching works.
+      return `${result.success ? 'Execution completed' : 'Execution failed'}: ${result.message}`;
     }
 
     const lines: string[] = [];
@@ -406,10 +405,10 @@ export const useAction = () => {
       const annotationStr = annotations.length ? ` [${annotations.join(', ')}]` : '';
 
       if (actionResult.success) {
-        return `✅ ${label}${annotationStr}`;
+        return `${label}${annotationStr}`;
       }
       const detail = actionResult.error || actionResult.message;
-      return detail ? `❌ ${label}${annotationStr}: ${detail}` : `❌ ${label}${annotationStr}`;
+      return detail ? `${label}${annotationStr}: ${detail}` : `${label}${annotationStr}`;
     };
 
     result.results.forEach((actionResult: any) => {
@@ -427,18 +426,18 @@ export const useAction = () => {
           // Repeat-until rows carry the press → wait → check cycle; the icon is
           // the CHECK outcome, not just "the key press was sent".
           if (typeof iteration.condition_met === 'boolean') {
-            const checkIcon = iteration.condition_met ? '✅' : '❌';
-            const press = iteration.success ? 'press ✓' : `press ✗ ${iteration.message}`;
+            const checkWord = iteration.condition_met ? 'passed' : 'failed';
+            const press = iteration.success ? 'press ' : `press ${iteration.message}`;
             const check = iteration.condition_met ? 'check met' : 'check not met';
             const verifyMsg = iteration.verify_message ? ` - ${iteration.verify_message}` : '';
             lines.push(
-              `   ${checkIcon} Iteration ${iteration.iteration}/${max}: ${press} (${iteration.press_ms}ms) · wait ${iteration.wait_ms}ms · ${check} (${iteration.verify_ms}ms)${verifyMsg}`,
+              `   Iteration ${iteration.iteration}/${max} ${checkWord}: ${press} (${iteration.press_ms}ms) · wait ${iteration.wait_ms}ms · ${check} (${iteration.verify_ms}ms)${verifyMsg}`,
             );
             return;
           }
-          const iterationIcon = iteration.success ? '✅' : '❌';
+          const iterationWord = iteration.success ? 'passed' : 'failed';
           lines.push(
-            `   ${iterationIcon} Iteration ${iteration.iteration}/${max}: ${iteration.message} (${iteration.execution_time_ms}ms)`,
+            `   Iteration ${iteration.iteration}/${max} ${iterationWord}: ${iteration.message} (${iteration.execution_time_ms}ms)`,
           );
         });
       }
@@ -446,13 +445,13 @@ export const useAction = () => {
 
     const passed = result.passed_count ?? result.results.filter((r: any) => r.success).length;
     const total = result.total_count ?? result.results.length;
-    const icon = result.success ? '✅' : '❌';
+    const verdict = result.success ? 'Execution completed' : 'Execution failed';
     const durationStr =
       typeof result.duration_ms === 'number' ? formatActionDuration(result.duration_ms) : null;
     lines.push(
       durationStr
-        ? `${icon} Execution ${passed}/${total} passed in ${durationStr}`
-        : `${icon} Execution ${passed}/${total} passed`,
+        ? `${verdict}: ${passed}/${total} passed in ${durationStr}`
+        : `${verdict}: ${passed}/${total} passed`,
     );
 
     return lines.join('\n');

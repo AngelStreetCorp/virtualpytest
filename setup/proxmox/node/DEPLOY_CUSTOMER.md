@@ -104,7 +104,7 @@ units reconciled on hosts, `frontend/.env.local` generated.
    feature systemd units (section below)**, restart the target's service, wait for
    active/running, host role: restart the re-rendered feature units, `--restart`
    optionally restarts the aux services that were already active (vpt-stream,
-   vpt-monitor, vpt-subtitle, vpt-transcript, vpt-archiver, vpt-kpi + every enabled
+   vpt-monitor-img, vpt-monitor-subtitle, vpt-monitor-audio, vpt-archiver, vpt-kpi + every enabled
    feature unit, e.g. vpt-avq). Server/host = best-effort, frontend = critical (same as
    canonical).
 5. `--dry-run`: step 4 becomes `rsync -n -i` per target — the itemized change list is
@@ -541,3 +541,70 @@ systemd dir holding a stale `vpt-avq.service` (old `ExecStart`), a marker unit
 `vpt-gone.service` of a feature not in the tree, and core units — it prints
 `would render vpt-avq.service (features/avq, changed)` with the diff, `would disable --now
 vpt-gone.service`, `core units (never touched): vpt-host.service vpt-stream.service`.
+
+## Build a bundle from any source, deploy it, follow it (TASK-99)
+
+`build_customer_bundle.sh` stages and packs a checkout it is given. `lib/customer_bundle.py` gets that
+checkout from whatever the build machine can reach, so the same archive (+ `.sha256` + `DELIVERY-*.md`)
+comes out of every combination:
+
+| Core \ Overlay | `gitlab:<project>@<ref>` | `github:<url>@<ref>` | `zip:<path>` | `none` |
+|---|---|---|---|---|
+| `github:<tag>` | customer on a LAN GitLab | overlay on GitHub | overlay handed over | plain platform |
+| `zip:<path>` | offline core, LAN GitLab | rare, allowed | fully offline delivery | offline platform |
+
+```bash
+# GitHub tag + the integrated GitLab (token via env, never argv; one URL serves API and clone)
+VPT_GITLAB_URL=http://gitlab.internal VPT_GITLAB_TOKEN=glpat-... \
+  python3 setup/proxmox/node/lib/customer_bundle.py build --core github:main-2026.10.13-63726 \
+    --overlay gitlab:group/customer-overlay@main [--format zip|tar.gz] [--prev-pin <ref>] [--out <dir>]
+# GitHub overlay (VPT_GITHUB_TOKEN only for a private repo; reaches git through askpass)
+python3 setup/proxmox/node/lib/customer_bundle.py build --core github:v1.0.0 --overlay github:acme/overlay@prod
+# fully offline
+python3 setup/proxmox/node/lib/customer_bundle.py build --core zip:/media/vpt-core.zip --overlay zip:/media/overlay.zip
+# platform only
+python3 setup/proxmox/node/lib/customer_bundle.py build --core github:v1.0.0 --overlay none
+python3 setup/proxmox/node/lib/customer_bundle.py candidates   # what each source can offer right now (JSON)
+```
+
+- **Core zip**: extracted safely (absolute paths, `..`, backslashes, symlinks leaving the tree, and archives
+  expanding past `VPT_ZIP_MAX_MB`, default 2048, are refused), the folder holding `VERSION.txt` and
+  `setup/proxmox/node/build_customer_bundle.sh` is found (GitHub's "Download ZIP" wraps one level), made a
+  one-commit git tree with a fixed author and tagged with its `VERSION.txt` `current:` value, then built
+  like a clone (`--pin <that tag>`). The delivery note has no changelog: it says
+  "Changelog unavailable (zip source)" (`delivery_note.sh` does the same, worded without "zip", when no
+  previous release can be resolved).
+- **Overlay zip** must carry `customer.conf` (`customer.conf` also gates a GitLab/GitHub overlay). The archive is
+  named after the overlay folder / repo / zip name without `vpt-customer-`, `none` gives `vpt-platform-...`.
+- `--gitlab-url` and `VPT_GITLAB_TOKEN` are needed only for a `gitlab:` overlay. `candidates` reports per source
+  `usable` + the reason or error, so an offline machine still shows zip and none.
+
+### Deploy that exact bundle: `deploy_bundle.sh`
+
+```bash
+bash setup/proxmox/node/deploy_bundle.sh vpt-acme-main-2026.10.13-63726_prod-2026.10.14-3.zip [--replace-checkout] [update_core args...]
+VPT_LEASE_AGENT=<agent> bash deploy_bundle.sh <archive> --server --frontend
+```
+
+Checks first, all before `REPO_DIR` (default `~/virtualpytest`) is touched: `<archive>.sha256` must exist and
+match; archive paths must be safe; one top-level `virtualpytest/` with `BUNDLE_MANIFEST.txt` and no `.git`;
+a `.git` in `REPO_DIR` is refused without `--replace-checkout`. Then the archive is extracted into a fresh
+sibling folder, `REPO_DIR` is renamed to `<REPO_DIR>.bak-<timestamp>` (the backup, kept), the new tree is
+renamed into place (the backup is renamed back if that fails) and `update_core.sh` runs on it with
+`VPT_LEASE_AGENT` and `REPO_DIR` in its environment. `update_core.sh` is `$VPT_UPDATE_CORE`, else `~/update_core.sh`
+(that copy keeps the node's own target lists), else the bundle's copy. Exit status is `update_core.sh`'s.
+
+### Deploy progress events
+
+`update_core.sh` keeps its log and adds one line per host phase boundary:
+
+```
+VPT_PROGRESS {"host":"vpt-pi1","role":"host","phase":"rsync","state":"start","ts":"2026-10-14T08:02:20Z","detail":""}
+```
+
+`phase` is `rsync | install | restart | health`, `state` is `start | ok | failed | skipped`, `role` is
+`server | frontend | host | docker | windows` (a machine can be both server and host: a card is keyed by
+`(role, host)`). `install` is the frontend build, a host's feature-unit reconcile, or a docker build start;
+`restart` is the main service restart, `health` the wait-until-running and MainPID-changed check. A host
+dropped by the lease check gets `rsync skipped`. `lib/deploy_progress.py` (`parse(log)`) turns a run log into
+cards with per-phase state and duration; `tests/rollout/data/deploy_progress_sample.txt` is a recorded run.

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low (cosmetic — the grid is correct, the text just sits left) |
 | Area      | frontend                                                     |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `TBD`                                                        |
 
 ---

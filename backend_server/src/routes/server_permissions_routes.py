@@ -46,7 +46,8 @@ _ALL_PERMISSIONS = [
     'interface:view', 'interface:create', 'interface:edit', 'interface:delete',
     'ai_agent:view', 'ai_agent:use',
     'ai.training:view', 'ai.training:review',
-    'plugins.grafana:view', 'plugins.langfuse:view', 'plugins.postman:view',
+    'plugins.grafana:view', 'plugins.langfuse:view',
+    'plugins.postman:view', 'plugins.postman:manage',
     'plugins.jira:view', 'plugins.jira:manage', 'plugins.testrail:view', 'plugins.testrail:manage', 'plugins.slack:view',
     'plugins.gitlab:view', 'plugins.gitlab:manage',
     'settings.general:view', 'settings.general:edit',
@@ -67,6 +68,12 @@ _ALL_PERMISSIONS = [
     'org.workspaces:delete', 'org.workspaces:manage_members',
     # Run management (TASK-42); reads use reports.tests:view.
     'reports.runs:edit', 'reports.defects:edit', 'reports.share:create', 'reports.manual:execute',
+    # Custom pages (TASK-139).
+    'pages.custom:view', 'pages.custom:edit',
+    # Projects (the POST /server/projects route requires it). It was missing here while the
+    # frontend knew it: a role holding it could not be saved, because update_role() rejects
+    # every permission outside this list (BUG-0787).
+    'team:projects:create',
 ]
 
 

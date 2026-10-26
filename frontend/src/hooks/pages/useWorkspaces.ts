@@ -32,7 +32,6 @@ export interface Workspace {
    */
   device_filter_names?: Record<string, string>;
   script_filter: string[];
-  project_tags: string[];
   hidden_pages: string[];
   is_public: boolean;
   /**
@@ -64,7 +63,6 @@ export interface WorkspaceCreatePayload {
   denied_permissions?: string[];
   device_filter?: string[];
   script_filter?: string[];
-  project_tags?: string[];
   hidden_pages?: string[];
   is_public?: boolean;
 }
@@ -133,7 +131,7 @@ export const useWorkspaces = () => {
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
-  // Invalidate every list that feeds the WorkspaceSwitcher in the header so
+  // Invalidate every list that feeds the ScopePicker in the header so
   // changes to `is_public`, `device_filter`, `hidden_pages`, membership, etc.
   // surface without a page refresh. Covers both the RPC-backed signed-in path
   // (['workspaces', 'user', userId]) and the anonymous public-only fallback

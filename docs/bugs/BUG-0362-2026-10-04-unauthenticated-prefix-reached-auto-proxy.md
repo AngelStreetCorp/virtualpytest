@@ -9,7 +9,7 @@
 | Status    | Fixed, deployed and verified 2026-10-04                                        |
 | Severity  | Critical: anonymous requests reached the route that calls hosts with the server's API key |
 | Area      | `backend_server/src/app.py` (global auth guard), `backend_server/src/routes/auto_proxy.py` |
-| Fixed in  | Unreleased                                                                     |
+| Fixed in  | build 90145 |
 
 ---
 
@@ -54,12 +54,12 @@ more prefix with the same gap, and the TASK-49 security review found it.
 The proxy's `sites-enabled/virtualpytest` got one rule in the `virtualpytest`, `virtualpytest-demo`
 and `rpitest` server blocks: `$request_uri` on `/server/` with a dot segment (`/..`, `/.`, raw or
 `%2e`/`%2f`-encoded) returns 400. It applied at once with a reload, no restart. It does **not**
-cover `rpitest.angelstreet.io`, whose Cloudflare record reaches the Pi server directly, not this
+cover `<pi-server-host>`, whose Cloudflare record reaches the Pi server directly, not this
 proxy; that domain stayed open until the server deploy (about 30 minutes).
 
 ## Verification (2026-10-04, after the deploy, on the server and on vpt-pi1)
 
-| Request (anonymous) | virtualpytest.angelstreet.io | rpitest.angelstreet.io |
+| Request (anonymous) | virtualpytest.angelstreet.io | <pi-server-host> |
 |---|---|---|
 | `/server/health/%2e%2e/report-snapshots/config` | 400 (edge rule) | 401 |
 | `/server/share/a/b/c` | 401 | 401 |

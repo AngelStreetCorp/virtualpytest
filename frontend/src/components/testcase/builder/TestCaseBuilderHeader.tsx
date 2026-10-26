@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Button, Typography, CircularProgress, SxProps, Theme } from '@mui/material';
+import { Box, Button, Typography, CircularProgress, SxProps, Theme, Paper } from '@mui/material';
 import SaveIcon from '@mui/icons-material/Save';
 import FolderOpenIcon from '@mui/icons-material/FolderOpen';
 import AddIcon from '@mui/icons-material/Add';
@@ -10,6 +10,7 @@ import { NavigationEditorDeviceControls } from '../../navigation/Navigation_Navi
 import { UndoRedoDiscardButtons } from '../../common/UndoRedoDiscardButtons';
 import { RunButton } from './RunButton';
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface TestCaseBuilderHeaderProps {
   // Theme
@@ -139,7 +140,7 @@ export const TestCaseBuilderHeader: React.FC<TestCaseBuilderHeaderProps> = ({
   const interfaceDropdownStyles = {
     select: {
       height: 32,
-      fontSize: '0.75rem',
+      fontSize: TYPOGRAPHY.caption.size,
       '& .MuiSelect-select': {
         display: 'flex',
         alignItems: 'center',
@@ -149,6 +150,9 @@ export const TestCaseBuilderHeader: React.FC<TestCaseBuilderHeaderProps> = ({
 
   return (
     <Box
+      component={Paper}
+      elevation={0}
+      square
       sx={{
         px: 2,
         py: 0,
@@ -157,7 +161,6 @@ export const TestCaseBuilderHeader: React.FC<TestCaseBuilderHeaderProps> = ({
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        background: P.surface,
         height: '46px',
         flexShrink: 0,
       }}
@@ -210,7 +213,7 @@ export const TestCaseBuilderHeader: React.FC<TestCaseBuilderHeaderProps> = ({
                 setCreationMode('visual');
               }}
               sx={{ ml: 1, ...({
-                fontSize: 11, py: 0.5, px: 1.5, textTransform: 'none', boxShadow: 'none',
+                fontSize: TYPOGRAPHY.microMeta.size, py: 0.5, px: 1.5, textTransform: 'none', boxShadow: 'none',
                 borderColor: P.accent,
                 ...(creationMode === 'visual'
                   ? { bgcolor: P.accent, color: '#1a1a1a', '&:hover': { bgcolor: P.accentHover, boxShadow: 'none' } }
@@ -228,7 +231,7 @@ export const TestCaseBuilderHeader: React.FC<TestCaseBuilderHeaderProps> = ({
               }}
               startIcon={<AutoAwesomeIcon fontSize="small" />}
               sx={{
-                fontSize: 11, py: 0.5, px: 1.5, textTransform: 'none', boxShadow: 'none',
+                fontSize: TYPOGRAPHY.microMeta.size, py: 0.5, px: 1.5, textTransform: 'none', boxShadow: 'none',
                 borderColor: P.accent,
                 ...(creationMode === 'ai'
                   ? { bgcolor: P.accent, color: '#1a1a1a', '&:hover': { bgcolor: P.accentHover, boxShadow: 'none' } }

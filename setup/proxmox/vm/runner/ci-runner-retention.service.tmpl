@@ -1,0 +1,14 @@
+[Unit]
+Description=VirtualPyTest CI runner retention (full cleanup)
+Documentation=file:///opt/virtualpytest/setup/proxmox/vm/runner/README.md
+
+[Service]
+Type=oneshot
+# root: the safety net has to see the working directory and the open files of
+# every process on the VM, not only the ones of the runner user.
+User=root
+# root has HOME=/root: without this the script finds no ~/runners and does nothing.
+Environment=RUNNERS_ROOT=/home/jndoye/runners
+ExecStart=/usr/local/bin/ci-runner-retention.sh
+Nice=10
+IOSchedulingClass=idle

@@ -67,7 +67,7 @@ sudo bash /opt/virtualpytest/setup/local/linux/backend_host/redirect_stream_to_d
 It:
 
 1. Aborts unless `/data` is a mounted filesystem (never dumps onto root by accident).
-2. Stops `vpt-stream`, `vpt-monitor`, `vpt-archiver`, `vpt-transcript`, `vpt-kpi`.
+2. Stops `vpt-stream`, `vpt-monitor-img`, `vpt-archiver`, `vpt-monitor-audio`, `vpt-kpi`.
 3. Unmounts the tmpfs hot mount(s) under `/var/www/html/stream`.
 4. Deletes the old `/var/www/html/stream`, creates `/data/stream` (owned by
    `vpt_user`, mode 755), and symlinks `/var/www/html/stream → /data/stream`.

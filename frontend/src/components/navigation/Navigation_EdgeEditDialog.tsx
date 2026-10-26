@@ -1,3 +1,4 @@
+import { AppIcon } from '../../constants/icons';
 import CloseIcon from '@mui/icons-material/Close';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
 import ContentPasteIcon from '@mui/icons-material/ContentPaste';
@@ -16,15 +17,13 @@ import {
   Select,
   MenuItem,
   LinearProgress,
-  Checkbox,
-  FormControlLabel,
   Menu,
   Tooltip,
 } from '@mui/material';
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 
 import { useEdgeEdit } from '../../hooks/navigation/useEdgeEdit';
-import { useEdge } from '../../hooks/navigation/useEdge';
+import { useEdge, getRunResultTone } from '../../hooks/navigation/useEdge';
 import { useNavigation } from '../../contexts/navigation/NavigationContext';
 import { useDeviceData } from '../../contexts/device/DeviceDataContext';
 import { useUserInterfaceVariants } from '../../hooks/userinterface/useUserInterfaceVariants';
@@ -44,6 +43,7 @@ import {
   findConditionalOwnerForward,
 } from '../../utils/conditionalEdgeUtils';
 import { getZIndex } from '../../utils/zIndexUtils';
+import { DetailsSection, InlineSwitch, SkippedNote } from '../common/CompactListRow';
 import { ActionsList } from '../actions';
 import { ActionDependencyDialog } from '../actions/ActionDependencyDialog';
 import { VerificationsList } from '../verification/VerificationsList';
@@ -53,6 +53,8 @@ import {
   type VariantScope,
 } from './Navigation_VariantToggle';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { dangerButtonSx, neutralButtonSx } from '../common/PageChrome';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 type ActionRunSection = 'all' | 'main' | 'retry' | 'failure';
 
@@ -1079,16 +1081,16 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                   <Typography
                     variant="body2"
-                    sx={{ fontSize: '0.8rem', fontWeight: 'bold', color: P.accentText }}
+                    sx={{ fontSize: TYPOGRAPHY.body.size, fontWeight: 'bold', color: P.accentText }}
                   >
                     {fromLabel}
                   </Typography>
-                  <Typography variant="body1" sx={{ fontSize: '1rem' }}>
+                  <Typography variant="body1" sx={{ fontSize: TYPOGRAPHY.navbarItem.size }}>
                     →
                   </Typography>
                   <Typography
                     variant="body2"
-                    sx={{ fontSize: '0.8rem', fontWeight: 'bold', color: P.success }}
+                    sx={{ fontSize: TYPOGRAPHY.body.size, fontWeight: 'bold', color: P.success }}
                   >
                     {toLabel}
                   </Typography>
@@ -1113,14 +1115,14 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
                   <Typography
                     variant="caption"
                     sx={{
-                      fontSize: '0.7rem',
+                      fontSize: TYPOGRAPHY.caption.size,
                       fontWeight: 'bold',
                       color: conditionalRole === 'sibling' ? P.warning : P.success,
                     }}
                   >
                     {conditionalRole === 'sibling'
-                      ? '🔗 CONDITIONAL · sibling (action edits unlink)'
-                      : '🔗 CONDITIONAL · main (edits all branches)'}
+                      ? 'CONDITIONAL · sibling (action edits unlink)'
+                      : 'CONDITIONAL · main (edits all branches)'}
                   </Typography>
                 </Box>
               )}
@@ -1222,8 +1224,32 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
               setEdgeForm({ ...edgeForm, action_sets: next });
             };
 
+            const detailsSummary = [
+              (edgeForm?.priority || 'p3').toUpperCase(),
+              `threshold ${activeActionSet?.threshold ?? 0} ms`,
+              `final wait ${activeActionSet?.final_wait_time ?? 0} ms`,
+              edgeForm?.enable_sibling_shortcuts ? 'sibling shortcuts' : null,
+            ]
+              .filter(Boolean)
+              .join(' · ');
+
             return (
-              <Box sx={{ display: 'flex', gap: 1, mb: 1 }}>
+              <>
+              {/* KPI name stays in view; the rest is secondary → Details (collapsed). */}
+              <TextField
+                label="KPI display name"
+                placeholder="e.g. [TC259] Open TV Guide"
+                value={activeActionSet?.kpi_name ?? ''}
+                onChange={(e) => updateActiveActionSet({ kpi_name: e.target.value })}
+                fullWidth
+                margin="dense"
+                size="small"
+                autoComplete="off"
+                disabled={topologyDisabled || !activeActionSet}
+                sx={{ mb: 1 }}
+              />
+              <DetailsSection summary={detailsSummary}>
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
                 <FormControl fullWidth margin="dense" size="small" disabled={topologyDisabled} sx={{ flex: 1.2 }}>
                   <InputLabel>Priority</InputLabel>
                   <Select
@@ -1270,240 +1296,116 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
                   disabled={topologyDisabled || !activeActionSet}
                   sx={{ flex: 0.7 }}
                 />
-                {/* Optional friendly KPI name for this direction. Surfaces in the
-                    Grafana KPI dashboard + kpi_measurement.py report instead of the
-                    raw action_set_id. Per-direction (stored on the active action_set),
-                    same as threshold/final_wait. */}
-                <TextField
-                  label="KPI display name"
-                  placeholder="e.g. [TC259] Open TV Guide"
-                  value={activeActionSet?.kpi_name ?? ''}
-                  onChange={(e) => updateActiveActionSet({ kpi_name: e.target.value })}
-                  fullWidth
-                  margin="dense"
-                  size="small"
-                  autoComplete="off"
-                  disabled={topologyDisabled || !activeActionSet}
-                  sx={{ flex: 2.4 }}
-                />
               </Box>
+              <InlineSwitch
+                label="Sibling shortcuts"
+                hint="web and mobile: go straight between sibling nodes"
+                checked={edgeForm?.enable_sibling_shortcuts ?? false}
+                onChange={(checked) => setEdgeForm({ ...edgeForm, enable_sibling_shortcuts: checked })}
+                disabled={topologyDisabled}
+              />
+              </DetailsSection>
+              </>
             );
           })()}
 
-          {/* Sibling Shortcuts Checkbox */}
-          <Box sx={{ mb: 1 }}>
-            <FormControlLabel
-              control={
-                <Checkbox
-                  checked={edgeForm?.enable_sibling_shortcuts ?? false}
-                  onChange={(e) =>
-                    setEdgeForm({
-                      ...edgeForm,
-                      enable_sibling_shortcuts: e.target.checked,
-                    })
+          {/* Actions — one compact list. Retry / failure lists only appear once
+              they hold an action; until then they are one "Add" link each. */}
+          {(() => {
+            const newAction = (): any => ({ command: '', params: { wait_time: 500 } });
+            const sectionTitleSx = { fontSize: TYPOGRAPHY.navbarItem.size, m: 0, mb: 0.75 };
+            const addLinkSx = { fontSize: TYPOGRAPHY.caption.size, color: P.textSecondary, textTransform: 'none' as const };
+            const hasRetry = edgeEdit.localRetryActions.length > 0;
+            const hasFailure = edgeEdit.localFailureActions.length > 0;
+            return (
+              <Box sx={{ mb: 1.5 }}>
+                <Typography variant="h6" sx={sectionTitleSx}>
+                  Actions
+                  <Typography component="span" sx={{ ml: 1, fontSize: TYPOGRAPHY.caption.size, color: P.textSecondary }}>
+                    {edgeEdit.localActions.length}
+                  </Typography>
+                </Typography>
+                <ActionsList
+                  compact
+                  actions={edgeEdit.localActions}
+                  onActionsUpdate={edgeEdit.handleActionsChange}
+                  onAdd={() => edgeEdit.handleActionsChange([...edgeEdit.localActions, newAction()])}
+                  onRunAction={(index) => handleRunSingleAction('main', index)}
+                  runDisabled={!canRunSingleActions}
+                  runningActionIndex={
+                    isRunningActions && runningAction?.section === 'main' ? runningAction.index : null
                   }
-                  size="small"
-                  disabled={topologyDisabled}
+                  runStatusByIndex={runStatusBySection.main}
+                  disabled={isDialogLocked}
                 />
-              }
-              label={
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                  <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
-                    Enable sibling shortcuts
-                  </Typography>
-                  <Typography variant="caption" sx={{ fontSize: '0.75rem', color: 'text.secondary', fontStyle: 'italic' }}>
-                    (web/mobile: allow direct navigation between sibling nodes)
-                  </Typography>
-                </Box>
-              }
-            />
-          </Box>
 
-          {/* Main Actions */}
-          <Box
-            sx={{
-              border: '1px solid',
-              borderColor: 'divider',
-              borderRadius: 1,
-              p: 1,
-              mb: 1,
-            }}
-          >
-            <Box
-              sx={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                mb: 0.5,
-              }}
-            >
-              <Typography variant="h6" sx={{ fontSize: '1rem', m: 0 }}>
-                Main Actions
-              </Typography>
-              <Button
-                variant="outlined"
-                size="small"
-                disabled={isDialogLocked}
-                onClick={() => {
-                  const newAction: any = {
-                    command: '',
-                    params: {
-                      wait_time: 500
-                    },
-                  };
-                  edgeEdit.handleActionsChange([...edgeEdit.localActions, newAction]);
-                }}
-                sx={{ fontSize: '0.75rem', px: 1, py: 0.25 }}
-              >
-                + Add
-              </Button>
-            </Box>
-            {edgeEdit.localActions.length > 0 ? (
-              <ActionsList
-                actions={edgeEdit.localActions}
-                onActionsUpdate={edgeEdit.handleActionsChange}
-                onRunAction={(index) => handleRunSingleAction('main', index)}
-                runDisabled={!canRunSingleActions}
-                runningActionIndex={
-                  isRunningActions && runningAction?.section === 'main' ? runningAction.index : null
-                }
-                runStatusByIndex={runStatusBySection.main}
-                disabled={isDialogLocked}
-              />
-            ) : (
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ fontStyle: 'italic', textAlign: 'center', py: 0.5 }}
-              >
-                No actions found
-              </Typography>
-            )}
-          </Box>
+                {hasRetry && (
+                  <Box sx={{ mt: 1.5 }}>
+                    <Typography variant="h6" sx={sectionTitleSx}>Retry actions</Typography>
+                    <ActionsList
+                      compact
+                      actions={edgeEdit.localRetryActions}
+                      onActionsUpdate={edgeEdit.handleRetryActionsChange}
+                      onAdd={() => edgeEdit.handleRetryActionsChange([...edgeEdit.localRetryActions, newAction()])}
+                      onRunAction={(index) => handleRunSingleAction('retry', index)}
+                      runDisabled={!canRunSingleActions}
+                      runningActionIndex={
+                        isRunningActions && runningAction?.section === 'retry' ? runningAction.index : null
+                      }
+                      runStatusByIndex={runStatusBySection.retry}
+                      disabled={isDialogLocked}
+                    />
+                  </Box>
+                )}
 
-          {/* Retry Actions */}
-          <Box
-            sx={{
-              border: '1px solid',
-              borderColor: 'divider',
-              borderRadius: 1,
-              p: 1,
-              mb: 1,
-            }}
-          >
-            <Box
-              sx={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                mb: 0.5,
-              }}
-            >
-              <Typography variant="h6" sx={{ fontSize: '1rem', m: 0 }}>
-                Retry Actions
-              </Typography>
-              <Button
-                variant="outlined"
-                size="small"
-                disabled={isDialogLocked}
-                onClick={() => {
-                  const newAction: any = {
-                    command: '',
-                    params: {
-                      wait_time: 500
-                    },
-                  };
-                  edgeEdit.handleRetryActionsChange([...edgeEdit.localRetryActions, newAction]);
-                }}
-                sx={{ fontSize: '0.75rem', px: 1, py: 0.25 }}
-              >
-                + Add
-              </Button>
-            </Box>
-            {edgeEdit.localRetryActions.length > 0 ? (
-              <ActionsList
-                actions={edgeEdit.localRetryActions}
-                onActionsUpdate={edgeEdit.handleRetryActionsChange}
-                onRunAction={(index) => handleRunSingleAction('retry', index)}
-                runDisabled={!canRunSingleActions}
-                runningActionIndex={
-                  isRunningActions && runningAction?.section === 'retry' ? runningAction.index : null
-                }
-                runStatusByIndex={runStatusBySection.retry}
-                disabled={isDialogLocked}
-              />
-            ) : (
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ fontStyle: 'italic', textAlign: 'center', py: 0.5 }}
-              >
-                No retry actions found
-              </Typography>
-            )}
-          </Box>
+                {hasFailure && (
+                  <Box sx={{ mt: 1.5 }}>
+                    <Typography variant="h6" sx={sectionTitleSx}>On-failure actions</Typography>
+                    <ActionsList
+                      compact
+                      actions={edgeEdit.localFailureActions}
+                      onActionsUpdate={edgeEdit.handleFailureActionsChange}
+                      onAdd={() => edgeEdit.handleFailureActionsChange([...edgeEdit.localFailureActions, newAction()])}
+                      onRunAction={(index) => handleRunSingleAction('failure', index)}
+                      runDisabled={!canRunSingleActions}
+                      runningActionIndex={
+                        isRunningActions && runningAction?.section === 'failure' ? runningAction.index : null
+                      }
+                      runStatusByIndex={runStatusBySection.failure}
+                      disabled={isDialogLocked}
+                    />
+                  </Box>
+                )}
 
-          {/* Failure Actions */}
-          <Box
-            sx={{
-              border: '1px solid',
-              borderColor: 'divider',
-              borderRadius: 1,
-              p: 1,
-              mb: 1,
-            }}
-          >
-            <Box
-              sx={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                mb: 0.5,
-              }}
-            >
-              <Typography variant="h6" sx={{ fontSize: '1rem', m: 0 }}>
-                Failure Actions
-              </Typography>
-              <Button
-                variant="outlined"
-                size="small"
-                disabled={isDialogLocked}
-                onClick={() => {
-                  const newAction: any = {
-                    command: '',
-                    params: {
-                      wait_time: 500
-                    },
-                  };
-                  edgeEdit.handleFailureActionsChange([...edgeEdit.localFailureActions, newAction]);
-                }}
-                sx={{ fontSize: '0.75rem', px: 1, py: 0.25 }}
-              >
-                + Add
-              </Button>
-            </Box>
-            {edgeEdit.localFailureActions.length > 0 ? (
-              <ActionsList
-                actions={edgeEdit.localFailureActions}
-                onActionsUpdate={edgeEdit.handleFailureActionsChange}
-                onRunAction={(index) => handleRunSingleAction('failure', index)}
-                runDisabled={!canRunSingleActions}
-                runningActionIndex={
-                  isRunningActions && runningAction?.section === 'failure' ? runningAction.index : null
-                }
-                runStatusByIndex={runStatusBySection.failure}
-                disabled={isDialogLocked}
-              />
-            ) : (
-              <Typography
-                variant="body2"
-                color="text.secondary"
-                sx={{ fontStyle: 'italic', textAlign: 'center', py: 0.5 }}
-              >
-                No failure actions found
-              </Typography>
-            )}
-          </Box>
+                {(!hasRetry || !hasFailure) && (
+                  <Box sx={{ display: 'flex', gap: 2, mt: 0.5 }}>
+                    {!hasRetry && (
+                      <Button
+                        size="small"
+                        startIcon={<AppIcon name="add" />}
+                        disabled={isDialogLocked}
+                        onClick={() => edgeEdit.handleRetryActionsChange([newAction()])}
+                        sx={addLinkSx}
+                      >
+                        Add retry actions
+                      </Button>
+                    )}
+                    {!hasFailure && (
+                      <Button
+                        size="small"
+                        startIcon={<AppIcon name="add" />}
+                        disabled={isDialogLocked}
+                        onClick={() => edgeEdit.handleFailureActionsChange([newAction()])}
+                        sx={addLinkSx}
+                      >
+                        Add on-failure actions
+                      </Button>
+                    )}
+                  </Box>
+                )}
+              </Box>
+            );
+          })()}
 
           {/* KPI Measurement Section - Only for current action_set */}
           {edgeForm?.action_sets && (() => {
@@ -1534,48 +1436,30 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
             };
 
             return (
-              <Box
-                sx={{
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  borderRadius: 1,
-                  p: 1,
-                  mb: 1,
-                }}
-              >
-                {/* Title and Checkbox on same line */}
-                <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 0.5 }}>
-                  <Typography variant="h6" sx={{ fontSize: '1rem', m: 0 }}>
-                    📊 KPI Measurement - {actionSet.label}
+              <Box sx={{ mb: 1 }}>
+                {/* Title + "Use target node checks" switch. On: the KPI uses the target
+                    node's verifications and the custom checks below are skipped. */}
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75 }}>
+                  <Typography variant="h6" sx={{ fontSize: TYPOGRAPHY.navbarItem.size, m: 0, display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <AppIcon name="report" /> KPI
                   </Typography>
-
-                  {/* Checkbox to use verifications for KPI */}
-                  <FormControlLabel
-                    control={
-                      <Checkbox
-                        checked={actionSet.use_verifications_for_kpi || false}
-                        onChange={(e) => edgeEdit.handleUseVerificationsForKpiChange(actionSetIndex, e.target.checked)}
-                        size="small"
-                      />
-                    }
-                    label={
-                      <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
-                        Use target node verifications
-                      </Typography>
-                    }
-                    sx={{ m: 0 }}
+                  <Typography noWrap sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textSecondary, flex: 1, minWidth: 0 }}>
+                    time from action to screen confirmed
+                  </Typography>
+                  <InlineSwitch
+                    label="Use target node checks"
+                    checked={actionSet.use_verifications_for_kpi || false}
+                    onChange={(checked) => edgeEdit.handleUseVerificationsForKpiChange(actionSetIndex, checked)}
                   />
                 </Box>
-
-                {/* Helper text */}
-                <Typography variant="caption" sx={{ fontSize: '0.75rem', color: 'text.secondary', mb: 0.5, display: 'block' }}>
-                  Measure time from action to visual confirmation
-                </Typography>
+                {actionSet.use_verifications_for_kpi && (actionSet.kpi_references || []).length > 0 && (
+                  <SkippedNote>The KPI uses the target node's verifications. The checks below are kept but skipped.</SkippedNote>
+                )}
 
                 {/* KPI References List - disabled when checkbox is checked */}
                 <Box
                   sx={{
-                    opacity: actionSet.use_verifications_for_kpi ? 0.5 : 1,
+                    opacity: actionSet.use_verifications_for_kpi ? 0.45 : 1,
                     pointerEvents: actionSet.use_verifications_for_kpi ? 'none' : 'auto',
                     transition: 'opacity 0.2s',
                   }}
@@ -1601,6 +1485,8 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
                     // silently overwrite the shared asset for every other
                     // node/edge that uses the same reference.
                     referenceReadOnly={true}
+                    disabled={actionSet.use_verifications_for_kpi || false}
+                    compact
                   />
                 </Box>
               </Box>
@@ -1618,21 +1504,14 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
 
           {/* Action Result Display — header omitted (the green/red box is
               self-explanatory). Color is decided from the summary line:
-              "✅ Execution X/Y passed in Xm:YYs" → success;
-              "❌ Execution …" or any "❌" without "✅" → error. */}
+              "Execution completed: X/Y passed in Xm:YYs" → success;
+              "Execution failed: …" or "Failed: …" → error. */}
           {edgeHook.runResult && (
             <Box
               sx={{
                 mt: 1,
                 p: 1,
-                bgcolor: edgeHook.runResult.includes('✅ Execution')
-                  ? 'success.light'
-                  : edgeHook.runResult.includes('❌ Execution') ||
-                      (edgeHook.runResult.includes('❌') && !edgeHook.runResult.includes('✅'))
-                    ? 'error.light'
-                    : edgeHook.runResult.includes('⚠️')
-                      ? 'warning.light'
-                      : 'error.light',
+                bgcolor: { success: 'success.light', error: 'error.light', neutral: 'error.light' }[getRunResultTone(edgeHook.runResult)],
                 borderRadius: 1,
                 maxHeight: '200px',
                 overflow: 'auto',
@@ -1644,7 +1523,7 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
                 sx={{
                   fontFamily: 'monospace',
                   whiteSpace: 'pre-line',
-                  fontSize: '0.7rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   lineHeight: 1.2,
                 }}
               >
@@ -1663,7 +1542,7 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
                 rel="noopener noreferrer"
                 style={{ color: P.accentText, textDecoration: 'underline', fontWeight: 'bold' }}
               >
-                🔍 View verification report
+                <AppIcon name="search" /> View verification report
               </a>
             </Typography>
           )}
@@ -1674,8 +1553,7 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
             <Button
               onClick={handleResetVariant}
               variant="outlined"
-              color="warning"
-              disabled={isDialogLocked}
+              disabled={isDialogLocked} sx={neutralButtonSx(P)}
             >
               Reset variant
             </Button>
@@ -1697,14 +1575,13 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
           )}
           <Tooltip title="Copy this direction's Main / Retry / Failure actions + Final wait">
             <span>
-              <Button
+              <IconButton
                 onClick={handleCopyActions}
-                variant="outlined"
-                startIcon={<ContentCopyIcon />}
+                aria-label="Copy actions"
                 disabled={isDialogLocked || !hasCopyableContent}
               >
-                Copy
-              </Button>
+                <ContentCopyIcon fontSize="small" />
+              </IconButton>
             </span>
           </Tooltip>
           <Tooltip
@@ -1717,17 +1594,16 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
             }
           >
             <span>
-              <Button
+              <IconButton
                 onClick={handlePasteActions}
-                variant="outlined"
-                color="secondary"
-                startIcon={<ContentPasteIcon />}
+                aria-label="Paste actions"
                 disabled={!canPaste}
               >
-                Paste
-              </Button>
+                <ContentPasteIcon fontSize="small" />
+              </IconButton>
             </span>
           </Tooltip>
+          <Box sx={{ flex: 1 }} />
           <Button
             onClick={handleSaveClick}
             variant="contained"
@@ -1763,15 +1639,16 @@ export const EdgeEditDialog: React.FC<EdgeEditDialogProps> = ({
             <Button
               onClick={handleAbortRun}
               variant="contained"
-              color="warning"
+              sx={dangerButtonSx(P)}
             >
               Abort
             </Button>
           ) : hasActions && (
             <Button
               onClick={handleRunActions}
-              variant="contained"
+              variant="outlined"
               disabled={!canRunActions}
+              sx={neutralButtonSx(P)}
             >
               Run
             </Button>

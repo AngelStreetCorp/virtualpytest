@@ -1,4 +1,5 @@
 from flask import Blueprint, jsonify, request
+from backend_server.src.lib.auth_middleware import require_permission
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
 import re
 import os
@@ -7,6 +8,13 @@ import requests
 import time
 import threading
 from pathlib import Path
+from backend_server.src.lib.postman_settings import (
+    clear as clear_settings,
+    effective_api_key,
+    load as load_settings,
+    public as public_settings,
+    upsert as upsert_settings,
+)
 from shared.src.lib.config.constants import CACHE_CONFIG
 
 server_postman_bp = Blueprint('server_postman_bp', __name__, url_prefix='/server/postman')
@@ -16,17 +24,85 @@ BACKEND_SERVER_ROOT = Path(__file__).parent.parent.parent
 CONFIG_PATH = BACKEND_SERVER_ROOT / 'config' / 'postman' / 'postman_config.json'
 GUIDE_PATH = CONFIG_PATH.parent / 'README.md'
 
+#: The shared VirtualPyTest Postman workspace. Public — the setup form shows it, the workspace
+#: card links to it, and a deployment can point somewhere else with POSTMAN_WORKSPACE_ID.
+DEFAULT_WORKSPACE_ID = '4e7a465c-a542-4440-8903-48787f03942a'
+DEFAULT_WORKSPACE_URL = (
+    f'https://martian-zodiac-279215.postman.co/workspace/virtualpytest~{DEFAULT_WORKSPACE_ID}'
+)
+
 @server_postman_bp.route('/guide', methods=['GET'])
 @handle_route_exceptions('server_postman:get_configuration_guide')
 def get_configuration_guide():
     """Return the Postman setup guide for display in the frontend."""
     return jsonify({'success': True, 'content': GUIDE_PATH.read_text(encoding='utf-8')})
 
+@server_postman_bp.route('/settings', methods=['GET'])
+@require_permission('plugins.postman:view')
+@handle_route_exceptions('server_postman:get_settings')
+def get_settings():
+    """Connection state for the page's setup form. The API key is never in the answer."""
+    return jsonify({'success': True, **public_settings()})
+
+
+@server_postman_bp.route('/settings', methods=['POST'])
+@require_permission('plugins.postman:manage')
+@handle_route_exceptions('server_postman:save_settings')
+def save_settings():
+    """Save the Postman API key from the page and prove it works before reporting success."""
+    payload = request.get_json(silent=True) or {}
+    api_key = str(payload.get('api_key') or '').strip()
+    workspace_id = str(payload.get('workspace_id') or '').strip()
+    if not api_key and not workspace_id:
+        return jsonify({'success': False, 'error': 'api_key is required'}), 400
+
+    saved = upsert_settings({'api_key': api_key, 'workspace_id': workspace_id})
+    if not saved:
+        return jsonify({'success': False, 'error': 'could not write the Postman settings'}), 500
+
+    # An empty key means "keep the stored one" — verify whichever key is now in force.
+    key_in_force = effective_api_key()
+    if not key_in_force:
+        return jsonify({'success': False, 'saved': True, 'error': 'no Postman API key is available'}), 400
+    try:
+        call_postman_api(f"/workspaces/{workspace_id or DEFAULT_WORKSPACE_ID}", key_in_force)
+    except Exception as exc:
+        return jsonify({
+            'success': False, 'saved': True, **public_settings(),
+            'error': f'Postman rejected this key: {exc}',
+        }), 502
+
+    # A new key invalidates whatever collections are cached under the old one.
+    _clear_collection_cache()
+    return jsonify({'success': True, **public_settings()})
+
+
+@server_postman_bp.route('/settings', methods=['DELETE'])
+@require_permission('plugins.postman:manage')
+@handle_route_exceptions('server_postman:clear_settings')
+def delete_settings():
+    """Forget the saved key. The POSTMAN_API_KEY env var, if any, takes over again."""
+    ok = clear_settings()
+    _clear_collection_cache()
+    return jsonify({'success': ok, **public_settings()}), (200 if ok else 500)
+
+
 # ============================================================================
 # IN-MEMORY CACHE FOR POSTMAN COLLECTIONS
 # ============================================================================
 _postman_cache = {}  # {cache_key: {'data': {...}, 'timestamp': time.time()}}
 _cache_lock = threading.Lock()
+
+
+def _clear_collection_cache():
+    """Drop the cached collections/requests — they were fetched with the previous API key.
+
+    Saving a key from the page makes every cached entry stale: they were read with the old
+    (or no) credential, and the new one may see a different set of collections.
+    """
+    with _cache_lock:
+        _postman_cache.clear()
+
 
 def load_config():
     """Load Postman configuration (workspaces + environments)"""
@@ -39,18 +115,23 @@ def load_config():
 
         # Keep the shared Postman credential server-side. A deployment can provide
         # just the public workspace ID in postman_config.json and keep this key in
-        # its backend .env. Existing per-workspace keys remain supported.
-        api_key = os.getenv('POSTMAN_API_KEY')
+        # its backend .env; an operator can also save it from the Postman page itself
+        # (POST /settings), which is stored outside the deploy tree and wins over the
+        # env var. Existing per-workspace keys remain supported.
+        api_key = effective_api_key()
         if not config.get('workspaces') and api_key:
+            # Saved-from-the-page first, then the env var, then the shared public workspace.
+            workspace_id = (
+                load_settings().get('workspace_id')
+                or os.getenv('POSTMAN_WORKSPACE_ID')
+                or DEFAULT_WORKSPACE_ID
+            )
             config['workspaces'] = [{
                 'id': 'workspace-virtualpytest',
                 'name': 'VirtualPyTest API',
-                'workspaceId': os.getenv(
-                    'POSTMAN_WORKSPACE_ID',
-                    '4e7a465c-a542-4440-8903-48787f03942a',
-                ),
+                'workspaceId': workspace_id,
                 'description': 'Shared VirtualPyTest API collections',
-                'postmanUrl': 'https://martian-zodiac-279215.postman.co/workspace/virtualpytest~4e7a465c-a542-4440-8903-48787f03942a',
+                'postmanUrl': DEFAULT_WORKSPACE_URL,
             }]
         if api_key:
             for workspace in config.get('workspaces', []):

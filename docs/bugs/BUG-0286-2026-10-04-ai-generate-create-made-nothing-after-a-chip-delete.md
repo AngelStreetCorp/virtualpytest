@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High — on Android and web, removing one wrong proposal made Create do nothing |
 | Area      | `frontend/src/components/navigation/AIGenerationModal.tsx` (`deleteItem`), `frontend/src/hooks/useGenerateModel.ts` (`continueExploration`) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

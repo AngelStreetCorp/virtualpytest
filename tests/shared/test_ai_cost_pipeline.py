@@ -102,6 +102,28 @@ def test_langfuse_generation_receives_our_cost(monkeypatch):
         prices.set_for_tests(None)
 
 
+def test_a_synced_price_never_bills_the_coding_plan_but_a_typed_one_does():
+    """The MiniMax coding plan is a subscription: a price row synced from Langfuse must not bill it."""
+    synced = {"endpoint": "minimax", "model": "minimax-m2.7-highspeed", "price_in": 0.25, "price_out": 1.0,
+              "valid_from": "2026-01-01", "note": "source:langfuse"}
+    prices.set_for_tests([synced], [])
+    try:
+        assert prices.cost_for(_hop(MM, model="minimax-m2.7-highspeed"), 1_000_000, 1_000_000) == (0.0, 0.0)
+        prices.set_for_tests([dict(synced, note="negotiated")], [])
+        assert prices.cost_for(_hop(MM, model="minimax-m2.7-highspeed"), 1_000_000, 1_000_000) == (1.25, 0.0)
+    finally:
+        prices.set_for_tests(None)
+
+
+def test_a_call_without_tokens_is_free_on_the_plan_and_unknown_on_a_metered_endpoint():
+    prices.set_for_tests([], [])
+    try:
+        assert prices.cost_for(_hop(MM), 0, 0) == (0.0, 0.0)   # the coding plan: free whatever the size
+        assert prices.cost_for(_hop(OR), 0, 0) is None          # a metered endpoint: unknown, never 0
+    finally:
+        prices.set_for_tests(None)
+
+
 def test_only_models_langfuse_lacks_are_pushed():
     rows = [{"model": "claude-sonnet-4", "price_in": 3, "price_out": 15},
             {"model": "brand-new", "price_in": 1, "price_out": 2}]

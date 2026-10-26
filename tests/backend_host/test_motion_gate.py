@@ -39,6 +39,14 @@ def test_gate_no_motion_runs_matcher():
     assert gate_motion_decision({}) is None
 
 
+def test_gate_blackscreen_or_no_signal_runs_matcher_even_on_stale_full():
+    # While blackscreen is ongoing, freeze (and therefore a fresh motion dict) is
+    # skipped, so kind can remain 'full' from the last live frame. Signal wins.
+    assert gate_motion_decision({"kind": "full", "state": "blackscreen", "pct": 81.3}) is None
+    assert gate_motion_decision({"kind": "full", "state": "no_signal", "pct": 81.3}) is None
+    assert gate_motion_decision({"kind": "static", "state": "blackscreen"}) is None
+
+
 def test_gate_fused_live_state_skips():
     # Fused 'live' state (held behind the gatekeeper sustain window) wins over
     # any raw kind — the gatekeeper's view of "this is a live broadcast" is

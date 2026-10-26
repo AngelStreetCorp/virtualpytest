@@ -1,6 +1,7 @@
 import React from 'react';
 import { Box, Chip, Typography } from '@mui/material';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 /** Why Jev decided a Sherlock verdict (script_results.metadata.jev, written with the verdict). */
 export interface JevReasons {
@@ -52,10 +53,10 @@ const JevWhy: React.FC<{ jev: JevReasons }> = ({ jev }) => {
         <Chip
           size="small"
           label={jev.choice}
-          sx={{ height: 22, fontSize: '0.75rem', fontWeight: 600, color: chosen,
+          sx={{ height: 22, fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, color: chosen,
                 bgcolor: `${chosen}1f`, border: `1px solid ${chosen}66` }}
         />
-        <Typography sx={{ fontSize: '0.8rem', color: P.textSecondary }}>
+        <Typography sx={{ fontSize: TYPOGRAPHY.body.size, color: P.textSecondary }}>
           Jev, {pct(jev.confidence)} sure. No LLM call.
         </Typography>
       </Box>
@@ -66,7 +67,7 @@ const JevWhy: React.FC<{ jev: JevReasons }> = ({ jev }) => {
           const isChosen = c === jev.choice;
           return (
             <React.Fragment key={c}>
-              <Typography sx={{ fontSize: '0.72rem', fontFamily: 'monospace', fontWeight: isChosen ? 600 : 400,
+              <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, fontFamily: 'monospace', fontWeight: isChosen ? 600 : 400,
                                 color: isChosen ? P.textPrimary : P.textMuted }}>
                 {c}
               </Typography>
@@ -74,7 +75,7 @@ const JevWhy: React.FC<{ jev: JevReasons }> = ({ jev }) => {
                 <Box sx={{ height: '100%', width: `${Math.max(p * 100, p > 0 ? 1 : 0)}%`, borderRadius: 3,
                            bgcolor: isChosen ? chosen : P.textMuted, opacity: isChosen ? 1 : 0.6 }} />
               </Box>
-              <Typography sx={{ fontSize: '0.72rem', textAlign: 'right', color: isChosen ? P.textPrimary : P.textMuted }}>
+              <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, textAlign: 'right', color: isChosen ? P.textPrimary : P.textMuted }}>
                 {pct(p)}
               </Typography>
             </React.Fragment>
@@ -84,15 +85,15 @@ const JevWhy: React.FC<{ jev: JevReasons }> = ({ jev }) => {
 
       {!!jev.evidence?.length && (
         <Box>
-          <Typography sx={{ fontSize: '0.72rem', color: P.textMuted, mb: 0.25 }}>Evidence</Typography>
-          <Box component="ul" sx={{ m: 0, pl: 2.25, fontSize: '0.8rem', color: P.textPrimary, wordBreak: 'break-word' }}>
+          <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted, mb: 0.25 }}>Evidence</Typography>
+          <Box component="ul" sx={{ m: 0, pl: 2.25, fontSize: TYPOGRAPHY.body.size, color: P.textPrimary, wordBreak: 'break-word' }}>
             {jev.evidence.map((line, i) => (<li key={i}>{line}</li>))}
           </Box>
         </Box>
       )}
 
       {jev.decision_id && (
-        <Typography sx={{ fontSize: '0.7rem', fontFamily: 'monospace', color: P.textMuted, mt: 1.25 }}>
+        <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, fontFamily: 'monospace', color: P.textMuted, mt: 1.25 }}>
           decision {jev.decision_id}
         </Typography>
       )}

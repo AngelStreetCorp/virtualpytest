@@ -26,6 +26,7 @@ import { apiClient } from '../../utils/apiClient';
 import { useServerManager } from '../../hooks/useServerManager';
 import { useI18n } from '../../i18n/useI18n';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface ServiceLogsModalProps {
   open: boolean;
@@ -190,7 +191,7 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
           label={logService}
           size="small"
           variant="outlined"
-          sx={{ fontFamily: 'monospace', fontSize: '0.7rem', height: 20 }}
+          sx={{ fontFamily: 'monospace', fontSize: TYPOGRAPHY.caption.size, height: 20 }}
         />
         <TextField
           select
@@ -281,7 +282,7 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
         <Box
           sx={{
             fontFamily: 'monospace',
-            fontSize: '0.75rem',
+            fontSize: TYPOGRAPHY.caption.size,
             whiteSpace: 'pre-wrap',
             wordBreak: 'break-all',
             backgroundColor: P.surface,
@@ -297,7 +298,7 @@ export const ServiceLogsModal: React.FC<ServiceLogsModalProps> = ({
             </Box>
           )}
           {error && <Typography color="error.light">{error}</Typography>}
-          {!loading && !error && (logs || <Typography color="grey.500">{t('No logs available')}</Typography>)}
+          {!loading && !error && (logs || <Typography sx={{ color: P.textMuted }}>{t('No logs available')}</Typography>)}
         </Box>
       </DialogContent>
 

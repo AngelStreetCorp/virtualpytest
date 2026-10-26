@@ -18,6 +18,7 @@ import { useValidation } from '../../hooks/validation';
 import ValidationPreviewClient from './ValidationPreviewClient';
 import { ValidationProgressClient } from './ValidationProgressClient';
 import ValidationResultsClient from './ValidationResultsClient';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 
 interface ValidationButtonClientProps {
@@ -71,7 +72,7 @@ export default function ValidationButtonClient({ treeId, disabled, selectedHost,
           minWidth: 'auto',
           height: 32,
           whiteSpace: 'nowrap',
-          fontSize: '0.75rem',
+          fontSize: TYPOGRAPHY.caption.size,
           textTransform: 'none',
         }}
       >

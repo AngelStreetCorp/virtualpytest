@@ -1,0 +1,42 @@
+{
+ "_notes": "Built 2026-10-19 on b2939e7f6 without the tool: one fresh Sonnet agent per question (grep + reading), cross-checked by a separate AST pass (xcheck_round4.py), disagreements resolved by reading the lines. R1/R4/R5: agent == AST. R2: agent == AST; calls on generic `remote_controller` (host_remote_routes, action_executor) have no static type and are excluded; host_drone_routes gets its controller from get_remote_controller_by_type(.., 'tello'). R3: the agent also listed 4 scripts/promo/*.js files and AST/grep found tests/backend_server/test_mcp_execution_status.py (asserts the URL string on a fake api); both excluded after reading: the question counts frontend/ TypeScript and Python files only, and the test does not send a request itself. R5: `ex` in tests/backend_host/test_testcase_background_report.py is a TestCaseExecutor (alias at line 38); testcase_tools.TestCaseTools.execute_testcase is another class and does not count.",
+ "R1": [
+  "backend_host/src/lib/utils/adb_utils.py",
+  "backend_host/src/controllers/remote/android_tv.py",
+  "backend_host/src/controllers/remote/android_mobile.py"
+ ],
+ "R2": [
+  "backend_host/src/controllers/remote/tello.py",
+  "backend_host/src/routes/host_drone_routes.py",
+  "tests/backend_host/test_drone_profile.py",
+  "tests/drone/test_tello_controller.py",
+  "tests/drone/test_command_log.py",
+  "tests/drone/test_tello_gevent_hub.py",
+  "scripts/drone_telemetry_demo.py"
+ ],
+ "R3": [
+  "frontend/src/hooks/script/useScript.ts",
+  "frontend/src/hooks/validation/useValidation.ts",
+  "backend_server/src/mcp/tools/script_tools.py",
+  "tests/test_scripts/run_vpt_smoke.py",
+  "scripts/agent/game_dispatch.py",
+  "scripts/agent/pokemon_dispatch.py"
+ ],
+ "R4": [
+  "backend_server/src/routes/server_script_routes.py",
+  "backend_server/src/routes/server_script_identity_routes.py",
+  "shared/src/lib/database/executable_identity_db.py",
+  "shared/src/lib/utils/report_generation_utils.py",
+  "shared/src/lib/utils/script_identity_utils.py",
+  "shared/src/lib/executors/script_executor.py",
+  "shared/src/lib/i18n/report_i18n.py"
+ ],
+ "R5": [
+  "backend_host/src/services/testcase/testcase_executor.py",
+  "backend_server/src/routes/server_script_routes.py",
+  "shared/src/lib/executors/script_executor.py",
+  "backend_host/src/routes/host_testcase_routes.py",
+  "shared/src/lib/executors/script_decorators.py",
+  "tests/backend_host/test_testcase_background_report.py"
+ ]
+}

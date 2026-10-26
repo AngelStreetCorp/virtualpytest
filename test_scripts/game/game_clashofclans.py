@@ -88,7 +88,7 @@ _script_args = [
     "--install_only:bool:false",
 ]
 _script_description = (
-    "Clash of Clans menu-loop farm bot (TASK-81 §81.1): collect / train / donate / "
+    "Clash of Clans menu-loop farm bot: collect / train / donate / "
     "clan-capital / dailies on the S21 FE over HDMI. Attack and real-money surfaces "
     "are locked off; --attack_opt_in exists only for ad-hoc non-farming testing."
 )
@@ -187,25 +187,16 @@ def _upload_run_video(local_path: str, context) -> str:
     runner stays usable when R2 is down. ``context`` is used only for
     logging; the R2 URL is returned directly because the report JSON is
     rendered on the host before context.metadata gets the field."""
-    try:
-        from shared.src.lib.utils.cloudflare_utils import get_cloudflare_utils
-        run_id = getattr(context, "script_result_id", None) or "coc-run"
-        remote_path = f"script-reports/game/clashofclans/{run_id}/run.mp4"
-        res = get_cloudflare_utils().upload_files(
-            [{"local_path": local_path, "remote_path": remote_path}],
-            for_report_assets=True,
-        )
-        for entry in (res.get("uploaded_files") or []):
-            if entry.get("remote_path", "").endswith("run.mp4"):
-                return entry.get("url", "")
-    except Exception as e:
-        log_path = os.path.join("/tmp", "coc_video_upload.log")
+    from shared.src.lib.utils.cloudflare_utils import upload_game_run_video
+    run_id = getattr(context, "script_result_id", None) or "coc-run"
+    res = upload_game_run_video(local_path, f"script-reports/game/clashofclans/{run_id}/run.mp4")
+    if not res["success"]:
         try:
-            with open(log_path, "a") as f:
-                f.write(f"{datetime.now().isoformat()} upload failed: {e}\n")
+            with open(os.path.join("/tmp", "coc_video_upload.log"), "a") as f:
+                f.write(f"{datetime.now().isoformat()} upload failed: {res['error']}\n")
         except Exception:
             pass
-    return ""
+    return res["url"]
 
 
 main._script_args = _script_args

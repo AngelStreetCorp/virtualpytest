@@ -50,6 +50,9 @@ class FakeHelpers:
         self.result = result
         self.calls = []
 
+    def classify_special_state(self, img):
+        return None          # Localize v3 step 1 (TASK-104): never a black / no-signal frame here
+
     def identify_screen(self, img, node_fps):
         self.calls.append((img, node_fps))
         return self.result
@@ -132,6 +135,9 @@ def test_a_failure_while_logging_still_returns_the_result(monkeypatch):
 
 def test_an_exception_from_the_matcher_still_propagates():
     class Boom:
+        def classify_special_state(self, img):
+            return None
+
         def identify_screen(self, *_a, **_k):
             raise ValueError('matcher exploded')
 
@@ -166,6 +172,7 @@ def _frames(m, n, result=MATCHED, device='device4'):
 
     def run():
         for _ in range(n):
+            m._matched_thumb.clear()    # one still image stands for n frames: defeat the unchanged-frame skip (TASK-115)
             m.localize_frame(device, m.frame)
 
     return phase_lines(run)

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High                                                         |
 | Area      | backend_host (`run_ffmpeg.sh`, imagefile / emulator capture) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `d38adc77a`                                                  |
 
 Regression of `1d3581ffe` ("the emulator's own sound reaches the host", build 9151).

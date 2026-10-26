@@ -12,6 +12,7 @@ import json
 import os
 from pathlib import Path
 from ..base_controller import RemoteControllerInterface
+from .ir_keymap import missing_keymap_message
 
 
 class IRRemoteController(RemoteControllerInterface):
@@ -254,7 +255,8 @@ class IRRemoteController(RemoteControllerInterface):
         ir_config_full_path = os.path.join(self.ir_config_path, self.ir_config_file)
         
         if not os.path.exists(ir_config_full_path):
-            print(f"Remote[{self.device_type.upper()}]: IR config file not found: {ir_config_full_path}")
+            self.connect_error = missing_keymap_message(self.ir_config_path, self.ir_type)
+            print(f"Remote[{self.device_type.upper()}]: {self.connect_error}")
             return False, {}
             
         try:

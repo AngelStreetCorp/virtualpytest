@@ -71,13 +71,21 @@ if ! ${DRY_RUN} && [[ "${EUID}" -ne 0 && "${SYSTEMD_DIR}" == "/etc/systemd/syste
   echo "must run as root (sudo) unless --dry-run" >&2; exit 1
 fi
 
-# Shared logic: next to this script (the deployed tree ships it under setup/proxmox/node/lib).
+# Shared logic. Normally next to this script (the deployed tree ships it under setup/proxmox/node/lib).
+# The root-owned copy the Platform update runs through sudo (/usr/local/sbin/vpt-reconcile-feature-units,
+# installed by setup/sudoers/install_vpt_update_sudoers.sh) must never source a file the service user can
+# write, so it reads ONLY the root-owned copy in /usr/local/lib/vpt-update.
 _here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 _fu_lib=""
-for _p in "${_here}/lib/feature_units.sh" "${PROJECT_ROOT}/setup/proxmox/node/lib/feature_units.sh"; do
+if [[ "${_here}" == /usr/local/sbin ]]; then
+  _fu_candidates=("/usr/local/lib/vpt-update/feature_units.sh")
+else
+  _fu_candidates=("${_here}/lib/feature_units.sh" "${PROJECT_ROOT}/setup/proxmox/node/lib/feature_units.sh")
+fi
+for _p in "${_fu_candidates[@]}"; do
   [[ -f "${_p}" ]] && { _fu_lib="${_p}"; break; }
 done
-[[ -n "${_fu_lib}" ]] || { echo "missing lib/feature_units.sh (next to $0 or under ${PROJECT_ROOT}/setup/proxmox/node/lib/)" >&2; exit 1; }
+[[ -n "${_fu_lib}" ]] || { echo "missing lib/feature_units.sh (${_fu_candidates[*]})" >&2; exit 1; }
 # shellcheck source=lib/feature_units.sh
 source "${_fu_lib}"
 TARGET_DIR="${PROJECT_ROOT}"          # %PROJECT_ROOT% in the templates

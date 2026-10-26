@@ -28,6 +28,7 @@ import {
 import { StyledDialog } from '../common/StyledDialog';
 import { R2Image } from '../common/R2Image';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface NodeVerificationModalProps {
   isOpen: boolean;
@@ -148,9 +149,9 @@ export const NodeVerificationModal: React.FC<NodeVerificationModalProps> = ({
                         <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                             {hasScreenshot ? (
-                              <CheckIcon fontSize="small" sx={{ fontSize: 14, color: 'success.main' }} />
+                              <CheckIcon fontSize="small" sx={{ fontSize: TYPOGRAPHY.body.size, color: 'success.main' }} />
                             ) : (
-                              <NoImageIcon fontSize="small" sx={{ fontSize: 14, color: 'action.disabled' }} />
+                              <NoImageIcon fontSize="small" sx={{ fontSize: TYPOGRAPHY.body.size, color: 'action.disabled' }} />
                             )}
                             <Typography variant="caption" color={hasScreenshot ? 'text.primary' : 'text.disabled'}>
                               Screenshot
@@ -159,11 +160,11 @@ export const NodeVerificationModal: React.FC<NodeVerificationModalProps> = ({
                           
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                             {hasVerification ? (
-                              <CheckIcon fontSize="small" sx={{ fontSize: 14, color: 'success.main' }} />
+                              <CheckIcon fontSize="small" sx={{ fontSize: TYPOGRAPHY.body.size, color: 'success.main' }} />
                             ) : suggestion.suggested_verification?.skipped ? (
-                              <CheckIcon fontSize="small" sx={{ fontSize: 14, color: 'action.disabled' }} />
+                              <CheckIcon fontSize="small" sx={{ fontSize: TYPOGRAPHY.body.size, color: 'action.disabled' }} />
                             ) : (
-                              <ErrorIcon fontSize="small" sx={{ fontSize: 14, color: 'error.main' }} />
+                              <ErrorIcon fontSize="small" sx={{ fontSize: TYPOGRAPHY.body.size, color: 'error.main' }} />
                             )}
                             <Typography 
                               variant="caption" 
@@ -303,7 +304,7 @@ export const NodeVerificationModal: React.FC<NodeVerificationModalProps> = ({
                                 component="pre" 
                                 sx={{ 
                                   fontFamily: 'monospace',
-                                  fontSize: '0.7rem',
+                                  fontSize: TYPOGRAPHY.caption.size,
                                   margin: 0,
                                   whiteSpace: 'pre-wrap',
                                   lineHeight: 1.6
@@ -320,7 +321,7 @@ export const NodeVerificationModal: React.FC<NodeVerificationModalProps> = ({
                                 }).join('\n')}`}
                               </Box>
                             ) : (
-                              <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', fontStyle: 'italic' }}>
+                              <Typography variant="caption" color="text.secondary" sx={{ fontSize: TYPOGRAPHY.caption.size, fontStyle: 'italic' }}>
                                 &lt;empty dump&gt;
                               </Typography>
                             )}
@@ -334,7 +335,7 @@ export const NodeVerificationModal: React.FC<NodeVerificationModalProps> = ({
                             fontFamily: 'monospace',
                             whiteSpace: 'pre-wrap',
                             wordBreak: 'break-word',
-                            fontSize: '0.7rem'
+                            fontSize: TYPOGRAPHY.caption.size
                           }}
                         >
                             {typeof selectedSuggestion.dump === 'string' 

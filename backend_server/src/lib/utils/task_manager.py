@@ -6,6 +6,12 @@ import time
 from typing import Any, Dict, List, Optional
 import uuid
 
+def deployment_task_id(execution_id: str) -> str:
+    """Stable task id of a scheduled deployment run; the host scheduler, the server and the
+    Deployments page (DeploymentLiveRow) all derive it from the execution id."""
+    return f'dep-{execution_id}'
+
+
 class TaskManager:
     """Thread-safe task manager for browser-use tasks"""
     
@@ -13,11 +19,13 @@ class TaskManager:
         self._tasks: Dict[str, Dict[str, Any]] = {}
         self._lock = threading.Lock()
     
-    def create_task(self, command: str, params: Dict[str, Any]) -> str:
-        """Create a new task and return task_id"""
-        task_id = str(uuid.uuid4())
+    def create_task(self, command: str, params: Dict[str, Any], task_id: Optional[str] = None) -> str:
+        """Create a new task and return task_id (a caller-chosen id is kept if no task has it yet)"""
+        task_id = task_id or str(uuid.uuid4())
         
         with self._lock:
+            if task_id in self._tasks:
+                return task_id
             self._tasks[task_id] = {
                 'id': task_id,
                 'command': command,
@@ -61,6 +69,10 @@ class TaskManager:
             if task is not None:
                 task['progress'] = progress
                 task['progress_at'] = time.time()
+                if progress.get('step'):
+                    steps = task.setdefault('progress_steps', [])
+                    steps.append({**progress['step'], 'step_number': progress.get('step_number'), 'at': time.time()})
+                    del steps[:-200]
 
     def mark_stop_requested(self, task_id: str, requested_by: str):
         """Record that a user asked to stop this task; the host completion still decides the end."""

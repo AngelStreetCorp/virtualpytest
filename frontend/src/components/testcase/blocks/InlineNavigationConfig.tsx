@@ -12,6 +12,7 @@ import { Box, MenuItem, TextField } from '@mui/material';
 
 import { useOptionalTestCaseBuilder } from '../../../contexts/testcase/TestCaseBuilderContext';
 import { NavigationBlockData } from '../../../types/testcase/TestCase_Types';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface InlineNavigationConfigProps {
   data: NavigationBlockData;
@@ -48,7 +49,7 @@ export const InlineNavigationConfig: React.FC<InlineNavigationConfigProps> = ({ 
           .map((n) => n.label || n.data?.label)
           .filter(Boolean)
           .map((label: string) => (
-            <MenuItem key={label} value={label} sx={{ fontSize: '0.8rem' }}>
+            <MenuItem key={label} value={label} sx={{ fontSize: TYPOGRAPHY.body.size }}>
               {label}
             </MenuItem>
           ))}

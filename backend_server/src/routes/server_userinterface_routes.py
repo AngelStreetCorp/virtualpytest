@@ -58,6 +58,7 @@ from shared.src.lib.database.unknown_screens_db import (
 
 from shared.src.lib.utils.app_utils import check_supabase
 from shared.src.lib.utils.cloudflare_utils import delete_userinterface_storage
+from shared.src.lib.utils.unknown_screen_node import build_unknown_node_data
 from shared.src.lib.config.constants import CACHE_CONFIG
 
 # Create blueprint
@@ -506,6 +507,19 @@ def publish_userinterface_route(interface_id):
               f"v{result['version']} ({counts.get('nodes')} nodes, {counts.get('edges')} edges)")
         return jsonify(result), 200
     return jsonify(result), 500
+
+
+@server_userinterface_bp.route('/<interface_id>/draft-status', methods=['GET'])
+def draft_status_route(interface_id):
+    """Whether dev holds changes newer than the last publish (TASK-173)."""
+    error = check_supabase()
+    if error:
+        return error
+
+    team_id = request.args.get('team_id')
+    from shared.src.lib.database.userinterface_publish import get_draft_status
+
+    return jsonify({'success': True, **get_draft_status(interface_id, team_id)})
 
 
 @server_userinterface_bp.route('/<interface_id>/publishes', methods=['GET'])
@@ -1059,6 +1073,16 @@ def get_unknown_screens():
     userinterface = _param(payload, 'userinterface')
     include_resolved = bool(_param(payload, 'include_resolved'))
 
+    if not userinterface:
+        return jsonify({'success': False, 'error': 'userinterface is required'}), 400
+    # The page reports on ONE interface. An interface that does not exist has no
+    # screens to report, and answering "all clear" made a typo look like an
+    # interface without unknown screens (BUG-0795).
+    if not (get_userinterface_by_name(userinterface, team_id, mode='dev')
+            or get_userinterface_by_name(userinterface, team_id, mode='prod')):
+        return jsonify({'success': False,
+                        'error': f'User interface "{userinterface}" not found'}), 404
+
     rows = list_unknown_screens(team_id, userinterface=userinterface,
                                 include_resolved=include_resolved)
     unknown = [r for r in rows if r['classification'] == 'unknown']
@@ -1208,28 +1232,9 @@ def accept_unknown_screen():
             'reason': 'this interface has no tree yet — create one before adding a node',
         }), 409
 
-    node_label = label or row.get('proposed_name') or f'{ui_name}_unknown_{str(row_id)[:8]}'
-    node_id = re.sub(r'[^A-Za-z0-9_]+', '_', node_label).strip('_').lower() or f'unknown_{str(row_id)[:8]}'
-
-    node_data = {
-        'node_id': node_id,
-        'label': node_label,
-        'node_type': 'screen',
-        'verifications': [],
-        'data': {
-            'type': 'screen',
-            'is_root': False,
-            'ai_generated': True,
-            'discovery_order': 0,
-            'depth': 1,
-            'screenshot': row.get('image_url'),
-            'fingerprint': fingerprint,
-            'dom': row.get('dom'),
-            'from_unknown_screen': row_id,
-        },
-        'position_x': 250,
-        'position_y': 100,
-    }
+    node_data = build_unknown_node_data(row, ui_name, row_id, label=label)
+    node_id = node_data['node_id']
+    node_label = node_data['label']
 
     saved = save_node(root_tree['id'], node_data, team_id)
     if not saved.get('success'):

@@ -9,14 +9,14 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | db / backend                                                 |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `5c05e00cc`                                                  |
 
 ---
 
 ## Symptom
 
-On `rpitest.angelstreet.io`, every page load logged two failed requests for a signed-in user:
+On `<pi-server-host>`, every page load logged two failed requests for a signed-in user:
 
 ```
 GET /server/mods/widgets?team_id=…&area=dashboard   → 500
@@ -81,7 +81,7 @@ still reported as a 500.
 4. End-to-end through PostgREST with a short-lived `service_role` token minted from the local
    JWT secret: `GET /rest/v1/user_mod_preferences` → **HTTP 200 `[]`**, and the same for
    `user_widget_layouts`. `PGRST205` is gone.
-5. `GET https://rpitest.angelstreet.io/server/mods/preferences?team_id=…` now returns
+5. `GET https://<pi-server-host>/server/mods/preferences?team_id=…` now returns
    **401** unauthenticated — rejected before the database is reached, rather than 500.
 6. New offline tests `tests/backend_server/test_mods_db_missing_table.py` (11 cases) cover:
    the real `PGRST205` shape → `{}` / `None`; `PGRST200` and timeouts still raise; real rows

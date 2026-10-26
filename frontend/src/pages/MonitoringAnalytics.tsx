@@ -24,6 +24,7 @@ import {
 } from '../types/pages/Analytics_Types';
 import { useWorkspaceContext } from '../contexts/workspace/WorkspaceContext';
 import { withGrafanaWorkspace } from '../utils/grafanaUrl';
+import { TYPOGRAPHY } from '../constants/typography';
 
 /**
  * Monitoring > Analytics — the basics without opening Grafana.
@@ -134,7 +135,7 @@ const MonitoringAnalytics: React.FC = () => {
   return (
     <Box sx={{ p: 3, pt: 2, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
-        <Typography component="h1" sx={{ fontSize: '1.5rem', fontWeight: 600 }}>
+        <Typography component="h1" sx={{ fontSize: TYPOGRAPHY.pageTitle.size, fontWeight: 600 }}>
           Analytics
         </Typography>
         <Box sx={{ flexGrow: 1 }} />
@@ -148,13 +149,13 @@ const MonitoringAnalytics: React.FC = () => {
               display: 'inline-flex',
               alignItems: 'center',
               gap: 0.5,
-              fontSize: '0.75rem',
+              fontSize: TYPOGRAPHY.caption.size,
               color: P.accentText,
               '&:hover': { textDecoration: 'underline' },
             }}
           >
             Open in Grafana
-            <ExternalIcon sx={{ fontSize: 13 }} />
+            <ExternalIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
           </Link>
         )}
         <Tooltip title="Refresh this tab">
@@ -182,7 +183,7 @@ const MonitoringAnalytics: React.FC = () => {
             label={TAB_LABELS[section]}
             onMouseEnter={() => handleHover(section)}
             onFocus={() => handleHover(section)}
-            sx={{ minHeight: 40, textTransform: 'none', fontSize: '0.8125rem' }}
+            sx={{ minHeight: 40, textTransform: 'none', fontSize: TYPOGRAPHY.body.size }}
           />
         ))}
       </Tabs>

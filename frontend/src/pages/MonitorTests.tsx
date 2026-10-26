@@ -30,6 +30,7 @@ import {
   ToggleButton,
   ToggleButtonGroup,
 } from '@mui/material';
+import { DeploymentLiveRow } from '../components/run-live';
 import { Search as SearchIcon, Link as LinkIcon, Check, Close, ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon, Pause, PlayArrow, DeleteOutline, Visibility, VisibilityOff } from '@mui/icons-material';
 import { useTheme } from '@mui/material/styles';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -43,13 +44,15 @@ import { useHostData } from '../hooks/useHostManager';
 import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import { useToast } from '../hooks/useToast';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { dangerButtonSx, dangerIconSx } from '../components/common/PageChrome';
+import { TYPOGRAPHY } from '../constants/typography';
 
 /** Section count as a small pill next to its title (gold when something is running). */
 const CountPill: React.FC<{ count: number; color?: string; P: ReturnType<typeof useAgentChatPalette> }> = ({ count, color, P }) => (
   <Box
     component="span"
     sx={{
-      fontSize: '0.72rem', fontWeight: 600, lineHeight: 1.7, px: 1, borderRadius: 999,
+      fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, lineHeight: 1.7, px: 1, borderRadius: 999,
       color: color || P.textSecondary, bgcolor: color ? `${P.accent}26` : P.hoverBg,
       fontVariantNumeric: 'tabular-nums',
     }}
@@ -300,6 +303,7 @@ const MonitorTests: React.FC = () => {
     searchParams.get('tab') === 'campaigns' ? 'campaigns' : 'tests',
   );
   const [runningExpanded, setRunningExpanded] = useState(true);
+  const [collapsedRunningIds, setCollapsedRunningIds] = useState<string[]>([]);
   const [scheduledExpanded, setScheduledExpanded] = useState(true);
   const [queueExpanded, setQueueExpanded] = useState(true);
   const [historyExpanded, setHistoryExpanded] = useState(true);
@@ -471,6 +475,13 @@ const MonitorTests: React.FC = () => {
     if (scheduledDeployments.length === 0) setScheduledExpanded(false);
     if (allExecutions.length === 0) setHistoryExpanded(false);
   }, [hasAutoCollapsed, filteredRunningExecutions.length, filteredQueuedExecutions.length, scheduledDeployments.length, allExecutions.length]);
+
+  // A run that starts (or arrives after the first auto-collapse) opens its section, so its progress is seen.
+  const prevRunningCount = useRef(0);
+  useEffect(() => {
+    if (prevRunningCount.current === 0 && filteredRunningExecutions.length > 0) setRunningExpanded(true);
+    prevRunningCount.current = filteredRunningExecutions.length;
+  }, [filteredRunningExecutions.length]);
 
   const getTargetLabel = (hostName?: string, deviceId?: string) => {
     if (!hostName) {
@@ -805,15 +816,15 @@ const MonitorTests: React.FC = () => {
     if (hasChoices && !isBool) {
       return (
         <FormControl key={visKey} size="small" sx={{ flex: '0 0 auto', minWidth: 120 }}>
-          <InputLabel sx={{ fontSize: '0.75rem' }}>{paramName}</InputLabel>
+          <InputLabel sx={{ fontSize: TYPOGRAPHY.caption.size }}>{paramName}</InputLabel>
           <Select
             value={paramValue || paramDef?.default || ''}
             label={paramName}
             onChange={(e) => onChange(e.target.value as string)}
-            sx={{ fontSize: '0.75rem', height: 32 }}
+            sx={{ fontSize: TYPOGRAPHY.caption.size, height: 32 }}
           >
             {paramDef!.choices!.map((choice) => (
-              <MenuItem key={choice} value={choice} sx={{ fontSize: '0.75rem' }}>
+              <MenuItem key={choice} value={choice} sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                 {choice}
               </MenuItem>
             ))}
@@ -833,7 +844,7 @@ const MonitorTests: React.FC = () => {
               onChange={(e) => onChange(e.target.checked ? 'true' : 'false')}
             />
           }
-          label={<Typography variant="caption" sx={{ fontSize: '0.7rem' }}>{paramName}</Typography>}
+          label={<Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.caption.size }}>{paramName}</Typography>}
           sx={{ ml: 0 }}
         />
       );
@@ -855,12 +866,12 @@ const MonitorTests: React.FC = () => {
                 onClick={() => setVisiblePasswords((prev) => ({ ...prev, [visKey]: !prev[visKey] }))}
                 edge="end"
               >
-                {visiblePasswords[visKey] ? <VisibilityOff sx={{ fontSize: 16 }} /> : <Visibility sx={{ fontSize: 16 }} />}
+                {visiblePasswords[visKey] ? <VisibilityOff sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} /> : <Visibility sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />}
               </IconButton>
             </InputAdornment>
           ) : undefined,
         } : undefined}
-        sx={{ flex: '0 0 auto', width: isNumeric ? 80 : 140, '& .MuiInputBase-input': { fontSize: '0.75rem' } }}
+        sx={{ flex: '0 0 auto', width: isNumeric ? 80 : 140, '& .MuiInputBase-input': { fontSize: TYPOGRAPHY.caption.size } }}
       />
     );
   };
@@ -951,7 +962,7 @@ const MonitorTests: React.FC = () => {
     <Box sx={{ px: isMobile ? 0.25 : isTablet ? 0.75 : 1, pt: isMobile ? 0.25 : 0.5, pb: isMobile ? 0.25 : isTablet ? 0.75 : 1 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: isCompact ? 'flex-start' : 'center', mb: 2, gap: 1, flexDirection: isCompact ? 'column' : 'row' }}>
         <Box sx={{ display: 'flex', alignItems: isCompact ? 'stretch' : 'center', gap: 1, flexDirection: isCompact ? 'column' : 'row', flex: 1, minWidth: 0 }}>
-          <Typography component="h1" sx={{ flexShrink: 0, fontSize: '1.5rem', fontWeight: 600 }}>
+          <Typography component="h1" sx={{ flexShrink: 0, fontSize: TYPOGRAPHY.pageTitle.size, fontWeight: 600 }}>
             Monitor Tests
           </Typography>
           <TextField
@@ -986,7 +997,7 @@ const MonitorTests: React.FC = () => {
             bgcolor: P.hoverBg, p: 0.375, borderRadius: 2, gap: 0.375,
             '& .MuiToggleButton-root': {
               border: '1px solid transparent !important', borderRadius: '6px !important',
-              textTransform: 'none', fontSize: 13, fontWeight: 500, color: P.textSecondary, py: 0.4, px: 2,
+              textTransform: 'none', fontSize: TYPOGRAPHY.body.size, fontWeight: 500, color: P.textSecondary, py: 0.4, px: 2,
             },
             '& .MuiToggleButton-root.Mui-selected': {
               bgcolor: P.surface, color: P.accentText, fontWeight: 600,
@@ -1005,10 +1016,10 @@ const MonitorTests: React.FC = () => {
         sx={{
           // One card look: hairline border, no shadow; section tables get the palette header.
           '& .MuiCard-root': { borderRadius: 3, border: `1px solid ${P.borderColor}`, boxShadow: 'none' },
-          '& .MuiCard-root .MuiTypography-h6': { fontSize: '1rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 },
+          '& .MuiCard-root .MuiTypography-h6': { fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 1 },
           '& .MuiTableContainer-root': { borderRadius: 2, borderColor: P.borderColor },
           '& .MuiTableCell-root': { borderColor: P.borderColor },
-          '& thead .MuiTableCell-root': { fontSize: '0.72rem', fontWeight: 600, color: `${P.textSecondary} !important`, bgcolor: `${P.hoverBg} !important` },
+          '& thead .MuiTableCell-root': { fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, color: `${P.textSecondary} !important`, bgcolor: `${P.hoverBg} !important` },
         }}
       >
         {/* Tests Running */}
@@ -1062,6 +1073,7 @@ const MonitorTests: React.FC = () => {
                   <Table size="small" sx={{ '& .MuiTableCell-root': { py: 0.5 } }}>
                     <TableHead>
                       <TableRow>
+                        <TableCell sx={{ width: 40 }} />
                         <TableCell>Target</TableCell>
                         <TableCell>{browserTab === 'campaigns' ? 'Campaign' : 'Test'}</TableCell>
                         <TableCell>Start</TableCell>
@@ -1071,8 +1083,18 @@ const MonitorTests: React.FC = () => {
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {filteredRunningExecutions.map((execution) => (
-                        <TableRow key={execution.id} sx={{ ...getRowHoverSx() }}>
+                      {filteredRunningExecutions.map((execution) => {
+                        const rowOpen = !collapsedRunningIds.includes(execution.id);
+                        const nextRunDate = scheduledDeployments.find((d) => d.id === execution.deployment_id);
+                        const nextRun = nextRunDate ? getScheduledNextRun(nextRunDate) : null;
+                        return (
+                        <React.Fragment key={execution.id}>
+                        <TableRow sx={{ ...getRowHoverSx(), ...(rowOpen ? { '& > .MuiTableCell-root': { borderBottom: 'none' } } : {}) }}>
+                          <TableCell sx={{ px: 0.5 }}>
+                            <IconButton size="small" aria-label={rowOpen ? 'Hide progress' : 'Show progress'} onClick={() => setCollapsedRunningIds((ids) => (ids.includes(execution.id) ? ids.filter((i) => i !== execution.id) : [...ids, execution.id]))}>
+                              {rowOpen ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
+                            </IconButton>
+                          </TableCell>
                           <TableCell>
                             <Typography variant="body2">
                               {getTargetLabel(execution.deployments?.host_name, execution.deployments?.device_id)}
@@ -1085,9 +1107,10 @@ const MonitorTests: React.FC = () => {
                               : getScriptDisplayName(execution.deployments?.script_name || execution.deployments?.name || '-')}
                             </Typography>
                           </TableCell>
-                          <TableCell>
-                            {formatToLocalTime(getExecutionTimestamp(execution) || '')}
-                            <Typography variant="caption" display="block" color="text.secondary">{userTimezone}</Typography>
+                          <TableCell sx={{ whiteSpace: 'nowrap' }}>
+                            <Tooltip title={userTimezone}>
+                              <span>{formatToLocalTime(getExecutionTimestamp(execution) || '')}</span>
+                            </Tooltip>
                           </TableCell>
                           <TableCell>{getStatusChip('running')}</TableCell>
                           <TableCell>
@@ -1105,7 +1128,21 @@ const MonitorTests: React.FC = () => {
                             )}
                           </TableCell>
                         </TableRow>
-                      ))}
+                        <TableRow sx={getRowHoverSx()}>
+                          <TableCell colSpan={7} sx={{ py: 0, ...(rowOpen ? {} : { borderBottom: 'none' }) }}>
+                            <Collapse in={rowOpen} unmountOnExit>
+                              <DeploymentLiveRow
+                                hostName={execution.deployments?.host_name}
+                                deviceId={execution.deployments?.device_id}
+                                executionId={execution.id}
+                                nextRun={nextRun ? formatToLocalTime(nextRun.toISOString()) : null}
+                              />
+                            </Collapse>
+                          </TableCell>
+                        </TableRow>
+                        </React.Fragment>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </TableContainer>
@@ -1193,7 +1230,7 @@ const MonitorTests: React.FC = () => {
                               {formatToLocalTime(execution.scheduled_at || execution.started_at || execution.completed_at || '')}
                             </TableCell>
                             <TableCell>
-                              <IconButton size="small" color="error" onClick={() => handleAbortQueued(execution.id)} title="Cancel queued execution">
+                              <IconButton size="small" onClick={() => handleAbortQueued(execution.id)} title="Cancel queued execution" sx={dangerIconSx(P)}>
                                 <DeleteOutline fontSize="small" />
                               </IconButton>
                             </TableCell>
@@ -1251,7 +1288,7 @@ const MonitorTests: React.FC = () => {
                           )}
                           <Button size="small" variant="text" sx={{ minWidth: 0, px: 0.5 }} onClick={(e) => handleEditOpen(e, deployment)}>Edit</Button>
                           <Button size="small" variant="text" sx={{ minWidth: 0, px: 0.5 }} onClick={() => handlePauseToggle(deployment)}>{deployment.status === 'paused' ? '>' : '||'}</Button>
-                          <Button size="small" variant="text" color="error" sx={{ minWidth: 0, px: 0.5 }} onClick={() => handleDelete(deployment)}>X</Button>
+                          <Button size="small" variant="text" sx={{ ...(dangerButtonSx(P) as object),  minWidth: 0, px: 0.5 }} onClick={() => handleDelete(deployment)}>X</Button>
                         </Box>
                       </Box>
                       <Typography variant="caption" color="text.secondary" display="block" sx={{ overflowWrap: 'anywhere' }}>
@@ -1328,7 +1365,7 @@ const MonitorTests: React.FC = () => {
                                 </IconButton>
                               </Tooltip>
                               <Tooltip title="Delete">
-                                <IconButton size="small" color="error" onClick={() => handleDelete(deployment)}>
+                                <IconButton size="small" onClick={() => handleDelete(deployment)} sx={dangerIconSx(P)}>
                                   <DeleteOutline fontSize="small" />
                                 </IconButton>
                               </Tooltip>
@@ -1433,7 +1470,7 @@ const MonitorTests: React.FC = () => {
                   onChange={(e) => setEditStartDate(e.target.value)}
                   size="small"
                   InputLabelProps={{ shrink: true }}
-                  sx={{ flex: 1, '& .MuiInputBase-input': { fontSize: '0.75rem' } }}
+                  sx={{ flex: 1, '& .MuiInputBase-input': { fontSize: TYPOGRAPHY.caption.size } }}
                 />
                 <TextField
                   label="End"
@@ -1442,7 +1479,7 @@ const MonitorTests: React.FC = () => {
                   onChange={(e) => setEditEndDate(e.target.value)}
                   size="small"
                   InputLabelProps={{ shrink: true }}
-                  sx={{ flex: 1, '& .MuiInputBase-input': { fontSize: '0.75rem' } }}
+                  sx={{ flex: 1, '& .MuiInputBase-input': { fontSize: TYPOGRAPHY.caption.size } }}
                 />
                 <TextField
                   label="Max runs"
@@ -1452,7 +1489,7 @@ const MonitorTests: React.FC = () => {
                   size="small"
                   placeholder="-"
                   inputProps={{ min: 1 }}
-                  sx={{ width: 90, '& .MuiInputBase-input': { fontSize: '0.75rem' } }}
+                  sx={{ width: 90, '& .MuiInputBase-input': { fontSize: TYPOGRAPHY.caption.size } }}
                 />
               </Box>
             </Box>
@@ -1464,10 +1501,10 @@ const MonitorTests: React.FC = () => {
               borderColor: isDarkMode ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
               display: 'flex', justifyContent: 'flex-end', gap: 0.5,
             }}>
-              <Button size="small" onClick={handleEditClose} startIcon={<Close sx={{ fontSize: 16 }} />}>
+              <Button size="small" onClick={handleEditClose} startIcon={<Close sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />}>
                 Cancel
               </Button>
-              <Button size="small" variant="contained" onClick={handleEditSave} startIcon={<Check sx={{ fontSize: 16 }} />}>
+              <Button size="small" variant="contained" onClick={handleEditSave} startIcon={<Check sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />}>
                 Save
               </Button>
             </Box>

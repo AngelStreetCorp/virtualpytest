@@ -96,7 +96,7 @@ def mcode(args):
         sid = o.get('sessionId', sid)
         read = u.get('cacheReadTokens') or 0
         t['cache_read'] += read
-        t['input'] += (u.get('inputTokens') or 0) - read  # MiniMax's inputTokens include the cache reads
+        t['input'] += u.get('inputTokens') or 0  # cache reads are reported apart from inputTokens
         t['output'] += u.get('outputTokens') or 0
     iso = lambda ms: datetime.datetime.utcfromtimestamp(ms / 1000).isoformat()[:16] if ms else None
     append({'video': args.video, 'agent': 'mcode', 'model': model, 'session': sid,

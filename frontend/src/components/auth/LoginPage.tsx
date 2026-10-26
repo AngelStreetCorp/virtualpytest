@@ -22,6 +22,7 @@ import { isAuthEnabled } from '../../lib/supabase';
 import { useBranding } from '../../contexts/BrandingContext';
 import { getEnv } from '../../config/constants';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export const LoginPage: React.FC = () => {
   const P = useAgentChatPalette();
@@ -152,7 +153,7 @@ export const LoginPage: React.FC = () => {
                 To enable authentication, add these variables to <code>frontend/.env</code>:
               </Typography>
 
-              <Box sx={{ bgcolor: P.hoverBg, p: 2, borderRadius: 1, fontFamily: 'monospace', fontSize: '0.9rem' }}>
+              <Box sx={{ bgcolor: P.hoverBg, p: 2, borderRadius: 1, fontFamily: 'monospace', fontSize: TYPOGRAPHY.navbarItem.size }}>
                 VITE_SUPABASE_URL=https://your-project.supabase.co<br />
                 VITE_SUPABASE_ANON_KEY=your-anon-key-here
               </Box>
@@ -227,7 +228,14 @@ export const LoginPage: React.FC = () => {
             {success && <Alert severity="success" sx={{ mb: 0.5 }}>{success}</Alert>}
 
             {(signupEnabled || resetPasswordEnabled) && (
-              <Tabs value={tab} onChange={(_, v) => { setTab(v); setError(''); setSuccess(''); }} sx={{ mb: 2 }}>
+              // variant="fullWidth" makes Login / Sign Up / Reset the same width regardless of label length;
+              // combined with the themed MuiTabs card strip it reads as one equal column row.
+              <Tabs
+                value={tab}
+                variant="fullWidth"
+                onChange={(_, v) => { setTab(v); setError(''); setSuccess(''); }}
+                sx={{ mb: 2 }}
+              >
                 <Tab label="Login" value="login" />
                 {signupEnabled && <Tab label="Sign Up" value="signup" />}
                 {resetPasswordEnabled && <Tab label="Reset" value="reset" />}
@@ -367,7 +375,7 @@ export const LoginPage: React.FC = () => {
                   },
                 }}
               >
-                <GoogleIcon sx={{ fontSize: 24 }} />
+                <GoogleIcon sx={{ fontSize: TYPOGRAPHY.pageTitle.size }} />
               </Button>
 
               <Button
@@ -383,7 +391,7 @@ export const LoginPage: React.FC = () => {
                   },
                 }}
               >
-                <GitHubIcon sx={{ fontSize: 24 }} />
+                <GitHubIcon sx={{ fontSize: TYPOGRAPHY.pageTitle.size }} />
               </Button>
             </Stack>}
 

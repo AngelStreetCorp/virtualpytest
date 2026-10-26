@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | frontend — `frontend/src/actions/webrtc/whepActions.ts`      |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---
@@ -43,7 +43,7 @@ peer-reflexive from the connectivity checks.
 ## Verification
 
 In the in-app browser on the Mac (outside the hosts' LAN), the same WHEP flow against
-`https://rpitest.angelstreet.io/host/vpt-pi3/whep/capture1/whep`:
+`https://<pi-server-host>/host/vpt-pi3/whep/capture1/whep`:
 
 | Gather wait | Result |
 |---|---|

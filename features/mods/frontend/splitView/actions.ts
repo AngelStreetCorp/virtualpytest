@@ -32,6 +32,11 @@ export const setWidth = (state: SplitState, pct: number): SplitState => ({ ...st
 export const pageOptions = (entries: PageOption[], isHidden: (path: string) => boolean): PageOption[] => {
   const seen = new Set<string>();
   return entries.filter((e) => {
+    // Defensive: a malformed feature-contributed item (no `path`) used to
+    // crash this filter on `e.path.startsWith` and take the whole split view
+    // (and the page menu it opens) down with it. Action rows and broken
+    // entries are not selectable pages; drop them silently here.
+    if (typeof e.path !== 'string') return false;
     if (!e.path.startsWith('/') || isHidden(e.path) || seen.has(e.path)) return false;
     seen.add(e.path);
     return true;

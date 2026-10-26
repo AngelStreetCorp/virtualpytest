@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium - deploy queue blocked for over an hour               |
 | Area      | deploy runner (`ghosty-sessions` repo, not this one) + `vpt-lease deploy` registry on proxmox |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `d6542c4` (orphan sweep) and `31ca260` / `28e9b39` (re-adoption) in ghosty-sessions |
 
 ---

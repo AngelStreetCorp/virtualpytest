@@ -1,44 +1,37 @@
 /**
- * Cloudflare Worker: origin-status monitor + smart 5xx page.
+ * Cloudflare Worker: origin-status monitor (cron only).
  *
- * Two responsibilities:
- *  1. Cron trigger every minute: ping `${ORIGIN_URL}${HEALTH_PATH}` and store
- *     `{ok, err, lastChecked, lastOk, consecutiveFailures, alertSent}` in KV —
- *     only when that state changes, plus an hourly heartbeat (free-plan KV
- *     allows 1,000 writes/day; a write per tick would be 1,440).
- *     Send a Resend email on N consecutive failures, post a recovery message
- *     on the ok transition. No spam — the alert flag is sticky until ok flips.
- *     A 200 whose JSON reports supabase/redis not "connected" is DEGRADED:
- *     same N-consecutive email + recovery mail, but `ok` stays true so users
- *     keep the site (a frozen Redis VM must not swap in the error page).
- *  2. fetch handler: forward the request to the origin; if the upstream
- *     returns status >= 500 OR `fetch` itself throws (TCP/DNS/timeout),
- *     return a branded HTML page that includes the latest health status
- *     ("Last healthy 4m ago") plus the CF-Ray request id and a retry button,
- *     replacing Cloudflare's generic "Connection timed out / Error 522".
+ * Single responsibility: cron trigger every minute, ping
+ * `${ORIGIN_URL}${HEALTH_PATH}`, store
+ * `{ok, err, lastChecked, lastOk, consecutiveFailures, alertSent}` in KV —
+ * only when that state changes, plus an hourly heartbeat (free-plan KV
+ * allows 1,000 writes/day; a write per tick would be 1,440).
  *
- * Why both: the frontend bundle and the API are both served by the origin
- * (proxmox VM → nginx → Flask). When the origin is down, both are down, so
- * the Worker is the only layer that can render something useful. Without it
- * users see Cloudflare's bare error page; with it they see a branded page
- * that says "we're aware, retry" plus an email alert fires for the operator.
+ * Sends a Resend email on N consecutive failures, posts a recovery message
+ * on the ok transition. No spam — the alert flag is sticky until ok flips.
+ * A 200 whose JSON reports supabase/redis not "connected" is DEGRADED:
+ * same N-consecutive email + recovery mail, but `ok` stays true so users
+ * keep the site (a frozen Redis VM must not swap in the error page).
+ *
+ * There is no `fetch` handler on purpose: this Worker is NOT bound to a
+ * route. Visitor traffic flows browser → CF edge → tunnel → proxmox nginx
+ * → backend, and proxying it through the Worker would burn the 100,000
+ * requests/day limit on the Free plan (see BUG-0570). The branded
+ * "Service temporarily unavailable" page is provided separately via the
+ * CF dashboard's Custom Pages → 500_errors, sourced from
+ * `infra/cloudflare/custom-pages/5xx-error.html`.
  *
  * Email via Resend (HTTP API) — Workers cannot open TCP sockets, so SMTP is
  * not an option here. Resend's free tier (100/day, 3k/month) is enough for
  * one DOWN + one RECOVERED mail per incident. Sending domain
  * (virtualpytest.com) must be verified in the Resend dashboard or emails 403.
  *
- * Pair with the static CF Custom Pages 5XX HTML in
- * `infra/cloudflare/custom-pages/5xx-error.html` — that is the fallback when
- * this Worker is not bound to the route.
- *
  * Deploy (see infra/cloudflare/status-worker/README.md):
  *   wrangler login
  *   wrangler kv:namespace create STATUS_KV   # copy id into wrangler.toml
  *   wrangler secret put RESEND_API_KEY        # paste re_... from .env
  *   wrangler deploy
- *   # then in CF dashboard: Workers & Pages → vpt-status-worker → Triggers →
- *   #   Add route: virtualtest.angelstreet.io/*  zone: angelstreet.io
+ *   # Do NOT bind a route on this Worker in the CF dashboard — see above.
  */
 
 export interface Env {
@@ -95,101 +88,6 @@ async function readStatus(kv: KVNamespace): Promise<OriginStatus> {
     console.error("kv read failed", (e as Error).message);
     return DEFAULT_EMPTY;
   }
-}
-
-function fmtAgo(epochMs: number | null): string {
-  if (!epochMs) return "never recorded";
-  const sec = Math.max(0, Math.round((Date.now() - epochMs) / 1000));
-  if (sec < 60) return `${sec}s ago`;
-  const min = Math.round(sec / 60);
-  if (min < 60) return `${min}m ago`;
-  const hr = Math.round(min / 60);
-  return `${hr}h ago`;
-}
-
-// Static branded error page (kept in sync with
-// infra/cloudflare/custom-pages/5xx-error.html). Embedded as a string
-// constant so the Worker renders the same HTML the operator pastes into
-// CF dashboard → Custom Pages → 500_errors. The renderErrorPage function
-// returns this verbatim with only the trailing reference line swapped.
-const CUSTOM_ERROR_PAGE = `<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1" />
-<title>VirtualPyTest — Service temporarily unavailable</title>
-<style>
-  :root { color-scheme: dark light; }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0; min-height: 100vh;
-    background: #1a1a1a; color: #f0f0f0;
-    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-    display: flex; align-items: center; justify-content: center;
-    padding: 24px;
-  }
-  @media (prefers-color-scheme: light) {
-    body { background: #f2f0ec; color: #141414; }
-    .card { background: #fff; border-color: #d9d4cc; }
-    .meta, .muted { color: #4a4a4a; }
-  }
-  .card {
-    max-width: 560px; width: 100%;
-    background: #242424; border: 1px solid #383838; border-radius: 12px;
-    padding: 32px;
-  }
-  .badge {
-    display: inline-block; padding: 2px 10px; border-radius: 999px;
-    background: #d4a57426; color: #d4a574;
-    font-size: 12px; font-weight: 600; letter-spacing: .04em;
-  }
-  h1 { margin: 16px 0 8px; font-size: 24px; font-weight: 600; }
-  p  { margin: 0 0 16px; color: #9a9a9a; }
-  .muted { color: #9a9a9a; font-size: 14px; }
-  button {
-    appearance: none; border: 0; cursor: pointer;
-    background: #d4a574; color: #1a1611;
-    padding: 10px 20px; border-radius: 6px; font-weight: 600;
-    font-size: 14px;
-  }
-  button:hover { background: #c49464; }
-  code { font: 13px ui-monospace, SFMono-Regular, Menlo, monospace; }
-</style>
-</head>
-<body>
-  <main class="card">
-    <span class="badge">VirtualPyTest</span>
-    <h1>Service temporarily unavailable</h1>
-    <p>The backend on the Hetzner server (proxmox VM → nginx → Flask) is not reachable from Cloudflare. This page replaces Cloudflare's generic "Connection timed out" so you know it's our end, not yours.</p>
-    <p class="muted">Most outages resolve in under a minute (server reboot, deploy, OOM). If you reached this page from a saved URL, just retry.</p>
-    <button onclick="location.reload()">Retry</button>
-    <p class="muted" style="margin-top:24px">
-      Reference: <code>virtualpytest.angelstreet.io</code> · Cloudflare error 522 / 524
-    </p>
-  </main>
-</body>
-</html>`;
-
-function renderErrorPage(status: OriginStatus, upstreamStatus: number, requestId: string): string {
-  // Return the static custom-page HTML (kept in sync with
-  // infra/cloudflare/custom-pages/5xx-error.html) verbatim. The only
-  // substitution is the trailing reference line, which gets the cf-ray
-  // request id (for grep in CF Events) and the upstream status code
-  // appended when present.
-  const lastHealthyLine = status.lastOk
-    ? `<p class="muted" style="margin-top:8px">Last seen healthy: ${escapeHtml(fmtAgo(status.lastOk))} ago</p>`
-    : "";
-  const metaLine =
-    `<p class="muted" style="margin-top:24px">` +
-    `Reference: <code>virtualpytest.angelstreet.io</code> · ` +
-    (requestId !== "n/a" ? `request <code>${escapeHtml(requestId)}</code> · ` : "") +
-    `upstream HTTP ${upstreamStatus}` +
-    `</p>`;
-  return CUSTOM_ERROR_PAGE
-    .replace(
-      '<p class="muted" style="margin-top:24px">\n      Reference: <code>virtualpytest.angelstreet.io</code> · Cloudflare error 522 / 524\n    </p>',
-      lastHealthyLine + metaLine,
-    );
 }
 
 function escapeHtml(s: string): string {
@@ -300,75 +198,10 @@ async function sendEmail(env: Env, subject: string, html: string, text: string):
 }
 
 export default {
-  // ── fetch: smart 5xx page ────────────────────────────────────────────────
-  async fetch(req: Request, env: Env): Promise<Response> {
-    // Owner-device mTLS check: what Cloudflare saw of this client's certificate.
-    // Served by the Worker itself, so it answers even when the WAF would block.
-    if (new URL(req.url).pathname === "/__mtls") {
-      const cf = (req.cf ?? {}) as Record<string, unknown>;
-      const auth = (cf.tlsClientAuth ?? {}) as Record<string, string>;
-      return Response.json({
-        certPresented: auth.certPresented === "1",
-        certVerified: auth.certVerified,
-        certRevoked: auth.certRevoked === "1",
-        certSubject: auth.certSubjectDN || null,
-        clientIp: req.headers.get("cf-connecting-ip"),
-        country: cf.country ?? null,
-        httpProtocol: cf.httpProtocol ?? null,
-        tlsVersion: cf.tlsVersion ?? null,
-      }, { headers: { "cache-control": "no-store" } });
-    }
-    // Build an origin-bound URL so we never feed the request back to ourselves
-    // (the route is bound to virtualtest.angelstreet.io — a literal fetch(req)
-    // can re-enter the Worker when called via the workers.dev preview URL or
-    // when CF re-routes the subrequest through the same route).
-    const incoming = new URL(req.url);
-    const originUrl = new URL(env.ORIGIN_URL);
-    const target = new URL(incoming.pathname + incoming.search, originUrl);
-
-    // Strip the incoming Host header — let CF set Host to the target so the
-    // tunnel / nginx routes by the right vhost. Re-adding Host to a Workers
-    // fetch would echo the workers.dev preview hostname, which the tunnel
-    // can't route and which nginx then serves the wrong vhost for.
-    const fwdHeaders = new Headers(req.headers);
-    fwdHeaders.delete("Host");
-
-    // The cron marks origin ok=false in KV when /server/health fails. If the
-    // user's request and the cron agree origin is sick, render the branded
-    // page even if the upstream returned a non-5xx (e.g. nginx 404 because
-    // Flask is down). cronProbeChecked = the cron has actually run at least
-    // once (lastChecked > 0); without that, ok=false is the empty default.
-    const kvStatus = await readStatus(env.STATUS_KV);
-    const cronProbeChecked = kvStatus.lastChecked > 0;
-    const cronKnowsOriginDown = cronProbeChecked && !kvStatus.ok;
-
-    let res: Response;
-    let fetchErr: Error | null = null;
-    try {
-      res = await fetch(target.toString(), {
-        method: req.method,
-        headers: fwdHeaders,
-        body: req.method === "GET" || req.method === "HEAD" ? null : req.body,
-        redirect: "manual",
-        cf: { cacheTtl: 0, cacheEverything: false },
-      });
-    } catch (e) {
-      fetchErr = e as Error;
-      res = new Response("", { status: 522 });
-    }
-
-    if (fetchErr || res.status >= 500 || cronKnowsOriginDown) {
-      const requestId = req.headers.get("cf-ray") ?? "n/a";
-      const upstreamStatus = fetchErr ? 522 : res.status;
-      return new Response(renderErrorPage(kvStatus, upstreamStatus, requestId), {
-        status: upstreamStatus,
-        headers: { "content-type": "text/html; charset=utf-8" },
-      });
-    }
-    return res;
-  },
-
   // ── scheduled: minute-by-minute health probe ────────────────────────────
+  // No `fetch` handler: this Worker is intentionally not bound to a route.
+  // See BUG-0570 — binding a route would burn the 100k/day Free-plan limit
+  // by proxying every visitor request through the Worker.
   async scheduled(_event: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
     const url = `${env.ORIGIN_URL}${env.HEALTH_PATH}`;
     const startedAt = Date.now();

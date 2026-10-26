@@ -19,6 +19,9 @@ import React, { useEffect, useState } from 'react';
 import { StyledDialog } from '../common/StyledDialog';
 import { useReferenceVersions } from '../../hooks/verification/useReferenceVersions';
 import { ReferenceImagePreview } from './ReferenceImagePreview';
+import { neutralButtonSx } from '../common/PageChrome';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface ReferenceHistoryModalProps {
   open: boolean;
@@ -41,6 +44,7 @@ export const ReferenceHistoryModal: React.FC<ReferenceHistoryModalProps> = ({
   reference,
   onRestored,
 }) => {
+  const P = useAgentChatPalette();
   const { versions, loading, restoringId, list, restore } = useReferenceVersions();
   // Version id pending confirm (inline two-step restore).
   const [confirmId, setConfirmId] = useState<string | null>(null);
@@ -77,7 +81,7 @@ export const ReferenceHistoryModal: React.FC<ReferenceHistoryModalProps> = ({
         },
       }}
     >
-      <DialogTitle sx={{ py: 1, px: 2, pr: 6, fontSize: '1rem', fontWeight: 600 }}>
+      <DialogTitle sx={{ py: 1, px: 2, pr: 6, fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600 }}>
         History — {reference?.name}
         <IconButton
           onClick={onClose}
@@ -172,16 +176,16 @@ export const ReferenceHistoryModal: React.FC<ReferenceHistoryModalProps> = ({
                         </Typography>
                       )}
                     </TableCell>
-                    <TableCell sx={{ fontSize: '0.8rem' }}>{formatDate(v.created_at)}</TableCell>
+                    <TableCell sx={{ fontSize: TYPOGRAPHY.body.size }}>{formatDate(v.created_at)}</TableCell>
                     <TableCell align="right">
                       {confirmId === v.id ? (
                         <Box sx={{ display: 'inline-flex', gap: 0.5 }}>
                           <Button
                             size="small"
-                            variant="contained"
-                            color="warning"
+                            variant="outlined"
                             disabled={restoringId === v.id}
                             onClick={() => handleRestore(v.id)}
+                            sx={neutralButtonSx(P)}
                           >
                             {restoringId === v.id ? '…' : 'Confirm'}
                           </Button>

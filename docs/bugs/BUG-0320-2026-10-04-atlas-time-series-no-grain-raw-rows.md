@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                     |
 | Severity  | Medium — a trend chart showed a flat line at 1         |
 | Area      | backend_server/src/lib/analytics/service.py |
-| Fixed in  | Unreleased                                 |
+| Fixed in  | build 90145 |
 | Commit    | see branch task43-w7-analytics-r3           |
 
 ---

@@ -77,9 +77,9 @@ WINDOWS_TASK="vpt-host"
 # active there, and only with --restart. Best-effort, never aborts the deploy.
 AUX_SERVICES=(
   vpt-stream
-  vpt-monitor
-  vpt-subtitle
-  vpt-transcript
+  vpt-monitor-img
+  vpt-monitor-subtitle
+  vpt-monitor-audio
   vpt-archiver
   vpt-avq
   vpt-kpi
@@ -569,6 +569,25 @@ reconcile_feature_units() {
   return 0
 }
 
+# migrate_monitor_units <host> <target_dir> (TASK-90): vpt-monitor/-transcript/-subtitle became vpt-monitor-img/-audio/-subtitle.
+# The pushed tree ships setup/proxmox/node/migrate_monitor_units.sh (idempotent, runs on the host); without it the new
+# code, which only knows the new names, would look at units that do not exist. Best-effort, never aborts the deploy.
+migrate_monitor_units() {
+  local host="$1"
+  local TARGET_DIR="${2:-${TARGET_DIR}}"
+  local script="${TARGET_DIR}/setup/proxmox/node/migrate_monitor_units.sh"
+  if ${DRY_RUN}; then
+    echo "==> [${host}] DRY-RUN: would run migrate_monitor_units.sh (rename the monitor units)"
+    return 0
+  fi
+  run_ssh "${host}" "sudo -n test -f ${script}" || return 0   # an older tree: nothing to migrate with
+  if ! run_ssh "${host}" "sudo -n bash ${script} --project-root ${TARGET_DIR}"; then
+    echo "==> [${host}] monitor unit migration reported problems (deploy not failed)"
+    FEATURE_UNIT_FAIL+=("${host} : monitor unit migration reported problems")
+  fi
+  return 0
+}
+
 # restart_feature_units <host>: step 3 — restart the units (re)rendered by
 # reconcile_feature_units, after vpt-host. Best-effort, never aborts the deploy.
 restart_feature_units() {
@@ -715,7 +734,7 @@ try_deploy() {
 # (reconcile is best-effort and cannot fail the host; --dry-run only prints).
 try_deploy_host() {
   local host="$1" dir="$2" service="$3" label="${4:-$1}"
-  if rsync_push "${host}" "${dir}" && reconcile_feature_units "${host}" "${dir}" && maybe_restart "${host}" "${service}"; then
+  if rsync_push "${host}" "${dir}" && reconcile_feature_units "${host}" "${dir}" && migrate_monitor_units "${host}" "${dir}" && maybe_restart "${host}" "${service}"; then
     DEPLOY_OK+=("${label}")
     return 0
   else

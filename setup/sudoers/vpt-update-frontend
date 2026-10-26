@@ -1,0 +1,29 @@
+# =============================================================================
+# VirtualPyTest - Platform update, rights of the DEPLOY ACCOUNT on the FRONTEND VM (TASK-101)
+# =============================================================================
+#
+# The server logs in to the frontend VM over SSH as a deploy account (FRONTEND_DEPLOY_SSH_USER, "deploy" below -
+# change both lines if yours has another name). The account:
+#   * copies the bundle into /var/tmp/vpt_bundle_incoming (plain ssh/rsync, no sudo)
+#   * runs the code sync and the frontend build as the service user (vpt_user)
+#   * restarts the frontend service
+#
+# Why `(vpt_user) ALL` and not a command list: the sync runs code-deploy.sh from the staging folder that this
+# same account writes (/var/tmp/vpt_bundle_incoming), through `bash -lc` with per-run VPT_* settings. A narrower
+# sudoers line cannot constrain that, because the account chooses the script's contents; it would only look safer.
+# Treat the deploy account as equivalent to vpt_user: a dedicated key used only by the server (restrict it with
+# from="<server ip>" in authorized_keys), no password login. It never gets root except the one restart below.
+#
+# Install (as root, on the frontend VM):
+#     sudo install -o root -g root -m 0440 \
+#         /opt/virtualpytest/setup/sudoers/vpt-update-frontend /etc/sudoers.d/vpt-update-frontend
+#     sudo visudo -cf /etc/sudoers.d/vpt-update-frontend
+# Verify (as the deploy account):
+#     sudo -n -H -u vpt_user true
+#     sudo -n -l systemctl restart vpt-frontend
+# =============================================================================
+
+Cmnd_Alias VPT_FRONTEND_RESTART = /usr/bin/systemctl restart vpt-frontend
+
+deploy ALL=(vpt_user) NOPASSWD: ALL
+deploy ALL=(root) NOPASSWD: VPT_FRONTEND_RESTART

@@ -96,19 +96,19 @@
       allowfullscreen>
     </iframe>
   </div>
-  <p>Dashboard, live device control, one-click test runs, reports, KPI measurement, the 24h heatmap and incident evidence, in one minute.</p>
   <p>
     <a href="https://www.youtube.com/watch?v=RBgS376Blvo" target="_blank" rel="noopener">Watch on YouTube</a>
     &nbsp;·&nbsp;
     <a href="https://github.com/AngelStreetCorp/virtualpytest" target="_blank" rel="noopener">Source on GitHub</a>
   </p>
+  &nbsp;·&nbsp;
+    * AI Generated *
 </div>
 
 ---
 
 <div class="video-grid">
   <div class="video-card">
-    <h3>Navigation tree: map your app once</h3>
     <div class="video-wrapper">
       <iframe
         src="https://www.youtube.com/embed/_CP29LQe0xQ"
@@ -121,7 +121,6 @@
   </div>
 
   <div class="video-card">
-    <h3>Evidence: every run leaves proof</h3>
     <div class="video-wrapper">
       <iframe
         src="https://www.youtube.com/embed/bBheQqaRIQM"
@@ -134,7 +133,6 @@
   </div>
 
   <div class="video-card">
-    <h3>AI agent: ask, it acts</h3>
     <div class="video-wrapper">
       <iframe
         src="https://www.youtube.com/embed/prG2eqnbjfs"
@@ -412,6 +410,19 @@
       <iframe
         src="https://www.youtube.com/embed/Pt384v3ucDA"
         title="Group control: one remote drives two phones at once"
+        frameborder="0"
+        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+        allowfullscreen>
+      </iframe>
+    </div>
+  </div>
+
+  <div class="video-card">
+    <h3>Fly a drone from the Device page, with live video</h3>
+    <div class="video-wrapper">
+      <iframe
+        src="https://www.youtube.com/embed/YWJ1uz8KHCo"
+        title="Fly a drone from the Device page, with live video"
         frameborder="0"
         allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
         allowfullscreen>

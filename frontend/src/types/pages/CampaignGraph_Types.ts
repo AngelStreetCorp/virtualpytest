@@ -1,3 +1,4 @@
+import type { AppIconName } from '../../constants/icons';
 /**
  * Campaign Graph Types
  * 
@@ -136,7 +137,7 @@ export interface CampaignToolboxItem {
   id: string;
   type: CampaignNodeType;
   label: string;
-  icon: string;
+  icon: AppIconName;
   category: 'testcases' | 'scripts' | 'flow' | 'terminal';
   
   // For testcase/script items

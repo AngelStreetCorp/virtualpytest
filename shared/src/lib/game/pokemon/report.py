@@ -26,7 +26,7 @@ KIND_LABEL = {
     "shop_start": "Shopping", "bought": "Bought balls", "shop_failed": "Shopping failed", "caught": "Caught", "catch_failed": "Not caught",
     "train_start": "Training", "trained": "Trained", "train_stalled": "Training stalled",
     "gym_leader": "Gym leader", "warp_unusable": "Door", "lost": "No route", "explore": "Explore", "blocked_by": "In the way",
-    "blocker_wall": "Wall (beaten trainer)", "story_done": "Story done",
+    "npc_walled": "Wall (beaten trainer)", "story_done": "Story done",
     "hm_taught": "Move taught", "hm_failed": "Move not taught", "cut_tree": "Tree cut", "cut_failed": "Cut failed",
     "trash_can": "Trash can", "exit_blocked": "Map exit blocked", "struggle": "Struggle (no PP)",
     "milestone_done": "Milestone done", "dead_end": "Dead end (back out)", "poster_switch": "Poster switch", "lift_floor": "Elevator floor", "flute_used": "Poké Flute",

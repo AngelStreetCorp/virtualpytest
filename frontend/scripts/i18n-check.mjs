@@ -147,6 +147,14 @@ for (const lang of LANGS) {
   const p = path.join(LOCALES, `${lang}.json`);
   if (!fs.existsSync(p)) { fail(`missing catalog ${rel(p)}`); catalogs[lang] = {}; continue; }
   catalogs[lang] = JSON.parse(fs.readFileSync(p, 'utf8'));
+  // A feature may ship its own strings (features/<name>/frontend/locales/<lang>.json, see
+  // FeatureDefinition.translations): merged over the core catalog, exactly as the app does at runtime.
+  if (fs.existsSync(featuresDir)) {
+    for (const f of fs.readdirSync(featuresDir)) {
+      const fp = path.join(featuresDir, f, 'frontend', 'locales', `${lang}.json`);
+      if (fs.existsSync(fp)) Object.assign(catalogs[lang], JSON.parse(fs.readFileSync(fp, 'utf8')));
+    }
+  }
 }
 
 const missing = {};

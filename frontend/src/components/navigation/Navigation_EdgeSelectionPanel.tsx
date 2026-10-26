@@ -1,9 +1,10 @@
+import { AppIcon } from '../../constants/icons';
 import { Close as CloseIcon } from '@mui/icons-material';
 import { Box, Typography, Button, IconButton, Paper, LinearProgress, Alert } from '@mui/material';
 import React, { useEffect, useMemo } from 'react';
 import { useReactFlow, useNodes } from 'reactflow';
 
-import { useEdge } from '../../hooks/navigation/useEdge';
+import { useEdge, getRunResultTone } from '../../hooks/navigation/useEdge';
 import { useNavigation } from '../../contexts/navigation/NavigationContext';
 import { useValidationColors } from '../../hooks/validation/useValidationColors';
 import { Host } from '../../types/common/Host_Types';
@@ -11,7 +12,9 @@ import { UINavigationEdge, EdgeForm } from '../../types/pages/Navigation_Types';
 import { EdgeMetricData } from '../../types/navigation/Metrics_Types';
 import { getZIndex } from '../../utils/zIndexUtils';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { dangerButtonSx } from '../common/PageChrome';
 import { computeConditionalEdgeIds, findSiblingWithActions, getConditionalRole } from '../../utils/conditionalEdgeUtils';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 // Per-action execution meta the executor honours: `iterator` (repeat count,
 // default 1) and the post-action settle `wait_time` (ms), which the host
@@ -106,7 +109,7 @@ const ActionRow: React.FC<{
         display: 'flex',
         alignItems: 'baseline',
         fontFamily: 'monospace',
-        fontSize: '0.75rem',
+        fontSize: TYPOGRAPHY.caption.size,
         color: color || 'text.primary',
         mb: 0.3,
         // Row itself never exceeds the panel: the command column ellipsizes
@@ -128,7 +131,7 @@ const ActionRow: React.FC<{
       </Box>
       <Box
         component="span"
-        sx={{ flex: '0 0 6ch', color: 'text.disabled', fontSize: '0.72rem' }}
+        sx={{ flex: '0 0 6ch', color: 'text.disabled', fontSize: TYPOGRAPHY.caption.size }}
       >
         {meta.iter}
       </Box>
@@ -138,7 +141,7 @@ const ActionRow: React.FC<{
           flex: '1 1 auto',
           minWidth: 0,
           color: 'text.disabled',
-          fontSize: '0.72rem',
+          fontSize: TYPOGRAPHY.caption.size,
           whiteSpace: 'nowrap',
           overflow: 'hidden',
           textOverflow: 'ellipsis',
@@ -501,7 +504,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
                 <Typography
                   variant="caption"
                   sx={{
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                     fontWeight: 'bold',
                     color: '#fff',
                     backgroundColor: P.accent,
@@ -517,7 +520,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
               <Typography
                 variant="caption"
                 sx={{
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   fontWeight: 'bold',
                   color: metricsDisplay.successRateColor,
                   padding: '2px 6px',
@@ -532,7 +535,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
               <Typography
                 variant="caption"
                 sx={{
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   fontWeight: 'bold',
                   color: P.textMuted,
                   padding: '2px 6px',
@@ -548,7 +551,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
               <Typography
                 variant="caption"
                 sx={{
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   fontWeight: 'bold',
                   color: P.textMuted,
                   padding: '2px 6px',
@@ -564,7 +567,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
               <Typography
                 variant="caption"
                 sx={{
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   fontWeight: 'bold',
                   color: metricsDisplay.confidenceColor,
                   padding: '2px 6px',
@@ -594,7 +597,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
                 rel={edgeMetrics?.kpi_report_url ? 'noopener noreferrer' : undefined}
                 variant="caption"
                 sx={{
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   fontWeight: 'bold',
                   color: metricsDisplay.kpiTextColor,
                   padding: '2px 6px',
@@ -637,7 +640,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
               variant="body2"
               title={fromLabel}
               sx={{
-                fontSize: '0.8rem',
+                fontSize: TYPOGRAPHY.body.size,
                 fontWeight: 'bold',
                 color: P.accentText,
                 minWidth: 0,
@@ -649,14 +652,14 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
             >
               {fromLabel}
             </Typography>
-            <Typography variant="body1" sx={{ fontSize: '1rem', flexShrink: 0 }}>
+            <Typography variant="body1" sx={{ fontSize: TYPOGRAPHY.navbarItem.size, flexShrink: 0 }}>
               →
             </Typography>
             <Typography
               variant="body2"
               title={toLabel}
               sx={{
-                fontSize: '0.8rem',
+                fontSize: TYPOGRAPHY.body.size,
                 fontWeight: 'bold',
                 color: P.success,
                 minWidth: 0,
@@ -671,7 +674,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
           </Box>
           <Typography
             variant="caption"
-            sx={{ display: 'block', fontSize: '0.7rem', color: 'text.secondary', lineHeight: 1.2, mb: 0.75 }}
+            sx={{ display: 'block', fontSize: TYPOGRAPHY.caption.size, color: 'text.secondary', lineHeight: 1.2, mb: 0.75 }}
           >
             Final wait: {(actionSet as any)?.final_wait_time ?? 0}ms
           </Typography>
@@ -679,16 +682,16 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
           {/* Conditional role banner. MAIN: edits propagate to all branches (no
               unlink). SIBLING: editing unlinks it into an independent edge. */}
           {conditionalRole === 'main' && (
-            <Alert severity="success" icon={false} sx={{ mb: 1, py: 0.5, fontSize: '0.75rem' }}>
-              <Typography variant="caption" sx={{ fontSize: '0.7rem', fontWeight: 'bold' }}>
-                🔷 Conditional Edge · main — edits to these actions apply to all branches.
+            <Alert severity="success" icon={false} sx={{ mb: 1, py: 0.5, fontSize: TYPOGRAPHY.caption.size }}>
+              <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.caption.size, fontWeight: 'bold' }}>
+                <AppIcon name="branch" /> Conditional Edge · main — edits to these actions apply to all branches.
               </Typography>
             </Alert>
           )}
           {conditionalRole === 'sibling' && (
-            <Alert severity="warning" icon={false} sx={{ mb: 1, py: 0.5, fontSize: '0.75rem' }}>
-              <Typography variant="caption" sx={{ fontSize: '0.7rem', fontWeight: 'bold' }}>
-                🔷 Conditional Edge · sibling — borrows the main's actions. Editing will unlink this edge and make it independent.
+            <Alert severity="warning" icon={false} sx={{ mb: 1, py: 0.5, fontSize: TYPOGRAPHY.caption.size }}>
+              <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.caption.size, fontWeight: 'bold' }}>
+                <AppIcon name="branch" /> Conditional Edge · sibling — borrows the main's actions. Editing will unlink this edge and make it independent.
               </Typography>
             </Alert>
           )}
@@ -698,7 +701,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
             <Box sx={{ mb: 1 }}>
               <Typography
                 variant="caption"
-                sx={{ fontWeight: 'bold', fontSize: '0.7rem', mb: 0.5, display: 'block' }}
+                sx={{ fontWeight: 'bold', fontSize: TYPOGRAPHY.caption.size, mb: 0.5, display: 'block' }}
               >
                 Main Actions:
               </Typography>
@@ -715,7 +718,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
                 variant="caption"
                 sx={{
                   fontWeight: 'bold',
-                  fontSize: '0.7rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   mb: 0.5,
                   display: 'block',
                   color: 'warning.main',
@@ -741,7 +744,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
                 variant="caption"
                 sx={{
                   fontWeight: 'bold',
-                  fontSize: '0.7rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   mb: 0.5,
                   display: 'block',
                   color: 'error.main',
@@ -766,7 +769,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
               <Button
                 size="small"
                 variant="outlined"
-                sx={{ fontSize: '0.75rem', px: 1, flex: 1 }}
+                sx={{ fontSize: TYPOGRAPHY.caption.size, px: 1, flex: 1 }}
                 onClick={handleEdit}
                 disabled={!isControlActive || !selectedHost || isMutating}
                 title={
@@ -780,8 +783,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
                 <Button
                   size="small"
                   variant="outlined"
-                  color="error"
-                  sx={{ fontSize: '0.75rem', px: 1, flex: 1 }}
+                  sx={{ ...(dangerButtonSx(P) as object),  fontSize: TYPOGRAPHY.caption.size, px: 1, flex: 1 }}
                   onClick={onDelete}
                   disabled={isMutating}
                 >
@@ -795,7 +797,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
               <Button
                 size="small"
                 variant="contained"
-                sx={{ fontSize: '0.75rem', px: 1 }}
+                sx={{ fontSize: TYPOGRAPHY.caption.size, px: 1 }}
                 onClick={handleRunActions}
                 disabled={!canRunActions}
                 title={
@@ -815,14 +817,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
                 sx={{
                   mt: 0.5,
                   p: 0.5,
-                  bgcolor: edgeHook.runResult.includes('✅ Execution')
-                    ? 'success.light'
-                    : edgeHook.runResult.includes('❌ Execution') ||
-                        (edgeHook.runResult.includes('❌') && !edgeHook.runResult.includes('✅'))
-                      ? 'error.light'
-                      : edgeHook.runResult.includes('⚠️')
-                        ? 'warning.light'
-                        : 'success.light',
+                  bgcolor: { success: 'success.light', error: 'error.light', neutral: 'success.light' }[getRunResultTone(edgeHook.runResult)],
                   borderRadius: 0.5,
                   maxHeight: '150px', // Limit height to enable scrolling
                   overflow: 'auto', // Enable scrolling
@@ -834,7 +829,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
                   sx={{
                     fontFamily: 'monospace',
                     whiteSpace: 'pre-line',
-                    fontSize: '0.7rem', // Slightly smaller font for compactness
+                    fontSize: TYPOGRAPHY.caption.size, // Slightly smaller font for compactness
                     lineHeight: 1.2, // Tighter line spacing
                   }}
                 >
@@ -854,7 +849,7 @@ export const EdgeSelectionPanel: React.FC<EdgeSelectionPanelProps> = React.memo(
                   rel="noopener noreferrer"
                   style={{ color: P.accentText, textDecoration: 'underline', fontWeight: 'bold' }}
                 >
-                  🔍 View verification report
+                  <AppIcon name="search" /> View verification report
                 </a>
               </Typography>
             )}

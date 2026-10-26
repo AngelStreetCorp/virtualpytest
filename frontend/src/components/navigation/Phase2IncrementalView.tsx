@@ -1,3 +1,4 @@
+import { AppIcon } from '../../constants/icons';
 import React from 'react';
 import {
   Box,
@@ -99,7 +100,7 @@ export const Phase2IncrementalView: React.FC<Phase2IncrementalViewProps> = ({
             if (isCompleted) {
               icon = <SuccessIcon sx={{ color: P.success }} />;
               statusChip = <Chip
-                label="✓ Tested"
+                label="Tested"
                 size="small"
                 color="success"
                 onClick={() => onToggleNode?.(item)}
@@ -165,9 +166,9 @@ export const Phase2IncrementalView: React.FC<Phase2IncrementalViewProps> = ({
             Current item steps:
           </Typography>
           <Typography variant="body2" sx={{ mt: 0.5 }}>
-            1. Create node ✓<br />
-            2. Create edge ✓<br />
-            3. Test edge (execute_edge) ⏳<br />
+            1. Create node <AppIcon name="success" /><br />
+            2. Create edge <AppIcon name="success" /><br />
+            3. Test edge (execute_edge) <AppIcon name="pending" /><br />
             4. Capture screenshot...
           </Typography>
         </Box>

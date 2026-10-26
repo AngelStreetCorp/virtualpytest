@@ -179,14 +179,89 @@ def resolve_project(project: str, *, api: Optional[str] = None,
 
 # ─── repository ──────────────────────────────────────────────────────────────
 
+def _commit_summary(c: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+    """The four commit fields a GitHub-style "latest commit" row needs."""
+    if not isinstance(c, dict):
+        return None
+    return {
+        'short_id': c.get('short_id') or (c.get('id') or '')[:8],
+        'title': c.get('title'),
+        'author_name': c.get('author_name'),
+        'committed_date': c.get('committed_date'),
+    }
+
+
 def branches(project: str, per_page: int = 30, *, api: Optional[str] = None,
-             tok: Optional[str] = None) -> List[str]:
+             tok: Optional[str] = None) -> List[Dict[str, Any]]:
+    """Branches with their last commit: [{name, commit: {short_id,title,author_name,committed_date}}]."""
     # Note the /repository/ segment: GitHub's /repos/:repo/branches does not exist here and
     # answers a bare {"error": "404 Not Found"} from Workhorse rather than a GitLab error.
     data = _request(f'/projects/{project_ref(project)}/repository/branches?per_page={per_page}',
                     api=api, tok=tok)
-    return [b.get('name') for b in data
-            if isinstance(b, dict) and b.get('name')] if isinstance(data, list) else []
+    names = [entry["name"] for entry in data if entry.get("name")]
+    return names
+
+
+#: Per-entry last-commit lookups: GitLab REST has no batch endpoint for this, so each entry is
+#: one /repository/commits call. Bounded fan-out, capped entries, short cache.
+COMMIT_FANOUT = 8
+COMMIT_ENTRY_CAP = 50
+COMMIT_CACHE_TTL = 60
+_commit_cache: Dict[Any, Any] = {}
+
+
+def last_commits(project: str, ref: Optional[str], paths: List[str], *,
+                 api: Optional[str] = None, tok: Optional[str] = None) -> Dict[str, Optional[Dict[str, Any]]]:
+    """{path: commit summary or None} for up to COMMIT_ENTRY_CAP paths, fetched in parallel."""
+    import time
+    from concurrent.futures import ThreadPoolExecutor
+
+    def one(path: str) -> Optional[Dict[str, Any]]:
+        key = (api, project, ref, path)
+        hit = _commit_cache.get(key)
+        if hit and time.time() - hit[0] < COMMIT_CACHE_TTL:
+            return hit[1]
+        query = ['per_page=1', f'path={urllib.parse.quote(path, safe="")}']
+        if ref:
+            query.append(f'ref_name={urllib.parse.quote(ref, safe="")}')
+        try:
+            data = _request(f'/projects/{project_ref(project)}/repository/commits?' + '&'.join(query),
+                            api=api, tok=tok)
+            value = _commit_summary(data[0]) if isinstance(data, list) and data else None
+        except GitLabError:
+            return None
+        _commit_cache[key] = (time.time(), value)
+        return value
+
+    wanted = paths[:COMMIT_ENTRY_CAP]
+    with ThreadPoolExecutor(max_workers=COMMIT_FANOUT) as pool:
+        return dict(zip(wanted, pool.map(one, wanted)))
+
+
+def overview(project: str, ref: Optional[str] = None, *, api: Optional[str] = None,
+             tok: Optional[str] = None) -> Dict[str, Any]:
+    """What the repo home's side panels need, in one call: description, visibility, clone URLs,
+    commit count (project statistics), tag count (capped at one page) and the newest pipeline
+    on `ref`."""
+    row = _request(f'/projects/{project_ref(project)}?statistics=true', api=api, tok=tok)
+    tags = _request(f'/projects/{project_ref(project)}/repository/tags?per_page=100', api=api, tok=tok)
+    try:
+        runs = pipeline_runs(project, ref=ref, per_page=1, api=api, tok=tok)
+    except GitLabError:
+        runs = []
+    stats = row.get('statistics') or {}
+    return {
+        'description': row.get('description'),
+        'visibility': row.get('visibility'),
+        'http_url': row.get('http_url_to_repo'),
+        'ssh_url': row.get('ssh_url_to_repo'),
+        'default_branch': row.get('default_branch'),
+        'last_activity_at': row.get('last_activity_at'),
+        'web_url': row.get('web_url'),
+        'commit_count': stats.get('commit_count'),
+        'tag_count': len(tags) if isinstance(tags, list) else 0,
+        'last_pipeline': runs[0] if runs else None,
+    }
 
 
 def repository_tree(project: str, ref: Optional[str] = None, path: str = '',
@@ -220,10 +295,33 @@ def repository_tree(project: str, ref: Optional[str] = None, path: str = '',
 
 def readme(project: str, ref: Optional[str] = None, *, api: Optional[str] = None,
            tok: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """The project's README, decoded. None when the project has none — not an error."""
-    query = f'?ref={urllib.parse.quote(ref, safe="")}' if ref else ''
-    data = _request(f'/projects/{project_ref(project)}/readme{query}', api=api, tok=tok)
-    return _decoded_file(data) if isinstance(data, dict) else None
+    """The project's README, decoded. None when the project has none — not an error.
+
+    GitLab v4 has NO `/projects/:id/readme` endpoint (it answers 404 on a real instance); a
+    repository file is only reachable through `/repository/files/:file_path`, and the name is
+    not known in advance. So the root tree is listed and the README is resolved from it: the
+    project may call it `README.md`, `Readme.rst` or plain `README`, and picking the wrong one
+    is why this could not just guess a filename.
+    """
+    entries = repository_tree(project, ref=ref, path='', api=api, tok=tok)
+    name = _readme_name(entries)
+    if not name:
+        return None
+    return file_content(project, name, ref=ref, api=api, tok=tok)
+
+
+def _readme_name(entries: List[Dict[str, Any]]) -> Optional[str]:
+    """The README among root entries, markdown first — None when the project has no README."""
+    names = [e.get('name') for e in entries if e.get('type') != 'tree' and e.get('name')]
+    candidates = [n for n in names if str(n).lower().startswith('readme')]
+    if not candidates:
+        return None
+    # `README.md` wins over `README.rst`, which wins over anything else.
+    for suffix in ('.md', '.markdown', '.mdx', '.rst'):
+        for name in candidates:
+            if str(name).lower().endswith(suffix):
+                return name
+    return candidates[0]
 
 
 def file_content(project: str, path: str, ref: Optional[str] = None, *,

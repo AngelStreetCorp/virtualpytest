@@ -17,6 +17,10 @@ Small add-ons that hook app events and draw into core slots, like Claude Code mo
   button or Ctrl + Alt + S; drag the divider, swap sides.
 - `frontend/teamDevices/` — Team devices: a Dashboard widget with the team's devices, tests running and errors
   (failed runs in 24 h or 7 days, or open alerts: the widget's "Count as errors" setting).
+- `frontend/infoTiles/` — Info tiles: a Dashboard palette of small info widgets (clock, weather) that share
+  `InfoTile`. One mod ships the whole palette; the user turns it on once and picks tiles from "+ Add widget".
+  New tiles (calendar, stocks, …) go under `infoTiles/<name>/` and are added to the bundled mod's
+  `widgets: [...]` list.
 - `frontend/blastRadius/` — Blast Radius: confirm dialog before a device is powered off or rebooted (the
   `device.command` gate asked by `usePowerControl`).
 

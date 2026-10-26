@@ -4988,6 +4988,99 @@
         }
       ],
       "tolerated": []
+    },
+    "match_runs_total": {
+      "ambiguous_keys": 0,
+      "atlas_request": {
+        "dimensions": [],
+        "metrics": [
+          "run_count"
+        ],
+        "source_id": "match_runs"
+      },
+      "atlas_sql_sha256": "dea5c0540907130d7aa38ef2af49dcc66e7b1e2b1dfd49a0685a3311aedd10d7",
+      "dashboard": "fingerprints.json",
+      "family": "matcher",
+      "known_divergence": null,
+      "mismatches": [],
+      "panel": {
+        "id": 1
+      },
+      "row_count": 1,
+      "rows": [
+        {
+          "atlas": {
+            "run_count": 0
+          },
+          "dashboard": {
+            "run_count": 0
+          },
+          "key": "k1"
+        }
+      ],
+      "tolerated": []
+    },
+    "match_runs_matched": {
+      "ambiguous_keys": 0,
+      "atlas_request": {
+        "dimensions": [],
+        "metrics": [
+          "matched_count"
+        ],
+        "source_id": "match_runs"
+      },
+      "atlas_sql_sha256": "66b2927685c36a392384448aabcbe92260363f15e57d8bb47614a89923d42c41",
+      "dashboard": "fingerprints.json",
+      "family": "matcher",
+      "known_divergence": null,
+      "mismatches": [],
+      "panel": {
+        "id": 2
+      },
+      "row_count": 1,
+      "rows": [
+        {
+          "atlas": {
+            "matched_count": 0
+          },
+          "dashboard": {
+            "matched_count": 0
+          },
+          "key": "k1"
+        }
+      ],
+      "tolerated": []
+    },
+    "screen_fingerprints_above": {
+      "ambiguous_keys": 0,
+      "atlas_request": {
+        "dimensions": [],
+        "metrics": [
+          "above_threshold"
+        ],
+        "source_id": "screen_fingerprints_counter"
+      },
+      "atlas_sql_sha256": "0ed07d48cd3c0752aa518f0334e0d64e550bcb1ef64cef8bd0ed426226c90e36",
+      "dashboard": "fingerprints.json",
+      "family": "matcher",
+      "known_divergence": null,
+      "mismatches": [],
+      "panel": {
+        "id": 5
+      },
+      "row_count": 1,
+      "rows": [
+        {
+          "atlas": {
+            "above_threshold": 0
+          },
+          "dashboard": {
+            "above_threshold": 0
+          },
+          "key": "k1"
+        }
+      ],
+      "tolerated": []
     }
   },
   "window": {

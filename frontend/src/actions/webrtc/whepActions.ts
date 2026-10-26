@@ -1,4 +1,10 @@
-import { HLS_LIVE_PATH_RE, WEBRTC_ICE_SERVERS, WHEP_ICE_GATHER_MAX_MS } from '../../constants/webrtcConstants';
+import {
+  HLS_LIVE_PATH_RE,
+  WEBRTC_ICE_SERVERS,
+  WHEP_ICE_GATHER_MAX_MS,
+  WHEP_LOSS_CHECK_MS,
+  WHEP_LOSSY_JITTER_BUFFER_MS,
+} from '../../constants/webrtcConstants';
 import type { WhepSession } from '../../types/controller/WebRTC_Types';
 import { ensureHostSession, isGatedHostPath } from '../../utils/buildUrlUtils';
 
@@ -41,6 +47,38 @@ const waitForIceCandidates = (pc: RTCPeerConnection): Promise<void> =>
     pc.addEventListener('icecandidate', onCandidate);
   });
 
+/**
+ * Raise the receive jitter buffer the first time the link loses packets or freezes, so
+ * resent packets arrive in time instead of the picture freezing. Checks every
+ * WHEP_LOSS_CHECK_MS and stops after it has switched or once `pc` is closed.
+ */
+const bufferMoreOnLoss = (pc: RTCPeerConnection): void => {
+  let last: { loss: number; freeze: number } | null = null;
+  const id = window.setInterval(async () => {
+    if (pc.signalingState === 'closed') {
+      window.clearInterval(id);
+      return;
+    }
+    let loss = 0;
+    let freeze = 0;
+    (await pc.getStats().catch(() => new Map())).forEach((s) => {
+      if (s.type === 'inbound-rtp' && s.kind === 'video') {
+        loss = (s.packetsLost ?? 0) + (s.nackCount ?? 0);
+        freeze = s.totalFreezesDuration ?? 0;
+      }
+    });
+    if (last && (loss - last.loss >= 3 || freeze > last.freeze)) {
+      pc.getReceivers().forEach((r) => {
+        // Chrome / Edge / Safari 17.4+; other browsers ignore it.
+        (r as RTCRtpReceiver & { jitterBufferTarget?: number }).jitterBufferTarget = WHEP_LOSSY_JITTER_BUFFER_MS;
+      });
+      window.clearInterval(id);
+      return;
+    }
+    last = { loss, freeze };
+  }, WHEP_LOSS_CHECK_MS);
+};
+
 /** Open a receive-only WHEP session. `onTrack` gets the remote MediaStream. */
 export const openWhepSession = async (
   whepUrl: string,
@@ -72,6 +110,7 @@ export const openWhepSession = async (
     if (!res.ok) throw new Error(`WHEP POST ${res.status}`);
     const location = res.headers.get('Location');
     await pc.setRemoteDescription({ type: 'answer', sdp: await res.text() });
+    bufferMoreOnLoss(pc);
     return { pc, resourceUrl: location ? new URL(location, whepUrl).toString() : null };
   } catch (err) {
     pc.close();

@@ -9,14 +9,14 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High                                                         |
 | Area      | shared / database, frontend                                  |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---
 
 ## Symptom
 
-Test → Report → Test Reports, with the RPI1 server (`rpitest.angelstreet.io`) selected, showed
+Test → Report → Test Reports, with the RPI1 server (`<pi-server-host>`) selected, showed
 `{'message': 'JSON could not be generated', 'code': 502, … 'details': b'<!DOCTYPE html>… 502: Bad gateway…`
 instead of the table. `GET /server/script-results/getAllScriptResults` returned 500 on every call
 from that server. The same call on the main server (`virtualpytest.angelstreet.io`, VM .103)
@@ -36,7 +36,7 @@ that header is ~4.6 KB. The RPI1 server reaches Supabase through the public URL
 the oversized upstream header and Cloudflare returns its 502 page. Measured from the RPI1 server
 with random uuids: 80 ids → 200 (`Content-Location` 3669 bytes), 85+ ids → 502. A 401 (no
 `Content-Location`) passes at any length, which is why anon-key tests looked fine. The main server
-calls Kong directly on the LAN (`http://192.168.0.102:54321`), so it was not affected.
+calls Kong directly on the LAN (`http://192.168.x.102:54321`), so it was not affected.
 
 The frontend then put the server's error text — the whole HTML page — into the page.
 
@@ -52,5 +52,5 @@ The frontend then put the server's error text — the whole HTML page — into t
 ## Verification
 
 After a server deploy on the RPI1 server, Test Reports with that server selected lists runs, and
-`GET https://rpitest.angelstreet.io/server/script-results/getAllScriptResults?team_id=…` returns
+`GET https://<pi-server-host>/server/script-results/getAllScriptResults?team_id=…` returns
 200.

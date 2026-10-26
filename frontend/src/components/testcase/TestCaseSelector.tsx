@@ -24,6 +24,12 @@ import { isFeatureEnabled } from '../../config/features';
 import { SelectorFilterBar } from '../common/SelectorFilterBar';
 import { ScriptIdentityPopover } from './ScriptIdentityPopover';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { dangerButtonSx } from '../common/PageChrome';
+import { ExecutableKind, useExecutableFavorites } from '../../hooks/useExecutableFavorites';
+import { ExecutableFavoriteStar } from '../common/DeviceFavoriteStar';
+import { DeviceFavoriteGroupHeader } from '../common/DeviceFavoriteGroupHeader';
+import { FavoritesChip } from '../common/FavoritesChip';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export interface TestCaseItem {
   testcase_id: string;
@@ -92,6 +98,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
   const { isMobile, isTablet } = useResponsiveMode();
   const { resolveScript, saveScriptIdentity, normalizeRef } = useIdentityMap();
   const { showSuccess, showError } = useToast();
+  const favorites = useExecutableFavorites();
   const isCompact = isMobile || isTablet;
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -282,6 +289,16 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
     item.type === 'testcase' ? item.testcase_id
     : item.type === 'virtual' ? item.id
     : item.script_name;
+
+  // Favorites key (TASK-100, CONTRACTS #35): a disk script is listed without .py, its favorite id has it.
+  const favoriteOf = (item: ExecutableItem): { kind: ExecutableKind; id: string } =>
+    item.type === 'testcase' ? { kind: 'testcase', id: item.testcase_id }
+    : item.type === 'virtual' ? { kind: 'virtual_script', id: item.name }
+    : { kind: 'script', id: `${item.script_name}.py` };
+  const isFavoriteItem = (item: ExecutableItem) => {
+    const { kind, id } = favoriteOf(item);
+    return favorites.isFavorite(kind, id);
+  };
 
   const itemLabel = (item: ExecutableItem) =>
     item.type === 'testcase' ? item.testcase_name
@@ -479,6 +496,20 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
 
     return items;
   }, [allItems, hiddenKeys, searchQuery, selectedTags, selectedFolder, selectedType, showHidden]);
+
+  // Favorites pinned first; the filters above still decide what is visible.
+  const favoriteItems = filteredItems.filter(isFavoriteItem);
+  const otherItems = filteredItems.filter((item) => !isFavoriteItem(item));
+  const orderedItems = [...favoriteItems, ...otherItems];
+  const allFavoritesBulkSelected =
+    favoriteItems.length > 0 && favoriteItems.every((item) => testrailBulkSelected.has(itemKey(item)));
+  const toggleFavoritesBulk = () => {
+    setTestrailBulkSelected((current) => {
+      const next = new Set(current);
+      favoriteItems.forEach((item) => (allFavoritesBulkSelected ? next.delete(itemKey(item)) : next.add(itemKey(item))));
+      return next;
+    });
+  };
 
   // Handle item selection
   const handleItemSelect = (item: ExecutableItem) => {
@@ -684,6 +715,9 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
           inputProps={{ 'aria-label': 'Select visible cases for TestRail bulk linking' }}
         />
         <Typography variant="caption" color="text.secondary">Select visible</Typography>
+        {favoriteItems.length > 0 && (
+          <FavoritesChip count={favoriteItems.length} allSelected={allFavoritesBulkSelected} onClick={toggleFavoritesBulk} />
+        )}
         {testrailBulkSelected.size > 0 && <>
           <Typography variant="caption" color="text.secondary">{testrailBulkSelected.size} selected</Typography>
           <Button size="small" onClick={() => void openTestrailBulkMapping()} disabled={testrailLoading}>
@@ -707,7 +741,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
             </Box>
           ) : (
             <List dense disablePadding>
-              {filteredItems.map(item => {
+              {orderedItems.map((item, index) => {
                 const isTestCase = item.type === 'testcase';
                 const itemId = itemKey(item);
                 const isSelected = selectedTestCaseId === itemId;
@@ -715,8 +749,12 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                 const folderLabel = item.folder && item.folder !== 'All' && item.folder !== 'Root' ? item.folder : '';
                 
                 return (
+                  <React.Fragment key={`${item.type}:${itemId}`}>
+                  {favoriteItems.length > 0 && index === 0 && <DeviceFavoriteGroupHeader kind="favorites" />}
+                  {favoriteItems.length > 0 && otherItems.length > 0 && index === favoriteItems.length && (
+                    <DeviceFavoriteGroupHeader kind="allItems" />
+                  )}
                   <ListItem
-                    key={itemId}
                     disablePadding
                     sx={{
                       borderBottom: 1,
@@ -753,6 +791,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                     >
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%', minWidth: 0 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flex: isMobile ? '1 1 70%' : '1 1 48%', minWidth: 0 }}>
+                          <ExecutableFavoriteStar kind={favoriteOf(item).kind} itemId={favoriteOf(item).id} />
                           <Chip
                             icon={item.type === 'script' ? <ScriptIcon /> : undefined}
                             label={item.type === 'testcase' ? 'TC' : item.type === 'virtual' ? 'VS' : 'S'}
@@ -760,7 +799,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                             color={item.type === 'testcase' ? 'secondary' : 'primary'}
                             sx={{
                               height: '16px',
-                              fontSize: '0.6rem',
+                              fontSize: TYPOGRAPHY.microMeta.size,
                               minWidth: '24px',
                               '.MuiChip-label': { px: 0.5 },
                               opacity: isSelected ? 0.95 : 1,
@@ -787,7 +826,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                                     size="small"
                                     onClick={openIdentityEditor}
                                     sx={{
-                                      fontSize: '0.6rem',
+                                      fontSize: TYPOGRAPHY.microMeta.size,
                                       height: 16,
                                       flexShrink: 0,
                                       fontFamily: 'monospace',
@@ -800,7 +839,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                                 <Typography
                                   variant="body2"
                                   sx={{
-                                    fontSize: '0.8rem',
+                                    fontSize: TYPOGRAPHY.body.size,
                                     minWidth: 0,
                                     overflow: 'hidden',
                                     textOverflow: 'ellipsis',
@@ -822,7 +861,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                               color={selectedFolder === folderLabel ? P.accentText : P.textSecondary}
                               sx={{
                                 display: 'block',
-                                fontSize: '0.68rem',
+                                fontSize: TYPOGRAPHY.microMeta.size,
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
                                 whiteSpace: 'nowrap',
@@ -881,7 +920,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                                 }}
                                 sx={{
                                   height: '14px',
-                                  fontSize: '0.55rem',
+                                  fontSize: TYPOGRAPHY.microMeta.size,
                                   backgroundColor: tag?.color || P.textMuted,
                                   color: 'white',
                                   cursor: 'pointer',
@@ -907,7 +946,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                                 e.stopPropagation();
                                 void openTestrailMapping(item);
                               }}
-                              sx={{ minWidth: 78, px: 0.5, py: 0, fontSize: '0.65rem', lineHeight: 1.5, whiteSpace: 'nowrap' }}
+                              sx={{ minWidth: 78, px: 0.5, py: 0, fontSize: TYPOGRAPHY.microMeta.size, lineHeight: 1.5, whiteSpace: 'nowrap' }}
                             >
                               {testrailMappings[testrailKey(itemLabel(item))]
                                 ? `TR C${testrailMappings[testrailKey(itemLabel(item))].case_id}`
@@ -980,6 +1019,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
                       </Box>
                     </ListItemButton>
                   </ListItem>
+                  </React.Fragment>
                 );
               })}
             </List>
@@ -989,7 +1029,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
 
       {/* Summary Footer */}
       <Box sx={{ mt: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.75rem' }}>
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
           {filteredItems.length} item{filteredItems.length !== 1 ? 's' : ''}
           {selectedType && ` • ${selectedType === 'script' ? 'S' : selectedType === 'virtual' ? 'VS' : 'TC'}`}
           {selectedFolder && selectedFolder !== 'All' && ` in ${selectedFolder}`}
@@ -999,7 +1039,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
         {(searchQuery || selectedTags.length > 0 || (selectedFolder && selectedFolder !== 'All') || selectedType) && (
           <Typography
             variant="caption"
-            sx={{ color: P.accentText, cursor: 'pointer', textDecoration: 'underline', fontSize: '0.75rem' }}
+            sx={{ color: P.accentText, cursor: 'pointer', textDecoration: 'underline', fontSize: TYPOGRAPHY.caption.size }}
             onClick={() => {
               setSearchQuery('');
               setSelectedTags([]);
@@ -1032,7 +1072,7 @@ export const TestCaseSelector = forwardRef<{ refresh: () => void }, TestCaseSele
         </DialogContent>
         <DialogActions>
           {testrailTarget && testrailMappings[testrailKey(itemLabel(testrailTarget))] && (
-            <Button color="error" onClick={() => void removeTestrailMapping()} disabled={testrailSaving}>Remove link</Button>
+            <Button onClick={() => void removeTestrailMapping()} disabled={testrailSaving} sx={dangerButtonSx(P)}>Remove link</Button>
           )}
           <Box sx={{ flex: 1 }} />
           <Button onClick={() => setTestrailTarget(null)} disabled={testrailSaving}>Cancel</Button>

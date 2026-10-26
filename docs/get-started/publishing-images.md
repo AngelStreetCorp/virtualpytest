@@ -1,10 +1,30 @@
 # Publishing container images to GHCR
 
+Ready-made VirtualPyTest images are stored on GitHub, so a new install can skip building from source. This page is for project contributors who publish them. Most people never need it.
+
+<div data-technical>
+
 Five containers are published to GitHub Container Registry at `ghcr.io/angelstreetcorp`: the three VirtualPyTest ones — `virtualpytest-server`, `virtualpytest-host`, `virtualpytest-frontend` — plus `minio` and `minio-mc`, which vendor the upstream MinIO binaries (registries that used to serve them stopped allowing anonymous pulls; see `gcp-standalone.md` § "The MinIO workaround"). A `launch.sh` install can pull all five instead of building from a local checkout, which makes first-run installs ~2 minutes instead of ~15. This page is the lifecycle for the *publishing* side: when to publish, how to publish, how to verify a published tag works, and how to roll back if it doesn't.
 
-> If you only want to **use** the published images (i.e. you're running a fresh install), you don't need this page. See [docker.md](docker.md) § "Skip the build (prebuilt images)" for `VPT_IMAGE_TAG=…` in `setup/docker/.env`. The rest of this page is for project contributors cutting a publish.
+</div>
+
+> Only want to **use** the images? You do not need this page. See [docker.md](docker.md) § "Skip the build (prebuilt images)".
+
+<div data-technical>
+
+For `VPT_IMAGE_TAG=…` in `setup/docker/.env`, see [docker.md § Skip the build](docker.md#skip-the-build-prebuilt-images). The rest of this page is for project contributors cutting a publish.
+
+</div>
+
+---
 
 ## What's published
+
+Five images, all stored in one place on GitHub. Three are the VirtualPyTest server, host and web page. Two are small helpers for MinIO, the file storage the platform uses.
+
+`latest` is the last image the project chose to publish. It can be weeks behind `main`. For the same install every time, use a fixed tag.
+
+<div data-technical>
 
 | Image | Source | Tag prefix | Built from | Default port inside |
 |---|---|---|---|---|
@@ -19,7 +39,15 @@ Five containers are published to GitHub Container Registry at `ghcr.io/angelstre
 - **`latest`** is always repointed to the most recently published tag. **It is not** "the newest release of VirtualPyTest" — it is "the last image the project chose to publish", which may be weeks behind `main`. Pin a real tag (`VPT_IMAGE_TAG=main-2026.09.26-9358`) when you want reproducibility.
 - **`minio` / `minio-mc` exist because quay.io/minio/\* stopped accepting anonymous pulls** (see `gcp-standalone.md` § "The MinIO workaround"). They tag and version identically to the other three for simplicity, even though their actual content only changes when the pinned upstream MinIO/mc version is bumped in their Dockerfile.
 
+</div>
+
+---
+
 ## What runs the publish
+
+A GitHub workflow builds all five images, pushes them only from the public repo, then starts them on a fresh machine to check they work. Nothing starts on its own. Someone has to press the button.
+
+<div data-technical>
 
 `.github/workflows/release-images.yml` has two jobs that matter:
 
@@ -28,21 +56,39 @@ Five containers are published to GitHub Container Registry at `ghcr.io/angelstre
 
 Both jobs are **`workflow_dispatch` only**. Nothing fires on a tag push — see the comment at the top of the workflow for the reasoning (no consumer actually depends on registry images, the first install builds locally anyway, and ~3 GB × 3 images per tag would dominate CI minutes).
 
+</div>
+
+---
+
 ## When to publish
 
-Publish when one of these is true. For everything else, don't — `launch.sh` with `VPT_IMAGE_TAG=local` already gives the user a working stack, and registry images only matter for first-run speed and reproducible installs.
+Publish only when you have a reason. A local build already gives a working install.
 
-- **You want a fresh first-run for users** (the current `latest` is months old). Publish.
-- **You tagged a customer release** (`release-*`). Publish, then point the public docs at that tag.
-- **You need a published image for a specific environment** (e.g. a Raspberry Pi image is being built off the same Dockerfile elsewhere and needs to match). Publish that tag.
-- **You bumped a dependency that `local` builds don't include** (e.g. base Python from 3.11 to 3.12, base Node from 18 to 20). Publish so existing installs don't keep getting stale.
-- **Otherwise:** don't. `local` builds match the user's checkout exactly, which is the more honest thing for the 99% case.
+- **You want a fresh first run for users**, because the current `latest` is months old. Publish.
+- **You tagged a customer release.** Publish, then point the public docs at that tag.
+
+<div data-technical>
+
+- **Another environment needs a published image.** For example, a Raspberry Pi image built from the same Dockerfile must match. Publish that tag.
+- **You upgraded a base layer that local builds do not include**, such as the Python or Node version. Publish, so existing installs do not stay on the old base.
+
+Local builds use `VPT_IMAGE_TAG=local`. The base layer examples are Python 3.11 to 3.12 and Node 18 to 20.
+
+</div>
+
+- **Otherwise:** don't. A local build matches the user's own checkout exactly. That is the more honest choice for almost every case.
+
+---
 
 ## How to publish
 
-The repo you're working in matters. Pick the right one before you trigger anything.
+Pick the right repo before you start anything. Publishing from the wrong one wastes a run and publishes nothing.
 
 ### Step 1 — Decide which repo to publish from
+
+Publish from the **public** repo. Development happens in the **internal** repo, so copy the release to the public repo first.
+
+<div data-technical>
 
 | Repo | What happens on `workflow_dispatch` |
 |---|---|
@@ -58,9 +104,13 @@ scripts/release/publish_public.sh main-2026.09.26-9361
 
 See `RELEASING.md` § "Publish a snapshot to the public repo" for the full cut-a-release sequence (tag first, `--dry-run` to inspect, then run for real). After that, all pushes to `main` on the internal repo *don't* publish images, but a fresh run on the public repo's Actions will pick up the latest `main`.
 
+</div>
+
 ### Step 2 — Decide the tag
 
-Two options:
+The tag must match the version number in the project's version file, at the commit you publish from. Check it by eye before you publish. The automatic checks do not catch a mismatch.
+
+<div data-technical>
 
 | Tag source | When | How to set |
 |---|---|---|
@@ -69,20 +119,30 @@ Two options:
 
 The tag you publish must match what's in `VERSION.txt` at the commit you publish from, otherwise `docker inspect` will show a version mismatch in the deployed container (the version is baked at build time). The `verify` job does not assert this — it only asserts the image came from the registry. Add a manual eyeball check before publishing.
 
-### Step 3 — Trigger the workflow
+</div>
 
-On the **public** repo:
+### Step 3 — Start the workflow
+
+On the **public** repo, open the Actions page, run the **Release artifacts** workflow, and enter the tag. The five images build side by side. The check job runs after that.
 
 1. **GitHub → Actions → Release artifacts → Run workflow**.
 2. **Branch:** `main` (or `release-*` if you're cutting one).
 3. **Image tag to build (and to publish, on the public repo only):** type the tag (e.g. `main-2026.09.26-9358`).
 4. Click **Run workflow**.
 
-The build matrix pushes five images in parallel; expect ~10–15 minutes for the host image (the slowest because of `apt-get` dependencies), ~5 minutes each for the server and frontend, and well under a minute each for `minio`/`minio-mc` (alpine base + one `curl`). The `verify` job then runs on the same runner, taking another ~10 minutes.
+<div data-technical>
+
+Build matrix: five images in parallel. The host image is the slowest (`apt-get` dependencies), at about 10–15 minutes. The server and the web page take about 5 minutes each. The two MinIO helpers take well under a minute. The `verify` job runs on the same runner after the build, for about 10 more minutes.
+
+</div>
 
 ### Step 4 — Watch the verify job
 
-`verify` is the test. Watch its logs for these signals:
+The verify job is the test. Watch its log for the green lines. If one is not OK, scroll up to the first problem. Also check that each running service uses the published image, not a local build. If it does not, the publish is not real yet, so find out why the download failed before you announce it.
+
+<div data-technical>
+
+Signals to look for in the verify log:
 
 | Line | Means |
 |---|---|
@@ -92,8 +152,6 @@ The build matrix pushes five images in parallel; expect ~10–15 minutes for the
 | `200  http://localhost:6109/host/system/health` | Host controller answers. |
 | `supabase rest 200` | Database reachable. |
 | `grafana 200` | Grafana reachable. |
-
-If any of those are not 200, scroll up to the first non-green line — that's where the issue is (most often: a missing env var on the published image, a wrong default port, or a schema migration that didn't run).
 
 The job also asserts:
 
@@ -106,9 +164,15 @@ vpt-minio-init: ghcr.io/angelstreetcorp/minio-mc:<tag>
 
 If either line reports a `local` or a different image, the pull failed and `launch.sh` fell back to building — that's the silent failure mode that the assertion exists to catch. If the assertion fails, the publish is not "real" yet; investigate the pull error before announcing the publish.
 
+</div>
+
+---
+
 ## How to test a published tag locally
 
-If you want to smoke-test a publish without going through GitHub Actions:
+You can test a publish without GitHub. Log in, download the images for the tag, start the platform with that tag, and check each service runs the published image.
+
+<div data-technical>
 
 ```bash
 # 1. Login once
@@ -141,9 +205,17 @@ done
 
 Step 5 is the assertion the CI `verify` job does. If it ever shows something else, the publish is broken even if the rest of the smoke test passes.
 
+</div>
+
+---
+
 ## How a user consumes a published image
 
-Already covered in [docker.md § "Skip the build (prebuilt images)"](docker.md#skip-the-build-prebuilt-images). Quick recap so this page stands alone:
+Users pick a tag in a settings file, then start the platform. If the download fails, the platform builds the image locally, so an install never fails just because a tag is missing. The full steps are in [docker.md § Skip the build (prebuilt images)](docker.md#skip-the-build-prebuilt-images).
+
+<div data-technical>
+
+Quick recap so this page stands alone:
 
 ```bash
 # Before ./setup/docker/launch.sh, edit setup/docker/.env:
@@ -154,9 +226,15 @@ VPT_IMAGE_TAG=local                   # default — build from this checkout (sk
 
 `launch.sh` reads that file, points every compose service at `ghcr.io/angelstreetcorp/<svc>:<tag>`, and falls back to a local build only if the pull fails. So `local` is always the safety net, even when `VPT_IMAGE_TAG` is set — useful when a tag was never published and you don't want the install to fail.
 
+</div>
+
+---
+
 ## Rolling back
 
-If a publish turns out to be broken (the `verify` job fails after the fact, or a user reports a regression), two routes:
+If a publish is broken, point users at an older tag that works, or publish a fixed image as a new tag. Users can also build locally, which is slower.
+
+<div data-technical>
 
 | Action | When | How |
 |---|---|---|
@@ -166,7 +244,15 @@ If a publish turns out to be broken (the `verify` job fails after the fact, or a
 
 `launch.sh` has a fallback to `local` build, so any user can also unblock themselves by setting `VPT_IMAGE_TAG=local` — they just wait the extra 10 minutes.
 
+</div>
+
+---
+
 ## Version conventions cheat sheet
+
+Four version labels look alike, and they do not always agree. Only the version inside the running container is reliable. Check that before you trust a label.
+
+<div data-technical>
 
 ```
 VERSION.txt format:                current:<branch>-<YYYY.MM.DD>-<build>
@@ -183,7 +269,15 @@ Pi / backend_host /api/health:     "deployed_version" field — read from VERSIO
 
 These four are easy to confuse. The Render display label and the bundle content baked at build time will match **only if** Render actually built from source — and we saw in BUG-0156-style incidents that they often don't. Always cross-check `cat /app/VERSION.txt` inside a running container before believing a label.
 
+</div>
+
+---
+
 ## When something goes wrong
+
+Read the first red line in the verify job, then check the tag and the repo you published from.
+
+<div data-technical>
 
 | Symptom | Likely cause | Fix |
 |---|---|---|
@@ -192,6 +286,10 @@ These four are easy to confuse. The Render display label and the bundle content 
 | Workflow_dispatch says "completed" but no new images in GHCR | You triggered from the **internal** repo | Repeat from the public repo (Step 1) |
 | `docker inspect` shows the right image but `cat VERSION.txt` inside shows the wrong tag | You published from a commit whose `VERSION.txt` didn't match the tag you typed | Re-publish with the tag that matches `current:` in that commit's `VERSION.txt` |
 | User's `VPT_IMAGE_TAG=latest` pulls a broken image | A bad publish moved `latest` | Re-publish (the workflow overwrites `latest` with the new tag) or hand-edit a known-good tag back onto `latest` per the Rollback table |
+
+</div>
+
+---
 
 ## See also
 

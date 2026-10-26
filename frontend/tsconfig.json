@@ -13,6 +13,8 @@
     "resolveJsonModule": true,
     "isolatedModules": true,
     "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": "./.tsbuildinfo",
     "jsx": "react-jsx",
 
     /* Linting */
@@ -22,6 +24,6 @@
     "noFallthroughCasesInSwitch": true
   },
   "include": ["src/**/*", "*.tsx", "../features/*/frontend/**/*"],
-  "exclude": ["vite.config.ts"],
+  "exclude": ["vite.config.ts", "src/**/*.test.ts", "src/**/*.test.tsx", "../features/**/*.test.ts", "../features/**/*.test.tsx", "../tests/frontend/**"],
   "references": [{ "path": "./tsconfig.node.json" }]
 } 

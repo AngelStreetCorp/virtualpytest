@@ -21,6 +21,12 @@
 # cold boot — a restored snapshot is the top source of "the app is in a weird state" flakiness.
 # Sizing and per-type AVD config: docs/get-started/emulators.md
 #
+# The image ships a PERSISTENT journal: /var/log/journal with Storage=persistent and
+# SystemMaxUse=512M, set up by this script through
+# setup/proxmox/vm/shared/install_prerequisites.sh --journal-only. With the stock
+# `#Storage=auto` and no /var/log/journal the journal lives in RAM and dies with the
+# boot, so a guest that hangs leaves no trace of its own.
+#
 # Requirements:
 #   - VM must have nested virtualization / KVM enabled (CPU type = host on Proxmox)
 #   - 12 GB RAM and a 40 GB disk. 8 GB RAM is NOT enough: the emulator process alone holds
@@ -274,6 +280,19 @@ sudo systemctl start vpt-emulator.service
 
 echo "   ✅ vpt-emulator.service installed and started"
 
+# --- Step 5b: Persistent journal ---
+# The journal lives in RAM on a stock guest, so a hang leaves nothing behind. The
+# logic is shared with the other guest images (setup/proxmox/vm/shared/), and the
+# script verifies it: it fails loudly if the journal is still RAM-only.
+echo ""
+echo "📓 [Step 5b] Enabling a persistent journal (survives a reboot)..."
+SHARED_PREREQUISITES="$(dirname "$0")/../shared/install_prerequisites.sh"
+if [ ! -f "$SHARED_PREREQUISITES" ]; then
+    echo "❌ $SHARED_PREREQUISITES not found — the shared guest scripts must be on the VM" >&2
+    exit 1
+fi
+sudo bash "$SHARED_PREREQUISITES" --journal-only
+
 # --- Step 6: Wait for emulator + update .env ---
 echo ""
 echo "⏳ [Step 6] Waiting for emulator to boot (up to 120s)..."
@@ -342,4 +361,8 @@ echo "Service commands:"
 echo "  sudo systemctl status vpt-emulator.service"
 echo "  sudo journalctl -u vpt-emulator.service --no-pager -n 50"
 echo "  sudo systemctl restart vpt-emulator.service"
+echo ""
+echo "Journal (persistent — it survives a reboot):"
+echo "  sudo journalctl -b -p err --no-pager -n 50"
+echo "  sudo journalctl --disk-usage"
 echo "============================================================"

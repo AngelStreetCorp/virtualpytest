@@ -1,0 +1,11 @@
+[Unit]
+Description=Ask the second Pokemon lane for a slot every minute (TASK-164)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=60
+AccuracySec=10s
+Persistent=true
+
+[Install]
+WantedBy=default.target

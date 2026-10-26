@@ -49,6 +49,12 @@ from shared.src.lib.utils.local_debug_playwright_js import (
 )
 from shared.src.lib.utils.report_step_formatter import format_timestamp_to_hhmmss_ms
 from shared.src.lib.utils.web_video_playback import calc_playback_progress
+from shared.src.lib.utils.web_video_legibility import (
+    build_not_configured_verdict,
+    build_playback_verdict,
+    format_legibility_lines,
+    NOT_CONFIGURED_EXIT_CODE,
+)
 
 sys.argv = normalize_local_debug_flag(sys.argv)
 DEFAULT_LOCAL_DEBUG_PORT = 9222
@@ -444,6 +450,12 @@ async def _run_local_playwright_flow(
                 'progress_seconds': 0,
                 'drm_blocked': True,
                 'error': 'DRM/protected-content block detected (M7701-1003)',
+                'stage': 'playback',
+                'reason': 'the player reported a DRM/protected-content block, so the video could not start',
+                'play_outcome': 'blocked_by_drm',
+                'play_error': None,
+                'diagnostics': dict(drm or {}),
+                'hypotheses': [],
             }
             end_shot = await shot(page, 'video_monitor_end')
             add_step('Monitor playback progression', False, verifications=[{'success': False, 'label': 'DRM block detected', 'details': drm}], screenshot_path=end_shot)
@@ -471,6 +483,8 @@ async def _run_local_playwright_flow(
         playing = False
         elapsed = 0
         interval = 5
+        play_attempts = []
+        probe_context = None
         while elapsed < monitor_duration:
             sample = await page.evaluate(_JS_VIDEO_STATUS)
             if (sample or {}).get('found'):
@@ -480,17 +494,26 @@ async def _run_local_playwright_flow(
                     playing = True
                 else:
                     await page.evaluate(_JS_DISMISS_COOKIE_BANNER)
-                    await page.evaluate(_JS_FORCE_PLAY)
+                    play_attempts.append(await page.evaluate(_JS_FORCE_PLAY))
             else:
+                probe_context = sample
                 await page.evaluate(_JS_DISMISS_COOKIE_BANNER)
                 await page.evaluate(_JS_CLICK_GENERIC_PLAY)
-                await page.evaluate(_JS_FORCE_PLAY)
+                play_attempts.append(await page.evaluate(_JS_FORCE_PLAY))
 
             await page.wait_for_timeout(interval * 1000)
             elapsed += interval
 
         progress, progressing = calc_playback_progress(samples)
         playing = bool(playing or progressing)
+
+        verdict = build_playback_verdict(
+            samples,
+            play_attempts=play_attempts,
+            playing=playing,
+            stages_completed=['navigation', 'consent'],
+            probe_context=probe_context,
+        )
 
         video_result = {
             'success': playing,
@@ -499,6 +522,13 @@ async def _run_local_playwright_flow(
             'progress_seconds': progress,
             'drm_blocked': False,
             'error': None if playing else 'Video playback not confirmed during monitoring window',
+            'stage': verdict['stage'],
+            'reason': verdict['reason'],
+            'play_outcome': verdict['play_outcome'],
+            'play_error': verdict['play_error'],
+            'diagnostics': verdict['diagnostics'],
+            'hypotheses': verdict['hypotheses'],
+            'legibility': verdict,
         }
 
         end_shot = await shot(page, 'video_monitor_end')
@@ -544,20 +574,38 @@ def main():
     post_login_wait = args.post_login_wait
     monitor_duration = args.monitor_duration
 
-    if not email:
+    missing = [
+        flag for flag, value in (('--email', email), ('--password', password), ('--profile', profile))
+        if not value
+    ]
+    if missing:
+        # An unconfigured check is not a playback failure: it never looked at a
+        # video. It gets its own outcome so a campaign cannot count it as a
+        # broken one.
+        verdict = build_not_configured_verdict(missing)
         context.overall_success = False
-        context.error_message = 'Missing required --email'
-        context.execution_summary = '❌ Missing required --email'
-        return False
-    if not password:
-        context.overall_success = False
-        context.error_message = 'Missing required --password'
-        context.execution_summary = '❌ Missing required --password'
-        return False
-    if not profile:
-        context.overall_success = False
-        context.error_message = 'Missing required --profile'
-        context.execution_summary = '❌ Missing required --profile'
+        context.error_message = verdict['reason']
+        context.execution_summary = f"⚠️ Not configured - {verdict['reason']}"
+        context.metadata = {
+            'outcome': verdict['outcome'],
+            'status': verdict['status'],
+            'stage': verdict['stage'],
+            'reason': verdict['reason'],
+            'missing_parameters': verdict['missing_parameters'],
+            'counts_as_playback_failure': verdict['counts_as_playback_failure'],
+            'exit_code': verdict['exit_code'],
+            'video_result': {
+                'success': False,
+                'playing': False,
+                'outcome': verdict['outcome'],
+                'stage': verdict['stage'],
+                'reason': verdict['reason'],
+                'sample_count': 0,
+                'video_found_count': 0,
+                'play_outcome': verdict['play_outcome'],
+                'diagnostics': verdict['diagnostics'],
+            },
+        }
         return False
 
     if getattr(args, 'local_debug', False):
@@ -802,6 +850,12 @@ def main():
             'progress_seconds': 0,
             'drm_blocked': True,
             'error': 'DRM/protected-content block detected (M7701-1003)',
+            'stage': 'playback',
+            'reason': 'the player reported a DRM/protected-content block, so the video could not start',
+            'play_outcome': 'blocked_by_drm',
+            'play_error': None,
+            'diagnostics': dict(drm or {}),
+            'hypotheses': [],
         }
         monitor_shot = capture_step_screenshot('netflix_monitor_end')
         add_step(
@@ -828,6 +882,8 @@ def main():
     playing = False
     elapsed = 0
     interval = 5
+    play_attempts = []
+    probe_context = None
     while elapsed < monitor_duration:
         status = asyncio.run(web.execute_javascript(_JS_VIDEO_STATUS))
         if status.get('success') and status.get('result', {}).get('found'):
@@ -840,17 +896,26 @@ def main():
                 playing = True
             else:
                 asyncio.run(web.execute_javascript(_JS_DISMISS_COOKIE_BANNER))
-                asyncio.run(web.execute_javascript(_JS_FORCE_PLAY))
+                play_attempts.append(asyncio.run(web.execute_javascript(_JS_FORCE_PLAY)))
         else:
+            probe_context = status.get('result') or {}
             asyncio.run(web.execute_javascript(_JS_DISMISS_COOKIE_BANNER))
             asyncio.run(web.execute_javascript(_JS_CLICK_GENERIC_PLAY))
-            asyncio.run(web.execute_javascript(_JS_FORCE_PLAY))
+            play_attempts.append(asyncio.run(web.execute_javascript(_JS_FORCE_PLAY)))
 
         time.sleep(interval)
         elapsed += interval
 
     progress, progressing = calc_playback_progress(samples)
     playing = bool(playing or progressing)
+
+    verdict = build_playback_verdict(
+        samples,
+        play_attempts=play_attempts,
+        playing=playing,
+        stages_completed=['navigation', 'consent'],
+        probe_context=probe_context,
+    )
 
     video_result = {
         'success': playing,
@@ -859,6 +924,13 @@ def main():
         'progress_seconds': progress,
         'drm_blocked': False,
         'error': None if playing else 'Video playback not confirmed during monitoring window',
+        'stage': verdict['stage'],
+        'reason': verdict['reason'],
+        'play_outcome': verdict['play_outcome'],
+        'play_error': verdict['play_error'],
+        'diagnostics': verdict['diagnostics'],
+        'hypotheses': verdict['hypotheses'],
+        'legibility': verdict,
     }
     monitor_shot = capture_step_screenshot('netflix_monitor_end')
     add_step(
@@ -906,13 +978,20 @@ def _run_local_debug_cli():
         email = (args.email or "").strip()
         password = (args.password or "").strip()
         profile = (args.profile or "").strip()
-        if not email:
-            return {"success": False, "error": "Missing required --email"}
-        if not password:
-            return {"success": False, "error": "Missing required --password"}
-        if not profile:
-            return {"success": False, "error": "Missing required --profile"}
-
+        missing = [
+            flag for flag, value in (("--email", email), ("--password", password), ("--profile", profile))
+            if not value
+        ]
+        if missing:
+            verdict = build_not_configured_verdict(missing)
+            return {
+                "success": False,
+                "status": verdict["status"],
+                "outcome": verdict["outcome"],
+                "exit_code": verdict["exit_code"],
+                "counts_as_playback_failure": verdict["counts_as_playback_failure"],
+                "error": verdict["reason"],
+            }
         return asyncio.run(_run_local_playwright_flow(
             email,
             password,
@@ -961,6 +1040,10 @@ main._target_rules = {
     "target_type": "host",
     "host_os": "all",
     "device_model": "all",
+    # This script drives its OWN Chrome (its own debug port and its own profile), so it
+    # does not need the host to itself: two of these can run on one host at the same
+    # time instead of queueing behind each other (TASK-146).
+    "browser_isolated": True,
 }
 
 

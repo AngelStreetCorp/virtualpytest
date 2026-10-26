@@ -34,7 +34,7 @@ android {
         // auto-publish.sh sets VPT_APK_VERSION_CODE (commit count of the built commit) so every published build
         // is an update; absent = the hand-set value
         versionCode vptVersionCode
-        versionName "1.0.51"
+        versionName "1.0.52"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField "String", "APK_URL", "\"${apkUrl}\""
         aaptOptions {

@@ -6,6 +6,7 @@ This module contains all verification-related methods for Playwright web control
 - waitForElementToDisappear
 - checkElementExists
 - waitForTitleToAppear
+- waitForUrlToMatch (language-free page identity, BUG-0703)
 - getMenuInfo
 - execute_verification
 - get_available_verifications
@@ -243,6 +244,42 @@ class PlaywrightVerificationsMixin:
             'current_title': last_title,
             'wait_time': elapsed
         }
+
+    @ensure_controller_loop
+    async def waitForUrlToMatch(self, url_pattern: str, timeout: float = 10.0, check_interval: float = 1.0) -> Tuple[bool, str, Dict[str, Any]]:
+        """
+        Wait for the page URL path to match a glob, ignoring host, query and the UI-language segment
+        (`/de/epg/initial` == `/en/epg/initial` == pattern `/epg/initial` or `/*/epg/initial`).
+        Language-free page identity for web nodes: it does not depend on any translated label.
+
+        Args:
+            url_pattern: path glob, `*` matches anything (also across `/`)
+            timeout: Maximum time to wait in seconds
+            check_interval: Time between checks in seconds
+        """
+        from shared.src.lib.utils.localize_identity import url_matches
+
+        print(f"[@controller:Playwright:waitForUrlToMatch] Waiting for URL path '{url_pattern}' (timeout: {timeout}s)")
+        start_time = time.time()
+        current_url = ''
+        while True:
+            try:
+                page = await self._get_persistent_page()
+                current_url = page.url if page else ''
+            except Exception as e:
+                print(f"[@controller:Playwright:waitForUrlToMatch] Error reading URL: {e}")
+            if url_matches(current_url, url_pattern):
+                elapsed = time.time() - start_time
+                return True, f"URL matched after {elapsed:.1f}s", {
+                    'url_pattern': url_pattern, 'current_url': current_url, 'wait_time': elapsed}
+            elapsed = time.time() - start_time
+            if timeout <= 0 or elapsed >= timeout or check_interval <= 0:
+                break
+            await asyncio.sleep(min(check_interval, max(timeout - elapsed, 0.0)))
+
+        elapsed = time.time() - start_time
+        return False, f"URL '{url_pattern}' not matched after {elapsed:.1f}s (current: '{current_url}')", {
+            'url_pattern': url_pattern, 'current_url': current_url, 'wait_time': elapsed}
 
     @ensure_controller_loop
     async def getMenuInfo(self, area: dict = None, context = None) -> Dict[str, Any]:
@@ -520,6 +557,35 @@ class PlaywrightVerificationsMixin:
                 'verification_type': 'web'
             },
             {
+                'command': 'waitForUrlToMatch',
+                'label': 'Wait for Page URL',
+                'description': 'Wait for the page URL path to match a glob. Ignores host, query and the UI-language segment (/de/ /en/), so it holds in any app language',
+                'params': {
+                    'url_pattern': create_param(
+                        ParamType.STRING,
+                        required=True,
+                        default='',
+                        description="URL path glob, * = anything (e.g. /epg/initial or /settings/*). The language segment is ignored",
+                        placeholder="/epg/initial"
+                    ),
+                    'timeout': create_param(
+                        ParamType.NUMBER,
+                        required=False,
+                        default=10000,
+                        description="Maximum time to wait (ms)"
+                    ),
+                    'check_interval': create_param(
+                        ParamType.NUMBER,
+                        required=False,
+                        default=1.0,
+                        description="Interval between checks (seconds)",
+                        min=0.1,
+                        max=10.0
+                    )
+                },
+                'verification_type': 'web'
+            },
+            {
                 "command": "getMenuInfo",
                 "label": "Get Menu Info Web",
                 "description": "Extract key-value pairs from menu/info screen using web element dump and parse automatically",
@@ -625,6 +691,38 @@ class PlaywrightVerificationsMixin:
                     'searchedText': title,
                     'extractedText': details.get('current_title', ''),
                     'search_term': title,
+                    'wait_time': details.get('wait_time', 0.0),
+                    'details': details
+                }
+
+            # Handle waitForUrlToMatch separately (uses 'url_pattern' param)
+            if command == 'waitForUrlToMatch':
+                url_pattern = params.get('url_pattern', '')
+                if not url_pattern:
+                    return {
+                        'success': False,
+                        'message': 'No url_pattern specified for waitForUrlToMatch',
+                        'matching_result': 0.0,
+                        'user_threshold': 0.8,
+                        'image_filter': 'none',
+                        'searchedText': '',
+                        'extractedText': '',
+                        'details': {'error': 'Missing url_pattern parameter'}
+                    }
+                timeout = min(max(float(params.get('timeout', 10000)) / 1000.0, 0.0), 60.0)
+                check_interval = float(params.get('check_interval', 1.0))
+                check_interval = 0.0 if check_interval <= 0 else min(max(check_interval, 0.1), 10.0)
+                success, message, details = await self.waitForUrlToMatch(
+                    url_pattern=url_pattern, timeout=timeout, check_interval=check_interval)
+                return {
+                    'success': success,
+                    'message': message,
+                    'matching_result': 1.0 if success else 0.0,
+                    'user_threshold': 0.8,
+                    'image_filter': 'none',
+                    'searchedText': url_pattern,
+                    'extractedText': details.get('current_url', ''),
+                    'search_term': url_pattern,
                     'wait_time': details.get('wait_time', 0.0),
                     'details': details
                 }

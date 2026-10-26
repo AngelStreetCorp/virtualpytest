@@ -9,7 +9,7 @@
 | Severity  | High — every verification run from the editor fails, nothing can be checked |
 | Status    | Fixed (pending deploy)                                                      |
 | Area      | frontend / verification                                                     |
-| Fixed in  | Unreleased                                                                  |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                                 |
 
 ---

@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect, useMemo, useCallback } from 'react';
 import { Box, Typography, CircularProgress } from '@mui/material';
 import { HLSVideoPlayer } from '../common/HLSVideoPlayer';
+import { AnalysedFrameLayer } from '../monitoring/AnalysedFrameLayer';
 import { MonitoringOverlay } from '../monitoring/MonitoringOverlay';
 import { StreamStatsOverlay } from '../monitoring/StreamStatsOverlay';
 import { useStream } from '../../hooks/controller';
-import { buildStreamUrl } from '../../utils/buildUrlUtils';
+import { buildCaptureUrl, buildStreamUrl } from '../../utils/buildUrlUtils';
 import { EnhancedHLSPlayerProps } from './EnhancedHLSPlayer.types';
 import { useArchivePlayer } from './hooks/useArchivePlayer';
 import { useLiveStreamStats } from './hooks/useLiveStreamStats';
@@ -15,6 +16,7 @@ import { TimelineOverlay } from './overlays/TimelineOverlay';
 import { TranscriptOverlay } from './overlays/TranscriptOverlay';
 import { DEFAULT_DEVICE_RESOLUTION } from '../../config/deviceResolutions';
 import { featureVideoOverlays } from '../../config/features';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export const EnhancedHLSPlayer: React.FC<EnhancedHLSPlayerProps> = ({
   deviceId,
@@ -42,6 +44,7 @@ export const EnhancedHLSPlayer: React.FC<EnhancedHLSPlayerProps> = ({
   errorTrendData,
   analysisTimestamp,
   isAIAnalyzing = false,
+  captureFps = null,
   archiveSeek,
   hideTimelineOverlay = false,
   freezeArchiveFrame = false,
@@ -561,6 +564,21 @@ export const EnhancedHLSPlayer: React.FC<EnhancedHLSPlayerProps> = ({
     return device?.device_model === 'host_vnc';
   }, [host, deviceId]);
 
+  // BUG-0836: the analysed capture the newest boxes were measured on. Frame-locked by default, because
+  // the picture and the boxes then come from one frame and cannot drift; the switch goes back to live.
+  const frameLocked = true; // the analysed frame is the picture under a profile overlay (BUG-0836)
+  const overlayProfile = monitoringAnalysis?.profile;
+  const overlayActive = !!overlayProfile && overlayProfile !== 'tv_app';
+  const analysedFrameUrl = useMemo(() => {
+    const seq = monitoringAnalysis?.filename?.match(/capture_(\d+)/)?.[1];
+    if (!seq || !host || !deviceId) return null;
+    try {
+      return buildCaptureUrl(host, seq, deviceId);
+    } catch {
+      return null;
+    }
+  }, [host, deviceId, monitoringAnalysis?.filename]);
+
   return (
     <Box className={className} sx={{ width, position: 'relative' }}>
       <style>
@@ -635,7 +653,16 @@ export const EnhancedHLSPlayer: React.FC<EnhancedHLSPlayerProps> = ({
               zIndex: 1300, // monitoring cards stay on top of player bars and badges
             }}
           >
+            {/* BUG-0836: the analysed frame under the boxes, so the picture and the boxes are the same
+                frame. Live stream is one click away on the switch it draws. */}
+            <AnalysedFrameLayer
+              url={analysedFrameUrl}
+              active={overlayActive}
+              frameLocked={frameLocked}
+            />
             <MonitoringOverlay
+              frameLocked={frameLocked && overlayActive}
+              frameUrl={analysedFrameUrl}
               monitoringAnalysis={monitoringAnalysis || undefined}
               subtitleAnalysis={subtitleAnalysis}
               languageMenuAnalysis={languageMenuAnalysis}
@@ -645,11 +672,18 @@ export const EnhancedHLSPlayer: React.FC<EnhancedHLSPlayerProps> = ({
               showLanguageMenu={!!languageMenuAnalysis}
               analysisTimestamp={analysisTimestamp || undefined}
               isAIAnalyzing={isAIAnalyzing}
+              profileName={
+                monitoringAnalysis?.profile ||
+                (host && deviceId ? host.system_stats?.monitor_profiles?.[deviceId] : undefined)
+              }
+              fpsIn={captureFps}
+              fpsInConfigured={host && deviceId ? host.system_stats?.stream_capture_fps?.[deviceId] ?? null : null}
+              fpsOut={liveStreamStats.fps}
             />
 
             {/* Bottom-left: live playback numbers + the host heartbeat, each labelled with
                 the cadence it actually updates at. */}
-            <StreamStatsOverlay host={host} live={liveStreamStats} />
+            <StreamStatsOverlay host={host} live={liveStreamStats} deviceId={deviceId} />
 
             {aiDescription && (
               <Box
@@ -673,7 +707,7 @@ export const EnhancedHLSPlayer: React.FC<EnhancedHLSPlayerProps> = ({
                   variant="body2"
                   sx={{
                     color: '#ffffff',
-                    fontSize: '0.7rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                     lineHeight: 1.2,
                     fontWeight: 400,
                     display: '-webkit-box',
@@ -732,7 +766,7 @@ export const EnhancedHLSPlayer: React.FC<EnhancedHLSPlayerProps> = ({
               cursor: 'pointer',
               zIndex: 1250,
               writingMode: 'vertical-rl',
-              fontSize: '0.65rem',
+              fontSize: TYPOGRAPHY.microMeta.size,
               fontWeight: 600,
               letterSpacing: 1,
               userSelect: 'none',

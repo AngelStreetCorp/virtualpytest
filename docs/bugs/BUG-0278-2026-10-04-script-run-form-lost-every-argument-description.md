@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low — the run form showed the arguments without their help text |
 | Area      | `shared/src/lib/utils/script_target_rules_utils.py` (`extract_arg_descriptions_from_source` / `_from_path`) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

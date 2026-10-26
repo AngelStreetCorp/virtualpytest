@@ -20,7 +20,7 @@ export const StartBlock: React.FC<NodeProps> = ({ selected, dragging }) => {
         minHeight: 44,
         px: 2,
         py: 1,
-        background: P.surface,
+        background: P.surfaceSolid,
         border: selected ? `2px solid ${P.accent}` : `1px solid ${P.borderColor}`,
         borderLeft: `3px solid ${accentColor}`,
         borderRadius: 1.5,
@@ -41,7 +41,7 @@ export const StartBlock: React.FC<NodeProps> = ({ selected, dragging }) => {
       }}
     >
       <Typography 
-        fontSize={13} 
+        fontSize="0.8125rem" 
         fontWeight={600} 
         sx={{ color: P.accentText }}
       >

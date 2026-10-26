@@ -8,6 +8,7 @@ Reports are pre-fetched using backend_server.src.lib.report_fetcher (saves token
 from datetime import datetime, timezone
 from typing import Dict, Any, Optional
 
+from shared.src.lib.config.constants import get_team_id
 from shared.src.lib.utils.supabase_utils import get_supabase_client
 
 
@@ -70,11 +71,12 @@ class AnalysisTools:
             checked = params.get('checked')
             limit = params.get('limit', 1)
             include_report = params.get('include_report', True)  # Default True
+            team_id = params.get('team_id') or get_team_id()
 
             print(f"[@analysis] get_execution_results: script={script_name}, ui={userinterface_name}, device={device_name}, host={host_name}, success={success}, limit={limit}, include_report={include_report}")
 
-            # Build query
-            query = supabase.table('script_results').select('*')
+            # Build query — script_results is tenant-scoped; always filter by team.
+            query = supabase.table('script_results').select('*').eq('team_id', team_id)
 
             # Apply filters
             if script_name:
@@ -206,6 +208,7 @@ class AnalysisTools:
             discard = params.get('discard')
             classification = params.get('classification')
             explanation = params.get('explanation')
+            team_id = params.get('team_id') or get_team_id()
             
             if not script_result_id:
                 return {
@@ -264,7 +267,7 @@ class AnalysisTools:
                 'updated_at': datetime.now(timezone.utc).isoformat()
             }
             
-            result = supabase.table('script_results').update(update_data).eq('id', script_result_id).execute()
+            result = supabase.table('script_results').update(update_data).eq('id', script_result_id).eq('team_id', team_id).execute()
             
             if result.data:
                 # Track session stats

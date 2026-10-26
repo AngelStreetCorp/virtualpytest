@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High                                                         |
 | Area      | backend_host (`run_ffmpeg.sh`, imagefile / emulator capture) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `f85e19817`                                                  |
 
 Follows [BUG-0165](BUG-0165-2026-09-27-emulator-stream-stalls-on-duplicate-capture-timestamps.md). Once that

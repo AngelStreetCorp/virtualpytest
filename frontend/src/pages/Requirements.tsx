@@ -48,8 +48,10 @@ import { useRequirements, Requirement, RequirementCoverage } from '../hooks/page
 import { RequirementCoverageModal } from '../components/requirements/RequirementCoverageModal';
 import { LinkTestcasePickerModal } from '../components/requirements/LinkTestcasePickerModal';
 import { StyledDialog } from '../components/common/StyledDialog';
+import { TableRowsSkeleton } from '../components/common/ReportSkeleton';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
 import { segmentedSx } from '../components/common/PageChrome';
+import { TYPOGRAPHY } from '../constants/typography';
 
 const Requirements: React.FC = () => {
   const P = useAgentChatPalette();
@@ -308,12 +310,21 @@ const Requirements: React.FC = () => {
       <Box sx={{ mb: 1 }}>
         <Card>
           <CardContent sx={{ py: 0.5 }}>
-            <Box display="flex" alignItems="center" justifyContent="space-between">
+            {/* The bar is one row on a desktop and two on a phone: the six stats wrap
+                under the title instead of running off the right edge (BUG-0818). */}
+            <Box
+              display="flex"
+              alignItems="center"
+              justifyContent="space-between"
+              flexWrap="wrap"
+              gap={1}
+              data-testid="requirements-summary-bar"
+            >
               <Box display="flex" alignItems="center" gap={1}>
                 <StatsIcon color="primary" />
                 <Typography variant="h6" sx={{ my: 0 }}>Requirements</Typography>
               </Box>
-              <Box display="flex" alignItems="center" gap={4}>
+              <Box display="flex" alignItems="center" gap={{ xs: 1.5, sm: 4 }} flexWrap="wrap" data-testid="requirements-summary-stats">
                 <Box display="flex" alignItems="center" gap={1}>
                   <Typography variant="body2">Total</Typography>
                   <Typography variant="body2" fontWeight="bold">
@@ -448,32 +459,22 @@ const Requirements: React.FC = () => {
         </Alert>
       )}
 
-      {/* Loading State */}
-      {isLoading && (
-        <Box sx={{ display: 'flex', justifyContent: 'center', p: 4 }}>
-          <CircularProgress />
-        </Box>
-      )}
+      {/* Requirements Table — toolbar and table shell stay mounted; body skeletonizes */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1, flexWrap: 'wrap' }}>
+        <Button size="small" startIcon={allExpanded ? <CollapseAllIcon /> : <ExpandAllIcon />} onClick={toggleExpandAll} sx={{ textTransform: 'none' }}>
+          {allExpanded ? 'Collapse all' : 'Expand all'}
+        </Button>
+        <ToggleButtonGroup exclusive size="small" value={groupBy} onChange={(_, v) => v && setGroupBy(v)} sx={segmentedSx(P, 'sm')}>
+          <ToggleButton value="none">Flat</ToggleButton>
+          <ToggleButton value="category">By category</ToggleButton>
+        </ToggleButtonGroup>
+        {priorityFilter && (
+          <Chip size="small" label={`Priority: ${priorityFilter}`} onDelete={() => setPriorityFilter(null)} />
+        )}
+      </Box>
 
-      {!isLoading && (
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1, flexWrap: 'wrap' }}>
-          <Button size="small" startIcon={allExpanded ? <CollapseAllIcon /> : <ExpandAllIcon />} onClick={toggleExpandAll} sx={{ textTransform: 'none' }}>
-            {allExpanded ? 'Collapse all' : 'Expand all'}
-          </Button>
-          <ToggleButtonGroup exclusive size="small" value={groupBy} onChange={(_, v) => v && setGroupBy(v)} sx={segmentedSx(P, 'sm')}>
-            <ToggleButton value="none">Flat</ToggleButton>
-            <ToggleButton value="category">By category</ToggleButton>
-          </ToggleButtonGroup>
-          {priorityFilter && (
-            <Chip size="small" label={`Priority: ${priorityFilter}`} onDelete={() => setPriorityFilter(null)} />
-          )}
-        </Box>
-      )}
-
-      {/* Requirements Table */}
-      {!isLoading && (
-        <Card>
-          <CardContent>
+      <Card>
+        <CardContent>
             <TableContainer>
               <Table size="small" sx={{ 
                 tableLayout: 'fixed', minWidth: 960,
@@ -481,7 +482,7 @@ const Requirements: React.FC = () => {
                 '& .MuiTableCell-root': { 
                   px: 1, 
                   py: 0.5,
-                  fontSize: '0.875rem',
+                  fontSize: TYPOGRAPHY.body.size,
                   overflow: 'hidden',
                   textOverflow: 'ellipsis',
                   whiteSpace: 'nowrap',
@@ -519,7 +520,9 @@ const Requirements: React.FC = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filteredRequirements.length === 0 ? (
+                  {isLoading ? (
+                    <TableRowsSkeleton widths={[40, 190, null, 120, 80, 140, 90, 100]} rows={10} rowHeight={40} />
+                  ) : filteredRequirements.length === 0 ? (
                     <TableRow>
                       <TableCell colSpan={8} align="center">
                         <Typography variant="body2" color="textSecondary" sx={{ py: 4 }}>
@@ -632,10 +635,10 @@ const Requirements: React.FC = () => {
                                 ) : coverageCache[req.requirement_id] ? (
                                   <>
                                     {coverageCache[req.requirement_id].scripts.map(s => (
-                                      <Chip key={s.script_name} label={s.script_name} size="small" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
+                                      <Chip key={s.script_name} label={s.script_name} size="small" variant="outlined" sx={{ height: 18, fontSize: TYPOGRAPHY.microMeta.size }} />
                                     ))}
                                     {Object.values(coverageCache[req.requirement_id].testcases_by_ui).flat().map(tc => (
-                                      <Chip key={tc.testcase_id} label={tc.testcase_name} size="small" color="primary" variant="outlined" sx={{ height: 18, fontSize: '0.65rem' }} />
+                                      <Chip key={tc.testcase_id} label={tc.testcase_name} size="small" color="primary" variant="outlined" sx={{ height: 18, fontSize: TYPOGRAPHY.microMeta.size }} />
                                     ))}
                                     {coverageCache[req.requirement_id].scripts.length === 0 &&
                                       coverageCache[req.requirement_id].coverage_summary.total_testcases === 0 && (
@@ -655,7 +658,6 @@ const Requirements: React.FC = () => {
             </TableContainer>
           </CardContent>
         </Card>
-      )}
 
       {/* Create Dialog */}
       <StyledDialog open={createDialogOpen} onClose={() => { setCreateDialogOpen(false); setFormError(null); }} maxWidth="md" fullWidth>

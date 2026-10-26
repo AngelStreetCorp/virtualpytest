@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High — CI on main was down                                   |
 | Area      | CI runner VMs (self-hosted GitHub Actions runners)           |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---
@@ -48,7 +48,7 @@ and warns when the disk stays above 75 %. The units are hand-installed on the VM
 
 - `systemctl list-timers 'ci-runner-retention*'` shows both timers on each runner VM.
 - `journalctl -u ci-runner-retention.service` shows the before/after usage of each run.
-- `df -h /` and `df -h /home/jndoye/runners` stay below 80 %.
+- `df -h /` and `df -h /home/<operator>/runners` stay below 80 %.
 - A re-run of `Regression Tests` on main gets past the install steps.
 
 ## Not covered

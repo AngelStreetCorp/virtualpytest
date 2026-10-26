@@ -28,6 +28,7 @@ import {
   ToggleButtonGroup,
   Tooltip,
   Typography,
+  Skeleton,
 } from '@mui/material';
 import {
   ChevronRight as ChevronRightIcon,
@@ -40,6 +41,9 @@ import { useRequirements, Requirement, RequirementCoverage } from '../hooks/page
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { dangerIconSx } from '../components/common/PageChrome';
+import { TableRowsSkeleton } from '../components/common/ReportSkeleton';
+import { TYPOGRAPHY } from '../constants/typography';
 
 type Palette = ReturnType<typeof useAgentChatPalette>;
 type CoverageFilter = 'all' | 'gaps' | 'covered';
@@ -76,7 +80,7 @@ const fmt = (rate: number) => `${Math.round(rate * 100)}%`;
 const PriorityTag: React.FC<{ priority: string; P: Palette }> = ({ priority, P }) => {
   const c = priority === 'P1' ? P.error : priority === 'P2' ? P.warning : P.textSecondary;
   return (
-    <Box component="span" sx={{ display: 'inline-block', fontSize: '0.68rem', fontWeight: 600, lineHeight: 1.6, px: 0.75, borderRadius: 1, color: c, border: `1px solid ${c}66` }}>
+    <Box component="span" sx={{ display: 'inline-block', fontSize: TYPOGRAPHY.microMeta.size, fontWeight: 600, lineHeight: 1.6, px: 0.75, borderRadius: 1, color: c, border: `1px solid ${c}66` }}>
       {priority}
     </Box>
   );
@@ -90,6 +94,39 @@ const timeAgo = (ts: string) => {
   if (m < 60) return `${m}m ago`;
   if (h < 24) return `${h}h ago`;
   return `${d}d ago`;
+};
+
+/**
+ * The expanded category's requirements table — shell and header in one place, so the live rows
+ * and the loading placeholder share a geometry and the columns cannot shift between them.
+ */
+const RequirementTable: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const P = useAgentChatPalette();
+  return (
+    <Table size="small" sx={{
+      width: '100%',
+      tableLayout: 'fixed',
+      '& td, & th': { borderColor: P.borderColor },
+      '& th': {
+        fontSize: TYPOGRAPHY.caption.size,
+        color: P.textMuted,
+        py: 0.75,
+        bgcolor: P.hoverBg,
+        backgroundColor: `${P.hoverBg} !important`,
+      },
+    }}>
+    <TableHead>
+      <TableRow>
+        <TableCell sx={{ pl: 5.5 }}>Requirement</TableCell>
+        <TableCell sx={{ width: 50 }}>Pri</TableCell>
+        <TableCell sx={{ width: 55 }}>Tests</TableCell>
+        <TableCell sx={{ width: 70 }}>Pass</TableCell>
+        <TableCell sx={{ width: 100 }}>UI</TableCell>
+      </TableRow>
+      </TableHead>
+      <TableBody>{children}</TableBody>
+    </Table>
+  );
 };
 
 const Coverage: React.FC = () => {
@@ -277,10 +314,16 @@ const Coverage: React.FC = () => {
                 '&:hover': k.onClick ? { borderColor: k.color } : undefined,
               }}
             >
-              <Typography sx={{ fontSize: '0.72rem', color: P.textMuted }}>{k.label}</Typography>
-              <Typography sx={{ fontSize: '1.35rem', fontWeight: 600, lineHeight: 1.25, color: k.color || P.textPrimary }}>
+              <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted }}>{k.label}</Typography>
+              <Typography sx={{ fontSize: TYPOGRAPHY.pageTitle.size, fontWeight: 600, lineHeight: 1.25, color: k.color || P.textPrimary }}>
                 {k.value}
-                {k.extra && <Box component="span" sx={{ fontSize: '0.75rem', fontWeight: 400, color: P.textMuted, ml: 0.75 }}>{k.extra}</Box>}
+                {k.extra && (
+                  // The separator keeps the count and the rate apart: without it the tile
+                  // reads "1915%" (BUG-0816).
+                  <Box component="span" sx={{ fontSize: TYPOGRAPHY.caption.size, fontWeight: 400, color: P.textMuted, ml: 0.75 }}>
+                    {' · '}{k.extra}
+                  </Box>
+                )}
               </Typography>
             </Box>
           ))}
@@ -288,13 +331,13 @@ const Coverage: React.FC = () => {
 
         {stats.total > 0 && (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, mb: 1.25 }}>
-            <Typography sx={{ fontSize: '0.75rem', color: P.textSecondary }}>Overall</Typography>
+            <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textSecondary }}>Overall</Typography>
             <LinearProgress
               variant="determinate"
               value={(stats.covered / stats.total) * 100}
               sx={{ flex: 1, height: 6, borderRadius: 3, bgcolor: P.hoverBg, '& .MuiLinearProgress-bar': { bgcolor: P.accent, borderRadius: 3 } }}
             />
-            <Typography sx={{ fontSize: '0.75rem', color: P.textSecondary, fontVariantNumeric: 'tabular-nums' }}>
+            <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textSecondary, fontVariantNumeric: 'tabular-nums' }}>
               {stats.covered} / {stats.total}
             </Typography>
           </Box>
@@ -306,7 +349,7 @@ const Coverage: React.FC = () => {
             placeholder="Search requirements"
             value={searchQuery}
             onChange={e => setSearchQuery(e.target.value)}
-            sx={{ minWidth: 240, '& .MuiInputBase-root': { height: 32, fontSize: '0.85rem', borderRadius: 1.5 } }}
+            sx={{ minWidth: 240, '& .MuiInputBase-root': { height: 32, fontSize: TYPOGRAPHY.body.size, borderRadius: 1.5 } }}
             InputProps={{ startAdornment: <InputAdornment position="start"><SearchIcon fontSize="small" /></InputAdornment> }}
           />
           <ToggleButtonGroup
@@ -318,7 +361,7 @@ const Coverage: React.FC = () => {
               bgcolor: P.hoverBg, p: 0.375, borderRadius: 2, gap: 0.375,
               '& .MuiToggleButton-root': {
                 border: '1px solid transparent !important', borderRadius: '6px !important',
-                textTransform: 'none', fontSize: 12, fontWeight: 500, color: P.textSecondary, py: 0.25, px: 1.5,
+                textTransform: 'none', fontSize: TYPOGRAPHY.caption.size, fontWeight: 500, color: P.textSecondary, py: 0.25, px: 1.5,
               },
               '& .MuiToggleButton-root.Mui-selected': {
                 bgcolor: P.surface, color: P.accentText, fontWeight: 600,
@@ -331,12 +374,12 @@ const Coverage: React.FC = () => {
             <ToggleButton value="covered">Covered</ToggleButton>
           </ToggleButtonGroup>
           <Box sx={{ flex: 1 }} />
-          <Typography sx={{ fontSize: '0.75rem', color: P.textMuted }}>Sort</Typography>
+          <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted }}>Sort</Typography>
           <Select
             size="small"
             value={sortBy}
             onChange={e => setSortBy(e.target.value as CoverageSort)}
-            sx={{ height: 32, fontSize: '0.8rem', borderRadius: 1.5 }}
+            sx={{ height: 32, fontSize: TYPOGRAPHY.body.size, borderRadius: 1.5 }}
           >
             <MenuItem value="coverage">Lowest coverage first</MenuItem>
             <MenuItem value="name">Name</MenuItem>
@@ -344,7 +387,35 @@ const Coverage: React.FC = () => {
         </Box>
       </Box>
 
-      {isLoading && <Box display="flex" justifyContent="center" p={4}><CircularProgress sx={{ color: P.accent }} /></Box>}
+      {/* First load: the category list's own grid, with bars in the same cells. The spinner this
+          replaces reserved no rows at all and the list popped in. */}
+      {isLoading && (
+        <Box sx={{ border: `1px solid ${P.borderColor}`, borderRadius: 2, overflow: 'hidden', bgcolor: P.surface }}>
+          {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+            <Box
+              key={i}
+              sx={{
+                display: 'grid',
+                gridTemplateColumns: '20px 150px minmax(80px, 1fr) 44px 64px 72px 80px 72px',
+                alignItems: 'center',
+                columnGap: 1.5,
+                px: 1.5,
+                py: 1.1,
+                borderTop: i === 0 ? 'none' : `1px solid ${P.borderColor}`,
+              }}
+            >
+              <Box sx={{ width: 14, height: 14 }} />
+              <Skeleton variant="text" width={`${88 - i * 5}%`} height={17} animation="wave" />
+              <Skeleton variant="rounded" height={6} animation="wave" sx={{ borderRadius: 3 }} />
+              <Skeleton variant="text" width={30} height={14} animation="wave" />
+              <Skeleton variant="text" width={34} height={14} animation="wave" />
+              <Skeleton variant="text" width={40} height={14} animation="wave" />
+              <Skeleton variant="rounded" width={52} height={16} animation="wave" />
+              <Skeleton variant="rounded" width={40} height={16} animation="wave" />
+            </Box>
+          ))}
+        </Box>
+      )}
 
       {/* ZONE 2 — Coverage matrix: one list, a row per category */}
       {!isLoading && (
@@ -374,31 +445,31 @@ const Coverage: React.FC = () => {
                   {isCatLoading
                     ? <CircularProgress size={14} sx={{ color: P.accent }} />
                     : isExpanded ? <ExpandMoreIcon fontSize="small" sx={{ color: P.textMuted }} /> : <ChevronRightIcon fontSize="small" sx={{ color: P.textMuted }} />}
-                  <Typography noWrap sx={{ fontSize: '0.88rem', fontWeight: 600, textTransform: 'capitalize' }}>{category}</Typography>
+                  <Typography noWrap sx={{ fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600, textTransform: 'capitalize' }}>{category}</Typography>
                   <LinearProgress
                     variant="determinate"
                     value={pct}
                     sx={{ height: 6, borderRadius: 3, bgcolor: P.hoverBg, '& .MuiLinearProgress-bar': { bgcolor: color, borderRadius: 3 } }}
                   />
-                  <Typography sx={{ fontSize: '0.78rem', fontWeight: 600, color, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
+                  <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, color, textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>
                     {Math.round(pct)}%
                   </Typography>
-                  <Typography sx={{ fontSize: '0.78rem', color: P.textSecondary, fontVariantNumeric: 'tabular-nums' }} title="Requirements with at least one linked test">
+                  <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textSecondary, fontVariantNumeric: 'tabular-nums' }} title="Requirements with at least one linked test">
                     {covered}/{catReqs.length}
                   </Typography>
-                  <Typography sx={{ fontSize: '0.78rem', color: P.textSecondary }}>
+                  <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textSecondary }}>
                     {totalTests} test{totalTests === 1 ? '' : 's'}
                   </Typography>
                   <Box>
                     {gaps > 0 && (
-                      <Box component="span" sx={{ fontSize: '0.7rem', fontWeight: 600, px: 1, py: 0.25, borderRadius: 999, color: P.error, bgcolor: `${P.error}1a` }}>
+                      <Box component="span" sx={{ fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, px: 1, py: 0.25, borderRadius: 999, color: P.error, bgcolor: `${P.error}1a` }}>
                         {gaps} gap{gaps === 1 ? '' : 's'}
                       </Box>
                     )}
                   </Box>
                   <Box>
                     {avgPr !== null && (
-                      <Typography sx={{ fontSize: '0.75rem', fontWeight: 600, color: pctColor(avgPr * 100, P) }} title="Average pass rate of the linked tests">
+                      <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, color: pctColor(avgPr * 100, P) }} title="Average pass rate of the linked tests">
                         {fmt(avgPr)} pass
                       </Typography>
                     )}
@@ -409,19 +480,15 @@ const Coverage: React.FC = () => {
                 {isExpanded && (
                   <Box sx={{ borderTop: `1px solid ${P.borderColor}` }}>
                     {isCatLoading ? (
-                      <Box display="flex" justifyContent="center" p={2}><CircularProgress size={20} /></Box>
+                      <RequirementTable>
+                        <TableRowsSkeleton
+                          rows={6}
+                          widths={['82%', '44%', '58%', '62%', '70%']}
+                          rowHeight={34}
+                        />
+                      </RequirementTable>
                     ) : (
-                      <Table size="small" sx={{ width: '100%', tableLayout: 'fixed', '& td, & th': { borderColor: P.borderColor }, '& th': { fontSize: '0.7rem', color: P.textMuted, py: 0.75, bgcolor: P.hoverBg, backgroundColor: `${P.hoverBg} !important` } }}>
-                        <TableHead>
-                          <TableRow>
-                            <TableCell sx={{ pl: 5.5 }}>Requirement</TableCell>
-                            <TableCell sx={{ width: 50 }}>Pri</TableCell>
-                            <TableCell sx={{ width: 55 }}>Tests</TableCell>
-                            <TableCell sx={{ width: 70 }}>Pass</TableCell>
-                            <TableCell sx={{ width: 100 }}>UI</TableCell>
-                          </TableRow>
-                        </TableHead>
-                        <TableBody>
+                      <RequirementTable>
                           {visible.map(req => {
                             const data = categoryData[category]?.[req.requirement_id];
                             const tc = coverageCounts[req.requirement_id]?.testcase_count ?? 0;
@@ -466,7 +533,7 @@ const Coverage: React.FC = () => {
                                 <TableCell>
                                   <Box sx={{ display: 'flex', gap: 0.25, alignItems: 'center', overflow: 'hidden' }}>
                                     {data?.uis.slice(0, 1).map(ui => (
-                                      <Chip key={ui} label={ui} size="small" variant="outlined" sx={{ height: 16, fontSize: '0.6rem', maxWidth: 90 }} />
+                                      <Chip key={ui} label={ui} size="small" variant="outlined" sx={{ height: 16, fontSize: TYPOGRAPHY.microMeta.size, maxWidth: 90 }} />
                                     ))}
                                     {(data?.uis.length ?? 0) > 1 && (
                                       <Typography variant="caption" color="text.secondary">+{(data?.uis.length ?? 0) - 1}</Typography>
@@ -483,8 +550,7 @@ const Coverage: React.FC = () => {
                               </TableCell>
                             </TableRow>
                           )}
-                        </TableBody>
-                      </Table>
+                      </RequirementTable>
                     )}
                   </Box>
                 )}
@@ -492,7 +558,7 @@ const Coverage: React.FC = () => {
             );
           })}
           {sortedCategories.length === 0 && (
-            <Typography sx={{ p: 3, textAlign: 'center', fontSize: '0.85rem', color: P.textMuted }}>
+            <Typography sx={{ p: 3, textAlign: 'center', fontSize: TYPOGRAPHY.body.size, color: P.textMuted }}>
               No requirements match. Change the search or the filter.
             </Typography>
           )}
@@ -577,8 +643,8 @@ const Coverage: React.FC = () => {
                             <Typography variant="caption" color={getPassRateColor(tc.pass_rate, tc.execution_count)}>{fmt(tc.pass_rate)}</Typography>
                           )}
                           <Tooltip title="Unlink testcase">
-                            <IconButton size="small" color="error" onClick={() => handleUnlink(tc.testcase_id, selectedReq)}>
-                              <UnlinkIcon sx={{ fontSize: 14 }} />
+                            <IconButton size="small" onClick={() => handleUnlink(tc.testcase_id, selectedReq)} sx={dangerIconSx(P)}>
+                              <UnlinkIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                             </IconButton>
                           </Tooltip>
                         </Box>

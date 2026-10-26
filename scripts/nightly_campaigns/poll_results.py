@@ -26,6 +26,40 @@ import urllib.parse
 import urllib.request
 from pathlib import Path
 
+# A campaign that never ran — the deployment was skipped because the device was busy,
+# locked or its queue was full — is terminal but it is not a failure. The report has to
+# say "did not run" (and why), it must never show a ✗ for it, and it must stop waiting
+# for it (BUG-0898).
+#
+# The skip is a FLAG, not a status word: the status column keeps its own meaning, so
+# a skipped night is not looked up in TERMINAL_STATUSES but through is_skipped().
+TERMINAL_STATUSES = {"completed", "failed", "aborted"}
+SKIPPED_FLAG = "skip"
+
+
+def is_skipped(campaign: dict) -> bool:
+    """True when the campaign never ran.
+
+    The skip is carried by a flag: `campaign_executions.skipped`, or the metadata flag
+    on a database that has not run the migration that adds the column. The status
+    column keeps its own meaning and is never consulted for the skip (BUG-0898).
+    """
+    flag = campaign.get("skipped")
+    if isinstance(flag, str):
+        if flag.strip().lower() in {"true", "1", "yes"}:
+            return True
+    elif flag is True or flag == 1:
+        return True
+    metadata = campaign.get("metadata") or {}
+    if isinstance(metadata, str):
+        try:
+            metadata = json.loads(metadata)
+        except ValueError:
+            return False
+    if not isinstance(metadata, dict):
+        return False
+    return metadata.get("skipped") is True
+
 
 def http_get(base: str, path: str, params: dict, token: str) -> tuple[int, object]:
     url = f"{base}{path}?" + urllib.parse.urlencode(params)
@@ -55,6 +89,37 @@ def summarise(results: list[dict], watched: set[str]) -> dict[str, dict]:
         if prev is None or (r.get("started_at") or "") > (prev.get("started_at") or ""):
             latest[cn] = r
     return latest
+
+
+def count_states(latest: dict[str, dict]) -> dict[str, int]:
+    """Count the watched campaigns per state.
+
+    `done` is every terminal state. A skipped campaign is terminal: the night is over
+    and it will not be retried today, so the report must not keep waiting for it. It is
+    not counted as a failure — it is not in the failed total anywhere.
+    """
+    done = sum(
+        1 for v in latest.values()
+        if v.get("status") in TERMINAL_STATUSES or is_skipped(v)
+    )
+    running = sum(1 for v in latest.values() if v.get("status") == "running")
+    queued = sum(1 for v in latest.values() if v.get("status") in {"queued", "pending"})
+    return {"done": done, "running": running, "queued": queued}
+
+
+def status_flag(campaign: dict) -> str:
+    """The flag shown for one campaign.
+
+    A campaign that never ran reads as `skip` — not as a failure (✗) and not as a
+    truncated status word. A campaign that ran keeps its old reading: ✓ when it
+    succeeded, ✗ when it failed.
+    """
+    if is_skipped(campaign):
+        return SKIPPED_FLAG
+    status = campaign.get("status", "?")
+    if status == "completed":
+        return "✓" if campaign.get("success") else "✗"
+    return status[:8]
 
 
 def main() -> None:
@@ -97,9 +162,9 @@ def main() -> None:
             continue
         latest = summarise(resp, watched)
         now = datetime.datetime.now().strftime("%H:%M:%S")
-        done = sum(1 for v in latest.values() if v.get("status") in {"completed", "failed", "aborted"})
-        running = sum(1 for v in latest.values() if v.get("status") == "running")
-        queued = sum(1 for v in latest.values() if v.get("status") in {"queued", "pending"})
+        states = count_states(latest)
+        done = states["done"]
+        running = states["running"]
         print(f"\n[{now}] watched={len(watched)} done={done} running={running} queued_or_unknown={len(watched)-done-running}")
         for cn in sorted(watched):
             v = latest.get(cn)
@@ -113,8 +178,10 @@ def main() -> None:
             passed = sum(1 for x in sr if x.get("success"))
             failed = sum(1 for x in sr if not x.get("success") and not x.get("skipped"))
             skipped = sum(1 for x in sr if x.get("skipped"))
-            flag = "✓" if status == "completed" and v.get("success") else ("✗" if status == "completed" else status[:8])
-            print(f"  [{flag:8s}] {cn:35s} dur={str(dur):>5}s pass={passed} fail={failed} skip={skipped}")
+            flag = status_flag(v)
+            reason = v.get("error_message") or ""
+            extra = f" reason={reason}" if is_skipped(v) and reason else ""
+            print(f"  [{flag:8s}] {cn:35s} dur={str(dur):>5}s pass={passed} fail={failed} skip={skipped}{extra}")
         (out_dir / "poll_state.json").write_text(json.dumps({cn: latest.get(cn, {}) for cn in watched}, indent=2))
         if done + running >= len(watched):
             print("All watched campaigns terminal.")

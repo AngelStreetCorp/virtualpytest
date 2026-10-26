@@ -183,6 +183,20 @@ def tello_flight_summary():
     return jsonify(response_data), status_code
 
 
+@server_drone_bp.route("/tello/command_history", methods=["POST"])
+def tello_command_history():
+    """Driving history of a Tello device: every command sent, newest last (see the host route)."""
+    request_data = request.get_json() or {}
+    if not request_data.get("host_name"):
+        return jsonify({"success": False, "error": "host_name is required"}), 400
+    if not request_data.get("device_id"):
+        return jsonify({"success": False, "error": "device_id is required"}), 400
+    response_data, status_code = proxy_to_host_with_params(
+        "/host/drone/tello/command_history", "POST", request_data, {},
+    )
+    return jsonify(response_data), status_code
+
+
 @server_drone_bp.route("/tello/last_known", methods=["POST"])
 def tello_last_known():
     """Last-seen state + pose for a Tello device (Find my Tello / locate it).
@@ -201,3 +215,42 @@ def tello_last_known():
         "/host/drone/tello/last_known", "POST", request_data, {},
     )
     return jsonify(response_data), status_code
+
+
+# ---------------------------------------------------------------------------------------------------------------
+# Voice (TASK-160): the executor shared by Actions > Voice (agent/voice_device.py) and the Atlas voice path.
+# Logic: lib/utils/drone_voice.py. There is no /tello/voice route any more: Actions > Voice is the one entry point.
+
+_voice_executor = None
+
+
+def _voice():
+    global _voice_executor
+    if _voice_executor is None:
+        from backend_server.src.lib.utils import drone_voice
+        from backend_server.src.lib.utils.lock_utils import get_device_lock_info
+        from backend_server.src.lib.utils.server_utils import get_host_manager
+        from shared.src.lib.database import audit_events_db
+        from shared.src.lib.utils.build_url_utils import call_host
+
+        def send(host_name, device_id, command, params):
+            host_info = get_host_manager().get_host(host_name)
+            if not host_info:
+                return {"success": False, "error": f'host "{host_name}" not found'}
+            data, status = call_host(host_info, "/host/remote/executeCommand", "POST",
+                                     {"device_id": device_id, "command": command, "params": params}, timeout=30)
+            return data if isinstance(data, dict) else {"success": False, "error": f"host answered {status}"}
+
+        def lock_ok(host_name, device_id, caller):
+            return drone_voice.holds_lock(get_device_lock_info(host_name, device_id), caller)
+
+        def audit(event):
+            audit_events_db.record(category="control", action="drone.voice", actor_kind="user",
+                                   actor_id=(event.get("caller") or {}).get("user_id"),
+                                   target=f'{event.get("host_name")}/{event.get("device_id")}',
+                                   outcome="ok" if event.get("decision") in ("sent", "answered") else "denied",
+                                   meta={k: event.get(k) for k in ("transcript", "parsed", "decision", "reason",
+                                                                   "drone_reply", "battery")})
+
+        _voice_executor = drone_voice.VoiceExecutor(send, lock_ok, audit)
+    return _voice_executor

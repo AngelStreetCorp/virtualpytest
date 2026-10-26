@@ -1,0 +1,117 @@
+# egg_count_yolo_belt_fast: the same honest egg COUNT, three times faster (BUG-0910).
+#
+# WHY A FASTER TWIN
+# -----------------
+# `egg_count_yolo_belt` counts the eggs with the belt model at its most accurate setting: one
+# 960x960 whole-frame pass, 98.6 % of the eggs (measured on a ground truth of 147 eggs built
+# WITHOUT this model), 0.65-0.75 s a pass on the box. That is the accuracy setting, and it is what
+# the circles should use.
+#
+# The counter does not need the accuracy, it needs the SPEED: how many eggs per second is a count
+# worth? The same weights exported at 640x640 find **98.0 %** of the eggs (144 of 147 — one egg
+# less than at 960) in **0.24 s** a pass on the box, because the input is 2.25x smaller.
+#
+# MEASURED ON THE BOX (vpt-lenovo1, i3-4150T, 4 cores)
+# ---------------------------------------------------
+#     model            pass    detections/s (isolated)   recall (independent GT)   duplicates
+#     960x960        0.65-0.75 s      1.33                    98.6 %                     1
+#     640x640        0.19-0.30 s      4.2                     98.0 %                     0
+#
+# The 640 export is a SEPARATE FILE because the ONNX graph has the input size baked into it: the
+# 960 model cannot be fed a 640x640 blob (OpenCV refuses it), and the export of the 640 model with
+# `simplify` on is the one that OpenCV 4.14 cannot even load ("total(srcShape) == maskTotal" in
+# the DFL reshape). The file shipped here is the opset-12 export WITHOUT the simplifier, which
+# OpenCV 4.14 loads and runs: sha256
+# c54d950787f2e29404553ca534dc57bee0002d234262cdba2e5387a3d04c0036, 12 238 666 bytes. The weights
+# are the SAME `model/best.pt` as the 960 profile (sha256
+# c219a234ad9a6ebaf64fed76331e596376f420ee3ee58dc5061769e1113b7767), only the export differs.
+#
+# `dedupe_dist` is 0.40 here, not 0.35: at 640 the boxes are smaller, and the same egg can be
+# found twice a few pixels apart. Measured on the fixed frame: 0.35 leaves 3 duplicated pairs, 0.40
+# leaves **0** — and no pair of neighbouring eggs is merged (the recall does not move: 144 of 147
+# at either value).
+#
+# FIVE ANALYSES A SECOND (BUG-0917, 2026-10-25)
+# ----------------------------------------------
+# The square 640 export spent 44 % of every pass on grey padding: a 1280x720 frame letterboxed into
+# 640x640 fills 640x360 of it. The same weights exported at 640x352 (W x H; 352 is the multiple of
+# 32 under 360) see the eggs at the same scale for a little over half the work, and onnxruntime runs
+# that graph faster than cv2.dnn on the host's i3. Measured on vpt-lenovo1 under its live load
+# (nice 15, the six capture ffmpegs running), fixed frame, matched one-to-one on the 147-egg set:
+#
+#     export     backend        pass     matched
+#     640x640    opencv        390 ms    138/147
+#     640x640    onnxruntime   310 ms    138/147
+#     640x352    opencv        178 ms    137/147
+#     640x352    onnxruntime   118 ms    137/147   <- this profile
+#
+# The unmatched ten are mostly not eggs the model missed: slivers at the frame edge, half-eggs the
+# ground truth boxed twice. The model file is that export, opset 12, no simplifier: sha256
+# 00d939eaf4a59f6b2851b605fc398ec578c4639899d87758a4cd32cde3d130d6, 12 163 066 bytes; the host
+# points MONITOR_YOLO_BELT_FAST_MODEL at it (the 640x640 file stays next to it for a rollback).
+# The captures arrive at 5 fps, so 5 Hz analyses every frame.
+#
+# COUNTED AT A LINE, NOT PER TRACK (BUG-0915, 2026-10-25)
+# ---------------------------------------------------------
+# The eggs move 8-22 px a sample at 5 Hz, all belts left to right, and about one egg in twelve is not
+# detected in a given frame. Each such miss can end a track and start a new one on the same egg, so
+# "one event per track" counted the same egg several times: 1 253 "distinct eggs" in 72 s with ~185
+# on screen. Now an egg is counted once, when its centre crosses the vertical line at mid-frame going
+# right: a broken track is still counted once, by the piece that crosses. Measured on one 30 s pass
+# of the device3 clip, against a reference made of the 960 model on all 300 frames at 10 fps (where
+# an egg moves 4-11 px a frame and tracks barely break):
+#
+#     setup                          eggs across x = 0.5
+#     960   @ 10 fps (reference)     380
+#     640x352 @ 10 fps               388   (102 %)
+#     640x352 @ 5 fps (this profile) 369   ( 97 %)
+#     640x352 @ 2.5 fps              ~85 % (measured on the live 72 s clip: 779 vs 885 at 5 fps)
+#
+# At x = 0.7 the 5 fps count drops to 94 % (the right of the frame is where the belts bunch up), so the
+# line stays at mid-frame. `max_gap_s: 3`, not 30: an egg missing for 3 s has left the frame, and
+# 30 s of dead tracks made the tracker match every egg against ~700 of them (51 ms -> 22 ms a frame,
+# same count).
+#
+# IT IS STILL ONLY A COUNT
+# ------------------------
+# No `egg_classify` stage, no good/bad counter, no verdict colouring — the same honesty as
+# `egg_count_yolo_belt` (BUG-0906): the picture of a white egg on a blue belt in daylight says
+# nothing about what is inside the egg, and a real grade needs candling (the egg against a light).
+# What this profile counts is what the model SAW: 3 eggs of 147 are missed, so a hundred counted
+# eggs means about a hundred and one passed.
+name: egg_count_yolo_belt_fast
+services: { img: true, audio: false, subtitle: false }
+img:
+  runtime: edge
+  analyzers:
+    - type: yolo_seg_detect
+      # one analysis per capture: the captures are 5 fps and a pass is ~0.12 s (BUG-0917)
+      sample_hz: 5.0
+      classes: [egg]                # one name per model class, in the model's order
+      min_conf: 0.02                # the head's scores are already activated; 0.02 is a real 2 %
+      model_env: MONITOR_YOLO_BELT_FAST_MODEL
+      input_size: [640, 352]        # W x H: the 16:9 frame without a square of padding (BUG-0917)
+      backend: onnxruntime          # ~1.5x cv2.dnn on the same graph
+      threads: 2                    # leave the other two cores to the capture ffmpegs
+      fill: letterbox               # the frame is 1280x720 and the input is square: pad, do not stretch
+      nms_iou: 0.60                 # two touching eggs overlap ~0.04; the same egg twice ~0.6
+      dedupe_dist: 0.40             # 0.35 left 3 duplicated pairs at this size, 0.40 leaves 0
+      dedupe_ratio: 0.35            # ...unless the two boxes differ so much they are different eggs
+      min_side: 8                   # the far eggs at the top of the frame are small
+      max_aspect: 2.6
+    # NO egg_classify HERE, ON PURPOSE. The grader cannot see inside the egg on this feed and its
+    # verdict is not honest, so this profile counts eggs and says nothing about their condition.
+  track: { algo: ocsort, max_gap_s: 3.0, min_iou: 0.1, cold_gate: 1.5, votes: 2, min_votes: 1, count_line_x: 0.5, count_dir: right }
+  reset_counters: { every_s: 120 }
+events:
+  egg_seen: { attr: label, in: [egg] }        # one event per egg crossing the count line (BUG-0915)
+incidents: {}
+kpis:
+  - { name: count_total, of: egg_seen, window_s: 86400 }   # eggs across the line, not frames
+ui:
+  title: Egg count (fast)
+  stats:
+    - { label: Eggs, kpi: count_total }
+    - { label: Detections, observations: true }
+  box: { shape: ellipse, badge: votes, colour_by: none }
+  focus_panel: { crop: true, probs: false, title: Last egg }

@@ -67,7 +67,6 @@ export const TestCaseBuilderSidebar: React.FC<TestCaseBuilderSidebarProps> = ({
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          bgcolor: 'background.paper',
         }}
       >
         <Typography variant="subtitle1" fontWeight="bold">
@@ -98,7 +97,7 @@ export const TestCaseBuilderSidebar: React.FC<TestCaseBuilderSidebarProps> = ({
             />
           ) : (
             <Box sx={{ p: 2, textAlign: 'center'}}>
-              <Typography variant="caption" fontSize={16} fontWeight="bold" color="text.secondary">
+              <Typography variant="caption" fontSize="1rem" fontWeight="bold" color="text.secondary">
                 {!selectedDeviceId 
                   ? '1. Select a device' 
                   : !isControlActive

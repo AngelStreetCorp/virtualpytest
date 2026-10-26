@@ -80,6 +80,11 @@ def session(tmp_path_factory):
     old_env = {k: os.environ.get(k) for k in list(env) + ['HOST_API_URL']}
     os.environ.update(env)
 
+    # The bridge is a per-process singleton: a host has exactly one, but each
+    # test module boots its own host app, so the second one would otherwise
+    # inherit the first one's slots and state file.
+    mobile_app_backend_host.reset_drone_bridge()
+
     app = Flask(__name__)
     # threading, not gevent: gevent is not installed in this dev environment (the
     # deployed host uses gevent via app_utils.py - see shared/src/lib/utils/app_utils.py
@@ -125,6 +130,9 @@ def session(tmp_path_factory):
         'fake_device': app.host_devices[DEVICE_ID],
     }
     yield state
+
+    # Leave no drone-bridge singleton behind for the next module in the run.
+    mobile_app_backend_host.reset_drone_bridge()
 
     for k, v in old_env.items():
         if v is None:

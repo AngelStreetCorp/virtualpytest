@@ -1,19 +1,15 @@
 # Network setup
 
-> **Purpose**: Network architecture and connectivity for VirtualPyTest  
-> **Audience**: Network Engineers, DevOps, System Administrators
-
 ---
 
 ## Overview
 
-VirtualPyTest requires network connectivity for:
-- Service communication (Frontend ↔ Server ↔ Host)
-- Device control (ADB, IR, Smart devices)
-- Cloud services (Database, Storage, AI)
-- Remote access (Web UI, VNC)
+VirtualPyTest has three parts: the web page, the server and the hosts that reach your devices. Pick the setup below that fits you.
 
-### Port Summary
+<div data-technical>
+
+> **Purpose**: Network architecture and connectivity for VirtualPyTest  
+> **Audience**: Network Engineers, DevOps, System Administrators
 
 | Service | Port | Protocol | Direction |
 |---------|------|----------|-----------|
@@ -26,11 +22,23 @@ VirtualPyTest requires network connectivity for:
 | PostgreSQL | 5432 | TCP | Outbound |
 | HTTPS (Cloud) | 443 | HTTPS | Outbound |
 
+Service communication: Frontend ↔ Server ↔ Host. Device control: ADB, IR, Smart devices. Cloud services: Database, Storage, AI. Remote access: Web UI, VNC.
+
+Every part listens on its own port. The full list is in Appendix A.
+
+</div>
+
 ---
 
 ## Part A: Standalone Network
 
-### Topology
+Use this for one site, such as one office or home network. Give the host a fixed address.
+
+<div data-technical>
+
+Open only the ports people need.
+
+**Topology**
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -61,7 +69,7 @@ VirtualPyTest requires network connectivity for:
 └──────────────────────────────────────────────────────────────┘
 ```
 
-### Port Requirements
+**Port Requirements**
 
 | Port | Service | Access | Notes |
 |------|---------|--------|-------|
@@ -72,7 +80,7 @@ VirtualPyTest requires network connectivity for:
 | 5900 | VNC | LAN | Raw VNC (optional) |
 | 3001 | Grafana | LAN | Monitoring |
 
-### Firewall Rules (UFW)
+**Firewall Rules (UFW)**
 
 ```bash
 # Enable UFW
@@ -92,7 +100,7 @@ sudo ufw allow 3001/tcp    # Grafana (optional)
 sudo ufw status
 ```
 
-### Static IP Configuration
+**Static IP Configuration**
 
 **Recommended:** Assign static IP to host for consistent access.
 
@@ -114,7 +122,7 @@ network:
 
 Apply: `sudo netplan apply`
 
-### Router Configuration
+**Router Configuration**
 
 | Setting | Value | Purpose |
 |---------|-------|---------|
@@ -122,11 +130,19 @@ Apply: `sudo netplan apply`
 | Port Forward (optional) | 443 → 192.168.1.100:5109 | External access |
 | DNS (optional) | virtualpytest.local → 192.168.1.100 | Friendly name |
 
+</div>
+
 ---
 
 ## Part B: Production Network
 
-### Topology
+Use this for a lab with many devices. Test devices stay off the internet.
+
+<div data-technical>
+
+The network has three zones: servers, test devices and management.
+
+**Topology**
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
@@ -167,7 +183,7 @@ Apply: `sudo netplan apply`
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### VLAN Configuration
+**VLAN Configuration**
 
 | VLAN | ID | Subnet | Purpose | Gateway |
 |------|-----|--------|---------|---------|
@@ -175,7 +191,7 @@ Apply: `sudo netplan apply`
 | Devices | 20 | 10.0.2.0/24 | Test devices (STB, mobile) | 10.0.2.1 |
 | Management | 30 | 10.0.3.0/24 | IPMI, switch mgmt, PDU | 10.0.3.1 |
 
-### Core Switch Configuration (Arista)
+**Core Switch Configuration (Arista)**
 
 ```bash
 ! VLAN definitions
@@ -210,7 +226,7 @@ interface Vlan30
 ip routing
 ```
 
-### Port Matrix by Service
+**Port Matrix by Service**
 
 | Service | Source | Destination | Port | Protocol |
 |---------|--------|-------------|------|----------|
@@ -220,7 +236,7 @@ ip routing
 | IR Controller | 10.0.1.x | 10.0.1.x | 4998 | TCP |
 | IPMI Access | 10.0.3.x | 10.0.3.x | 443/623 | HTTPS/IPMI |
 
-### Firewall Rules (Production)
+**Firewall Rules (Production)**
 
 **Inbound (Internet → DMZ):**
 ```
@@ -256,7 +272,7 @@ ALLOW 10.0.1.0/24 → ANY:54321-54324 (Supabase services)
 DENY 10.0.2.0/24 → ANY
 ```
 
-### Inter-Rack Connectivity
+**Inter-Rack Connectivity**
 
 | Connection | Cable Type | Speed | Distance |
 |------------|-----------|-------|----------|
@@ -264,11 +280,23 @@ DENY 10.0.2.0/24 → ANY
 | Rack A ↔ Rack B | Cat6a | 10GbE | 5m |
 | Server ↔ Server | DAC | 10GbE | <3m |
 
+</div>
+
+<div data-technical>
+
+Plan the zones before you cable anything. Devices can talk to the servers, but not to each other, and only the reverse proxy is reachable from the internet.
+
+</div>
+
 ---
 
 ## Part C: External Connectivity
 
-### Cloud Services
+The platform needs a database and file storage. The AI service is optional.
+
+<div data-technical>
+
+**Cloud Services**
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -299,7 +327,7 @@ DENY 10.0.2.0/24 → ANY
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### Outbound Requirements
+**Outbound Requirements**
 
 | Service | Domain | Port | Protocol | Required |
 |---------|--------|------|----------|----------|
@@ -309,7 +337,7 @@ DENY 10.0.2.0/24 → ANY
 | npm/pip | registry.npmjs.org, pypi.org | 443 | HTTPS | Build only |
 | Docker Hub | docker.io, registry-1.docker.io | 443 | HTTPS | Build only |
 
-### SSL/TLS Configuration
+**SSL/TLS Configuration**
 
 **Let's Encrypt Setup:**
 ```bash
@@ -330,7 +358,7 @@ sudo systemctl status certbot.timer
 sudo certbot renew --dry-run
 ```
 
-### Reverse Proxy (Nginx)
+**Reverse Proxy (Nginx)**
 
 **/etc/nginx/sites-available/virtualpytest:**
 ```nginx
@@ -415,11 +443,19 @@ sudo nginx -t
 sudo systemctl reload nginx
 ```
 
+</div>
+
+<div data-technical>
+
+The reverse proxy puts one secure web address in front of the whole platform. Certificates are renewed automatically. The build tools (npm, pip, Docker Hub) only matter when you build the platform yourself.
+
+</div>
+
 ---
 
 ## Part D: Remote Access Options
 
-### Comparison
+Use these to reach the platform from outside your site. Cloudflare Tunnel is recommended.
 
 | Method | Public IP | Setup | Security | Latency | Best For |
 |--------|-----------|-------|----------|---------|----------|
@@ -431,19 +467,24 @@ sudo systemctl reload nginx
 
 ### Option 1: Direct (Public IP)
 
-**Requirements:**
-- Static public IP or Dynamic DNS
-- Port forwarding on router
-- SSL certificate
+You need a public address, a port forward and an SSL certificate.
+
+<div data-technical>
 
 **Router Port Forward:**
 | External | Internal | Service |
 |----------|----------|---------|
 | 443 | 192.168.1.100:443 | Nginx (HTTPS) |
 
+</div>
+
 ### Option 2: Cloudflare Tunnel (Recommended)
 
-**Zero Trust access without public IP.**
+Your router stays closed.
+
+<div data-technical>
+
+Outside users reach the platform through Cloudflare. No public IP and no open port on your router are needed.
 
 ```bash
 # Install cloudflared
@@ -475,9 +516,13 @@ cloudflared service install
 systemctl start cloudflared
 ```
 
+</div>
+
 ### Option 3: Tailscale
 
-**Mesh VPN with zero configuration.**
+Each device joins your private network.
+
+<div data-technical>
 
 ```bash
 # Install
@@ -494,9 +539,15 @@ tailscale ip -4
 # http://100.x.y.z:5109
 ```
 
+</div>
+
 ### Option 4: WireGuard
 
-**Self-hosted VPN.**
+A self-hosted VPN.
+
+<div data-technical>
+
+You run the VPN server yourself.
 
 ```bash
 # Install
@@ -520,9 +571,15 @@ sudo wg-quick up wg0
 sudo systemctl enable wg-quick@wg0
 ```
 
+</div>
+
 ### Option 5: ngrok (Development)
 
-**Quick tunnels for testing.**
+A quick tunnel for testing only.
+
+<div data-technical>
+
+Not for daily use.
 
 ```bash
 # Install
@@ -537,11 +594,17 @@ ngrok http 5109
 # Output: https://xxxx.ngrok.io → localhost:5109
 ```
 
+</div>
+
 ---
 
 ## Appendix
 
 ### A. Complete Port Reference
+
+Every port the platform uses.
+
+<div data-technical>
 
 | Port | Service | Protocol | Direction | Required | Notes |
 |------|---------|----------|-----------|----------|-------|
@@ -558,7 +621,13 @@ ngrok http 5109
 | 6379 | Redis | TCP | Internal | Yes | Caching & Queuing |
 | 51820 | WireGuard | UDP | Inbound | Optional | VPN |
 
+</div>
+
 ### B. Troubleshooting
+
+If a page does not open, check that the service runs, its port is open and the name resolves.
+
+<div data-technical>
 
 **Connection Issues:**
 
@@ -605,7 +674,21 @@ certbot certificates
 sudo certbot renew --force-renewal
 ```
 
+</div>
+
 ### C. Network Security Checklist
+
+Check these before you go live:
+
+- Static IP set.
+- Firewall on, only needed ports open.
+- SSH by key only.
+- Services on the LAN only.
+
+<div data-technical>
+
+Full checklist:
+
 
 **Standalone:**
 - [ ] Static IP configured
@@ -624,13 +707,21 @@ sudo certbot renew --force-renewal
 - [ ] Intrusion detection (optional)
 - [ ] Network monitoring (optional)
 
+</div>
+
 ### D. DNS Records
+
+Only needed for a public name.
+
+<div data-technical>
 
 | Type | Name | Value | TTL | Purpose |
 |------|------|-------|-----|---------|
 | A | api | <Server IP> | 300 | Backend Server |
 | A | vnc | <Server IP> | 300 | NoVNC access |
 | CNAME | www | virtualpytest.vercel.app | 300 | Frontend |
+
+</div>
 
 ---
 

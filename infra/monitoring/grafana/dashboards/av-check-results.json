@@ -1,0 +1,581 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "AV Check Results - av_check asks a device whether it is really playing sound and video. Per-run verdicts (video / audio) from script_results, with a link to every run's report.",
+  "editable": true,
+  "graphTooltip": 1,
+  "links": [],
+  "panels": [
+    {
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 24,
+        "h": 1
+      },
+      "id": 100,
+      "collapsed": false
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "title": "Overview",
+      "type": "stat",
+      "gridPos": {
+        "x": 0,
+        "y": 1,
+        "w": 24,
+        "h": 5
+      },
+      "id": 1,
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "text"
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": ""
+        },
+        "colorMode": "none",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "justifyMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT\n  COUNT(*) AS \"Runs\",\n  COUNT(*) FILTER (WHERE success) AS \"Passed\",\n  COUNT(*) FILTER (WHERE NOT success) AS \"Failed\",\n  ROUND((COUNT(*) FILTER (WHERE success)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Pass rate %\",\n  ROUND(AVG(execution_time_ms)::decimal / 1000, 1) AS \"Avg duration (s)\",\n  COUNT(*) FILTER (WHERE NOT success AND error_msg LIKE 'video:%') AS \"Video failures\",\n  COUNT(*) FILTER (WHERE NOT success AND error_msg LIKE 'audio:%') AS \"Audio failures\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results\nWHERE $__timeFilter(started_at)\n  AND script_name = 'av_check'\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Main",
+      "gridPos": {
+        "x": 0,
+        "y": 6,
+        "w": 24,
+        "h": 1
+      },
+      "id": 101,
+      "collapsed": false
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "title": "Verdicts over time",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 0,
+        "y": 7,
+        "w": 12,
+        "h": 8
+      },
+      "id": 10,
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 60,
+            "showPoints": "never",
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(started_at, '1d'),\n  CASE\n  WHEN success THEN 'PASS'\n  WHEN error_msg LIKE 'video:%' AND error_msg LIKE '%audio:%' THEN 'VIDEO + AUDIO'\n  WHEN error_msg LIKE 'video:%' THEN 'VIDEO'\n  WHEN error_msg LIKE 'audio:%' THEN 'AUDIO'\n  WHEN error_msg LIKE 'Navigation failed%' THEN 'NAVIGATION'\n  WHEN error_msg LIKE 'Script crashed%' THEN 'SCRIPT ERROR'\n  ELSE 'OTHER' END AS metric, COUNT(*) AS value\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results\nWHERE $__timeFilter(started_at)\n  AND script_name = 'av_check'\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)\nGROUP BY 1, 2 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "datasource": {
+        "uid": "supabase-postgres"
+      },
+      "title": "Pass rate per device",
+      "type": "timeseries",
+      "gridPos": {
+        "x": 12,
+        "y": 7,
+        "w": 12,
+        "h": 8
+      },
+      "id": 11,
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "lineWidth": 2,
+            "fillOpacity": 8,
+            "showPoints": "never"
+          },
+          "min": 0,
+          "max": 100,
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(started_at, '1d'),\n  device_name AS metric,\n  ROUND((SUM(CASE WHEN success THEN 1 ELSE 0 END)::decimal / COUNT(*)) * 100, 1) AS value\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results\nWHERE $__timeFilter(started_at)\n  AND script_name = 'av_check'\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)\nGROUP BY 1, 2 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Details",
+      "gridPos": {
+        "x": 0,
+        "y": 15,
+        "w": 24,
+        "h": 1
+      },
+      "id": 102,
+      "collapsed": true,
+      "panels": [
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "title": "By device",
+          "type": "table",
+          "gridPos": {
+            "x": 0,
+            "y": 16,
+            "w": 24,
+            "h": 8
+          },
+          "id": 20,
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Pass rate %"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": null
+                        },
+                        {
+                          "color": "orange",
+                          "value": 50
+                        },
+                        {
+                          "color": "green",
+                          "value": 100
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "targets": [
+            {
+              "datasource": {
+                "uid": "supabase-postgres"
+              },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT\n  host_name AS \"Host\",\n  device_name AS \"Device\",\n  COALESCE(metadata->>'device_model', '') AS \"Model\",\n  COUNT(*) AS \"Runs\",\n  COUNT(*) FILTER (WHERE success) AS \"Passed\",\n  ROUND((COUNT(*) FILTER (WHERE success)::decimal / NULLIF(COUNT(*), 0)) * 100, 1) AS \"Pass rate %\",\n  COUNT(*) FILTER (WHERE NOT success AND error_msg LIKE 'video:%') AS \"Video failures\",\n  COUNT(*) FILTER (WHERE NOT success AND error_msg LIKE 'audio:%') AS \"Audio failures\",\n  ROUND(AVG(execution_time_ms)::decimal / 1000, 1) AS \"Avg duration (s)\",\n  to_char(max(started_at), 'YYYY-MM-DD HH24:MI') AS \"Last run\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results\nWHERE $__timeFilter(started_at)\n  AND script_name = 'av_check'\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)\nGROUP BY host_name, device_name, metadata->>'device_model'\nORDER BY host_name, device_name"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "title": "Failure reasons",
+          "type": "table",
+          "gridPos": {
+            "x": 0,
+            "y": 24,
+            "w": 12,
+            "h": 8
+          },
+          "id": 30,
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": []
+          },
+          "targets": [
+            {
+              "datasource": {
+                "uid": "supabase-postgres"
+              },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT\n  COALESCE(error_msg, '(no error message)') AS \"Reason\",\n  COUNT(*) AS \"Runs\",\n  to_char(max(started_at), 'YYYY-MM-DD HH24:MI') AS \"Last seen\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results\nWHERE $__timeFilter(started_at)\n  AND script_name = 'av_check'\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)\nGROUP BY error_msg\nORDER BY 2 DESC, 3 DESC"
+            }
+          ]
+        },
+        {
+          "datasource": {
+            "uid": "supabase-postgres"
+          },
+          "title": "Recent runs",
+          "type": "table",
+          "gridPos": {
+            "x": 12,
+            "y": 24,
+            "w": 12,
+            "h": 8
+          },
+          "id": 31,
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Verdict"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background"
+                    }
+                  },
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "PASS": {
+                            "color": "green",
+                            "index": 0
+                          },
+                          "VIDEO": {
+                            "color": "red",
+                            "index": 1
+                          },
+                          "AUDIO": {
+                            "color": "orange",
+                            "index": 2
+                          },
+                          "VIDEO + AUDIO": {
+                            "color": "dark-red",
+                            "index": 3
+                          },
+                          "NAVIGATION": {
+                            "color": "blue",
+                            "index": 4
+                          },
+                          "SCRIPT ERROR": {
+                            "color": "dark-orange",
+                            "index": 5
+                          },
+                          "OTHER": {
+                            "color": "text",
+                            "index": 6
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Run"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": [
+                      {
+                        "title": "Open the av_check report",
+                        "targetBlank": true,
+                        "url": "${__data.fields.Report}"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Device runs"
+                },
+                "properties": [
+                  {
+                    "id": "links",
+                    "value": [
+                      {
+                        "title": "Open every av_check run of this device in the app",
+                        "targetBlank": true,
+                        "url": "${__data.fields[Device runs]"
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.hidden",
+                    "value": true
+                  }
+                ]
+              }
+            ]
+          },
+          "targets": [
+            {
+              "datasource": {
+                "uid": "supabase-postgres"
+              },
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT\n  to_char(started_at, 'MM-DD HH24:MI:SS') AS \"Time\",\n  host_name AS \"Host\",\n  device_name AS \"Device\",\n  COALESCE(userinterface_name, '-') AS \"Interface\",\n  CASE\n  WHEN success THEN 'PASS'\n  WHEN error_msg LIKE 'video:%' AND error_msg LIKE '%audio:%' THEN 'VIDEO + AUDIO'\n  WHEN error_msg LIKE 'video:%' THEN 'VIDEO'\n  WHEN error_msg LIKE 'audio:%' THEN 'AUDIO'\n  WHEN error_msg LIKE 'Navigation failed%' THEN 'NAVIGATION'\n  WHEN error_msg LIKE 'Script crashed%' THEN 'SCRIPT ERROR'\n  ELSE 'OTHER' END AS \"Verdict\",\n  ROUND(execution_time_ms::decimal / 1000, 1) AS \"Duration (s)\",\n  left(id::text, 8) AS \"Run\",\n  html_report_r2_url AS \"Report\",\n  'https://virtualpytest.angelstreet.io/test-results/reports?script=av_check&host=' || host_name ||\n    '&device=' || replace(device_name, ' ', '%20') AS \"Device runs\"\nFROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results\nWHERE $__timeFilter(started_at)\n  AND script_name = 'av_check'\n  AND (host_name IN ($host) OR host_name IS NULL)\n  AND (device_name IN ($device_name) OR device_name IS NULL)\n  AND (userinterface_name IN ($user_interface) OR userinterface_name IS NULL)\nORDER BY started_at DESC\nLIMIT 200"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "refresh": "1m",
+  "schemaVersion": 39,
+  "tags": [
+    "av_check",
+    "script",
+    "testing"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "None",
+          "value": "none"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "includeAll": false,
+        "label": "Workspace",
+        "multi": false,
+        "name": "workspace",
+        "query": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "includeAll": false,
+        "label": "Allowed devices",
+        "multi": false,
+        "name": "allowed_devices",
+        "query": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query",
+        "hide": 2
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT DISTINCT host_name FROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results WHERE $__timeFilter(started_at) AND script_name = 'av_check' ORDER BY host_name",
+        "includeAll": true,
+        "label": "Host",
+        "multi": true,
+        "name": "host",
+        "query": "SELECT DISTINCT host_name FROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results WHERE $__timeFilter(started_at) AND script_name = 'av_check' ORDER BY host_name",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT DISTINCT device_name FROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results WHERE $__timeFilter(started_at) AND script_name = 'av_check' ORDER BY device_name",
+        "includeAll": true,
+        "label": "Device",
+        "multi": true,
+        "name": "device_name",
+        "query": "SELECT DISTINCT device_name FROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results WHERE $__timeFilter(started_at) AND script_name = 'av_check' ORDER BY device_name",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT DISTINCT userinterface_name FROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results WHERE $__timeFilter(started_at) AND script_name = 'av_check' AND userinterface_name IS NOT NULL ORDER BY userinterface_name",
+        "includeAll": true,
+        "label": "Userinterface",
+        "multi": true,
+        "name": "user_interface",
+        "query": "SELECT DISTINCT userinterface_name FROM (SELECT * FROM (SELECT * FROM script_results /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_name = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) script_results WHERE ('${flag}' = '__ALL__' OR EXISTS (SELECT 1 FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) df WHERE df.host_name = script_results.host_name AND df.device_name = script_results.device_name AND df.flags && string_to_array('${flag:csv}', ',')))) script_results WHERE $__timeFilter(started_at) AND script_name = 'av_check' AND userinterface_name IS NOT NULL ORDER BY userinterface_name",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "All",
+          "value": "$__all"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT DISTINCT f AS flag FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) device_flags, unnest(flags) f ORDER BY 1",
+        "includeAll": true,
+        "label": "Tag",
+        "multi": true,
+        "name": "flag",
+        "query": "SELECT DISTINCT f AS flag FROM (SELECT * FROM device_flags /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) device_flags, unnest(flags) f ORDER BY 1",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query",
+        "allValue": "__ALL__"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-7d",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "AV Check Results",
+  "uid": "av-check-results",
+  "version": 1,
+  "weekStart": ""
+}

@@ -239,48 +239,33 @@ class SkillLoader:
         Returns:
             Best matching SkillDefinition or None
         """
+        ranked = cls.rank_skills(message, available_skills, device_platform)
+        return ranked[0][0] if ranked else None
+
+    @classmethod
+    def rank_skills(cls, message: str, available_skills: List[str],
+                    device_platform: Optional[str] = None) -> List[tuple[SkillDefinition, int, int]]:
+        """Return positive trigger matches in the same order used by match_skill.
+
+        The score is the sum of matching trigger lengths; ties retain the
+        original available-skills order.  The benchmark records these actual
+        scores rather than calculating a separate classifier.
+        """
         if not cls._loaded:
             cls.load_all_skills()
-
         message_lower = message.lower()
-
-        # Filter skills by platform compatibility if device_platform is provided
-        candidate_skills = []
-        for skill_name in available_skills:
+        ranked = []
+        for position, skill_name in enumerate(available_skills):
             skill = cls._skills.get(skill_name)
             if not skill:
                 continue
-
-            # If device platform is specified, check compatibility
-            if device_platform:
-                skill_platform = skill.platform
-                if skill_platform == 'all' or skill_platform is None:
-                    pass  # Skill works on all platforms
-                elif device_platform == 'mobile' and skill_platform not in ['mobile']:
-                    continue  # Mobile devices should use mobile skills, not stb/web
-                elif device_platform == 'stb' and skill_platform not in ['stb']:
-                    continue  # STB devices should use stb skills
-                elif device_platform == 'web' and skill_platform not in ['web']:
-                    continue  # Web devices should use web skills
-
-            candidate_skills.append(skill)
-
-        # Score each candidate skill
-        best_skill = None
-        best_score = 0
-
-        for skill in candidate_skills:
-            score = 0
-            for trigger in skill.triggers:
-                if trigger.lower() in message_lower:
-                    # Longer triggers are more specific = higher score
-                    score += len(trigger)
-
-            if score > best_score:
-                best_score = score
-                best_skill = skill
-
-        return best_skill
+            if device_platform in ('mobile', 'stb', 'web') and skill.platform not in (None, 'all', device_platform):
+                continue
+            hits = [trigger for trigger in skill.triggers if trigger.lower() in message_lower]
+            if hits:
+                ranked.append((skill, sum(len(trigger) for trigger in hits), len(hits), position))
+        ranked.sort(key=lambda row: (-row[1], row[3]))
+        return [(skill, score, hits) for skill, score, hits, _ in ranked]
     
     @classmethod
     def is_valid_skill(cls, skill_name: str) -> bool:

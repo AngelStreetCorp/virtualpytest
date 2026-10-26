@@ -11,7 +11,10 @@ import logging
 import uuid
 
 from flask import Blueprint, jsonify, request
+from datetime import datetime, timezone
+
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
+from backend_server.src.routes.server_dashboard_routes import RANGES as DASH_RANGES, _is_running_row, _verdict
 
 # Import database functions from src/lib/supabase (uses absolute import)
 from shared.src.lib.database.script_results_db import (
@@ -23,6 +26,7 @@ from shared.src.lib.database.script_results_db import (
 
 from shared.src.lib.utils.app_utils import check_supabase
 from shared.src.lib.utils.cloudflare_utils import fetch_text_from_storage
+from shared.src.lib.utils.upload_error_utils import sanitize_upload_error
 from backend_server.src.lib.utils.server_utils import get_host_manager
 
 # Create blueprint
@@ -77,20 +81,36 @@ def get_all_script_results():
             except ValueError:
                 return jsonify({'error': f'{name} must be a UUID'}), 400
 
-    # Get script results from database (include all records for complete view)
+    # Dashboard deep links (TASK-123): ?status=passed|failed and ?range=24h|7d|30d, applied before the limit so a
+    # dashboard count opens the rows it counted. 'failed' / 'aborted' match the dashboard's verdict, minus rows still running.
+    status = request.args.get('status')
+    if status not in (None, 'passed', 'failed', 'aborted'):
+        return jsonify({'error': 'status must be passed, failed or aborted'}), 400
+    range_key = request.args.get('range')
+    if range_key is not None and range_key not in DASH_RANGES:
+        return jsonify({'error': f'range must be one of {", ".join(DASH_RANGES)}'}), 400
+    since = (datetime.now(timezone.utc) - DASH_RANGES[range_key]).isoformat() if range_key else None
+
+    # Get script results from database (include all records for complete view). A dashboard deep link counts
+    # like the dashboard: discarded runs (AI-triaged false failures) are not in its numbers.
     result = get_script_results(
         team_id,
         script_name=script_name,
         host_name=host_name,
-        include_discarded=True,
+        include_discarded=status is None and range_key is None,
         limit=limit,
         host_names=registered_host_names,
         host_filter=host_filter,
+        success=None if status is None else status == 'passed',
+        since=since,
         **governance_filters,
     )
     
     if result['success']:
-        return jsonify(result['script_results'])
+        rows = result['script_results']
+        if status in ('failed', 'aborted'):
+            rows = [r for r in rows if not _is_running_row(r) and _verdict(r) == status]
+        return jsonify(rows)
     else:
         return jsonify({'error': result.get('error', 'Failed to fetch script results')}), 500
         
@@ -204,12 +224,24 @@ def get_verification_review_markdown_route(script_result_id):
                 'details': fetch_result.get('error'),
             }), 502
 
-    # Fallback for older records generated before markdown pack existed.
+    # Fallback for older records generated before markdown pack existed, and for
+    # runs whose own pack never reached storage.
     if not markdown:
         report_url = record.get('html_report_r2_url') or 'n/a'
         logs_url = record.get('logs_r2_url') or record.get('logs_url') or 'n/a'
         status = 'PASS' if record.get('success') else 'FAIL'
-        markdown = "\n".join([
+        # BUG-0770: this is the pack a reader actually gets when the host could
+        # not upload anything — and it used to say only "n/a", so a missing
+        # report looked like a missing test instead of a broken storage
+        # configuration. The host kept the reason in the run metadata; read it
+        # from there and say it here too.
+        # Older rows hold the raw storage error: sanitize again on the way out.
+        upload_error = sanitize_upload_error(
+            metadata.get('artifact_upload_error')
+            or (metadata.get('verification_review') or {}).get('artifact_upload_error')
+            or ''
+        )
+        lines = [
             '# Script Verification Review Pack',
             '',
             '## Execution Snapshot',
@@ -221,12 +253,17 @@ def get_verification_review_markdown_route(script_result_id):
             '## Log Sources',
             f"- report_url: {report_url}",
             f"- logs_url: {logs_url}",
+        ]
+        if upload_error and report_url == 'n/a' and logs_url == 'n/a':
+            lines.append(f"- Artifact upload failed: `{upload_error}`")
+        lines += [
             '',
             '## How To Verify False Positives',
             '1. Validate screenshot/report evidence against failure logs.',
             '2. Distinguish script timing/selector issues from real product regressions.',
             '3. Mark `discard=true` only for `SCRIPT_ISSUE` or `SYSTEM_ISSUE`; keep external blocks as `EXTERNAL_BLOCK` with `discard=false`.',
-        ])
+        ]
+        markdown = "\n".join(lines)
 
     return jsonify({
         'script_result_id': script_result_id,

@@ -28,10 +28,32 @@
 import { isAuthEnabled } from '../lib/supabase';
 import { getAutoSignHeaderToken } from '../lib/autoSign';
 import { getAccessTokenForRequest } from '../lib/serverIdentity';
+import { HTTP_CONFIG } from '../config/constants';
 
 export interface ApiClientOptions extends Omit<RequestInit, 'headers'> {
   headers?: Record<string, string>;
   skipAuth?: boolean; // Skip adding Authorization header
+  /**
+   * Deadline for this request, in ms. Defaults to HTTP_CONFIG.LONG_TIMEOUT (60 s).
+   *
+   * Why this exists: `fetch()` with no AbortSignal waits forever. A server that
+   * accepts the connection and then stalls — a wedged worker, a proxy that never
+   * answers, a device host that drops mid-request — left every caller's
+   * `isLoading` true indefinitely, which is how "Loading stream…" / "Loading…"
+   * screens outlived the outage that caused them. Every request now has a deadline,
+   * so the failure is a catchable error the caller can render.
+   *
+   * Why 60 s and not HTTP_CONFIG.DEFAULT_TIMEOUT (30 s): this client fronts
+   * LLM-backed endpoints too (`/server/agent/voice/command`,
+   * `/server/action/execute`) whose backend work legitimately outlasts 30 s. The
+   * deadline here is a hang-catcher, not a latency budget — it must never be the
+   * reason a working call is cut off. Callers that know their endpoint is fast
+   * should pass a tighter `timeoutMs` (useStream does, at 15 s) and callers whose
+   * work is genuinely unbounded should pass `timeoutMs: 0` to opt out.
+   *
+   * A caller-supplied `signal` always wins and is left untouched.
+   */
+  timeoutMs?: number;
 }
 
 let hasLoggedMissingSession = false;
@@ -46,12 +68,21 @@ export async function apiClient(
   url: string,
   options: ApiClientOptions = {}
 ): Promise<Response> {
-  const { skipAuth = false, headers = {}, ...fetchOptions } = options;
+  const { skipAuth = false, headers = {}, timeoutMs, ...fetchOptions } = options;
 
   // Prepare headers (omit Content-Type for FormData - browser sets boundary)
   const requestHeaders: Record<string, string> = { ...headers };
   if (!(fetchOptions.body instanceof FormData) && !requestHeaders['Content-Type']) {
     requestHeaders['Content-Type'] = 'application/json';
+  }
+
+  // Deadline. A caller-supplied signal is authoritative (ServerManagerProvider
+  // passes a shorter per-server budget for the "All servers" round), so only add
+  // ours when there is none. timeoutMs: 0 disables the deadline entirely.
+  const effectiveTimeout = timeoutMs ?? HTTP_CONFIG.LONG_TIMEOUT;
+  let deadlineSignal: AbortSignal | undefined;
+  if (!fetchOptions.signal && effectiveTimeout > 0) {
+    deadlineSignal = AbortSignal.timeout(effectiveTimeout);
   }
 
   // Add Authorization header with JWT token when auth is enabled.
@@ -109,10 +140,21 @@ export async function apiClient(
   }
 
   // Make the request
-  return fetch(url, {
-    ...fetchOptions,
-    headers: requestHeaders,
-  });
+  try {
+    return await fetch(url, {
+      ...fetchOptions,
+      headers: requestHeaders,
+      ...(deadlineSignal ? { signal: deadlineSignal } : {}),
+    });
+  } catch (error) {
+    // AbortSignal.timeout rejects with a DOMException named 'TimeoutError', whose
+    // `message` is a fixed browser string. Callers surface error.message, so give
+    // them one that names the request and the budget they waited for.
+    if (deadlineSignal?.aborted && (error as Error)?.name === 'TimeoutError') {
+      throw new Error(`Request timed out after ${effectiveTimeout} ms: ${url}`);
+    }
+    throw error;
+  }
 }
 
 /**

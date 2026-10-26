@@ -10,6 +10,7 @@ import { Box, TextField, IconButton, InputAdornment } from '@mui/material';
 import SearchIcon from '@mui/icons-material/Search';
 import ClearIcon from '@mui/icons-material/Clear';
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface ToolboxSearchBoxProps {
   value: string;
@@ -48,7 +49,7 @@ export const ToolboxSearchBox: React.FC<ToolboxSearchBoxProps> = ({
               </IconButton>
             </InputAdornment>
           ),
-          sx: { fontSize: '0.875rem' }
+          sx: { fontSize: TYPOGRAPHY.body.size }
         }}
         sx={{
           '& .MuiOutlinedInput-root': {

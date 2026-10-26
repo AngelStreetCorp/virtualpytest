@@ -12,6 +12,7 @@ import React, { useState, useEffect } from 'react';
 import { FormControl, InputLabel, Select, MenuItem, Chip, CircularProgress, SelectChangeEvent } from '@mui/material';
 import { useUserInterface } from '../../hooks/pages/useUserInterface';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface UserinterfaceSelectorProps {
   deviceModel?: string;  // Device model to find compatible interfaces for (undefined = show all)
@@ -280,7 +281,7 @@ export const UserinterfaceSelector: React.FC<UserinterfaceSelectorProps> = ({
                   height: 16,
                   bgcolor: PALETTE.gold,
                   color: '#fff',
-                  '& .MuiChip-label': { px: 0.5, fontSize: '0.6rem', fontWeight: 600 },
+                  '& .MuiChip-label': { px: 0.5, fontSize: TYPOGRAPHY.microMeta.size, fontWeight: 600 },
                 }}
               />
             )}

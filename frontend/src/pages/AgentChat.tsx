@@ -7,10 +7,13 @@
  * - Right: Device execution panel (collapsible, prepared for future)
  */
 
-import React, { useRef, useEffect, useState, useCallback } from 'react';
+import { AppIcon } from '../constants/icons';
+import React, { useRef, useEffect, useState, useCallback, useMemo } from 'react';
 import { AgentChatErrorAlert } from '../components/agent-chat/AgentChatErrorAlert';
 import { createPortal } from 'react-dom';
+import { keyframes } from '@mui/material/styles';
 import {
+  Badge,
   Box,
   Paper,
   Typography,
@@ -34,16 +37,26 @@ import {
   ViewSidebar as SidebarIcon,
   Chat as ChatPanelIcon,
   PhoneAndroid as DevicePanelIcon,
+  ViewSidebarOutlined as CompanionIcon,
   TouchApp as RemoteIcon,
   ArrowUpward as SendIcon,
+  AutoStoriesOutlined as MemoryIcon,
 } from '@mui/icons-material';
 import { useSearchParams, useLocation } from 'react-router-dom';
 import { useAgentChatContext } from '../contexts/AgentChatContext';
 import type { BackgroundAgentInfo } from '../hooks/aiagent';
+import { useAtlasMemory } from '../hooks/aiagent';
 import { useToolExecutionTiming } from '../hooks/aiagent/useToolExecutionTiming';
 import { buildServerUrl } from '../utils/buildUrlUtils';
+import { readCurrentProjectId } from '../hooks/common/useCurrentProject';
 import { AGENT_CHAT_PALETTE as PALETTE, agentColor, useAgentChatPalette } from '../constants/agentChatTheme';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
+import { DeviceFavoriteGroupHeader } from '../components/common/DeviceFavoriteGroupHeader';
+import { ExecutableFavoriteStar } from '../components/common/DeviceFavoriteStar';
+import { TargetDropdown } from '../components/common/TargetDropdown';
+import { getDeviceTargetLabel } from '../hooks/useDeviceFilters';
+import { DeviceKey } from '../hooks/useDeviceFavorites';
+import { useExecutableFavorites } from '../hooks/useExecutableFavorites';
 import { UserinterfaceSelector } from '../components/common/UserinterfaceSelector';
 import { MobileAgentChat } from '../components/ai/MobileAgentChat';
 import { useResponsiveMode } from '../hooks/useResponsiveMode';
@@ -54,6 +67,18 @@ import { useUserInterface } from '../hooks/pages/useUserInterface';
 import { ConversationList } from '../components/agent-chat/ConversationList';
 import { ChatMessages } from '../components/agent-chat/ChatMessages';
 import { DevicePanel } from '../components/agent-chat/DevicePanel';
+import {
+  AtlasCompanion,
+  CompanionOffer,
+  CompanionTarget,
+  describeCompanion,
+  loadCompanionMode,
+  saveCompanionMode,
+  type CompanionMode,
+} from '../components/agent-chat/AtlasCompanion';
+import useI18n from '../i18n/useI18n';
+import { useVoice } from '../contexts/VoiceContext';
+import { VoiceCommandLine, VoiceConversationButton, VoiceError, VoiceMessageButton, VoiceRecordBar, VoiceSettingsButton, VoiceStrip } from '../components/ai/voice/VoiceControls';
 import { mergeAnalyticsArtifact } from '../components/agent-chat/analyticsMerge';
 import { ContentViewer, type AnalyticsContent, type ContentType, type ContentData, type ContentTab } from '../components/agent-chat/ContentViewer';
 import { PromptPresets, type PromptPresetCategory } from '../components/agent-chat/PromptPresets';
@@ -63,6 +88,7 @@ import { WebPanel } from '../components/controller/web/WebPanel';
 import { useStream } from '../hooks/controller';
 import { DEFAULT_DEVICE_RESOLUTION } from '../config/deviceResolutions';
 import { useInteractivityManager } from '../hooks/aiagent/useInteractivityManager';
+import { TYPOGRAPHY } from '../constants/typography';
 
 
 // Shorten model identifiers like "claude-sonnet-4-20250514" → "sonnet-4",
@@ -99,7 +125,7 @@ const PromptHistoryDropdown: React.FC<{
         <Box
           component="span"
           sx={{
-            fontSize: '0.7rem',
+            fontSize: TYPOGRAPHY.caption.size,
             fontWeight: 600,
             color: PALETTE.accent,
             textTransform: 'uppercase',
@@ -114,7 +140,7 @@ const PromptHistoryDropdown: React.FC<{
             ml:2,
             ...dropdownStyles.formControl,
             '& .MuiInputLabel-root': {
-              fontSize: '0.8rem',
+              fontSize: TYPOGRAPHY.body.size,
               fontWeight: 500,
             },
           }}
@@ -124,7 +150,7 @@ const PromptHistoryDropdown: React.FC<{
             displayEmpty
             sx={{
               ...dropdownStyles.select,
-              fontSize: '0.85rem',
+              fontSize: TYPOGRAPHY.body.size,
               '& .MuiSelect-select': {
                 ...dropdownStyles.select['& .MuiSelect-select'],
                 py: 0.5,
@@ -152,7 +178,7 @@ const PromptHistoryDropdown: React.FC<{
                   whiteSpace: 'normal',
                   wordWrap: 'break-word',
                   py: 1,
-                  fontSize: '0.85rem',
+                  fontSize: TYPOGRAPHY.body.size,
                   lineHeight: 1,
                 }}
               >
@@ -166,7 +192,14 @@ const PromptHistoryDropdown: React.FC<{
   );
 };
 
+// Companion toggle: three beats when Atlas updated the hidden companion.
+const companionPulse = keyframes`
+  0%, 100% { transform: scale(1); opacity: 1; }
+  50% { transform: scale(1.45); opacity: 0.55; }
+`;
+
 const AgentChat: React.FC = () => {
+  const executableFavorites = useExecutableFavorites();
   const [searchParams, setSearchParams] = useSearchParams();
   const location = useLocation();
   const theme = useTheme();
@@ -185,8 +218,8 @@ const AgentChat: React.FC = () => {
       },
     },
     select: {
-      height: 32,
-      fontSize: '0.85rem',
+      height: 36,
+      fontSize: TYPOGRAPHY.body.size,
       color: P.textPrimary,
       bgcolor: P.surface,
       borderRadius: 1.5,
@@ -218,12 +251,12 @@ const AgentChat: React.FC = () => {
       }
     },
     menuItemPlaceholder: {
-      fontSize: '0.85rem',
+      fontSize: TYPOGRAPHY.body.size,
       py: 0.75,
       color: P.textSecondary,
     },
     menuItem: {
-      fontSize: '0.85rem',
+      fontSize: TYPOGRAPHY.body.size,
       py: 0.75,
       color: P.textPrimary,
       '&:hover': { bgcolor: P.hoverBg },
@@ -239,6 +272,26 @@ const AgentChat: React.FC = () => {
   const [contentViewerFullscreen, setContentViewerFullscreen] = useState(false);
   const [showDevice, setShowDevice] = useState(false);
   const [showRemote, setShowRemote] = useState(false);
+  // Atlas Companion: the filtered app page beside the chat (TASK-126)
+  const { t } = useI18n();
+  const voice = useVoice();
+  const voiceRecording = voice.phase === 'recording' && voice.surface === 'atlas';
+  const voiceTalking = voice.conversation && voice.surface === 'atlas';
+  const [companion, setCompanion] = useState<CompanionTarget | null>(null);
+  const [showCompanion, setShowCompanion] = useState(false);
+  const [companionUnseen, setCompanionUnseen] = useState(0); // bumps on every hidden update: restarts the pulse
+  const [companionDot, setCompanionDot] = useState(false);
+  const [companionUrl, setCompanionUrl] = useState<{ path: string; params: Record<string, string> } | null>(null);
+  const [companionOffer, setCompanionOffer] = useState<CompanionTarget | null>(null);
+  const [companionMode, setCompanionMode] = useState<CompanionMode>(loadCompanionMode);
+  const [companionWidth, setCompanionWidth] = useState(520);
+  const companionRef = useRef<CompanionTarget | null>(null);
+  const showCompanionRef = useRef(false);
+  const companionModeRef = useRef<CompanionMode>(companionMode);
+  const companionRev = useRef(0);
+  companionRef.current = companion;
+  showCompanionRef.current = showCompanion;
+  companionModeRef.current = companionMode;
   // For host_vnc devices: toggle between Web (Playwright) and Desktop (PyAutoGUI) panels
   const [hostRemoteView, setHostRemoteView] = useState<'web' | 'desktop'>('web');
 
@@ -279,11 +332,11 @@ const AgentChat: React.FC = () => {
   const [isResizing, setIsResizing] = useState(false);
 
   // Horizontal panel resizers (history sidebar, device panel, remote panel)
-  const [historyWidth, setHistoryWidth] = useState(240);
-  const [devicePanelWidth, setDevicePanelWidth] = useState(320);
+  const [historyWidth, setHistoryWidth] = useState(300);
+  const [devicePanelWidth, setDevicePanelWidth] = useState(380);
   const [remotePanelWidth, setRemotePanelWidth] = useState(320);
   // Which horizontal divider is currently being dragged
-  const [resizingPanel, setResizingPanel] = useState<null | 'history' | 'device' | 'remote'>(null);
+  const [resizingPanel, setResizingPanel] = useState<null | 'history' | 'device' | 'remote' | 'companion'>(null);
 
   // Available userinterfaces for context
   const [availableUserInterfaces, setAvailableUserInterfaces] = useState<any[]>([]);
@@ -296,7 +349,7 @@ const AgentChat: React.FC = () => {
   const [hasUserSelectedInterface, setHasUserSelectedInterface] = useState(false);
 
   // Get HostManager for device selection
-  const { getAllHosts, getAllDevices } = useHostData();
+  const { getAllHosts } = useHostData();
   const { selectedServer, serverHostsData } = useServerManager();
   const { handleDeviceSelect } = useHostControl();
 
@@ -353,6 +406,13 @@ const AgentChat: React.FC = () => {
 // Selected agent - will be set from API (looks for agent with default: true)
 // Start empty to avoid MUI out-of-range while agents load
 const [selectedAgentId, setSelectedAgentId] = useState<string>('');
+
+// Atlas model picker: per-agent profile pin. Empty / undefined means "use the chain
+// (primary, then fallbacks)" — the default routing behaviour. A profile id here means
+// "pin this session to that one profile" — the chosen model becomes the only hop and
+// the chain's fallbacks never fire (unless the picked profile is down, in which case the
+// turn errors and the user can pick another).
+const [selectedProfileByAgent, setSelectedProfileByAgent] = useState<Record<string, string>>({});
   
   // Available agents for dropdown (selectable only) + all agents for nickname lookup
   const [availableAgents, setAvailableAgents] = useState<any[]>([]);
@@ -446,13 +506,15 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
               id,
               name: a.metadata?.name || a.name,
               nickname: a.metadata?.nickname || a.nickname || a.name,
-              icon: a.metadata?.icon || a.icon || '🤖',
+              icon: a.metadata?.icon || a.icon,
               description: a.metadata?.description || a.description || '',
               color: agentColor(id, P),
               tips: a.metadata?.suggestions || [], // Load from YAML suggestions
               prompt_presets: a.metadata?.prompt_presets || [], // Load from YAML prompt presets
               isDefault: a.metadata?.default === true, // Track default for sorting
               model: a.model || '',
+              // Full model chain (with fallbacks) for the model picker; empty if no route yet.
+              modelChain: Array.isArray(a.model_chain) ? a.model_chain : [],
             };
           });
         
@@ -564,6 +626,17 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
     // Update local state immediately so the thumb stays highlighted (or flips to the new rating)
     setMessageFeedback(prev => ({ ...prev, [messageId]: rating }));
 
+    // Look up the message so we can ship the wall-clock timing alongside the
+    // rating — the user explicitly called this "gold" and asked us to log it.
+    // Lookups walk the conversations ref so we don't have to thread the full
+    // messages array through the prop chain just for this side-effect; a
+    // missing message means the user is rating a partial stop that hasn't been
+    // written yet, in which case we simply omit the fields.
+    const targetMessage = conversations
+      .flatMap((c) => c.messages)
+      .find((m) => m.id === messageId);
+    const timing = targetMessage?.timing;
+
     // Send to backend
     try {
       const response = await fetch(buildServerUrl('/server/agents/feedback'), {
@@ -576,11 +649,24 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
           comment: comment || undefined,
           message_id: messageId,
           session_id: session?.id,
+          // Gold: persisted wall-clock timing — the user wants this shipped
+          // with every feedback signal so QA / analytics can correlate
+          // "slow answer" / "long reasoning" complaints with the actual
+          // measurements instead of inferring them.
+          answer_elapsed_ms: timing?.answer_elapsed_ms,
+          thinking_elapsed_ms: timing?.thinking_elapsed_ms,
+          thinking_chunks: timing?.thinking_chunks?.length ?? 0,
+          turn_started_at: timing?.turn_started_at,
+          first_thinking_started_at: timing?.first_thinking_started_at,
         }),
       });
 
       if (response.ok) {
-        console.log('✅ Chat feedback submitted');
+        console.log('✅ Chat feedback submitted', {
+          messageId,
+          answer_elapsed_ms: timing?.answer_elapsed_ms,
+          thinking_elapsed_ms: timing?.thinking_elapsed_ms,
+        });
       }
     } catch (error) {
       console.error('Failed to submit feedback:', error);
@@ -613,6 +699,9 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
     deleteConversation,
     clearBackgroundHistory,
     setAgentId,
+    agentHandoff,
+    setPinnedProfileId,
+    setCompanionContext,
     setNavigationContext,
     setOnUIAction,
     reloadSkills,
@@ -623,6 +712,12 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
     activeProvider,
     activeModel,
     activeEndpoint,
+    // Live turn timing — forwarded to ChatMessages so the Atlas header and
+    // the Reasoning accordion can show wall-clock elapsed counters next to
+    // the pulsing / bouncing dots.
+    turnStartedAt,
+    firstThinkingStartedAt,
+    lastThinkingAt,
   } = useAgentChatContext();
 
   // Interactivity manager for automatic UI updates based on text analysis
@@ -658,10 +753,46 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
 
   // Interactivity toggle state
   const [isInteractivityEnabled, setIsInteractivityEnabled] = useState(false);
+  // Atlas memory (TASK-172): the user's own on-demand switch, the same one as Settings → AI.
+  const atlasMemory = useAtlasMemory();
 
   // Handle UI actions from AI agent (consolidated from separate socket)
+  const openCompanion = useCallback((payload: any, fromClick: boolean) => {
+    const target: CompanionTarget = {
+      page: payload.page,
+      name: payload.name,
+      path: payload.path,
+      params: payload.params || {},
+      title: payload.title,
+      rev: ++companionRev.current,
+    };
+    const first = companionRef.current === null;
+    setCompanion(target);
+    setCompanionUrl({ path: target.path, params: target.params });
+    setCompanionOffer(null);
+    if (fromClick || first || showCompanionRef.current) {
+      setShowCompanion(true);
+      setCompanionDot(false);
+      setCompanionUnseen(0);
+    } else {
+      // hidden: pulse the header toggle (3 times), then keep a dot until the user opens it
+      setCompanionUnseen((n) => n + 1);
+      setCompanionDot(true);
+    }
+  }, []);
+
   const handleUIAction = useCallback((action: string, payload: any) => {
     console.log('[AgentChat] Handling UI action:', action, payload);
+
+    if (action === 'companion_offer') {
+      if (companionModeRef.current === 'auto') openCompanion(payload, false);
+      else setCompanionOffer({ ...payload, params: payload.params || {}, rev: 0 });
+      return;
+    }
+    if (action === 'companion_open') {
+      openCompanion(payload, false);
+      return;
+    }
 
     if (action === 'show_content') {
       const { content_type, content_data, title } = payload || {};
@@ -722,7 +853,12 @@ const [selectedAgentId, setSelectedAgentId] = useState<string>('');
       }
       // Note: heatmap doesn't need specific syncing as it's always available
     }
-  }, []);
+  }, [openCompanion]);
+
+  // Atlas knows what the companion shows: its URL goes with every message.
+  useEffect(() => {
+    setCompanionContext(companion && companionUrl ? describeCompanion(companion.name, companionUrl.params) : '');
+  }, [companion, companionUrl, setCompanionContext]);
 
   // Set up UI action handler for agent-driven UI updates
   useEffect(() => {
@@ -756,6 +892,31 @@ useEffect(() => {
     setAgentId(selectedAgentId);
   }
 }, [selectedAgentId, setAgentId]);
+
+// TASK-175: the server handed a turn to another agent (Atlas → Forge for script work): follow it, so the
+// next message goes to that agent too. The user can switch back in the picker.
+useEffect(() => {
+  if (agentHandoff && availableAgents.some(a => a.id === agentHandoff.agentId)) {
+    setSelectedAgentId(agentHandoff.agentId);
+  }
+}, [agentHandoff, availableAgents]);
+
+// TASK-175: "Ask Masterchief / Sherlock" under an Atlas answer: switch agent and ask it the same question.
+const askAgent = useCallback((agentId: string, prompt?: string) => {
+  setSelectedAgentId(agentId);
+  setAgentId(agentId);
+  if (prompt) void sendMessage(prompt);
+}, [setAgentId, sendMessage]);
+
+// Atlas model picker — keep the per-message pin in sync with the per-agent choice.
+// `pinnedProfileIdRef` is hook-global (one for the whole AgentChat), but the user's
+// choice is keyed per-agent: switching agents must push the new agent's pin (or empty)
+// into the ref so the next send_message uses the right profile.
+useEffect(() => {
+  if (!selectedAgentId) return;
+  const pin = selectedProfileByAgent[selectedAgentId] || '';
+  setPinnedProfileId(pin);
+}, [selectedAgentId, selectedProfileByAgent, setPinnedProfileId]);
 
 // Post-response interactivity analysis - monitor for new AI messages
 useEffect(() => {
@@ -799,6 +960,7 @@ useEffect(() => {
     const currentHost = getSelectedHost();
     const hostName = currentHost?.host_name || '';
 
+    voice.setTarget({ host_name: hostName, device_id: selectedDevice || '', userinterface_name: selectedUserInterface || '' });
     setNavigationContext(
       false,
       location.pathname,
@@ -810,9 +972,31 @@ useEffect(() => {
       allDevices,
       availableUserInterfaces
     );
-  }, [location.pathname, setNavigationContext, availableUserInterfaces, selectedDevice, selectedUserInterface, selectedTestCase, selectedCampaign, userInterfacesLoaded]);
+  }, [location.pathname, setNavigationContext, availableUserInterfaces, selectedDevice, selectedUserInterface, selectedTestCase, selectedCampaign, userInterfacesLoaded, voice.setTarget]);
   
   // Manual device selection handler
+  // Selectable targets of the selected server, labelled like Device Control so the same device reads the same there.
+  const agentTargets = useMemo(() => {
+    const serverHostNames = serverHostsData.find((entry) => entry.server_info.server_url === selectedServer)?.hosts?.map((h) => h.host_name);
+    const options: string[] = [];
+    const keys: Record<string, DeviceKey> = {};
+    getAllHosts()
+      .filter((host) => !serverHostNames || serverHostNames.includes(host.host_name))
+      .forEach((host) =>
+        (host.devices || []).forEach((device) => {
+          const label = getDeviceTargetLabel(host, device);
+          options.push(label);
+          keys[label] = { host_name: host.host_name, device_id: device.device_id };
+        }),
+      );
+    return { options: options.sort(), keys };
+  }, [getAllHosts, serverHostsData, selectedServer]);
+  const selectedTargetLabel =
+    agentTargets.options.find((label) => {
+      const key = agentTargets.keys[label];
+      return `${key.host_name}:${key.device_id}` === selectedDeviceFullValue;
+    }) ?? '';
+
   const handleDeviceSelection = (deviceValue: string) => {
     // Parse host_name:device_id from the combined value
     let hostName = '';
@@ -904,7 +1088,12 @@ useEffect(() => {
   const fetchTestCaseList = async () => {
     try {
       setIsLoadingTestCases(true);
-      const response = await fetch(buildServerUrl('/server/testcase/list'));
+      // TASK-65 G5: forward the current project so the backend filters by tag
+      // and the chat surface shows only this project's testcases.
+      const projectId = readCurrentProjectId();
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (projectId) headers['X-Project-Id'] = projectId;
+      const response = await fetch(buildServerUrl('/server/testcase/list'), { headers });
       if (response.ok) {
         const data = await response.json();
         setTestCaseList(data.testcases || []);
@@ -920,7 +1109,10 @@ useEffect(() => {
   const fetchCampaignList = async () => {
     try {
       setIsLoadingCampaigns(true);
-      const response = await fetch(buildServerUrl('/server/campaigns/getAllCampaigns'));
+      const pid = readCurrentProjectId();
+      const headers: Record<string, string> = {};
+      if (pid) headers['X-Project-Id'] = pid;
+      const response = await fetch(buildServerUrl('/server/campaigns/getAllCampaigns'), { headers });
       if (response.ok) {
         const data = await response.json();
         if (data.success && data.campaigns) {
@@ -997,6 +1189,11 @@ useEffect(() => {
 
     const MIN = 180;
     const MAX = 720;
+    // Target/device panel needs to stay wide enough to show a 9:16 mobile preview
+    // without squashing the phone to an unreadable strip. Below this, the icons and
+    // text inside the stream become a thin sliver (see the pre-fix screenshot).
+    // The other panels keep the generic MIN — they only carry text, not a video tile.
+    const DEVICE_PANEL_MIN = 240;
 
     const handleMouseMove = (e: MouseEvent) => {
       if (resizingPanel === 'history') {
@@ -1005,11 +1202,14 @@ useEffect(() => {
       } else if (resizingPanel === 'device') {
         // Device panel is anchored to the right of chat. Width is window.innerWidth - mouseX - remotePanelWidth (if remote shown)
         const fromRight = window.innerWidth - e.clientX - (showRemote ? remotePanelWidth : 0);
-        setDevicePanelWidth(Math.min(Math.max(fromRight, MIN), MAX));
+        setDevicePanelWidth(Math.min(Math.max(fromRight, DEVICE_PANEL_MIN), MAX));
       } else if (resizingPanel === 'remote') {
         // Remote panel is the rightmost. Width = window.innerWidth - mouseX
         const fromRight = window.innerWidth - e.clientX;
         setRemotePanelWidth(Math.min(Math.max(fromRight, MIN), MAX));
+      } else if (resizingPanel === 'companion') {
+        // Companion is the rightmost panel
+        setCompanionWidth(Math.min(Math.max(window.innerWidth - e.clientX, 320), 1100));
       }
     };
 
@@ -1375,7 +1575,7 @@ useEffect(() => {
                     '& .MuiToggleButton-root': {
                       py: 0,
                       px: 1,
-                      fontSize: '0.65rem',
+                      fontSize: TYPOGRAPHY.microMeta.size,
                       lineHeight: 1.4,
                       textTransform: 'none',
                       borderColor: P.borderColor,
@@ -1504,7 +1704,7 @@ useEffect(() => {
               borderRadius: '50%',
               bgcolor: `${PALETTE.accent}15`
             }}>
-              <SparkleIcon sx={{ fontSize: 32, color: PALETTE.accent }} />
+              <SparkleIcon sx={{ fontSize: TYPOGRAPHY.kpiValue.size, color: PALETTE.accent }} />
             </Box>
 
             <Typography
@@ -1532,10 +1732,14 @@ useEffect(() => {
               '&:focus-within': { borderColor: PALETTE.accent },
             }}
           >
+            {voiceRecording ? (
+              <VoiceRecordBar height={44} onEdit={(text) => setInput(text)} onSend={(text) => { void sendMessage(text); }} />
+            ) : (
+            <>
             <TextField
               autoFocus
               fullWidth
-              placeholder="How can I help you?"
+              placeholder={voiceTalking ? t('Talk, or type. Both work.') : 'How can I help you?'}
               value={input}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
@@ -1547,8 +1751,14 @@ useEffect(() => {
               sx={{ ml: 1.5, flex: 1 }}
               variant="standard"
               autoComplete="off"
-              InputProps={{ disableUnderline: true, sx: { fontSize: '0.95rem' } }}
+              InputProps={{ disableUnderline: true, sx: { fontSize: TYPOGRAPHY.navbarItem.size } }}
             />
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mr: 0.5 }}>
+              <VoiceSettingsButton />
+              <VoiceMessageButton surface="atlas" />
+              <VoiceConversationButton surface="atlas" compact />
+            </Box>
+            {input.trim() && (
             <IconButton
               onClick={sendMessageWithInteractivity}
               disabled={!input.trim()}
@@ -1561,7 +1771,13 @@ useEffect(() => {
             >
               <SendIcon fontSize="small" />
             </IconButton>
+            )}
+            </>
+            )}
           </Paper>
+          {voiceTalking && <Box sx={{ mt: 1.5 }}><VoiceStrip /></Box>}
+          <Box sx={{ mt: 1 }}><VoiceError /></Box>
+          {!voiceTalking && <Box sx={{ mt: 0.5 }}><VoiceCommandLine /></Box>}
 
           <AgentChatErrorAlert error={error} />
 
@@ -1579,7 +1795,7 @@ useEffect(() => {
                     border: '1px solid',
                     borderColor: P.borderColor,
                     borderRadius: 2,
-                    fontSize: '0.8rem',
+                    fontSize: TYPOGRAPHY.body.size,
                     '&:hover': { borderColor: PALETTE.accent, cursor: 'pointer' },
                   }}
                 />
@@ -1667,6 +1883,10 @@ useEffect(() => {
       toolExpanded={toolExpanded}
       setToolExpanded={setToolExpanded}
       messagesEndRef={messagesEndRef}
+      onAskAgent={askAgent}
+      afterAnswer={companionOffer ? (
+        <CompanionOffer offer={companionOffer} P={P} onOpen={() => openCompanion(companionOffer, true)} />
+      ) : undefined}
       scrollContainerRef={scrollContainerRef}
       isUserScrolledUp={isUserScrolledUp}
       lastMessageCount={lastMessageCount}
@@ -1683,6 +1903,9 @@ useEffect(() => {
       activeProvider={activeProvider}
       activeModel={activeModel}
       activeEndpoint={activeEndpoint}
+      turnStartedAt={turnStartedAt}
+      firstThinkingStartedAt={firstThinkingStartedAt}
+      lastThinkingAt={lastThinkingAt}
     />
   );
 
@@ -1691,17 +1914,26 @@ useEffect(() => {
     active, 
     onClick, 
     icon: Icon, 
-    tooltip 
+    tooltip,
+    disabled = false,
+    pulseKey = 0,
+    dot = false,
   }: { 
     active: boolean; 
     onClick: () => void; 
     icon: React.ElementType; 
     tooltip: string;
+    disabled?: boolean;
+    /** Changes on every hidden update: restarts the 3-beat pulse. */
+    pulseKey?: number;
+    dot?: boolean;
   }) => (
     <Tooltip title={tooltip}>
+      <span>
       <IconButton
         size="small"
         onClick={onClick}
+        disabled={disabled}
         sx={{
           width: 32,
           height: 32,
@@ -1721,8 +1953,25 @@ useEffect(() => {
           },
         }}
       >
-        <Icon sx={{ fontSize: 18 }} />
+        <Badge
+          variant="dot"
+          invisible={!dot}
+          overlap="circular"
+          sx={{ '& .MuiBadge-badge': { bgcolor: P.accent, minWidth: 8, height: 8, right: 1, top: 1 } }}
+        >
+          <Icon
+            key={pulseKey}
+            sx={{
+              fontSize: TYPOGRAPHY.cardTitle.size,
+              ...(pulseKey > 0 && {
+                animation: `${companionPulse} 0.9s ease-in-out 3`,
+                '@media (prefers-reduced-motion: reduce)': { animation: 'none' },
+              }),
+            }}
+          />
+        </Badge>
       </IconButton>
+      </span>
     </Tooltip>
   );
 
@@ -1752,7 +2001,7 @@ useEffect(() => {
           animation: 'slideUp 0.1s ease-out forwards',
           opacity: 0,
         }}>
-          <SparkleIcon sx={{ fontSize: 36, color: PALETTE.accent, animation: 'pulse 1.5s ease-in-out infinite' }} />
+          <SparkleIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: PALETTE.accent, animation: 'pulse 1.5s ease-in-out infinite' }} />
           <Typography variant="body2" sx={{ color: isDarkMode ? '#888' : '#666', fontWeight: 500 }}>
             AI Agent
           </Typography>
@@ -1799,7 +2048,7 @@ useEffect(() => {
       }}>
         {/* Left: Logo + Agent Selector */}
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <SparkleIcon sx={{ fontSize: 18, color: PALETTE.accent }} />
+          <SparkleIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size, color: PALETTE.accent }} />
 
           {/* Agent Selector */}
           <FormControl size="small" sx={{ width: 160, ...dropdownStyles.formControl }} disabled={agentsLoading || agentsError !== null}>
@@ -1813,7 +2062,7 @@ useEffect(() => {
                     variant="body2"
                     sx={{
                       fontWeight: 600,
-                      fontSize: '0.85rem',
+                      fontSize: TYPOGRAPHY.body.size,
                       overflow: 'hidden',
                       textOverflow: 'ellipsis',
                       whiteSpace: 'nowrap',
@@ -1825,7 +2074,7 @@ useEffect(() => {
               }}
               sx={{
                 height: 32,
-                fontSize: '0.85rem',
+                fontSize: TYPOGRAPHY.body.size,
                 bgcolor: P.surface,
                 borderRadius: 1.5,
                 '& .MuiOutlinedInput-notchedOutline': {
@@ -1877,7 +2126,7 @@ useEffect(() => {
                     variant="caption"
                     sx={{
                       color: 'text.secondary',
-                      fontSize: '0.7rem',
+                      fontSize: TYPOGRAPHY.caption.size,
                       lineHeight: 1.2,
                       maxWidth: 260,
                       overflow: 'hidden',
@@ -1895,152 +2144,250 @@ useEffect(() => {
             </Select>
           </FormControl>
 
-          {/* Model pill for the currently-selected agent */}
+          {/* Model picker — primary + fallbacks for the selected agent.
+              Picking a model pins the next turn to that one profile; fallbacks are skipped
+              until the user clears the pin (re-selects "Auto (chain)"). Single-hop agents
+              skip the dropdown entirely — there is nothing to choose from — and keep the
+              original static label. */}
           {(() => {
             const selectedAgent = availableAgents.find(a => a.id === selectedAgentId);
-            const label = formatModelLabel(selectedAgent?.model || '');
-            if (!label) return null;
+            const chain: any[] = selectedAgent?.modelChain || [];
+            const fallbackLabel = selectedAgent?.model || '';
+            if (!chain.length && !fallbackLabel) return null;
+            // Single-hop: nothing to fall back to, so just show the original static pill.
+            if (chain.length < 2) {
+              return (
+                <Tooltip title={`Model: ${chain[0]?.model || fallbackLabel}`} placement="bottom" arrow>
+                  <Box
+                    sx={{
+                      px: 1,
+                      py: 0.25,
+                      borderRadius: 1,
+                      border: '1px solid',
+                      borderColor: P.borderColor,
+                      bgcolor: P.hoverBg,
+                      color: 'text.secondary',
+                      fontSize: TYPOGRAPHY.caption.size,
+                      fontWeight: 500,
+                      fontFamily: 'monospace',
+                      lineHeight: 1.6,
+                      whiteSpace: 'nowrap',
+                    }}
+                  >
+                    {formatModelLabel(chain[0]?.model || fallbackLabel)}
+                  </Box>
+                </Tooltip>
+              );
+            }
+            // Default selection: the primary's profile id. After the user picks a fallback,
+            // `selectedProfileByAgent[agentId]` keeps the choice sticky for the session.
+            const primaryId = chain[0]?.profile_id || '';
+            const currentPin = selectedProfileByAgent[selectedAgentId] || '';
+            const isPinned = !!currentPin && currentPin !== primaryId;
+            const currentHop = chain.find(h => h.profile_id === currentPin) || chain[0] || null;
+            const renderLabel = currentHop
+              ? formatModelLabel(currentHop.model)
+              : formatModelLabel(fallbackLabel);
             return (
-              <Tooltip title={`Model: ${selectedAgent?.model}`} placement="bottom" arrow>
-                <Box
-                  sx={{
-                    px: 1,
-                    py: 0.25,
-                    borderRadius: 1,
-                    border: '1px solid',
-                    borderColor: P.borderColor,
-                    bgcolor: P.hoverBg,
-                    color: 'text.secondary',
-                    fontSize: '0.7rem',
-                    fontWeight: 500,
-                    fontFamily: 'monospace',
-                    lineHeight: 1.6,
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {label}
-                </Box>
+              <Tooltip
+                title={
+                  isPinned
+                    ? `Pinned to ${currentHop?.profile_name || currentPin} — fallbacks disabled for this session`
+                    : `Auto: chain starts here, fallbacks fire on error`
+                }
+                placement="bottom"
+                arrow
+              >
+                <FormControl size="small" sx={{ width: 170, ...dropdownStyles.formControl }}>
+                  <Select
+                    value={currentPin || (primaryId || '__auto__')}
+                    onChange={(e) => {
+                      const value = e.target.value as string;
+                      if (value === '__auto__') {
+                        setSelectedProfileByAgent((prev) => {
+                          const next = { ...prev };
+                          delete next[selectedAgentId];
+                          return next;
+                        });
+                        setPinnedProfileId('');
+                      } else {
+                        setSelectedProfileByAgent((prev) => ({ ...prev, [selectedAgentId]: value }));
+                        setPinnedProfileId(value);
+                      }
+                    }}
+                    renderValue={(value) => {
+                      const hop = chain.find(h => h.profile_id === value);
+                      const label = hop ? formatModelLabel(hop.model) : renderLabel;
+                      return (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0 }}>
+                          <Box
+                            sx={{
+                              fontSize: TYPOGRAPHY.microMeta.size,
+                              fontWeight: 600,
+                              letterSpacing: 0.4,
+                              textTransform: 'uppercase',
+                              color: isPinned ? PALETTE.accent : 'text.disabled',
+                              px: 0.5,
+                              py: 0.1,
+                              borderRadius: 0.5,
+                              border: '1px solid',
+                              borderColor: isPinned ? PALETTE.accent : P.borderColor,
+                              lineHeight: 1.4,
+                              flexShrink: 0,
+                            }}
+                          >
+                            {isPinned ? 'PIN' : 'AUTO'}
+                          </Box>
+                          <Typography
+                            variant="body2"
+                            sx={{
+                              fontFamily: 'monospace',
+                              fontSize: TYPOGRAPHY.caption.size,
+                              fontWeight: 500,
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            {label}
+                          </Typography>
+                        </Box>
+                      );
+                    }}
+                    sx={{
+                      height: 32,
+                      fontSize: TYPOGRAPHY.body.size,
+                      bgcolor: P.surface,
+                      borderRadius: 1.5,
+                      '& .MuiOutlinedInput-notchedOutline': { borderColor: P.borderColor },
+                      '&:hover .MuiOutlinedInput-notchedOutline': { borderColor: PALETTE.accent },
+                      '&.Mui-focused .MuiOutlinedInput-notchedOutline': { borderColor: PALETTE.accent },
+                      '& .MuiSelect-select': {
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 1,
+                        py: 0.5,
+                      },
+                    }}
+                    MenuProps={{
+                      PaperProps: {
+                        sx: {
+                          bgcolor: P.surface,
+                          border: '1px solid',
+                          borderColor: P.borderColor,
+                          boxShadow: PALETTE.cardShadow,
+                          maxWidth: 360,
+                          minWidth: 260,
+                        }
+                      }
+                    }}
+                  >
+                    <MenuItem
+                      key="__auto__"
+                      value={primaryId || '__auto__'}
+                      sx={{
+                        display: 'flex',
+                        flexDirection: 'column',
+                        alignItems: 'flex-start',
+                        py: 0.75,
+                        '&:hover': { bgcolor: P.hoverBg },
+                        '&.Mui-selected': { bgcolor: P.hoverBg },
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                        <Box
+                          sx={{
+                            fontSize: TYPOGRAPHY.microMeta.size,
+                            fontWeight: 600,
+                            letterSpacing: 0.4,
+                            textTransform: 'uppercase',
+                            color: 'text.disabled',
+                            px: 0.5,
+                            py: 0.1,
+                            borderRadius: 0.5,
+                            border: '1px solid',
+                            borderColor: P.borderColor,
+                            lineHeight: 1.4,
+                          }}
+                        >
+                          AUTO
+                        </Box>
+                        <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                          {chain[0] ? formatModelLabel(chain[0].model) : fallbackLabel}
+                        </Typography>
+                      </Box>
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: TYPOGRAPHY.caption.size, mt: 0.25 }}>
+                        Chain — fallbacks fire on error
+                      </Typography>
+                    </MenuItem>
+                    {chain.map((hop, idx) => (
+                      <MenuItem
+                        key={hop.profile_id}
+                        value={hop.profile_id}
+                        sx={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          alignItems: 'flex-start',
+                          py: 0.75,
+                          '&:hover': { bgcolor: P.hoverBg },
+                          '&.Mui-selected': { bgcolor: P.hoverBg },
+                        }}
+                      >
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                          <Box
+                            sx={{
+                              fontSize: TYPOGRAPHY.microMeta.size,
+                              fontWeight: 600,
+                              letterSpacing: 0.4,
+                              textTransform: 'uppercase',
+                              color: idx === 0 ? PALETTE.accent : 'warning.main',
+                              px: 0.5,
+                              py: 0.1,
+                              borderRadius: 0.5,
+                              border: '1px solid',
+                              borderColor: idx === 0 ? PALETTE.accent : 'warning.main',
+                              lineHeight: 1.4,
+                            }}
+                          >
+                            {idx === 0 ? 'PRIMARY' : `FALLBACK ${idx}`}
+                          </Box>
+                          <Typography variant="body2" sx={{ fontFamily: 'monospace', fontWeight: 600 }}>
+                            {formatModelLabel(hop.model)}
+                          </Typography>
+                        </Box>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: TYPOGRAPHY.caption.size, mt: 0.25 }}>
+                          {hop.profile_name} · {hop.endpoint_name}
+                        </Typography>
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
               </Tooltip>
             );
           })()}
         </Box>
 
         {/* Right: Device Controls + Auto-redirect toggle + Section Toggles */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, '& .MuiInputLabel-root': { fontSize: TYPOGRAPHY.body.size } }}>
           {/* Device Controls */}
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {/* Target Selection Dropdown */}
-            <FormControl
-              size="small"
-              sx={{
-                width: 200,
-                ...dropdownStyles.formControl,
-                ...(autoSelectionFeedback.device && {
-                  '& .MuiOutlinedInput-root': {
-                    borderColor: PALETTE.accent,
-                    boxShadow: `0 0 0 1px ${PALETTE.accent}40`,
-                  }
-                })
+            {/* Target Selection Dropdown: shared with Device Control (single-select) */}
+            <TargetDropdown
+              multiple={false}
+              width={200}
+              highlight={!!autoSelectionFeedback.device}
+              placeholder="Select Target..."
+              selected={selectedTargetLabel ? [selectedTargetLabel] : []}
+              options={agentTargets.options}
+              keys={agentTargets.keys}
+              onChange={(next) => {
+                const key = next[0] ? agentTargets.keys[next[0]] : undefined;
+                if (key) handleDeviceSelection(`${key.host_name}:${key.device_id}`);
               }}
-            >
-              <InputLabel id="agent-chat-device-select-label">
-                Target {autoSelectionFeedback.device && '🤖'}
-              </InputLabel>
-              <Select
-                labelId="agent-chat-device-select-label"
-                value={selectedDeviceFullValue}
-                onChange={(e) => handleDeviceSelection(e.target.value)}
-                label="Target"
-                sx={dropdownStyles.select}
-                MenuProps={dropdownStyles.menuProps}
-                renderValue={(value) => {
-                  if (!value) return <em>Select Target...</em>;
-                  const [hostName, deviceId] = (value as string).split(':');
-                  const device = getAllDevices().find(
-                    (d) => d.hostName === hostName && d.device_id === deviceId
-                  );
-                  if (!device) return value as string;
-                  const targetLabel = (device.device_name || device.device_id).replace(/_Host$/, '');
-                  return targetLabel;
-                }}
-              >
-                <MenuItem value="" sx={dropdownStyles.menuItemPlaceholder}>
-                  <em>Select Target...</em>
-                </MenuItem>
-                {getAllDevices()
-                  .filter((device) => {
-                    const names = serverHostsData.find((entry) => entry.server_info.server_url === selectedServer)?.hosts?.map((h) => h.host_name);
-                    return !names || names.includes(device.hostName || '');
-                  })
-                  .map((device) => {
-                    const hostName = device.hostName || '';
-                    const targetLabel = (device.device_name || device.device_id).replace(/_Host$/, '');
-                    return { device, hostName, targetLabel };
-                  })
-                  .sort((a, b) =>
-                    a.hostName.localeCompare(b.hostName, undefined, { numeric: true })
-                  )
-                  .map(({ device, hostName, targetLabel }) => (
-                    <MenuItem
-                      key={`${hostName}:${device.device_id}`}
-                      value={`${hostName}:${device.device_id}`}
-                      sx={dropdownStyles.menuItem}
-                    >
-                      <Box
-                        sx={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: 1,
-                          width: '100%',
-                          minWidth: 0,
-                        }}
-                      >
-                        <Typography
-                          variant="body2"
-                          sx={{
-                            fontSize: '0.8rem',
-                            flex: '0 1 34%',
-                            minWidth: 0,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {targetLabel}
-                        </Typography>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{
-                            fontSize: '0.7rem',
-                            flex: '1 1 auto',
-                            minWidth: 0,
-                            overflow: 'hidden',
-                            textOverflow: 'ellipsis',
-                            whiteSpace: 'nowrap',
-                          }}
-                        >
-                          {hostName}
-                        </Typography>
-                        <Typography
-                          variant="caption"
-                          color="text.secondary"
-                          sx={{
-                            fontSize: '0.7rem',
-                            flex: '0 0 auto',
-                            textAlign: 'right',
-                          }}
-                        >
-                          {device.device_model}
-                        </Typography>
-                      </Box>
-                    </MenuItem>
-                  ))}
-              </Select>
-            </FormControl>
+            />
 
             {/* UserInterface Selection Dropdown */}
-            <Box sx={{ width: 150 }}>
+            <Box sx={{ width: 260 }}>
               {userInterfacesLoaded ? (
                 <UserinterfaceSelector
                   deviceModel={getSelectedDeviceModel()}
@@ -2067,7 +2414,7 @@ useEffect(() => {
                   }}
                 >
                   <InputLabel id="agent-chat-userinterface-select-label">
-                    Interface {autoSelectionFeedback.userinterface && '🤖'}
+                    Interface {autoSelectionFeedback.userinterface && <AppIcon name="ai" />}
                   </InputLabel>
                   <Select
                     labelId="agent-chat-userinterface-select-label"
@@ -2100,7 +2447,7 @@ useEffect(() => {
               }}
             >
               <InputLabel id="agent-chat-testcase-select-label">
-                Test Case {autoSelectionFeedback.testcase && '🤖'}
+                Test Case {autoSelectionFeedback.testcase && <AppIcon name="ai" />}
               </InputLabel>
               <Select
                 labelId="agent-chat-testcase-select-label"
@@ -2110,19 +2457,36 @@ useEffect(() => {
                 disabled={isLoadingTestCases}
                 sx={dropdownStyles.select}
                 MenuProps={dropdownStyles.menuProps}
+                // Without this the closed select would show the row's star too.
+                renderValue={(value) => testCaseList.find((tc) => tc.testcase_id === value)?.testcase_name ?? ''}
               >
                 <MenuItem value="" sx={dropdownStyles.menuItemPlaceholder}>
                   <em>{isLoadingTestCases ? 'Loading...' : 'Select Test Case...'}</em>
                 </MenuItem>
-                {testCaseList.map((tc) => (
-                  <MenuItem
-                    key={tc.testcase_id}
-                    value={tc.testcase_id}
-                    sx={dropdownStyles.menuItem}
-                  >
-                    {tc.testcase_name}
-                  </MenuItem>
-                ))}
+                {(() => {
+                  const renderTestCase = (tc: { testcase_id: string; testcase_name: string }) => (
+                    <MenuItem key={tc.testcase_id} value={tc.testcase_id} sx={dropdownStyles.menuItem}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, width: '100%', minWidth: 0 }}>
+                        <Box component="span" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {tc.testcase_name}
+                        </Box>
+                        <ExecutableFavoriteStar kind="testcase" itemId={tc.testcase_id} />
+                      </Box>
+                    </MenuItem>
+                  );
+                  const favoriteCases = testCaseList.filter((tc) => executableFavorites.isFavorite('testcase', tc.testcase_id));
+                  const otherCases = testCaseList.filter((tc) => !executableFavorites.isFavorite('testcase', tc.testcase_id));
+                  return [
+                    ...(favoriteCases.length > 0
+                      ? [
+                          <DeviceFavoriteGroupHeader key="__favorites" kind="favorites" />,
+                          ...favoriteCases.map(renderTestCase),
+                          ...(otherCases.length > 0 ? [<DeviceFavoriteGroupHeader key="__all" kind="allItems" />] : []),
+                        ]
+                      : []),
+                    ...otherCases.map(renderTestCase),
+                  ];
+                })()}
               </Select>
             </FormControl>
 
@@ -2141,7 +2505,7 @@ useEffect(() => {
               }}
             >
               <InputLabel id="agent-chat-campaign-select-label">
-                Campaign {autoSelectionFeedback.campaign && '🤖'}
+                Campaign {autoSelectionFeedback.campaign && <AppIcon name="ai" />}
               </InputLabel>
               <Select
                 labelId="agent-chat-campaign-select-label"
@@ -2151,19 +2515,35 @@ useEffect(() => {
                 disabled={isLoadingCampaigns}
                 sx={dropdownStyles.select}
                 MenuProps={dropdownStyles.menuProps}
+                renderValue={(value) => campaignList.find((c) => c.campaign_id === value)?.campaign_name ?? ''}
               >
                 <MenuItem value="" sx={dropdownStyles.menuItemPlaceholder}>
                   <em>{isLoadingCampaigns ? 'Loading...' : 'Select Campaign...'}</em>
                 </MenuItem>
-                {campaignList.map((campaign) => (
-                  <MenuItem
-                    key={campaign.campaign_id}
-                    value={campaign.campaign_id}
-                    sx={dropdownStyles.menuItem}
-                  >
-                    {campaign.campaign_name}
-                  </MenuItem>
-                ))}
+                {(() => {
+                  const renderCampaign = (campaign: { campaign_id: string; campaign_name: string }) => (
+                    <MenuItem key={campaign.campaign_id} value={campaign.campaign_id} sx={dropdownStyles.menuItem}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, width: '100%', minWidth: 0 }}>
+                        <Box component="span" sx={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                          {campaign.campaign_name}
+                        </Box>
+                        <ExecutableFavoriteStar kind="campaign" itemId={campaign.campaign_id} />
+                      </Box>
+                    </MenuItem>
+                  );
+                  const favoriteCampaigns = campaignList.filter((c) => executableFavorites.isFavorite('campaign', c.campaign_id));
+                  const otherCampaigns = campaignList.filter((c) => !executableFavorites.isFavorite('campaign', c.campaign_id));
+                  return [
+                    ...(favoriteCampaigns.length > 0
+                      ? [
+                          <DeviceFavoriteGroupHeader key="__favorites" kind="favorites" />,
+                          ...favoriteCampaigns.map(renderCampaign),
+                          ...(otherCampaigns.length > 0 ? [<DeviceFavoriteGroupHeader key="__all" kind="allItems" />] : []),
+                        ]
+                      : []),
+                    ...otherCampaigns.map(renderCampaign),
+                  ];
+                })()}
               </Select>
             </FormControl>
 
@@ -2207,19 +2587,33 @@ useEffect(() => {
                     />
                   }
                   label={
-                    <Typography variant="caption" sx={{ fontSize: '0.75rem', color: 'text.secondary' }}>
+                    <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.caption.size, color: 'text.secondary' }}>
 
                     </Typography>
                   }
                   sx={{
                     mx: 0,
                     '& .MuiFormControlLabel-label': {
-                      fontSize: '0.75rem',
+                      fontSize: TYPOGRAPHY.caption.size,
                     }
                   }}
                 />
               </Tooltip>
             </Box>
+
+            <SectionToggle
+              active={!!atlasMemory.status?.enabled}
+              onClick={() => void atlasMemory.setEnabled(!atlasMemory.status?.enabled)}
+              icon={MemoryIcon}
+              disabled={!atlasMemory.status?.available || atlasMemory.busy}
+              tooltip={!atlasMemory.status?.available
+                ? (atlasMemory.status?.reason === 'no_user'
+                  ? t('Memory needs a signed-in user')
+                  : t('Memory is switched off on this server'))
+                : atlasMemory.status?.enabled
+                  ? t('Memory on: the same question is answered from your memory. Click to turn off.')
+                  : t('Memory off. Click to let Atlas remember your answers.')}
+            />
 
             <SectionToggle
               active={showHistory}
@@ -2276,6 +2670,19 @@ useEffect(() => {
               onClick={handleRemotePanelToggle}
               icon={RemoteIcon}
               tooltip={showRemote ? "Hide remote control" : "Show remote control"}
+            />
+            <SectionToggle
+              active={showCompanion}
+              disabled={!companion}
+              onClick={() => {
+                setShowCompanion(!showCompanion);
+                setCompanionDot(false);
+                setCompanionUnseen(0);
+              }}
+              icon={CompanionIcon}
+              tooltip={showCompanion ? t('Hide companion') : t('Show companion')}
+              pulseKey={showCompanion ? 0 : companionUnseen}
+              dot={companionDot && !showCompanion}
             />
           </Box>
         </Box>
@@ -2381,24 +2788,9 @@ useEffect(() => {
               overflow: 'hidden',
             }}>
               {(() => {
-                // Determine if we should show empty state (same logic as original)
-                const isSystemConversation = activeConversationId?.startsWith('bg_');
-                const hasNoMessages = messages.length === 0;
-                const onChatsTabWithNoRegularConvo = sidebarTab === 'chats' && (!activeConversationId || isSystemConversation);
                 // Show system placeholder only when on system tab AND (no conversation selected OR selected conversation is not a system one)
+                const isSystemConversation = activeConversationId?.startsWith('bg_');
                 const onSystemTabWithNoSelection = sidebarTab === 'system' && (!activeConversationId || !isSystemConversation);
-
-                // Debug: Log render conditions
-                console.log('[AgentChat] Render check:', {
-                  activeConversationId,
-                  sidebarTab,
-                  messagesLength: messages.length,
-                  isSystemConversation,
-                  hasNoMessages,
-                  onChatsTabWithNoRegularConvo,
-                  onSystemTabWithNoSelection,
-                  status
-                });
 
                 // Show system placeholder when on system tab with no incident selected
                 if (status === 'ready' && onSystemTabWithNoSelection) {
@@ -2424,8 +2816,8 @@ useEffect(() => {
                   );
                 }
 
-                // Show empty state when ready AND (no messages OR on chats tab without a regular conversation OR active conversation with no messages)
-                const showEmpty = status === 'ready' && (hasNoMessages || onChatsTabWithNoRegularConvo || (activeConversationId && messages.length === 0));
+                // Show empty state when ready AND (no messages OR on chats tab without a regular conversation).
+                const showEmpty = status === 'ready' && (messages.length === 0 || (sidebarTab === 'chats' && (!activeConversationId || isSystemConversation)));
 
                 if (showEmpty) {
                   return (
@@ -2461,6 +2853,22 @@ useEffect(() => {
 
         {/* Right Panel - hidden in fullscreen */}
         {!contentViewerFullscreen && renderRightPanel()}
+        {companion && !contentViewerFullscreen && (
+          <AtlasCompanion
+            target={companion}
+            visible={showCompanion}
+            width={companionWidth}
+            mode={companionMode}
+            P={P}
+            onModeChange={(m) => {
+              setCompanionMode(m);
+              saveCompanionMode(m);
+            }}
+            onClose={() => setShowCompanion(false)}
+            onResizeStart={() => setResizingPanel('companion')}
+            onUrlChange={(path, params) => setCompanionUrl({ path, params })}
+          />
+        )}
       </Box>
 
       {/* Confirm Dialog */}

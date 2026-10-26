@@ -37,6 +37,14 @@ REPO_ROOT="$(dirname "$FRONTEND_DIR")"
 # writable by the service user (vpt_user). Override with VPT_DOCS_CACHE_DIR.
 # Set VPT_DOCS_FORCE_REBUILD=1 to bypass every gate and rebuild unconditionally.
 DOCS_CACHE_DIR="${VPT_DOCS_CACHE_DIR:-/opt/vpt-cache/docs}"
+# Fallback when /opt/vpt-cache cannot be created (a node whose /opt is root-owned, e.g. node3's
+# frontend VM): without any cache every prebuild regenerates public/analytics/project.json
+# (generated_at changes), so the bundle hash moves and the restart's ExecStartPre runs a SECOND
+# full vite build after the deploy build (~2-4 min each on 2 vCPU). node_modules is rsync-excluded
+# and owned by the service user, so a cache there survives deploys.
+if [ -z "${VPT_DOCS_CACHE_DIR:-}" ] && ! mkdir -p "$DOCS_CACHE_DIR" 2>/dev/null; then
+    DOCS_CACHE_DIR="$FRONTEND_DIR/node_modules/.vpt-docs-cache"
+fi
 SNAPSHOT_DIR="$DOCS_CACHE_DIR/public_docs"   # cached copy of frontend/public/docs
 PUBLIC_DOCS="$FRONTEND_DIR/public/docs"      # the single artifact the Vite build consumes
 FORCE_REBUILD="${VPT_DOCS_FORCE_REBUILD:-0}"

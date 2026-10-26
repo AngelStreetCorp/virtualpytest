@@ -1,0 +1,9 @@
+[Unit]
+Description=Every minute: watch for a Pokemon long-play stall (TASK-33)
+
+[Timer]
+OnCalendar=*-*-* *:*:30
+Persistent=false
+
+[Install]
+WantedBy=timers.target

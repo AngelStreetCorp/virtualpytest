@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low — the default roles that can write (tester, developer, manager) all hold `plugins.jira:manage` anyway; the gap was for accounts whose grant was removed by an individual denial or a team ceiling. It matters more since an instance's `teamIds` decides which teams may push test-result defects (TASK-42) |
 | Area      | `backend_server/src/routes/server_integrations_routes.py` (`/server/integrations/jira/instances` GET / POST / DELETE) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

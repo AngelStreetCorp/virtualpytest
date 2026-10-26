@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High — an MCP client behind a proxy could not run a testcase longer than the proxy's limit |
 | Area      | `backend_server/src/mcp/tools/testcase_tools.py`, `script_tools.py` (MCP) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---

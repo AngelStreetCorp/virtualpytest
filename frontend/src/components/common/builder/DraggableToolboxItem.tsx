@@ -8,6 +8,7 @@
 
 import React from 'react';
 import { Box, Typography, SvgIconProps } from '@mui/material';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface DraggableToolboxItemProps {
   /** Item label */
@@ -20,6 +21,8 @@ interface DraggableToolboxItemProps {
   accentColor: string;
   /** Drag start handler */
   onDragStart: (e: React.DragEvent) => void;
+  /** Optional control at the right edge (e.g. the favorites star). */
+  trailing?: React.ReactNode;
 }
 
 export const DraggableToolboxItem: React.FC<DraggableToolboxItemProps> = ({
@@ -28,6 +31,7 @@ export const DraggableToolboxItem: React.FC<DraggableToolboxItemProps> = ({
   icon,
   accentColor,
   onDragStart,
+  trailing,
 }) => {
   return (
     <Box
@@ -53,10 +57,10 @@ export const DraggableToolboxItem: React.FC<DraggableToolboxItemProps> = ({
         },
       }}
     >
-      {icon && React.cloneElement(icon, { sx: { color: accentColor, fontSize: '1rem' } })}
+      {icon && React.cloneElement(icon, { sx: { color: accentColor, fontSize: TYPOGRAPHY.navbarItem.size } })}
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Typography 
-          fontSize={12}
+          fontSize="0.75rem"
           sx={{ 
             lineHeight: 1.2, 
             color: 'text.secondary',
@@ -68,7 +72,7 @@ export const DraggableToolboxItem: React.FC<DraggableToolboxItemProps> = ({
         </Typography>
         {subtitle && (
           <Typography 
-            fontSize={10}
+            fontSize="0.625rem"
             color="text.disabled" 
             noWrap
           >
@@ -76,6 +80,7 @@ export const DraggableToolboxItem: React.FC<DraggableToolboxItemProps> = ({
           </Typography>
         )}
       </Box>
+      {trailing}
     </Box>
   );
 };

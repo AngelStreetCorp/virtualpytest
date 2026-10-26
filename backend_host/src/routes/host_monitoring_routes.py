@@ -44,7 +44,9 @@ def get_latest_monitoring_json():
         return controller_missing_for_device('AV', device_id)
     
     # Use monitoring helpers
-    result = av_controller.monitoring_helpers.get_latest_monitoring_json()
+    result = av_controller.monitoring_helpers.get_latest_monitoring_json(
+        capture_fallback=bool(data.get('capture_fallback'))
+    )
     
     return jsonify(result)
     
@@ -112,3 +114,73 @@ def get_live_events():
         'count': len(events)
     })
     
+
+
+def _ad_device_base(device_id):
+    """The device folder ad_meter writes into (ad_breaks.jsonl, ads/), or None."""
+    from shared.src.lib.utils.storage_path_utils import get_capture_folder, get_device_base_path
+    av_controller = get_controller(device_id, 'av')
+    if not av_controller:
+        return None, None
+    capture_folder = get_capture_folder(av_controller.video_capture_path)
+    return (capture_folder, get_device_base_path(capture_folder)) if capture_folder else (capture_folder, None)
+
+
+@host_monitoring_bp.route('/ad-breaks', methods=['POST'])
+@route_exception_handler()
+def get_ad_breaks():
+    """The commercial breaks ad_meter found on one device in the last `hours` (24 by default), newest first, each with its
+    thumbnails (ads/<break>/<t>.jpg, served by the stream route) and whether a person marked it as not an ad."""
+    import json
+    import os
+    import time
+    data = get_json_payload()
+    device_id = data.get('device_id', 'device1')
+    hours = min(72.0, max(1.0, float(data.get('hours', 24))))
+    capture_folder, base = _ad_device_base(device_id)
+    if not base:
+        return controller_missing_for_device('AV', device_id)
+    path = os.path.join(base, 'ad_breaks.jsonl')
+    since = time.time() - hours * 3600
+    breaks, not_ad = [], set()
+    if os.path.isfile(path):
+        with open(path) as f:
+            for line in f:
+                try:
+                    r = json.loads(line)
+                except ValueError:
+                    continue
+                if r.get('type') == 'correction' and r.get('not_ad'):
+                    not_ad.add(r.get('id'))
+                elif r.get('type') == 'break' and (r.get('end') or 0) >= since:
+                    breaks.append(r)
+    out = [{'id': r.get('id'), 'start': r.get('start'), 'end': r.get('end'), 'duration_s': r.get('duration_s'),
+            'kind': r.get('kind'), 'confidence': r.get('confidence'), 'opened_by': r.get('opened_by'),
+            'thumbs': r.get('thumbs') or [], 'not_ad': r.get('id') in not_ad} for r in breaks]
+    out.sort(key=lambda b: b['start'] or 0, reverse=True)
+    return jsonify({'success': True, 'device_id': device_id, 'capture_folder': capture_folder, 'hours': hours, 'breaks': out})
+
+
+@host_monitoring_bp.route('/ad-breaks/not-ad', methods=['POST'])
+@route_exception_handler()
+def mark_ad_break_not_ad():
+    """A person says a break was not an ad. The monitor process owns ad_meter's state, so this only drops a request file into
+    ads/requests/; ad_meter applies it within ~5 s (unlearns its frames, records the correction)."""
+    import json
+    import os
+    import re
+    import time
+    data = get_json_payload()
+    device_id = data.get('device_id', 'device1')
+    break_id = str(data.get('break_id') or '')
+    if not re.fullmatch(r'[A-Za-z0-9_\-]+:\d+', break_id):
+        return jsonify({'success': False, 'error': 'break_id must look like capture5:1793000000'}), 400
+    _, base = _ad_device_base(device_id)
+    if not base:
+        return controller_missing_for_device('AV', device_id)
+    req_dir = os.path.join(base, 'ads', 'requests')
+    os.makedirs(req_dir, exist_ok=True)
+    name = f"{int(time.time() * 1000)}_{break_id.replace(':', '_')}.json"
+    with open(os.path.join(req_dir, name), 'w') as f:
+        json.dump({'break_id': break_id, 'requested_at': time.time()}, f)
+    return jsonify({'success': True, 'break_id': break_id, 'queued': True})

@@ -39,6 +39,11 @@ OVERWORLD_MAP, BORDER = 0xC6E8, 3
 SPRITES1, SPRITES2 = 0xC100, 0xC200
 PLAYER_SQUARE = (4, 4)
 TREE_TILE = {0: 0x3D, 7: 0x50}   # tileset (overworld, gym) -> lower-left tile of a cuttable tree (what the game checks)
+WATER_TILES = (0x14, 0x32, 0x48)   # water and the two shore tiles: what the game's IsNextTileShoreOrWater lets a rod fish in
+# BUG-0852: the water is a tile of every tileset, not only of the overworld's: Route 23 (tileset 23) is crossed by
+# Surf, and the runner's grid did not know the water, so the map was cut in two and there was no route at all
+# (the same_spot stall of run 20261020-234745). The game itself only knows the tile id, not the tileset.
+WATER_TILE = 0x14
 FACILITY_TILESET = 22            # the Rocket Hideout (and Silph Co.): arrow squares push the player
 # an arrow square is told by all four of its tiles (top-left, top-right, bottom-left, bottom-right): the
 # arrows are drawn from the same four pieces, so the lower-left tile alone says nothing (verified on B3F)
@@ -46,6 +51,7 @@ ARROWS = {(0x20, 0x30, 0x20, 0x30): "DOWN", (0x21, 0x31, 0x21, 0x31): "UP",
           (0x21, 0x21, 0x20, 0x20): "LEFT", (0x31, 0x31, 0x30, 0x30): "RIGHT"}
 SPIN_STOP = 0x5E                 # a pushed player slides over plain squares until this tile (or a wall)
 CUT_COST = 12                    # A* cost of a tree: a detour shorter than this beats the Cut menu trip
+SURF_COST = 12                   # A* cost of going from land onto water: the Surf menu trip (BUG-0681)
 FACING_ADDR = 0xC109   # wSpritePlayerStateData1FacingDirection (not shifted)
 FACING_KEY = {k: v for v, k in FACING.items()}
 STEP = {"UP": (0, -1), "DOWN": (0, 1), "LEFT": (-1, 0), "RIGHT": (1, 0)}
@@ -82,6 +88,22 @@ def sprite_list(read: Read) -> List[Tuple[int, Tuple[int, int]]]:
     return out
 
 
+def screen_sprites(read: Read) -> List[Tuple[int, Tuple[int, int], bool]]:
+    """[(picture, (x, y), hidden)] for the sprites inside the visible window only: there the image byte 0xFF
+    really means hidden (a taken item ball). BUG-0703: off screen a taken ball reads like one still on the floor."""
+    px, py = read(ADDR["x"], 1)[0], read(ADDR["y"], 1)[0]
+    out = []
+    for i in range(1, 16):
+        picture, _move, image = read(SPRITES1 + 16 * i, 3)
+        if picture == 0:
+            continue
+        y4, x4 = read(SPRITES2 + 16 * i + 4, 2)
+        x, y = x4 - 4, y4 - 4
+        if -PLAYER_SQUARE[0] <= x - px <= 5 and -PLAYER_SQUARE[1] <= y - py <= 4:
+            out.append((picture, (x, y), image == 0xFF))
+    return out
+
+
 def sprites(read: Read) -> List[Tuple[int, int]]:
     """Map (x, y) of the present sprites other than the player."""
     return [pos for _, pos in sprite_list(read)]
@@ -90,10 +112,13 @@ def sprites(read: Read) -> List[Tuple[int, int]]:
 class Grid(dict):
     """{(x, y): walkable}, plus `jumps`: {square: [(direction, landing square)]} for the ledges, and
     `walls`: {(square, square)} moves blocked by their tile pair (both directions listed), `cuts`: the
-    squares holding a cuttable tree (walkable in the grid only when Cut is known; A* charges for them)."""
+    squares holding a cuttable tree (walkable in the grid only when Cut is known; A* charges for them), `water`:
+    the outdoor squares a rod can be cast into (BUG-0673)."""
     jumps: Dict[Tuple[int, int], List[Tuple[str, Tuple[int, int]]]] = {}
     walls: Set[Tuple[Tuple[int, int], Tuple[int, int]]] = set()
     cuts: Set[Tuple[int, int]] = set()
+    water: Set[Tuple[int, int]] = set()
+    tiles: Dict[Tuple[int, int], int] = {}
 
 
 def tile_pairs(rom: bytes) -> Set[Tuple[int, int, int]]:
@@ -148,9 +173,17 @@ def full_grid(read: Read, rom: bytes, sprites_block: bool = True, cut: bool = Fa
                 quads[(sx, sy)] = (rom[base], rom[base + 1], rom[base + 4], rom[base + 5])
             out[(sx, sy)] = (tile in ok_tiles and (sx, sy) not in blocked) or (sx, sy) == (px, py)
     out.jumps, out.walls, out.cuts = {}, set(), set()
+    out.tiles = tiles   # BUG-0711: the Card Key gates are found by their tile
     tileset = read(CUR_TILESET, 1)[0]
     tree = TREE_TILE.get(tileset)
     out.cuts = {sq for sq, t in tiles.items() if t == tree and sq not in blocked and sq != (px, py)}
+    # by tile, not by walkability: the player's own square is walkable, and while surfing it is water (BUG-0681)
+    # BUG-0852: the water is a tile of every tileset, not only of the overworld's: Route 23 (tileset 23) is crossed
+    # by Surf, and the runner's grid did not know the water, so the map was cut in two, the runner found no route
+    # to Victory Road at all and stood still (the same_spot stall of run 20261020-234745). The game knows the
+    # water by its tile id alone, so the runner does too: the shore tiles (the rod's) stay the overworld's.
+    water_ids = WATER_TILES if tileset == OVERWORLD_TILESET else (WATER_TILE,)
+    out.water = {sq for sq, t in tiles.items() if t in water_ids and t not in ok_tiles and sq not in blocked}
     if cut:
         out.update({sq: True for sq in out.cuts})
     pairs = {(a, b) for ts, a, b in tile_pairs(rom) if ts == tileset}
@@ -247,6 +280,7 @@ def astar(walk: Dict[Tuple[int, int], bool], start: Tuple[int, int], goal: Tuple
     def h(p):
         return abs(p[0] - goal[0]) + abs(p[1] - goal[1])
     jumps, walls, cuts = getattr(walk, "jumps", {}), getattr(walk, "walls", set()), getattr(walk, "cuts", set())
+    water = getattr(walk, "water", set())
     frontier = [(h(start), 0, start, [])]
     seen = {start}
     while frontier:
@@ -260,7 +294,7 @@ def astar(walk: Dict[Tuple[int, int], bool], start: Tuple[int, int], goal: Tuple
             if not walk[nxt] and nxt != goal:
                 continue
             seen.add(nxt)
-            step = 1 + (CUT_COST if nxt in cuts and walk[nxt] else 0)
+            step = 1 + (CUT_COST if nxt in cuts and walk[nxt] else 0) + (SURF_COST if nxt in water and walk[nxt] and pos not in water else 0)
             heapq.heappush(frontier, (cost + step + h(nxt), cost + step, nxt, path + [d]))
     return None
 

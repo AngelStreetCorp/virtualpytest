@@ -3,6 +3,7 @@ import React, { useMemo } from 'react';
 
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import { useR2Url } from '../../hooks/storage/useR2Url';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface VerificationImageComparisonThumbnailsProps {
   sourceUrl: string;
@@ -230,7 +231,7 @@ export const VerificationImageComparisonThumbnails: React.FC<
             Filter: {imageFilter} (CSS)
           </Typography>
         )}
-        <Typography variant="caption" sx={{ display: 'block', color: P.textMuted, fontSize: '0.7rem' }}>
+        <Typography variant="caption" sx={{ display: 'block', color: P.textMuted, fontSize: TYPOGRAPHY.caption.size }}>
           Click to view full size
         </Typography>
       </Box>

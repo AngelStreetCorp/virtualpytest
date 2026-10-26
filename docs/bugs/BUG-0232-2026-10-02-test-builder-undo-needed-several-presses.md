@@ -9,7 +9,7 @@
 | Status    | Fixed — deployed and verified 2026-10-02                     |
 | Severity  | Medium — Undo looked broken (the first presses changed nothing visible), and Redo was unreliable |
 | Area      | `frontend/src/contexts/testcase/TestCaseBuilderContext.tsx` (undo/redo history) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

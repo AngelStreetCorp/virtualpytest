@@ -1,0 +1,29 @@
+# pc: a host capture (host_vnc) or a pure-PC device needs no TV-app monitoring, no audio-level checks, no
+# subtitle OCR, no 24 h review buffer, no navigation KPI scans, no per-minute A/V quality metrics. The
+# service is just the live stream + control surface (click, type, screenshot, run_script), exactly like tv_lite
+# but named for its actual device class. `stream: lean` makes run_ffmpeg.sh skip the 24h capture archive and the
+# 10-min rolling chunks it would otherwise write; the device still publishes HLS to /var/www/html/stream/<n>/.
+#
+# When a host's every device runs `pc` (or tv_lite / caption_playback-when-no-img), vpt-monitor-img and
+# vpt-monitor-audio are not needed at all: apply_monitor_profiles() stops the corresponding systemd units
+# (a stopped or disabled unit is never auto-started, see docs/agent/devices/MONITOR_PROFILES.md §2). That is
+# the saving the owner asked for: an idle Pi stops the image-service process and the inotify/watchdog
+# watcher thread, freeing the CPU and ~80 MB of RSS that was being held for nothing.
+#
+# Use pc on:
+#   - the `host` capture of a headless box whose tests do not need a TV-app detector (e.g. a Linux PC
+#     captured via host_vnc, a WebDriver target with no voice, a server-class VDI);
+#   - any device whose only requirement is "show the screen" (camera passthrough, rtsp_video pipe, drone
+#     telemetry HUD that already lives outside monitor-img).
+#
+# Do NOT use pc on a STB or Android device that needs blackscreen / freeze / audio_loss detection, or on
+# a TV-app target whose build pipeline checks for those incidents.
+#
+# See docs/agent/devices/MONITOR_PROFILES.md §2 and §11.
+name: pc
+stream: lean
+services: { img: false, audio: false, subtitle: false, archiver: false, kpi: false, avq: false }
+img:
+  runtime: edge
+  analyzers:
+    - type: tv_app

@@ -24,8 +24,13 @@ def _device_key(row: dict) -> str:
 
 
 def _category_key(row: dict) -> str:
-    from .usages import category_of
-    return category_of(row.get("usage_key") or "")
+    from .usages import page_category
+    return page_category(row.get("usage_key") or "")
+
+
+def _incident_key(row: dict) -> str:
+    """Incident type of an alert-triage call (``ref_kind`` while ``ref_type`` is ``alert``), else empty."""
+    return (row.get("ref_kind") or "") if (row.get("ref_type") or "alert") == "alert" else ""
 
 
 def _caller_key(row: dict) -> str:
@@ -54,13 +59,13 @@ GROUP_FIELDS: dict[str, Any] = {
     "arm": "split_arm",
     "error": "error_type",
     "client": "client_hash",
+    "incident": _incident_key,
     "category": _category_key,
     "caller": _caller_key,
     "result": _result_key,
-    "category_caller": lambda row: f"{_category_key(row)}|{_caller_key(row)}",
 }
 # Dimensions the hourly rollup (``ai_usage_stats``, kept forever) can answer: the 30-day view.
-ROLLUP_GROUPS = ("usage", "model", "endpoint", "team", "origin", "host", "arm", "category", "caller", "category_caller")
+ROLLUP_GROUPS = ("usage", "model", "endpoint", "team", "origin", "host", "arm", "category", "caller", "incident")
 # Everything else needs the per-call log (``ai_calls``, 90 days): up to 7 days on the page.
 CALL_GROUPS = tuple(GROUP_FIELDS)
 # The 30-day rollup mixes answered and failed requests in one row, so "result" needs the per-call log.
@@ -70,6 +75,14 @@ _SUM_FIELDS = ("calls", "errors", "fallbacks", "total_ms", "tokens_in", "tokens_
                "parse_total", "parse_ok_n", "truncated", "images", "image_bytes")
 # USD sums that are not "cost": what prompt caching saved at write time.
 _SUM_USD = ("cache_saved",)
+
+
+def split_group_by(group_by: str) -> list[str]:
+    """The dimensions of ``group_by``: one name, or two joined by a comma ("group by A, then by B")."""
+    names = [n for n in str(group_by).split(",") if n]
+    if not 1 <= len(names) <= 2 or len(set(names)) != len(names) or any(n not in GROUP_FIELDS for n in names):
+        raise ValueError(f"unknown group_by '{group_by}'")
+    return names
 
 
 def parse_ts(value: Any) -> datetime:
@@ -85,7 +98,7 @@ def step_for(hours: int) -> int:
 
 def _new_row(key: str) -> dict:
     row: dict[str, Any] = {"key": key, "profiles": {}, "endpoints": {}, "usages": {}, "cost": None, "_series": {},
-                           "_tseries": {}, "_fseries": {}, "error_types": {}, "first_ts": None, "last_ts": None,
+                           "_tseries": {}, "_fseries": {}, "_cseries": {}, "error_types": {}, "first_ts": None, "last_ts": None,
                            "last_error_ts": None, "last_ok_ts": None, "profile_errors": {}, "profile_causes": {},
                            "profile_last": {}}
     row.update({f: 0 for f in _SUM_FIELDS})
@@ -103,6 +116,8 @@ def _add(agg: dict, row: dict, step: int) -> None:
     priced = int(row.get("priced_calls") if "priced_calls" in row else (calls if row.get("cost") is not None else 0))
     if priced > 0 and row.get("cost") is not None:
         agg["cost"] = (agg["cost"] or 0.0) + float(row["cost"])
+        slot_c = int(parse_ts(row["bucket"]).timestamp()) // step * step
+        agg["_cseries"][slot_c] = agg["_cseries"].get(slot_c, 0.0) + float(row["cost"])
     if "priced_calls" not in row:
         agg["priced_calls"] += priced
     profile = f"{row.get('profile') or '?'}{' (' + row['split_arm'] + ')' if row.get('split_arm') else ''}"
@@ -158,6 +173,10 @@ def _finish(agg: dict, slots: list[int], step: int) -> dict:
     series = agg.pop("_series")
     tokens_series = agg.pop("_tseries")
     failed_series = agg.pop("_fseries")
+    # USD per slot, same priced-rows-only definition as "cost" (both sources carry a per-row cost; a slot with no
+    # priced call is 0.0).
+    cost_series = agg.pop("_cseries")
+    agg["cost_series"] = [round(cost_series.get(s, 0.0), 6) for s in slots]
     agg["failed_series"] = [failed_series.get(s, 0) for s in slots]
     agg["main_error"] = max(agg["error_types"].items(), key=lambda kv: kv[1])[0] if agg["error_types"] else None
     agg["tokens_in_series"] = [tokens_series.get(s, 0) for s in slots]
@@ -189,14 +208,12 @@ def aggregate(rows: Iterable[dict], group_by: str = "usage", *, hours: int = 24,
     ``filters`` maps a group name to a required value (``{"team": "…"}``); ``NONE_KEY`` matches a
     missing value. Rows are sorted by calls, busiest first.
     """
-    if group_by not in GROUP_FIELDS:
-        raise ValueError(f"unknown group_by '{group_by}'")
+    names = split_group_by(group_by)
     step = step_for(hours)
     end = (now or datetime.now(timezone.utc))
     last_slot = int(end.timestamp()) // step * step
     n = max(1, int(hours * 3600 // step))
     slots = [last_slot - step * (n - 1 - i) for i in range(n)]
-    field = GROUP_FIELDS[group_by]
 
     def value_of(row: dict, name: str) -> str:
         spec = GROUP_FIELDS[name]
@@ -207,8 +224,12 @@ def aggregate(rows: Iterable[dict], group_by: str = "usage", *, hours: int = 24,
     for row in rows:
         if any(value_of(row, g) != v for g, v in (filters or {}).items()):
             continue
-        key = value_of(row, group_by)
-        _add(groups.setdefault(key, _new_row(key)), row, step)
+        parts = [value_of(row, n) for n in names]
+        key = "|".join(parts)
+        if key not in groups:
+            groups[key] = _new_row(key)
+            groups[key]["parts"] = parts
+        _add(groups[key], row, step)
         _add(total, row, step)
     out = sorted((_finish(g, slots, step) for g in groups.values()), key=lambda r: (-r["calls"], r["key"]))
     return {

@@ -13,6 +13,7 @@ import { Box, FormControl, InputLabel, Select, MenuItem, Typography } from '@mui
 
 import { useNavigationNodes } from '../../hooks/script/useNavigationNodes';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface NavigationNodeSelectorProps {
   userinterfaceName?: string;
@@ -121,7 +122,7 @@ export const NavigationNodeSelector: React.FC<NavigationNodeSelectorProps> = ({
       // the field just because the filtered node list came back empty.
       disabled={disabled || !userinterfaceName || loading || (!allowNone && nodes.length === 0)}
     >
-      <InputLabel shrink sx={{ fontSize: '0.75rem' }}>
+      <InputLabel shrink sx={{ fontSize: TYPOGRAPHY.caption.size }}>
         {label}
       </InputLabel>
       <Select
@@ -144,7 +145,7 @@ export const NavigationNodeSelector: React.FC<NavigationNodeSelectorProps> = ({
               // Friendly name as the primary label, raw node label as subtext.
               <Box sx={{ display: 'flex', flexDirection: 'column', lineHeight: 1.2 }}>
                 <span>{n.display_name}</span>
-                <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+                <Typography variant="caption" color="text.secondary" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                   {n.label}
                 </Typography>
               </Box>

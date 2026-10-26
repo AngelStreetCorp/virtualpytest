@@ -5,10 +5,10 @@
  * Uses predictable HHMM file naming to generate timeline without API calls.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useHostData } from './useHostManager';
 import { useWorkspaceContext } from '../contexts/workspace/WorkspaceContext';
-import { buildServerUrl, buildServerUrlForServer } from '../utils/buildUrlUtils';
+import { buildServerUrlForServer } from '../utils/buildUrlUtils';
 import { api } from '../utils/apiClient';
 import { getR2Url, openR2Url } from '../utils/infrastructure/cloudflareUtils';
 import { getEnv } from '../config/constants';
@@ -36,6 +36,7 @@ export interface AnalysisData {
       freeze?: boolean;
       volume_percentage?: number;
       mean_volume_db?: number;
+      discarded?: string[];  // incident types cleared because their alert was discarded
       freeze_diffs?: number[];
       last_3_thumbnails?: string[];  // Local paths (deprecated, use r2_images)
       r2_images?: {
@@ -50,6 +51,56 @@ export interface AnalysisData {
   incidents_count: number;
   hosts_count: number;
 }
+
+// An alert that AI triage or a human discarded: its frame flag is noise, not an incident.
+export interface DiscardedIncident {
+  host_name: string;
+  device_id: string;
+  incident_type: string;
+}
+
+// frame analysis flag -> alerts.incident_type
+const FLAG_INCIDENT: Record<'blackscreen' | 'freeze' | 'audio', string> = {
+  blackscreen: 'blackscreen',
+  freeze: 'freeze',
+  audio: 'audio_loss',
+};
+
+const flagIsActive = (analysis: Record<string, any>, flag: keyof typeof FLAG_INCIDENT): boolean =>
+  flag === 'audio' ? analysis.audio === false : Boolean(analysis[flag]);
+
+export const deviceHasIncident = (analysis: Record<string, any> | null | undefined): boolean => {
+  if (!analysis) return false;
+  // audio === false is a real audio loss; undefined/null means no audio capability, not an incident.
+  return (Object.keys(FLAG_INCIDENT) as Array<keyof typeof FLAG_INCIDENT>).some(f => flagIsActive(analysis, f));
+};
+
+/**
+ * The frame as triage sees it now. The mosaic is baked when the minute is processed, usually before
+ * the alert was judged, so flags whose alert was discarded are cleared here (kept in `discarded`) and
+ * the incident count is recomputed. Devices with no alert yet, or a kept alert, stay incidents.
+ */
+export const applyDiscards = (data: AnalysisData, discarded: DiscardedIncident[]): AnalysisData => {
+  if (discarded.length === 0) return data;
+  const keys = new Set(discarded.map(d => `${d.host_name}/${d.device_id}/${d.incident_type}`));
+  let incidents = 0;
+  const devices = data.devices.map(device => {
+    const analysis = device.analysis_json as Record<string, any> | undefined;
+    if (!analysis) return device;
+    const cleared: string[] = [];
+    const next: Record<string, any> = { ...analysis };
+    (Object.keys(FLAG_INCIDENT) as Array<keyof typeof FLAG_INCIDENT>).forEach(flag => {
+      const incidentType = FLAG_INCIDENT[flag];
+      if (flagIsActive(analysis, flag) && keys.has(`${device.host_name}/${device.device_id}/${incidentType}`)) {
+        next[flag] = flag === 'audio' ? null : false;
+        cleared.push(incidentType);
+      }
+    });
+    if (deviceHasIncident(next)) incidents += 1;
+    return cleared.length ? { ...device, analysis_json: { ...next, discarded: [...(analysis.discarded || []), ...cleared] } as typeof device.analysis_json } : device;
+  });
+  return { ...data, devices, incidents_count: incidents };
+};
 
 // Heatmap files use a 24h circular buffer keyed by HHMM only, so a minute the
 // processor skipped still serves yesterday's file for that same HHMM. A frame is
@@ -85,8 +136,15 @@ const writeCachedServerName = (server: unknown, name: string) => {
   }
 };
 
-export const useHeatmap = () => {
-  const { selectedServer } = useHostData();
+interface UseHeatmapOptions {
+  // Server whose heatmap to show; defaults to the picked server. In "All servers" mode the picker
+  // value is the sentinel, not a URL, so the page passes the server chosen in its own dropdown.
+  serverUrl?: string;
+}
+
+export const useHeatmap = ({ serverUrl }: UseHeatmapOptions = {}) => {
+  const { selectedServer: pickedServer } = useHostData();
+  const selectedServer = serverUrl || pickedServer;
   // "All" is no workspace (null): the global heatmap. A workspace has its own mosaic + json
   // per minute under heatmaps/<server>/ws/<id>/, with no _ok/_ko variants.
   const { activeWorkspace } = useWorkspaceContext();
@@ -95,7 +153,9 @@ export const useHeatmap = () => {
     : null;
   const [timeline, setTimeline] = useState<TimelineItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(1438); // Start at current-1 minute
-  const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
+  // The frame exactly as stored; `analysisData` below is this with the triage verdicts applied.
+  const [rawAnalysisData, setAnalysisData] = useState<AnalysisData | null>(null);
+  const [discarded, setDiscarded] = useState<DiscardedIncident[]>([]);
   // The timeline slot the displayed data actually came from (the loader may walk
   // back a few minutes), so the mosaic image never shows a frame we rejected.
   const [loadedItem, setLoadedItem] = useState<TimelineItem | null>(null);
@@ -110,6 +170,35 @@ export const useHeatmap = () => {
   const R2_BASE_URL = getEnv('VITE_CLOUDFLARE_R2_PUBLIC_URL') ||
                       getEnv('VITE_MINIO_PUBLIC_URL') || '';
   
+  // Triage verdicts that exist now for the loaded frame. A failed fetch leaves the raw flags, shown as is.
+  const frameTimestamp = rawAnalysisData?.timestamp;
+  useEffect(() => {
+    setDiscarded([]);
+    if (!frameTimestamp) return;
+    let cancelled = false;
+    api
+      .get<{ incidents?: DiscardedIncident[] }>(
+        buildServerUrlForServer(selectedServer, `/server/heatmap/discardedIncidents?at=${encodeURIComponent(frameTimestamp)}`)
+      )
+      .then(res => {
+        if (!cancelled) setDiscarded(res?.incidents || []);
+      })
+      .catch(error => console.warn('[@useHeatmap] Could not load discarded incidents:', error));
+    return () => {
+      cancelled = true;
+    };
+  }, [frameTimestamp, selectedServer]);
+
+  const analysisData = useMemo(
+    () => (rawAnalysisData ? applyDiscards(rawAnalysisData, discarded) : null),
+    [rawAnalysisData, discarded]
+  );
+  // Devices whose red border is baked into the mosaic but whose alert was discarded.
+  const hasDiscards = useMemo(
+    () => (analysisData?.devices || []).some(d => d.analysis_json?.discarded?.length),
+    [analysisData]
+  );
+
   /**
    * Fetch server name from backend
    */
@@ -447,6 +536,9 @@ export const useHeatmap = () => {
   const getMosaicUrl = (item: TimelineItem | null, filter: 'ALL' | 'OK' | 'KO'): string => {
     if (!item) return '';
     
+    // The OK/KO mosaics hold the raw split; with a discard in the frame, show the ALL mosaic
+    // and let the player dim the cells that do not match.
+    if (hasDiscards) return item.mosaicUrl;
     switch (filter) {
       case 'OK': return item.mosaicOkUrl ?? item.mosaicUrl;
       case 'KO': return item.mosaicKoUrl ?? item.mosaicUrl;
@@ -461,10 +553,7 @@ export const useHeatmap = () => {
     if (filter === 'ALL') return devices;
     
     return devices.filter(device => {
-      const analysis = device.analysis_json || {};
-      // audio === false is a real audio loss; audio undefined/null means the
-      // device has no audio capability (e.g. host VNC capture) → not an incident.
-      const hasIncident = analysis.blackscreen || analysis.freeze || analysis.audio === false;
+      const hasIncident = deviceHasIncident(device.analysis_json);
       return filter === 'OK' ? !hasIncident : hasIncident;
     });
   };
@@ -480,7 +569,7 @@ export const useHeatmap = () => {
     try {
       // Call backend to generate HTML report
       const result = await api.post<{ success?: boolean; html_url?: string; error?: string }>(
-        buildServerUrl('/server/heatmap/generateReport'),
+        buildServerUrlForServer(selectedServer, '/server/heatmap/generateReport'),
         {
           time_key: currentItem.timeKey,
           mosaic_url: currentItem.mosaicUrl,
@@ -528,6 +617,7 @@ export const useHeatmap = () => {
     generateReport,
     getMosaicUrl,
     getFilteredDevices,
+    hasDiscards,
     isWorkspaceMode: workspaceId !== null,
     
     // Timeline info

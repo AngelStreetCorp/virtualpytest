@@ -50,7 +50,10 @@ const NeverExecuted: React.FC = () => {
       ) : (
         <TableContainer component={Paper} variant="outlined" sx={{ maxWidth: '100%', overflowX: 'auto' }}>
           <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 640, '& .MuiTableCell-root': { overflowWrap: 'anywhere' } }}>
-<colgroup><col /><col style={{ width: 110 }} /><col style={{ width: 150 }} /><col style={{ width: 110 }} /></colgroup>
+{/* The Test column needs its own width, like the other two quality tables (BUG-0794). */}
+            <colgroup>
+              <col style={{ width: 220 }} /><col style={{ width: 110 }} /><col style={{ width: 150 }} /><col style={{ width: 110 }} />
+            </colgroup>
             <TableHead>
               <TableRow>
                 <TableCell>Test</TableCell>

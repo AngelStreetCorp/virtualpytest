@@ -1,14 +1,13 @@
 # Grafana Alerting — Get Told When Something Breaks
 
-VirtualPyTest writes everything it sees to the database: host health every minute, capture
-status per device, every incident (blackscreen, freeze, audio loss, macroblocks), every script
-result, the fleet-health check. Grafana dashboards show that data; **Grafana alerting** watches it
-for you and sends an email (or a Slack / Teams / webhook message) when something goes wrong.
+VirtualPyTest records host health, device capture, incidents, script results and fleet health. Grafana
+dashboards show this data. **Grafana alerting** watches it for you and sends an email (or a Slack, Teams or
+webhook message) when something goes wrong.
 
 This page covers:
 
 1. [What alerting can do](#1-what-alerting-can-do)
-2. [Prerequisites — SMTP for email](#2-prerequisites)
+2. [Prerequisites — email setup](#2-prerequisites)
 3. [Apply the predefined alerts with one command](#3-apply-the-predefined-alerts-script)
 4. [The predefined alerts](#4-the-predefined-alerts)
 5. [Create or change an alert by hand in Grafana](#5-create-or-change-an-alert-by-hand)
@@ -20,45 +19,60 @@ This page covers:
 
 ## 1. What alerting can do
 
-An **alert rule** runs a SQL query against the VirtualPyTest database on a schedule (every 1, 5
-or 15 minutes), compares each row's number to a threshold and, when it stays above it for a
-while, **fires**. A firing alert is sent to a **contact point** — a list of email addresses, a
-Slack channel, a Teams webhook... When the problem goes away, a **resolved** message follows.
+An alert checks the data on a schedule, every 1, 5 or 15 minutes. If a value stays over its threshold, the alert
+**fires** and sends a message to a **contact point** (an email list, a Slack channel, a Teams webhook). When the
+problem is gone, a **resolved** message follows.
 
-Typical uses:
+| You want to know when... |
+|---|
+| a host stops reporting (service down, machine off, network lost) |
+| a platform service or infrastructure machine is down, or its disk or memory is high |
+| a disk is almost full, or memory or CPU temperature is too high |
+| the video capture or the monitor of a device stopped |
+| a device has an incident, or far too many incidents |
+| a script keeps failing, or its pass rate suddenly drops |
+| the fleet-health check marks a device DOWN |
 
-| You want to know when... | Data it reads |
-|---|---|
-| a host stops reporting (service down, machine off, network lost) | `system_metrics` |
-| a platform service (server, Supabase, Redis, DB backup, MinIO...) or an infra VM is down, or an infra VM's disk / memory is high | `service_status`, `vm_metrics` (System Service Status) |
-| a disk is almost full, memory or CPU temperature is too high | `system_metrics` |
-| the video capture or the monitor of a device stopped | `system_device_metrics` |
-| a device has an incident, or far too many incidents | `alerts` (the device incidents table) |
-| a script keeps failing, or its pass rate suddenly dropped (a regression) | `script_results` |
-| the fleet-health check marks a device DOWN | `fleet_health` |
+<div data-technical>
 
-One rule watches every host / device / script at once: each row the query returns is its own
-alert (Grafana calls it an *instance*), with the host, device or script name in the message.
+Data read by each kind of alert: `system_metrics` (host down, disk, memory, CPU temperature), `service_status` and
+`vm_metrics` (System Service Status), `system_device_metrics` (capture and monitor), `alerts` (device incidents),
+`script_results` (scripts) and `fleet_health` (fleet check).
+
+One rule watches every host, device or script at once. Each row the query returns becomes its own alert, which
+Grafana calls an *instance*. The host, device or script name goes into the message.
+
+</div>
 
 ---
 
 ## 2. Prerequisites
 
-| What | Why | Check |
-|---|---|---|
-| Grafana **11 or newer** | the alerting described here (unified alerting) is on by default | Grafana → **Help (?)** shows the version |
-| The **Supabase PostgreSQL** data source, uid `supabase-postgres` | every predefined rule queries it; the installer creates it | Connections → Data sources |
-| A Grafana **admin** login | to create rules and contact points | — |
-| An **SMTP server** — for email only | Grafana sends email itself, through SMTP | see below |
+| What | Check |
+|---|---|
+| Grafana **11 or newer** | Grafana → **Help (?)** shows the version |
+| The **Supabase PostgreSQL** data source | Connections → Data sources |
+| A Grafana **admin** login | — |
+| An **SMTP mail server**, for email only | see below |
 
-Slack, Microsoft Teams, Telegram, Discord, PagerDuty, Opsgenie and plain webhooks do **not** need
-SMTP — only a webhook URL or token, entered in the contact point.
+Slack, Microsoft Teams, Telegram, Discord, PagerDuty, Opsgenie and webhooks do not need SMTP. They only need a
+webhook address or a token, entered in the contact point.
+
+<div data-technical>
+
+Grafana 11 or newer is needed because unified alerting is on by default there. The data source uid is
+`supabase-postgres`; the installer creates it.
+
+</div>
 
 ### Configure SMTP
 
-Grafana's email settings live in `/etc/grafana/grafana.ini`, section `[smtp]` (the template
-shipped in `infra/monitoring/grafana/config/grafana.ini` has them all commented out — email is
-off until you set them). Edit the file on the Grafana machine:
+Set the mail server in Grafana's settings on the Grafana machine, then restart Grafana. Email stays off until you do.
+
+<div data-technical>
+
+Edit `/etc/grafana/grafana.ini`, section `[smtp]`. The template `infra/monitoring/grafana/config/grafana.ini` has
+them all commented out.
 
 ```ini
 [smtp]
@@ -74,48 +88,69 @@ startTLS_policy = OpportunisticStartTLS
 skip_verify = false
 ```
 
-Then restart Grafana:
+Restart Grafana:
 
 ```bash
 sudo systemctl restart grafana-server
 ```
 
-Running Grafana in Docker? Use environment variables instead of editing the file —
-`GF_SMTP_ENABLED=true`, `GF_SMTP_HOST`, `GF_SMTP_USER`, `GF_SMTP_PASSWORD`,
-`GF_SMTP_FROM_ADDRESS`, `GF_SMTP_FROM_NAME` — and recreate the container.
+Running Grafana in Docker? Use environment variables instead of the file: `GF_SMTP_ENABLED=true`, `GF_SMTP_HOST`,
+`GF_SMTP_USER`, `GF_SMTP_PASSWORD`, `GF_SMTP_FROM_ADDRESS`, `GF_SMTP_FROM_NAME`. Then recreate the container.
 
-Common providers:
+For a company relay without TLS, set `startTLS_policy = NoStartTLS`.
 
-| Provider | `host` | Notes |
+</div>
+
+| Provider | Server address (`host`) | Notes |
 |---|---|---|
-| Gmail / Google Workspace | `smtp.gmail.com:587` | needs 2-step verification and an **app password**, not your normal password |
-| Microsoft 365 | `smtp.office365.com:587` | SMTP AUTH must be enabled for the mailbox |
-| Amazon SES | `email-smtp.<region>.amazonaws.com:587` | SMTP credentials from the SES console; verify the sender |
+| Gmail / Google Workspace | `smtp.gmail.com:587` | needs an **app password** |
+| Microsoft 365 | `smtp.office365.com:587` | SMTP AUTH must be enabled |
+| Amazon SES | `email-smtp.<region>.amazonaws.com:587` | verify the sender |
 | Brevo, Mailgun, SendGrid... | see the provider | any SMTP relay works |
-| Your company relay | `mail.yourcompany.local:25` | often no user/password; `startTLS_policy = NoStartTLS` if it has no TLS |
+| Your company relay | `mail.yourcompany.local:25` | often no login needed |
 
-**Test it** — either in Grafana (**Alerting → Contact points → Edit → Test**) or with the script:
+**Test it** in Grafana (**Alerting → Contact points → Edit → Test**), or with the script. Success means Grafana
+handed the mail to your mail server. A failure prints the error.
+
+<div data-technical>
 
 ```bash
 python3 scripts/grafana_alerts.py test-email --email you@example.com
 ```
 
-`sent test email to you@example.com` means Grafana handed the mail to your SMTP server. A
-`FAILED` line prints the SMTP error (wrong password, port blocked, sender not allowed...).
+Success prints `sent test email to you@example.com`. A failure starts with `FAILED`, for example
+`FAILED ... connection refused / timeout`.
 
-> **Set Grafana's default contact point to a real address too.** Out of the box it is
-> `grafana-default-email` with the placeholder `<example@email.com>`. Any alert that is not
-> routed anywhere else goes there. Edit it under **Alerting → Contact points**.
+</div>
+
+> **Set Grafana's default contact point to a real address too.** Alerts that are not routed elsewhere go there.
+> Edit it under **Alerting → Contact points**.
+
+<div data-technical>
+
+The default contact point is `grafana-default-email`. Out of the box its address is the placeholder
+`<example@email.com>`.
+
+</div>
 
 ---
 
 ## 3. Apply the predefined alerts (script)
 
-`scripts/grafana_alerts.py` creates everything in one go: a folder **VirtualPyTest Alerts**, an
-email contact point **VirtualPyTest email** with a short digest email template, a notification
-policy that groups the alerts and limits how often mail is sent ([§7](#7-tuning)), and the rules. Run it where it can reach Grafana —
-normally on the server VM, from the repository, so it reads `GRAFANA_URL`,
-`GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD` and `TEAM_ID` from the `.env` like the server does.
+One script sets up the whole alerting: a folder, an email contact point, the mail timing and the rules. Run it on
+the server VM, from the repository.
+
+- Safe to re-run. It resets the rules to the catalog, and **overwrites thresholds you changed in the UI**. Tune in
+  the catalog and re-run, or tune in the UI and stop re-running.
+- Keep your own rules out of the *VirtualPyTest Alerts* folder. The script removes rules it does not know.
+- The rules stay editable in the Grafana UI.
+
+<div data-technical>
+
+Script: `scripts/grafana_alerts.py`. It reads `GRAFANA_URL`, `GRAFANA_ADMIN_USER`, `GRAFANA_ADMIN_PASSWORD` and
+`TEAM_ID` from `.env`, the same way the server does. Catalog: `infra/monitoring/grafana/alerting/vpt-alert-rules.json`.
+The folder is **VirtualPyTest Alerts**, the contact point is **VirtualPyTest email** with a short digest template,
+and the notification policy groups the alerts and limits mail (see §7).
 
 ```bash
 # See what is available
@@ -136,100 +171,151 @@ python3 scripts/grafana_alerts.py apply --email ops@example.com --group-by rule 
 # What is firing right now
 python3 scripts/grafana_alerts.py status
 
+# One printable digest per recipient (start time, NEW since the previous digest, RESOLVED in the
+# window with end time). Persists the firing set in .grafana_alert_digest_state.json so the next
+# run can mark NEW alerts. `mail` also calls this helper before sending.
+python3 scripts/grafana_alerts.py report --email ops@example.com,qa@example.com
+
 # Take it all away again
 python3 scripts/grafana_alerts.py remove
 ```
 
-Options: `--grafana-url https://your-host/grafana` overrides `GRAFANA_URL` (include the sub-path
-if Grafana is served under one); `--insecure` accepts a self-signed certificate; `--team-id`
-says whose script results the *Test results* rules watch (defaults to `TEAM_ID` from `.env`).
-Mail volume: `--group-by`, `--group-wait`, `--group-interval`, `--repeat-interval` — see
-[§7](#7-tuning). `apply` takes up to about a minute: it waits until Grafana is actually using the
-new notification policy before it creates the rules.
+Options: `--grafana-url https://your-host/grafana` overrides `GRAFANA_URL`, and includes the sub-path if Grafana is
+served under one. `--insecure` accepts a self-signed certificate. `--team-id` sets whose script results the *Test
+results* rules watch (default `TEAM_ID`). Mail volume: `--group-by`, `--group-wait`, `--group-interval`,
+`--repeat-interval`, see §7.
 
-Things to know:
+`apply` takes up to about a minute. It waits until Grafana uses the new notification policy, then creates the rules.
+The `report` subcommand writes `.grafana_alert_digest_state.json` on every run.
 
-- **Safe to re-run.** Re-running updates the contact point's addresses, the mail timing and the
-  template, and resets the rules to the catalog. It also **overwrites thresholds you changed in the UI** — so either tune in the catalog file (`infra/monitoring/grafana/alerting/vpt-alert-rules.json`)
-  and re-run, or tune in the UI and stop re-running.
-- **Keep your own rules out of the *VirtualPyTest Alerts* folder.** The script owns the rule
-  groups in it; a rule you add to one of them is removed on the next run.
-- The rules stay **editable in the Grafana UI** (they are not locked as "provisioned").
+</div>
 
 ---
 
 ## 4. The predefined alerts
 
-All thresholds are starting points — change them to fit your lab.
+Thresholds are starting points. Change them to fit your lab.
 
-| Rule (uid) | Fires when | Threshold · wait | Severity | Default |
+| Rule | Fires when | Threshold · wait | Severity | On by default |
 |---|---|---|---|---|
-| **Host stopped reporting** (`vpt-host-offline`) | no metrics from a host for longer than the threshold | > 10 min · 5 min | critical | ✅ |
-| **Host disk almost full** (`vpt-host-disk-high`) | root disk use | > 85 % · 10 min | warning | ✅ |
-| **Host memory high** (`vpt-host-memory-high`) | memory use | > 90 % · 15 min | warning | ✅ |
-| **Host CPU too hot** (`vpt-host-cpu-temp-high`) | CPU temperature (hosts that report one, e.g. Raspberry Pi) | > 80 °C · 10 min | warning | ✅ |
-| **Capture or monitor not running** (`vpt-capture-not-running`) | a device's ffmpeg capture or monitor is not `active` | any · 10 min | critical | ✅ |
-| **Too many incidents on a device** (`vpt-incident-storm`) | incidents started on one device in the last hour | > 20 | warning | ✅ |
-| **Device incident ongoing** (`vpt-incident-active`) | a blackscreen / freeze / audio loss / macroblocks incident still open | > 10 min | warning | opt-in |
-| **Script failing repeatedly** (`vpt-script-failure-streak`) | the last runs of a script on a device all failed (prod, not discarded) | ≥ 3 in a row | warning | ✅ |
-| **Script pass rate dropped** (`vpt-script-regression`) | a script's pass rate over the last 24 h vs its previous 7 days | drop > 30 points | warning | ✅ |
-| **Fleet health: device DOWN** (`vpt-fleet-device-down`) | the latest fleet-health check marks a device DOWN (set the threshold to 0 for DEGRADED too) | DOWN | critical | ✅ |
-| **Platform service down** (`vpt-service-down`) | a component of the System Service Status page is `down`, or was not checked for 3 min (*stale*); component `agent` = the infra VM itself is off or unreachable | any · 3 min | critical | ✅ ¹ |
-| **Platform service degraded** (`vpt-service-degraded`) | a component reports `degraded` | 15 min | warning | opt-in ¹ |
-| **Infra VM disk almost full** (`vpt-infra-vm-disk-high`) | root disk of the database, storage, frontend, proxy... VM | > 85 % · 10 min | warning | ✅ ¹ |
-| **Infra VM memory high** (`vpt-infra-vm-memory-high`) | memory of an infra VM | > 90 % · 15 min | warning | ✅ ¹ |
+| **All hosts stopped reporting (system down)** | every host has been silent for more than 10 min | any · 2 min | **critical** | yes |
+| **All hosts of one site offline** | every host of one site has been silent for more than 10 min | any · 2 min | **major** | yes |
+| **Host stopped reporting** | no metrics from a host for longer than the threshold | more than 10 min · 5 min | **minor** | yes |
+| **Host disk almost full** | root disk use | above 85 % · 10 min | warning | yes |
+| **Host memory high** | memory use | above 90 % · 15 min | warning | yes |
+| **Host CPU too hot** | CPU temperature (hosts that report one, e.g. Raspberry Pi) | above 80 °C · 10 min | warning | yes |
+| **Capture or monitor not running** | a device's capture or monitor is not running | any · 10 min | **minor** | yes |
+| **Too many incidents on a device** | incidents started on one device in the last hour | more than 20 | warning | yes |
+| **Device incident ongoing** | a blackscreen, freeze, audio loss or macroblocks incident is still open | more than 10 min | warning | opt-in |
+| **Script failing repeatedly** | the last runs of a script on a device all failed | 3 or more in a row | warning | yes |
+| **Script pass rate dropped** | pass rate over the last 24 h falls against the previous 7 days | drop of more than 30 points | warning | yes |
+| **Fleet health: device DOWN** | the latest fleet-health check marks a device DOWN | DOWN | **minor** | yes |
+| **Platform service down** | a platform service is down, or was not checked for 3 min | any · 3 min | **major** | yes ¹ |
+| **Platform service degraded** | a platform service reports degraded | 15 min | warning | opt-in ¹ |
+| **Infra VM disk almost full** | root disk of an infra VM | above 85 % · 10 min | warning | yes ¹ |
+| **Infra VM memory high** | memory of an infra VM | above 90 % · 15 min | warning | yes ¹ |
 
-¹ *Platform services* rules read the tables of the System Service Status feature (`service_status`,
-`vm_metrics`, migration `20261001e_infra_status.sql`, filled once a minute by the server's
-infra-status collector and the VM agents). Until that migration is applied, `apply` skips these
-rules and says so — re-run it afterwards. A component that is no longer collected (removed from
-the install) shows as *stale* for up to a day.
+¹ The platform service rules need the System Service Status tables. Until their migration is applied, `apply` skips
+these rules and says so. Re-run it afterwards.
 
-**Why is *Device incident ongoing* opt-in?** A device that sits idle on a static menu reports a
-*freeze* that can last for hours — that is expected, not a fault. Turn the rule on when your
-devices play live content all day, or copy it and restrict the query to the incident types and
-devices you care about (`AND incident_type IN ('blackscreen', 'audio_loss')`).
+<div data-technical>
 
-**How *Script pass rate dropped* decides.** It compares, per script and userinterface, the share
-of passed runs over the last 24 hours with the 7 days before. It only judges scripts with at
-least 3 runs today and 5 in the baseline, so a script that ran once does not trigger it. A drop
-of more than 30 points (say 95 % → 60 %) usually means a new app build or device firmware.
+Rule identifiers (uid) and the data each rule reads:
 
-**The email** is one digest per group: the subject counts the alerts, the body has one line per
-alert — severity, rule, and what and where, with the measured value — and one link to all
-VirtualPyTest alerts in Grafana:
+| Rule | uid | Reads |
+|---|---|---|
+| All hosts stopped reporting | `vpt-system-down` | `system_metrics` |
+| All hosts of one site offline | `vpt-fleet-all-hosts-offline` | `system_metrics`, grouped by `server_name` |
+| Host stopped reporting | `vpt-host-offline` | `system_metrics` |
+| Host disk almost full | `vpt-host-disk-high` | `system_metrics` |
+| Host memory high | `vpt-host-memory-high` | `system_metrics` |
+| Host CPU too hot | `vpt-host-cpu-temp-high` | `system_metrics` |
+| Capture or monitor not running | `vpt-capture-not-running` | `system_device_metrics` |
+| Too many incidents on a device | `vpt-incident-storm` | `alerts` |
+| Device incident ongoing | `vpt-incident-active` | `alerts` |
+| Script failing repeatedly | `vpt-script-failure-streak` | `script_results` |
+| Script pass rate dropped | `vpt-script-regression` | `script_results` |
+| Fleet health: device DOWN | `vpt-fleet-device-down` | `fleet_health` |
+| Platform service down | `vpt-service-down` | `service_status` |
+| Platform service degraded | `vpt-service-degraded` | `service_status` |
+| Infra VM disk almost full | `vpt-infra-vm-disk-high` | `vm_metrics` |
+| Infra VM memory high | `vpt-infra-vm-memory-high` | `vm_metrics` |
+
+The platform service rules need the migration `20261001e_infra_status.sql`. It is filled once a minute by the server's
+infra-status collector and the VM agents. A component no longer collected shows as *stale* for up to a day. The
+*All hosts stopped reporting* rule also needs at least one host seen in the last day. The component `agent` means the
+infra machine itself is off or unreachable. Set the degraded rule's threshold to 0 to include DEGRADED in the fleet rule.
+
+**Why is *Device incident ongoing* opt-in?** An idle device on a static menu can report a freeze that lasts for hours.
+That is expected. Turn the rule on for devices that play live content all day, or limit it with
+`AND incident_type IN ('blackscreen', 'audio_loss')`.
+
+**How *Script pass rate dropped* decides.** It compares, per script and user interface, the share of passed runs in
+the last 24 hours with the 7 days before. It only judges a script with at least 3 runs today and 5 in the baseline.
+
+**Severity bands, detail.** The only `[critical]` rule is `vpt-system-down`. `vpt-fleet-all-hosts-offline` and
+`vpt-service-down` are `[major]`. `vpt-host-offline`, `vpt-capture-not-running` and `vpt-fleet-device-down` are
+`[minor]`. Under the old two-band scheme, all serious alerts were `[critical]`. To route `[major]` quieter, add
+`severity = major` to the on-call route that already matches `severity = critical`.
+
+**Grafana's default email** shows raw query values (`Values: A=2 C=1`). The VirtualPyTest template leaves that out. The
+full detail is one click away in Grafana.
+
+</div>
+
+**Severity bands.** Each rule fires at one of four bands, from most to least impact:
+
+- **critical**: the whole system is down, every host silent. Only *All hosts stopped reporting* uses it.
+- **major**: a whole site is offline, or a platform component is down long enough to block users.
+- **minor**: one host, one device's capture, or one fleet-health verdict. Most of the fleet still works.
+- **warning**: resource or quality thresholds, such as disk, memory, CPU temperature and regressions.
+
+**The email** is one digest per group. The subject counts the alerts. Each alert has one line with its band, rule,
+place and value. A `NEW` flag marks alerts that were not in the last digest. Read it like this:
 
 ```text
-Subject: [VirtualPyTest] 3 firing, 1 resolved
+Subject: [VirtualPyTest] 4 firing, 2 resolved
 
-FIRING (3)
-- [warning] Too many incidents on a device: appletv (host-3): 31 incidents in the last hour
-- [warning] Script failing repeatedly: dns_lookuptime failed 161 times in a row on host-1_Host
-- [critical] Fleet health: device DOWN: Fleet health: host-4_Host on host-4 is DOWN
+FIRING (4)
+- [critical · NEW] All hosts stopped reporting (system down): all hosts stopped reporting
+     1 (1 known hosts across the platform, last seen any of them is older than 10 min)
+     start=2026-10-16 07:18
+- [major] Platform service down: storage / minio is down (seen by vpt-pi4)  start=2026-10-16 06:42
+- [minor · NEW] Host stopped reporting: labox-dongle has not reported metrics for 8 min
+     start=2026-10-16 07:24
+- [minor] Host stopped reporting: labox-mobile has not reported metrics for 21 min
+     start=2026-10-16 07:11
 
-RESOLVED (1)
-- Host disk almost full: host-2 disk at 84.9%
+RESOLVED (2)
+- [was warning] Host disk almost full: host-clone-1 disk at 85.1%
+     start=2026-10-15 22:14  end=2026-10-16 06:55
+- [was major] Platform service down: redis on vpt-pi3 returned to ok
+     start=2026-10-16 07:01  end=2026-10-16 07:18
 
 All VirtualPyTest alerts: https://your-host/grafana/alerting/list?search=label:source%3Dvirtualpytest
 ```
 
-Grafana's default email lists each alert's raw query results (`Values: A=2 C=1` — *A* is the
-measured value, *C* is 1 because the threshold is crossed). The VirtualPyTest template leaves that
-block out; the value is already in each line. The full detail (description, labels, a silence
-link) is one click away in Grafana.
+<div data-technical>
+
+`NEW` compares each alert's identity (its `uid` plus its labels) with the saved set in
+`.grafana_alert_digest_state.json`. Resolved alerts stay in that file for seven days, sliding. An alert's `start` is
+when it left `pending` and became `alerting`. `end` is shown only for alerts that resolved in the digest window.
+
+</div>
 
 ---
 
 ## 5. Create or change an alert by hand
 
-You can do everything in the Grafana UI, without the script. Example: the disk alert.
+You can build any alert in the Grafana UI. Example: the disk alert.
 
-1. **Alerting → Contact points → + Add contact point.** Name it, choose **Email**, enter the
-   addresses (separate with `;`), **Test**, **Save**.
-2. **Alerting → Alert rules → + New alert rule.**
-3. **Name:** `Host disk almost full`.
-4. **Define query:** data source **Supabase PostgreSQL**, switch the editor to **Code**, set
-   **Format** to **Table**, and paste:
+1. **Alerting → Contact points → + Add contact point.** Choose **Email**, enter the addresses separated by `;`,
+   press **Test**, then **Save**.
+2. **Alerting → Alert rules → + New alert rule.** Name it `Host disk almost full`.
+3. **Define query.** Choose **Supabase PostgreSQL**, switch to **Code**, set **Format** to **Table**, and paste the SQL
+   below. **Preview** shows one row per host.
+
+   <div data-technical>
 
    ```sql
    SELECT DISTINCT ON (server_name, host_name)
@@ -239,52 +325,56 @@ You can do everything in the Grafana UI, without the script. Example: the disk a
    ORDER BY server_name, host_name, "timestamp" DESC
    ```
 
-   **Preview** shows one row per host.
-5. **Expressions:** keep only a **Threshold** on query **A**: *IS ABOVE* `85`. (Grafana may add
-   a *Reduce* step; it is not needed — this query already returns one number per host.)
-6. **Folder & labels:** pick or create a folder; add the label `severity = warning`.
-7. **Evaluation:** an evaluation group with interval **1m**; **Pending period** `10m`.
-8. **Configure no data and error handling:** set **Alert state if no data** to **OK** (no rows
-   means nothing is wrong).
-9. **Notifications:** to have this rule in the same grouped VirtualPyTest mail, add the label
-   `source = virtualpytest` in step 6 and choose **Use notification policy**. Selecting a contact
-   point directly instead sends this rule's mails on their own, with Grafana's default timing.
-10. **Annotations → Summary:** `{{ $labels.host_name }} disk at {{ printf "%.1f" $values.A.Value }}%`.
-11. **Save rule and exit.**
+   </div>
 
-The SQL of every predefined rule is in `infra/monitoring/grafana/alerting/vpt-alert-rules.json`
-— copy any of them the same way.
+4. **Expressions.** Keep only a **Threshold** on query **A**: *IS ABOVE* `85`. A *Reduce* step is not needed.
+5. **Folder and labels.** Pick a folder, and add the label `severity = warning`.
+6. **Evaluation.** Group interval **1m**, pending period `10m`.
+7. **No data.** Set **Alert state if no data** to **OK**.
+8. **Notifications.** Choose **Use notification policy** to join the grouped VirtualPyTest email.
+9. **Annotations → Summary.** Enter a message with the host name and the value.
 
-To change a predefined rule after the script created it: **Alerting → Alert rules → VirtualPyTest
-Alerts → the rule → Edit**. Change the threshold in the *Threshold* expression, the waiting time
-in *Pending period*.
+   <div data-technical>
+
+   Add the label `source = virtualpytest` so the rule joins the grouped email. Summary template:
+   `{{ $labels.host_name }} disk at {{ printf "%.1f" $values.A.Value }}%`. Choosing a contact point directly
+   sends that rule's mails on their own, with Grafana's default timing.
+
+   </div>
+
+10. **Save rule and exit.**
+
+To change a predefined rule later: **Alerting → Alert rules → VirtualPyTest Alerts → the rule → Edit**. The catalog
+copy is `infra/monitoring/grafana/alerting/vpt-alert-rules.json`.
 
 ---
 
 ## 6. Write your own alert
 
-Any question you can answer with SQL can become an alert. The rule of thumb for the query:
+Any question you can answer with a SQL query can become an alert.
 
-- **One row per thing to watch** (host, device, script...).
-- **Text columns become labels** — they name the thing in the message (`host_name`, `device_name`...).
-- **One numeric column** (call it `value`) is compared to the threshold.
-- **No rows = healthy.** Set *Alert state if no data* to **OK**.
-- Keep it fast: always limit by time (`WHERE started_at > now() - interval '...'`).
-- Tables that belong to a team (`script_results`, campaign and deployment results...) must be
-  filtered by your `team_id`.
+- One row per thing to watch. Text columns name it in the message.
+- One number, called `value`, is compared with the threshold.
+- No rows means healthy. Set *Alert state if no data* to **OK**.
 
-Ideas built on data VirtualPyTest already records:
+<div data-technical>
+
+Rules of thumb: text columns become labels (`host_name`, `device_name`). Always limit the query by time, for example
+`WHERE started_at > now() - interval '...'`. Tables that belong to a team (`script_results`, campaign and deployment
+results) must be filtered by your `team_id`.
+
+Ideas and the data they use:
 
 | Alert | Table · column |
 |---|---|
-| Internet download speed on a host below N Mbps | `system_metrics.download_mbps` |
+| Internet download speed below N Mbps | `system_metrics.download_mbps` |
 | Host load average too high for 15 min | `system_metrics.load_average_15m` |
-| A specific campaign or script did not run today | `script_results.started_at` (count = 0 → return a row with value 1) |
-| A scheduled deployment keeps failing | `deployment_executions` |
-| New incident type on a device that never had it | `alerts.incident_type` vs the last 7 days |
-| A KPI (zap time, boot time...) went above its target | `script_results.metadata` |
+| Campaign or script did not run today | `script_results.started_at` (count = 0 → return a row with value 1) |
+| Scheduled deployment keeps failing | `deployment_executions` |
+| New incident type on a device | `alerts.incident_type` vs the last 7 days |
+| KPI above its target | `script_results.metadata` |
 
-Example — the same script is failing on **every** device (more likely the app than the device):
+Example: the same script fails on **every** device, which points to the app rather than the devices.
 
 ```sql
 SELECT script_name,
@@ -298,29 +388,45 @@ HAVING bool_and(NOT success)
 
 Threshold: *IS ABOVE* `1` (failing on at least two devices, and no run passed).
 
+</div>
+
 ---
 
 ## 7. Tuning
 
-**Who gets what.** One contact point per audience: e.g. *Ops* for host rules, *QA* for script
-rules. Either pick the contact point in each rule (*Notifications* section), or use
-**Notification policies** to route by label — `severity = critical` to an on-call channel,
-everything else to email.
+**Who gets what.** Use one contact point per audience, for example *Ops* for host rules and *QA* for script rules.
+Pick it in each rule, or route by label with **Notification policies**. A good split by band:
 
-**How many mails — avoiding spam.** Grafana does not send one mail per alert: it collects alerts
-into **groups** and sends one mail per group. Four settings decide the volume; the script sets
-them on the *source = virtualpytest* notification policy:
+| Band | Suggested contact point |
+|---|---|
+| critical | on-call (PagerDuty, Opsgenie or an on-call email) |
+| major | on-call or the platform lead |
+| minor | the ops mailing list |
+| warning | the product mailing list |
 
-| Option | Default (script) | Meaning |
+<div data-technical>
+
+Matchers: `severity = critical`, `severity = major`, `severity = minor`, `severity = warning`. Your own per-band routes
+go in **Alerting → Contact points** and **Notification policies**, as siblings of the policy `vpt-alerts`. `apply`
+only rewrites the policy whose matcher is `source = virtualpytest`.
+
+</div>
+
+**How many mails.** Grafana sends one mail per group, not per alert. With the defaults you get at most one
+VirtualPyTest mail per hour, and one daily reminder while something stays broken. The first mail after a quiet
+period goes out after a short wait.
+
+| Setting | Default | What it does |
 |---|---|---|
-| `--group-by` | `all` | What shares a mail. `all`: every VirtualPyTest alert in one digest. `rule`: one mail per rule (disk alerts together, script alerts together...). `host`: one mail per host. |
-| `--group-wait` | `1m` | How long a **new** group waits before its first mail, to collect alerts that fire together. |
-| `--group-interval` | `1h` | **At most one mail per group per this interval.** Alerts that start or resolve in between are added to the next mail. |
-| `--repeat-interval` | `24h` | When nothing changed, the still-firing alerts are mailed again after this long (a reminder). Must be ≥ the group interval. |
+| Group by | all | What shares a mail: all alerts, one rule, or one host |
+| Group wait | 1 minute | How long a new group waits to collect alerts |
+| Group interval | 1 hour | At most one mail per group in this time |
+| Repeat interval | 24 hours | Reminder for alerts still firing. At least the group interval |
 
-With the defaults a recipient gets **at most one VirtualPyTest mail per hour**, plus one daily
-reminder while something stays broken. The only mail that does not wait an hour is the first
-one after a quiet period (a new group): it goes out after `--group-wait`. Examples:
+<div data-technical>
+
+Options: `--group-by` (`all`, `rule`, `host`; default `--group-by all`), `--group-wait` (default `1m`),
+`--group-interval` (default `1h`) and `--repeat-interval` (default `24h`). Examples:
 
 ```bash
 # Quietest: one digest, at most every 4 hours, reminder once a day
@@ -329,37 +435,50 @@ python3 scripts/grafana_alerts.py apply --email ops@example.com --group-interval
 python3 scripts/grafana_alerts.py apply --email ops@example.com --group-by rule --group-interval 15m --repeat-interval 4h
 ```
 
-The same settings are in the UI: **Alerting → Notification policies →** the policy matching
-`source = virtualpytest` **→ Edit → Override general timings / Group by**. A re-run of the script
-puts back the values it is given.
+In the UI: **Alerting → Notification policies →** the policy matching `source = virtualpytest` **→ Edit → Override
+general timings / Group by**. A re-run of the script puts back the values it is given.
 
-**Quiet hours / maintenance.**
+</div>
 
-- **Silences** (*Alerting → Silences*) mute matching alerts for a set time — e.g. `host_name = host-3`
-  for the 2 hours you rewire it. A firing alert also has a **Silence** link in its email.
-- **Mute timings** (*Alerting → Notification policies → Mute timings*) mute on a schedule —
-  nights, weekends — and are attached to a notification policy.
+**Silences and mute timings.**
 
-**Pending period** (the *for* / *wait* column above) is how long a condition must last before
-firing. Raise it if an alert flaps; lower it if you need to know sooner.
+- **Silences** (*Alerting → Silences*) mute matching alerts for a set time. Every alert email also has a **Silence** link.
+- **Mute timings** (*Alerting → Notification policies → Mute timings*) mute on a schedule, such as nights and weekends.
+
+<div data-technical>
+
+Example silence matcher: `host_name = host-3`.
+
+</div>
+
+**Pending period** is how long a condition must last before the alert fires. Raise it if an alert flaps. Lower it if
+you need to know sooner.
 
 ---
 
 ## 8. Troubleshooting
 
-| Symptom | Cause / fix |
+| Symptom | Fix |
 |---|---|
-| Test email works but no alert mail | The rule is *Normal* / *Pending* — open it and look at its state and history. Or the alert went to another contact point: check the rule's *Notifications* section and **Notification policies**. |
-| `FAILED ... connection refused / timeout` on the test | Wrong host/port, or the Grafana machine cannot reach it (outbound 25/465/587 blocked). |
-| `535 authentication failed` | Wrong user/password; Gmail needs an app password; Microsoft 365 needs SMTP AUTH enabled. |
-| No email at all and nothing in the logs | `[smtp] enabled = true` missing, or Grafana not restarted. Logs: `/var/log/grafana/grafana.log` (search `smtp` / `notifier`). |
-| Rule state **Error** | The SQL fails — open the rule, **Preview** shows the database error. An email "DatasourceError" is sent for it. |
-| Rule always **Normal** | The query returns no row above the threshold — **Preview** shows the numbers. |
-| Mail sent to `example@email.com` | Grafana's default contact point still has its placeholder address — set a real one (see §2). |
-| `apply` prints `policy WARNING: not active yet` | Grafana had not loaded the new policy after 135 s. The first alerts may go to the default contact point; the next ones follow the policy. |
-| Still too many mails | Raise `--group-interval` (at most one mail per group per interval) or use `--group-by all`; silence a known, accepted problem instead of letting it repeat. |
-| Too many *Device incident ongoing* mails | Idle devices report long freezes — restrict the rule (see §4) or leave it off. |
-| Thresholds changed in the UI came back | The script was re-run — it resets rules to the catalog (see §3). |
+| The test works, but no alert mail comes | Open the rule and check its state and history. Check its *Notifications* section and **Notification policies**. |
+| The test fails with connection refused or timeout | Check the host and port. The Grafana machine may be blocked from the mail server. |
+| The test fails with an authentication error | Check the user and password. Gmail needs an app password. Microsoft 365 needs SMTP AUTH. |
+| No email, and nothing in the logs | Check that email is switched on in the settings, and that Grafana was restarted. |
+| Rule state is **Error** | Open the rule and press **Preview**. It shows the database error. |
+| Rule is always **Normal** | The query returns no row above the threshold. **Preview** shows the numbers. |
+| Mail goes to the placeholder address | Set a real address on the default contact point (see §2). |
+| `apply` warns that the policy is not active yet | The first alerts may go to the default contact point. Later ones follow the policy. |
+| Still too many mails | Raise the group interval, or silence a known problem. |
+| Too many *Device incident ongoing* mails | Restrict the rule (see §4) or leave it off. |
+| Thresholds changed in the UI came back | The script was re-run and reset the rules (see §3). |
 
-Related: [Running Tests](./running-tests.md) · [Who can do what](./permissions.md) (who can see
+<div data-technical>
+
+Exact messages and places to look: `sent test email to ...` (success), `FAILED` (failure), `535 authentication failed`,
+the placeholder `example@email.com`, and `policy WARNING: not active yet` (Grafana had not loaded the new policy after 135 s). Grafana's log is
+`/var/log/grafana/grafana.log`; search it for `smtp` or `notifier`. The setting is `[smtp] enabled = true`.
+
+</div>
+
+Related: [Running Tests](./running-tests.md) · [Who can do what](../agent/platform/ACCESS_MODEL.md) (who can see
 which devices on the dashboards — alert rules see all data, they are not limited per viewer).

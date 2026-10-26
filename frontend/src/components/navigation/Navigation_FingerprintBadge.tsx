@@ -1,6 +1,7 @@
 import { Chip, Tooltip } from '@mui/material';
 import React from 'react';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface FingerprintBadgeProps {
   hasScreenshot: boolean;
@@ -25,8 +26,8 @@ export const FingerprintBadge: React.FC<FingerprintBadgeProps> = ({
   if (hasFingerprint && confusable && confusable.length > 0) {
     return (
       <Tooltip title={`Region not discriminative — collides with: ${confusable.slice(0, 6).join(', ')}. Draw a tighter region.`}>
-        <Chip label={`⚠ region collides (${confusable.length})`} size={size} color="warning"
-          sx={{ fontSize: '0.7rem', height: 20 }} />
+        <Chip label={`region collides (${confusable.length})`} size={size} color="warning"
+          sx={{ fontSize: TYPOGRAPHY.caption.size, height: 20 }} />
       </Tooltip>
     );
   }
@@ -34,7 +35,7 @@ export const FingerprintBadge: React.FC<FingerprintBadgeProps> = ({
     return (
       <Tooltip title="No screenshot — capture one to enable Localize">
         <Chip label="– no screenshot" size={size} variant="outlined"
-          sx={{ fontSize: '0.7rem', height: 20, color: P.textSecondary, borderColor: P.borderColor }} />
+          sx={{ fontSize: TYPOGRAPHY.caption.size, height: 20, color: P.textSecondary, borderColor: P.borderColor }} />
       </Tooltip>
     );
   }
@@ -42,15 +43,15 @@ export const FingerprintBadge: React.FC<FingerprintBadgeProps> = ({
     return (
       <Tooltip title="Screenshot present, but no Localize fingerprint yet — set a region">
         <Chip label="○ no fingerprint" size={size}
-          sx={{ fontSize: '0.7rem', height: 20, bgcolor: P.hoverBg, color: P.textSecondary }} />
+          sx={{ fontSize: TYPOGRAPHY.caption.size, height: 20, bgcolor: P.hoverBg, color: P.textSecondary }} />
       </Tooltip>
     );
   }
   const isFull = !region || JSON.stringify(region) === JSON.stringify([0, 1, 0, 1]);
   return (
     <Tooltip title={`Localize fingerprint set — region: ${isFull ? 'full frame' : JSON.stringify(region)}`}>
-      <Chip label={`✓ fingerprint${isFull ? '' : ' (region)'}`} size={size} color="success"
-        sx={{ fontSize: '0.7rem', height: 20 }} />
+      <Chip label={`fingerprint${isFull ? '' : ' (region)'}`} size={size} color="success"
+        sx={{ fontSize: TYPOGRAPHY.caption.size, height: 20 }} />
     </Tooltip>
   );
 };

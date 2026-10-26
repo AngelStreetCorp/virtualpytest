@@ -1,0 +1,29 @@
+[Unit]
+Description=VirtualPyTest match_runs queue writer
+# Reads three Redis channels populated by the monitor (and any future host-side
+# matcher writer) and persists them to public.match_runs + bumps the
+# screen_fingerprints counter.  Modeled on vpt-discard-incidents.
+
+[Service]
+Type=simple
+User=vpt_user
+Group=vpt_user
+Environment=VIRTUALPYTEST_REPO=/opt/virtualpytest
+Environment=PYTHONPATH=/opt/virtualpytest
+WorkingDirectory=/opt/virtualpytest
+ExecStart=/opt/virtualpytest/venv/bin/python3 \
+    /opt/virtualpytest/backend_server/scripts/match_runs_worker.py
+Restart=on-failure
+# Worker is long-running; on crash systemd restarts it.  10s is enough
+# for the Redis client to re-establish a connection.
+RestartSec=10
+# Bounded shutdown: BRPOP waits up to timeout-s (default 1s), so SIGTERM
+# is observed in <2s.
+TimeoutStopSec=15
+# Capture stdout/stderr to the host's journalctl (vpt-server has
+# journald).  The smoke test greps for these.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

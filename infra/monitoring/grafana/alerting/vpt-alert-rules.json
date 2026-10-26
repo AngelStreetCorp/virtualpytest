@@ -1,5 +1,5 @@
 {
-  "_comment": "Predefined VirtualPyTest Grafana alert rules. Applied by scripts/grafana_alerts.py; documented in docs/user-guide/grafana-alerting.md and docs/agent/infra/GRAFANA_ALERTING.md. Each query returns one row per series: text columns become alert labels, the numeric column `value` is compared against `threshold`. {{team_id}} is substituted at apply time. Zero rows = healthy (noDataState OK). A rule's `requires` lists tables it reads; apply skips the rule while one is missing (migration not applied yet).",
+  "_comment": "Predefined VirtualPyTest Grafana alert rules. Applied by scripts/grafana_alerts.py; documented in docs/user-guide/grafana-alerting.md and docs/agent/platform/GRAFANA_ALERTING.md. Severity follows the four-band hierarchy (critical / major / minor / warning): critical = entire system down (vpt-system-down), major = per-site fleet down or one platform component down, minor = isolated host/device failure, warning = resource threshold. See docs/tasks/TASK-116-grafana-alert-severity-hierarchy.md for the rationale. Each query returns one row per series: text columns become alert labels, the numeric column `value` is compared against `threshold`. {{team_id}} is substituted at apply time. Zero rows = healthy (noDataState OK). A rule's `requires` lists tables it reads; apply skips the rule while one is missing (migration not applied yet).",
   "groups": [
     {
       "name": "Host health",
@@ -9,15 +9,43 @@
           "uid": "vpt-host-offline",
           "title": "Host stopped reporting",
           "recommended": true,
-          "severity": "critical",
+          "severity": "minor",
           "for": "5m",
           "threshold": {
             "op": "gt",
             "value": 10
           },
-          "summary": "{{ $labels.host_name }} has not reported metrics for {{ printf \"%.0f\" $values.A.Value }} min",
-          "description": "No system_metrics row from host {{ $labels.host_name }} (server {{ $labels.server_name }}) for more than 10 minutes. The host service is down, the machine is off, or it lost network. A host that stays silent for 3 days drops out of the query and the alert resolves on its own.",
+          "summary": "{{ $labels.host_name }} ({{ $labels.server_name }}) has not reported metrics for {{ printf \"%.0f\" $values.A.Value }} min",
+          "description": "No system_metrics row from host {{ $labels.host_name }} (server {{ $labels.server_name }}) for more than 10 minutes. The host service is down, the machine is off, or it lost network. A host that stays silent for 3 days drops out of the query and the alert resolves on its own. Band: minor (one host offline is not a platform outage — see vpt-system-down for the whole-system check and vpt-fleet-all-hosts-offline for a single-site fleet outage).",
           "sql": "SELECT m.server_name, m.host_name,\n       greatest(0, extract(epoch FROM now() - m.last_ts) / 60)::float AS value\nFROM (SELECT coalesce(server_name, '') AS server_name, host_name, max(\"timestamp\") AS last_ts\n      FROM system_metrics\n      WHERE \"timestamp\" > now() - interval '3 days'\n      GROUP BY server_name, host_name) m\nWHERE NOT (m.host_name = 'server' AND EXISTS (\n  -- a server used to report under the literal name 'server' and now reports under its SERVER_NAME:\n  -- the old series is a ghost, not a host that stopped\n  SELECT 1 FROM system_metrics s\n  WHERE coalesce(s.server_name, '') = m.server_name AND s.host_name <> 'server'\n    AND s.\"timestamp\" > now() - interval '15 minutes'))"
+        },
+        {
+          "uid": "vpt-system-down",
+          "title": "All hosts stopped reporting (system down)",
+          "recommended": true,
+          "severity": "critical",
+          "for": "2m",
+          "threshold": {
+            "op": "gt",
+            "value": 0
+          },
+          "summary": "All hosts have stopped reporting for more than 10 min (was {{ $labels.known }} known host(s) across the platform)",
+          "description": "No host has written a system_metrics row in the last 10 minutes, but at least one host has reported in the last day. The platform cannot serve any device for any team. Band: critical (this is the only rule that escalates to critical — reserved for a whole-system outage). If the collector itself stopped but hosts are still fine, this rule stays OK; vpt-service-down will fire with severity major for the affected collector instead. A brand-new install with zero hosts ever reporting is healthy, not a system outage.",
+          "sql": "SELECT 'system' AS scope,\n       to_char(\n         (SELECT count(DISTINCT coalesce(server_name, '') || '/' || host_name)\n            FROM system_metrics WHERE \"timestamp\" > now() - interval '1 day'),\n         'FM999') AS known,\n       (CASE WHEN\n         (SELECT count(DISTINCT coalesce(server_name, '') || '/' || host_name)\n            FROM system_metrics WHERE \"timestamp\" > now() - interval '10 minutes') = 0\n         AND\n         (SELECT count(DISTINCT coalesce(server_name, '') || '/' || host_name)\n            FROM system_metrics WHERE \"timestamp\" > now() - interval '1 day') > 0\n       THEN 1 ELSE 0 END)::float AS value"
+        },
+        {
+          "uid": "vpt-fleet-all-hosts-offline",
+          "title": "All hosts of one site offline",
+          "recommended": true,
+          "severity": "major",
+          "for": "2m",
+          "threshold": {
+            "op": "gt",
+            "value": 0
+          },
+          "summary": "All hosts of server '{{ $labels.server_name }}' are offline ({{ $labels.known }} known host(s) in the last 24h)",
+          "description": "Every host on server '{{ $labels.server_name }}' has been silent in system_metrics for more than 10 minutes, but at least one of that server's hosts reported in the last day. The platform cannot serve any device that lives on this site. Band: major — a single site is offline but other sites may still be up, so this is more contained than vpt-system-down (critical). Resolves when the first host of the server starts reporting again.",
+          "sql": "SELECT coalesce(s.server_name, '') AS server_name,\n       to_char(count(DISTINCT s.host_name) FILTER (WHERE s.\"timestamp\" > now() - interval '1 day'), 'FM999') AS known,\n       (CASE WHEN\n         count(DISTINCT s.host_name) FILTER (WHERE s.\"timestamp\" > now() - interval '10 minutes') = 0\n         AND count(DISTINCT s.host_name) FILTER (WHERE s.\"timestamp\" > now() - interval '1 day') > 0\n       THEN 1 ELSE 0 END)::float AS value\nFROM system_metrics s\nWHERE s.\"timestamp\" > now() - interval '1 day'\nGROUP BY coalesce(s.server_name, '')"
         },
         {
           "uid": "vpt-host-disk-high",
@@ -65,15 +93,15 @@
           "uid": "vpt-capture-not-running",
           "title": "Capture or monitor not running",
           "recommended": true,
-          "severity": "critical",
+          "severity": "minor",
           "for": "10m",
           "threshold": {
             "op": "gt",
             "value": 0
           },
           "summary": "{{ $labels.device_name }} on {{ $labels.host_name }}: ffmpeg {{ $labels.ffmpeg_status }}, monitor {{ $labels.monitor_status }}",
-          "description": "The video capture (ffmpeg) or the monitor of device {{ $labels.device_name }} ({{ $labels.capture_folder }}) on host {{ $labels.host_name }} has not been active for 10 minutes. No incidents are detected for that device while this lasts.",
-          "sql": "SELECT DISTINCT ON (host_name, device_id)\n       host_name, device_name, capture_folder, ffmpeg_status, monitor_status,\n       (CASE WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 0 ELSE 1 END)::float AS value\nFROM system_device_metrics\nWHERE \"timestamp\" > now() - interval '15 minutes'\nORDER BY host_name, device_id, \"timestamp\" DESC"
+          "description": "The video capture (ffmpeg) or the monitor of device {{ $labels.device_name }} ({{ $labels.capture_folder }}) on host {{ $labels.host_name }} has not been active for 10 minutes. No incidents are detected for that device while this lasts. Band: minor (one device's capture is offline — the rest of the fleet still works).",
+          "sql": "SELECT DISTINCT ON (host_name, device_id)\n       host_name, device_name, capture_folder, ffmpeg_status, monitor_status,\n       (CASE WHEN ffmpeg_status = 'active' AND monitor_status IN ('active', 'off') THEN 0 ELSE 1 END)::float AS value\nFROM system_device_metrics\nWHERE \"timestamp\" > now() - interval '15 minutes'\nORDER BY host_name, device_id, \"timestamp\" DESC"
         }
       ]
     },
@@ -153,14 +181,14 @@
           "uid": "vpt-fleet-device-down",
           "title": "Fleet health: device DOWN",
           "recommended": true,
-          "severity": "critical",
+          "severity": "minor",
           "for": "0s",
           "threshold": {
             "op": "gt",
             "value": 1
           },
           "summary": "Fleet health: {{ $labels.device_name }} on {{ $labels.host_name }} is {{ $labels.verdict }}",
-          "description": "The latest fleet-health check marks device {{ $labels.device_name }} on host {{ $labels.host_name }} as {{ $labels.verdict }}. Set the threshold to 0 to also be told about DEGRADED devices. The latest check is the 10-minute live one when vpt-fleet-health-live.timer is installed, otherwise the nightly 07:00 one.",
+          "description": "The latest fleet-health check marks device {{ $labels.device_name }} on host {{ $labels.host_name }} as {{ $labels.verdict }}. Set the threshold to 0 to also be told about DEGRADED devices (still band warning). The latest check is the 10-minute live one when vpt-fleet-health-live.timer is installed, otherwise the nightly 07:00 one. Band: minor — a single device DOWN does not take the platform offline.",
           "sql": "SELECT server, host_name, coalesce(device_name, device_id) AS device_name, verdict,\n       (CASE verdict WHEN 'DOWN' THEN 2 WHEN 'DEGRADED' THEN 1 ELSE 0 END)::float AS value\nFROM fleet_health\nWHERE generated_at = (SELECT max(generated_at) FROM fleet_health)"
         }
       ]
@@ -173,7 +201,7 @@
           "uid": "vpt-service-down",
           "title": "Platform service down",
           "recommended": true,
-          "severity": "critical",
+          "severity": "major",
           "for": "3m",
           "requires": [
             "service_status"
@@ -183,7 +211,7 @@
             "value": 0
           },
           "summary": "{{ $labels.vm }} / {{ $labels.component }} is {{ $labels.state }} (seen by {{ $labels.server_name }})",
-          "description": "Platform component {{ $labels.component }} on {{ $labels.vm }} is down, or has not been checked for more than 3 minutes (stale: the VM agent, the collector or the database stopped answering). component = agent means the VM itself is off or unreachable. Reads service_status_current, the same live table as the System Service Status dashboard. A component that is no longer collected (a renamed or retired server) stays stale for up to a day, then drops out.",
+          "description": "Platform component {{ $labels.component }} on {{ $labels.vm }} is down, or has not been checked for more than 3 minutes (stale: the VM agent, the collector or the database stopped answering). component = agent means the VM itself is off or unreachable. Reads service_status_current, the same live table as the System Service Status dashboard. A component that is no longer collected (a renamed or retired server) stays stale for up to a day, then drops out. Band: major — a single platform component is down, which usually means one VM or one moving part is offline. The whole-system outage check lives in vpt-system-down (band critical); a same-site fleet outage lives in vpt-fleet-all-hosts-offline (band major).",
           "sql": "SELECT server_name, vm, component,\n       CASE WHEN checked_at < now() - interval '3 minutes' THEN 'stale' ELSE status END AS state,\n       (CASE WHEN status = 'down' OR checked_at < now() - interval '3 minutes' THEN 1 ELSE 0 END)::float AS value\nFROM service_status_current\n-- service_status_current is the live heartbeat (one row per component, rewritten every minute); service_status is only a\n-- change log since 20261001f. A server that was renamed or retired stops writing: after a day it drops out instead of alerting forever\nWHERE checked_at > now() - interval '1 day'"
         },
         {

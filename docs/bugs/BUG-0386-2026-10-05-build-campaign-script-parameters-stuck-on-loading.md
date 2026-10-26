@@ -9,7 +9,7 @@
 | Status    | Closed                                                       |
 | Severity  | Medium                                                       |
 | Area      | frontend                                                     |
-| Fixed in  | Unreleased |
+| Fixed in  | build 90145 |
 
 ---
 

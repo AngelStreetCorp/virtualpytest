@@ -1,4 +1,12 @@
-import { Check, Close, PictureInPictureAlt, SettingsRemote, TouchApp } from '@mui/icons-material';
+import {
+  Check,
+  Close,
+  FullscreenExit,
+  OpenInFull,
+  PictureInPictureAlt,
+  SettingsRemote,
+  TouchApp,
+} from '@mui/icons-material';
 import { Divider, IconButton, ListItemIcon, ListItemText, ListSubheader, Menu, MenuItem, Tooltip } from '@mui/material';
 import React, { useState } from 'react';
 
@@ -13,7 +21,7 @@ export const PipMenuButton: React.FC = () => {
   const P = useAgentChatPalette();
   const { t } = useI18n();
   const { isMobile } = useResponsiveMode();
-  const { state, hosts, host, device, paused, select, toggleRemote } = usePip();
+  const { state, hosts, host, device, paused, select, toggleRemote, setCollapsed } = usePip();
   const { take, release } = usePipControl();
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
 
@@ -24,11 +32,20 @@ export const PipMenuButton: React.FC = () => {
   return (
     <>
       <Tooltip title={t('Picture-in-picture')}>
-        <IconButton size="small" onClick={(e) => setAnchor(e.currentTarget)} sx={{ color: active ? P.accentText : P.textSecondary }}>
+        <IconButton
+          size="small"
+          onClick={(e) => setAnchor(e.currentTarget)}
+          sx={{ color: active ? P.accentText : P.textSecondary }}
+        >
           <PictureInPictureAlt fontSize="small" />
         </IconButton>
       </Tooltip>
-      <Menu anchorEl={anchor} open={!!anchor} onClose={close} slotProps={{ paper: { sx: { minWidth: 260, maxHeight: 480 } } }}>
+      <Menu
+        anchorEl={anchor}
+        open={!!anchor}
+        onClose={close}
+        slotProps={{ paper: { sx: { minWidth: 260, maxHeight: 480 } } }}
+      >
         {active && host && device && [
           <MenuItem
             key="control"
@@ -48,6 +65,20 @@ export const PipMenuButton: React.FC = () => {
               <SettingsRemote fontSize="small" />
             </ListItemIcon>
             <ListItemText primary={state.remoteVisible ? t('Hide remote') : t('Show remote')} />
+          </MenuItem>,
+          <MenuItem
+            key="collapse"
+            onClick={() => {
+              setCollapsed(!state.collapsed);
+              close();
+            }}
+          >
+            <ListItemIcon>
+              {state.collapsed ? <OpenInFull fontSize="small" /> : <FullscreenExit fontSize="small" />}
+            </ListItemIcon>
+            <ListItemText
+              primary={state.collapsed ? t('Expand picture-in-picture') : t('Collapse picture-in-picture')}
+            />
           </MenuItem>,
           <MenuItem
             key="close"

@@ -1,0 +1,62 @@
+{
+  "reasons": {
+    "status tints and borders": "fixed success/error/warning colours are never themed (#ef4444, #10b981, #2ecc71 and their rgba tints)",
+    "drop shadows": "rgba(0,0,0,x) box-shadows are elevation, not theme colour",
+    "scrim over video": "RecHostStreamModal / GroupControlModal full-screen overlays behind a live video; 'black' letterboxes and video backdrops",
+    "text on video": "HeatMapFreezeModal body and MosaicPlayer text/hover frames sit on black video frames and stay white in both themes",
+    "validationColors #ffffff": "text on the saturated status gradients of React Flow nodes",
+    "navigationMappers #555": "neutral default edge grey in the graph canvas"
+  },
+  "files": {
+    "src/components/common/ExecutionProgressOverlay.tsx": [
+      "rgba(0, 0, 0, 0.4)",
+      "rgba(0, 0, 0, 0.3)",
+      "rgba(239, 68, 68, 0.1)",
+      "#ef4444",
+      "rgba(16, 185, 129, 0.1)",
+      "#10b981"
+    ],
+    "src/components/rec/RecStreamModalHeader.tsx": [
+      "#2ecc71"
+    ],
+    "src/components/rec/DeviceStatusChip.tsx": [
+      "#2ecc71"
+    ],
+    "src/components/rec/RecHostStreamModal.tsx": [
+      "rgba(0, 0, 0, 0.9)",
+      "'black'"
+    ],
+    "src/components/rec/group/GroupControlModal.tsx": [
+      "rgba(0, 0, 0, 0.9)"
+    ],
+    "src/components/rec/group/GroupStreamCell.tsx": [
+      "'black'"
+    ],
+    "src/components/heatmap/HeatMapFreezeModal.tsx": [
+      "'black'",
+      "'white'",
+      "rgba(0,0,0,0.7)",
+      "rgba(255,255,255,0.1)",
+      "rgba(255,255,255,0.5)"
+    ],
+    "src/components/MosaicPlayer.tsx": [
+      "'black'",
+      "'white'",
+      "rgba(255, 255, 255, 0.1)",
+      "#fff"
+    ],
+    "src/components/common/Navigation_GroupedDropdown.tsx": [
+      "rgba(0,0,0,0.1)"
+    ],
+    "src/config/validationColors.ts": [
+      "#ffffff"
+    ],
+    "src/utils/navigation/navigationMappers.ts": [
+      "#555"
+    ],
+    "src/components/common/Navigation_ItemStyle.tsx": [
+      "rgba(0,0,0,0.3)",
+      "rgba(0,0,0,0.35)"
+    ]
+  }
+}

@@ -178,3 +178,19 @@ def test_execute_device_action_does_not_drive_a_device_someone_else_controls():
     })
     assert '/server/action/executeBatch' not in api.paths()
     assert result['isError'] and 'Alice' in result['content'][0]['text']
+
+
+def test_force_unlock_on_another_callers_live_run_is_refused_with_device_busy():
+    class Api(_FakeApi):
+        def post(self, path, data=None, params=None):
+            if path == '/server/control/takeover':
+                self.posts.append((path, dict(data or {})))
+                return {'success': False, 'errorType': 'device_busy',
+                        'error': "device busy: smoke by CI since 10:39:23 UTC; force_unlock does not abort another caller's live run"}
+            return super().post(path, data, params)
+
+    api = Api(_held_by(session='job-1', user='ci', name='CI', owner_type='script_execution'))
+    err, held = _auto_lock(api, {'session_id': 'chat-bob'}, force_unlock=True)
+    assert err and err['errorType'] == 'device_busy' and 'device busy' in err['content'][0]['text']
+    assert api.posts[-1][1]['protect_live_execution'] is True
+    assert held == {}

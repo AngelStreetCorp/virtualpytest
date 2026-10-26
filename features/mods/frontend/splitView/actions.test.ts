@@ -41,6 +41,18 @@ describe('split view', () => {
     expect(pageOptions(entries, (p) => p === '/hidden').map((e) => e.path)).toEqual(['/a']);
   });
 
+  it('drops pathless entries instead of crashing on .startsWith', () => {
+    // A malformed feature-contributed item reaches the page menu with no
+    // `path` (the very thing the upstream NavigationDropdown fix had to
+    // guard against). The page menu used to crash the entire split view
+    // here; verify the offender is filtered out and the rest survives.
+    const entries = [
+      { path: undefined as unknown as string, label: '?', section: 'Plugins' },
+      { path: '/ok', label: 'OK', section: 'Top' },
+    ];
+    expect(pageOptions(entries, () => false).map((e) => e.path)).toEqual(['/ok']);
+  });
+
   it('drops the proxy prefix from the frame location', () => {
     expect(routerPath('/pi4/monitoring/heatmap', '?d=1', '/pi4')).toBe('/monitoring/heatmap?d=1');
     expect(routerPath('/pi4', '', '/pi4')).toBe('/');

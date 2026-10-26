@@ -40,15 +40,6 @@
         #status {
             text-align: center;
         }
-        #sendCtrlAltDelButton {
-            position: fixed;
-            top: 0px;
-            right: 0px;
-            border: 1px outset;
-            padding: 5px 5px 4px 5px;
-            cursor: pointer;
-        }
-
         #screen {
             flex: 1; /* fill remaining space */
             overflow: hidden;
@@ -91,14 +82,6 @@
             desktopName = e.detail.name;
         }
 
-        // Since most operating systems will catch Ctrl+Alt+Del
-        // before they get a chance to be intercepted by the browser,
-        // we provide a way to emulate this key sequence.
-        function sendCtrlAltDel() {
-            rfb.sendCtrlAltDel();
-            return false;
-        }
-
         // Show a status text in the top bar
         function status(text) {
             document.getElementById('status').textContent = text;
@@ -123,9 +106,6 @@
 
             return defaultValue;
         }
-
-        document.getElementById('sendCtrlAltDelButton')
-            .onclick = sendCtrlAltDel;
 
         // Read parameters specified in the URL query string
         // By default, use the host and port of server that served this file
@@ -172,7 +152,6 @@
 <body>
     <div id="top_bar">
         <div id="status">Loading</div>
-        <div id="sendCtrlAltDelButton">Send CtrlAltDel</div>
     </div>
     <div id="screen">
         <!-- This is where the remote screen will appear -->

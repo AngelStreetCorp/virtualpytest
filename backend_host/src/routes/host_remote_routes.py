@@ -269,7 +269,8 @@ def execute_command():
                 write_action_to_frame_json(
                     device=device,
                     action={'command': command, 'params': params},
-                    action_completion_timestamp=action_completion_timestamp
+                    action_completion_timestamp=action_completion_timestamp,
+                    source='probe' if data.get('source') == 'probe' else 'remote',
                 )
                 print(f"[@route:host_remote:execute_command] ✅ write_action_to_frame_json completed")
             else:

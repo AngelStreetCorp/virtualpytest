@@ -45,6 +45,8 @@ import {
 import { STATUS } from '../analytics/palette';
 import { formatDateTime } from './status';
 import { EmptyState, QueryState } from './PageState';
+import { dangerButtonSx } from '../common/PageChrome';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 export const DEFECT_TITLE_MAX = 200;
 export const MAX_PANEL_RESULTS = 25;
@@ -99,6 +101,7 @@ export interface DefectTableProps {
 }
 
 export const DefectTable: React.FC<DefectTableProps> = ({ defects, unlinkFromResultId }) => {
+  const P = useAgentChatPalette();
   const { canEditDefects } = useReportPermissions();
   const { update, unlink, refreshJira } = useDefectMutations();
   const jira = useJiraPush();
@@ -200,11 +203,11 @@ export const DefectTable: React.FC<DefectTableProps> = ({ defects, unlinkFromRes
                   {unlinkFromResultId && (
                     <Button
                       size="small"
-                      color="warning"
                       onClick={() =>
                         void run(() => unlink.mutateAsync({ id: defect.id, scriptResultId: unlinkFromResultId }))
                       }
                       disabled={unlink.isPending}
+                      sx={dangerButtonSx(P)}
                     >
                       Unlink
                     </Button>

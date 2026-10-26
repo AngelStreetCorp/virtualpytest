@@ -1,26 +1,32 @@
 # Install with Docker (one machine)
 
-This page describes the **full Docker Compose stack**: server, host, frontend, Supabase, Redis,
-object storage, and Grafana. The VirtualPyTest application itself is three images
-(`virtualpytest-server`, `virtualpytest-host`, and `virtualpytest-frontend`), pulled or built by
-Compose; there is no single monolithic VirtualPyTest image. If this machine only owns devices and
-the platform runs elsewhere, use [host-only mode](add-a-host.md) instead.
+This page sets up the whole platform on one Linux or macOS machine, with one command. It suits a first
+look, a demo or a lab box on a trusted network.
 
-The whole platform on one Linux or macOS machine, in one command. Good for a first look,
-a demo, a lab box, or a single-site deployment on a trusted network.
+Everything runs in containers on this machine, including one device controller (the "host") with a
+desktop you can watch.
 
-**You need:** Linux (Ubuntu 22.04+/Debian 12+ recommended) or macOS with Docker Desktop ·
-4 CPU / 8 GB RAM / 30 GB free disk · internet access for the first build. Windows: run the
-same commands inside WSL2, or install only a device controller on Windows (see
-[Windows host](local-dev.md#windows)).
+If this machine only has devices and the platform runs somewhere else, use [host-only mode](add-a-host.md) instead.
 
-**What you get:** the web UI, the server API, one device controller ("host") with a
-VNC desktop, a self-hosted Supabase (Postgres + auth + REST + Studio), MinIO object
-storage, Redis and Grafana — all as containers on this machine.
+**You need:** a Linux or macOS machine with about 4 CPU cores, 8 GB of RAM and 30 GB of free disk,
+and internet access for the first install. On Windows, run the same commands inside WSL2, or install
+only a device controller on Windows (see [Windows host](local-dev.md#windows)).
+
+<div data-technical>
+
+Supported Linux: Ubuntu 22.04 or newer, or Debian 12 or newer. macOS needs Docker Desktop.
+
+The stack is three VirtualPyTest images: `virtualpytest-server`, `virtualpytest-host` and
+`virtualpytest-frontend`. Docker Compose pulls or builds them with the database, Redis, MinIO and Grafana.
+There is no single all-in-one image.
+
+</div>
 
 ## 1. Install
 
-Download the standalone bundle — about half a megabyte, everything the stack needs:
+Download the bundle, unpack it, and run the launcher. It installs what it needs and starts everything.
+
+<div data-technical>
 
 ```bash
 curl -L https://github.com/AngelStreetCorp/virtualpytest/releases/latest/download/vpt-docker.tar.gz | tar xz
@@ -38,29 +44,41 @@ cd virtualpytest
 ./setup/docker/launch.sh
 ```
 
-Both are the same stack and the same commands from here on. The bundle carries the compose
-files, the database schema, the Grafana dashboards and the shipped test scripts — the
-paths the containers mount — and pulls everything else from the registry.
+The bundle carries the compose files, the database schema, the Grafana dashboards and the shipped test
+scripts, which are the paths the containers mount. It pulls everything else from the registry.
 
-If `install_docker.sh` just added your user to the `docker` group, log out and back in
-(or run `newgrp docker`) before `launch.sh`.
+</div>
 
-`launch.sh` does, in order:
+Both ways give the same stack. If Docker rights were just granted, log out and back in first.
 
-1. creates `setup/docker/.env` from `.env.example` — every secret generated, `PUBLIC_HOST`
-   set to this machine's LAN address;
-2. creates `backend_host/src/.env` from its example (VNC desktop capture on, physical
-   devices off);
-3. pulls the images and builds the three VirtualPyTest images (first run: 5–15 minutes
-   depending on bandwidth and CPU; later runs: seconds);
-4. applies the database schema once, then waits until the server API answers;
-5. prints the URLs.
+<div data-technical>
+
+```bash
+newgrp docker   # or log out and back in
+```
+
+</div>
+
+The launcher generates the passwords and settings, fetches or builds the images (5 to 15 minutes on
+the first run), sets up the database, and prints the web addresses.
+
+<div data-technical>
+
+Files it creates: `setup/docker/.env` (from `.env.example`, every secret generated, `PUBLIC_HOST` set to
+this machine's LAN address) and `backend_host/src/.env` (from its example, VNC desktop capture on,
+physical devices off).
+
+</div>
 
 ### Skip the build (prebuilt images)
 
-Step 3 is the slow part. Prebuilt backend images are published to GHCR so you can pull them
-instead of building them. Before the first `launch.sh`, or any time afterwards, set the tag in
-`setup/docker/.env`:
+The build is the slow part. Ready-made images are published, so a first run takes about two minutes.
+They only work on Intel and AMD Linux. If you change the code, build locally, or your changes will not
+be in the running container.
+
+<div data-technical>
+
+Set the tag in `setup/docker/.env` before the first `launch.sh`, or any time afterwards:
 
 ```bash
 VPT_IMAGE_TAG=latest                  # the most recently published images
@@ -68,29 +86,30 @@ VPT_IMAGE_TAG=main-2026.09.17-9151    # or a specific release, to freeze it
 # default is `local` = build from this checkout
 ```
 
-**Images are published on purpose, not on every release.** They are big and slow to build, and
-nothing depends on them — the default builds from your checkout, and a pull that finds no such
-tag falls back to building. So a given release may not have an image, and `latest` is the last
-one that was published rather than the newest release. If you need the images to match a
-specific release exactly, build it: `VPT_IMAGE_TAG=local`.
+`launch.sh` pulls `virtualpytest-server`, `-host` and `-frontend` from `ghcr.io/angelstreetcorp`. If the
+pull fails (no network, or a tag that was never published), it falls back to building. Nothing compiles
+on your machine when the pull works.
 
-`launch.sh` then pulls all three images — `virtualpytest-server`, `-host` and
-`-frontend` from `ghcr.io/angelstreetcorp` — and **nothing compiles on your machine**: a
-first run in about two minutes instead of fifteen. If the pull fails (no network, or a tag
-that was never published) it falls back to building, so the command always works.
+A prebuilt image is the code of its build. If you edit anything under `backend_server/`,
+`backend_host/` or `frontend/`, set `VPT_IMAGE_TAG=local` (or run `./setup/docker/launch.sh --rebuild`).
 
-**A prebuilt image is the code of *its* build, not of your working tree.** If you edit anything under `backend_server/`, `backend_host/` or `frontend/`,
-set `VPT_IMAGE_TAG=local` (or run `./setup/docker/launch.sh --rebuild`) or your change will
-not be in the running container.
+The frontend image writes `dist/config.js` from the container environment on every start. Changing
+`PUBLIC_HOST` needs a restart, not a rebuild, and one image serves any address.
 
-The frontend image takes its configuration at **run** time, not build time: its entrypoint
-writes `dist/config.js` from the container's environment on every start, so changing
-`PUBLIC_HOST` needs a restart rather than a rebuild, and one image serves any address.
+Images are `linux/amd64` only. On arm64 (Apple Silicon, a Raspberry Pi) leave `VPT_IMAGE_TAG=local` and build.
 
-Images are `linux/amd64` only. On arm64 (Apple Silicon, a Raspberry Pi) leave
-`VPT_IMAGE_TAG=local` and build.
+</div>
 
 ## 2. Open it
+
+Open the web app in your browser. Each tool below has its own login.
+
+- **Web app:** run tests and see devices.
+- **Host desktop:** the device controller's desktop, which you can watch live.
+- **Grafana:** charts and dashboards.
+- **Supabase Studio:** the database admin screens.
+
+<div data-technical>
 
 | What | URL |
 |---|---|
@@ -101,32 +120,43 @@ Images are `linux/amd64` only. On arm64 (Apple Silicon, a Raspberry Pi) leave
 | Supabase Studio | `http://<PUBLIC_HOST>:54321` — `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` from `.env` |
 | MinIO console | `http://<PUBLIC_HOST>:9001` — `MINIO_ACCESS_KEY` / `MINIO_SECRET_KEY` from `.env` |
 
-`PUBLIC_HOST` is printed by `launch.sh` and stored in `setup/docker/.env`. Every URL the
-platform hands to a browser is built from it, so if you later reach the machine by another
-address (a DNS name, a VPN address), change `PUBLIC_HOST` and run `./setup/docker/launch.sh`
-— a restart is enough, the frontend reads it at startup rather than baking it in.
+`PUBLIC_HOST` is printed by `launch.sh` and stored in `setup/docker/.env`. Every URL the platform hands
+to a browser is built from it. If you reach the machine by another address later (a DNS name, a VPN
+address), change `PUBLIC_HOST` and run `./setup/docker/launch.sh`. A restart is enough, because the
+frontend reads it at startup.
 
-The stack starts in **open mode**: no login, every API call accepted. `launch.sh` prints a
-warning while that is the case. Keep the machine on a trusted network, or enable login —
-see [Supabase and authentication](supabase.md#enforce-login).
+</div>
+
+Every link uses the address the launcher printed. If you reach the machine by another name later,
+change the address and start the stack again.
+
+The stack starts in **open mode**: no login, and every request is accepted. Keep the machine on a trusted
+network, or turn on login. See [Supabase and authentication](supabase.md#enforce-login).
 
 ## 3. First test
 
-1. In the web UI, the host `docker-host` is already registered (it appears under
-   *Devices* with its VNC desktop as the capture source).
-2. Go to *Run Tests*, pick the host, pick `web/dailymotion_video_check` (or any `web/…`
-   script) and run it. The host opens Chromium on its VNC desktop; you can watch it live on
-   the noVNC URL above.
-3. The result appears in *Test Results*, with the captures stored in MinIO and the KPIs in
-   Grafana.
+1. The host `docker-host` is already registered under *Devices*.
+2. In *Run Tests*, pick the host and a web test, and run it. You can watch the browser on the host's desktop.
+3. The result appears in *Test Results*, and the measurements appear in Grafana.
+
+<div data-technical>
+
+The example script is `web/dailymotion_video_check`. Any script whose name starts with `web/…` works.
+Chromium runs on the host's VNC desktop.
+
+</div>
 
 ## 4. Add a real device
 
-`backend_host/src/.env` is **the only file you edit.** Everything else — secrets,
-addresses, the database — `launch.sh` handles.
+You edit one file: `backend_host/src/.env`. Turn a device on by removing the `x` from its lines, then
+run the launcher again. The file ships with physical devices off.
 
-It ships with the browser and VNC desktop on and physical devices off. "Off" means each
-device line carries an `x` prefix, which is how this file disables a setting:
+<div data-technical>
+
+```bash
+nano backend_host/src/.env          # drop the x, set DEVICE1_* for your hardware
+./setup/docker/launch.sh            # restarts the host container with the new config
+```
 
 ```bash
 xDEVICE1_NAME=AppleTv          # ← drop the x on the lines you want
@@ -135,24 +165,30 @@ xDEVICE1_IP=192.168.1.27
 xDEVICE1_VIDEO=/dev/video0
 ```
 
-So enabling a device is: remove the `x`, set its address and capture paths, restart.
+The file has commented examples for a TV or set-top box with HDMI capture and IR, an Android device
+over the network, and a smart plug.
 
-```bash
-nano backend_host/src/.env          # drop the x, set DEVICE1_* for your hardware
-./setup/docker/launch.sh            # restarts the host container with the new config
-```
+On Linux, the host container sees the machine's `/dev` (USB capture cards, IR transmitters, serial).
+Each capture path also needs a RAM-backed hot directory: add one `tmpfs` line per
+`DEVICEn_VIDEO_CAPTURE_PATH` in `setup/docker/docker-compose.linux.yml` (the file shows the default one).
 
-The file carries commented examples for a TV/STB with HDMI capture and IR, an Android
-device over the network, and a smart plug.
+</div>
 
-On Linux the host container sees the machine's `/dev` (USB capture cards, IR transmitters,
-serial). Each capture path also needs a RAM-backed hot directory: add one `tmpfs` line per
-`DEVICEn_VIDEO_CAPTURE_PATH` in `setup/docker/docker-compose.linux.yml` (the file shows the
-default one). On macOS there is no `/dev` passthrough — use network-controlled devices
-(Android over ADB, web) or run the host part on a Linux machine with
+On Linux, the host can use USB capture cards, IR transmitters and serial devices. On macOS there is no
+device passthrough: use network-controlled devices, or run the host on a Linux machine with
 [`--host-only`](#more-than-one-machine).
 
+<div data-technical>
+
+On macOS, a `DEVICEn_VIDEO=/dev/videoX` line stops the host from starting.
+
+</div>
+
 ## 5. Everyday commands
+
+Stopping keeps your data. Only the reset command deletes it, and it asks you first.
+
+<div data-technical>
 
 ```bash
 ./setup/docker/launch.sh --logs      # follow all logs
@@ -162,65 +198,135 @@ default one). On macOS there is no `/dev` passthrough — use network-controlled
 ./setup/docker/launch.sh --reset     # stop AND delete all data volumes (asks for confirmation)
 ```
 
-Data lives in Docker volumes: `virtualpytest_supabase-db-data` (database),
-`virtualpytest_minio-data` (files), `virtualpytest_stream-data` (captures),
-`virtualpytest_grafana-data`. Back up the database with
+Data lives in Docker volumes: `virtualpytest_supabase-db-data` (database), `virtualpytest_minio-data`
+(files), `virtualpytest_stream-data` (captures), `virtualpytest_grafana-data`. Back up the database with
 `docker exec vpt-supabase-db pg_dump -U postgres postgres > backup.sql`.
+
+</div>
+
+Back up the database regularly. The backup command is in the technical details.
 
 ## More than one machine
 
-Run the stack on one machine and a device controller on each machine that has the
-hardware — `./setup/docker/launch.sh --host-only`.
+Run a device controller on each machine that has hardware. A host behind NAT needs a tunnel. See
+[Add a machine with devices](add-a-host.md).
 
-Full instructions, including the one thing that catches everyone (the browser connects to
-the host directly, so a host behind NAT needs a tunnel): **[Add a machine with
-devices](add-a-host.md)**.
+<div data-technical>
+
+```bash
+./setup/docker/launch.sh --host-only
+```
+
+</div>
 
 ## Before exposing it beyond the LAN
 
-The stack publishes plain HTTP on several ports and starts in open mode. Before anything
-but a trusted LAN can reach the machine:
+The stack serves plain HTTP and starts with no login. Before anyone outside your network can reach it:
 
-1. enforce login — [supabase.md](supabase.md#enforce-login);
-2. put a reverse proxy with TLS in front (an nginx example: `infra/proxy/nginx/config/docker.conf`)
-   and set `PUBLIC_HOST` to the public name, then recreate the containers (`./setup/docker/launch.sh`
-   again; the frontend reads its `VITE_*` values at container start, no rebuild). If the API,
-   noVNC or Supabase end up on hostnames other than the UI's, set `VITE_SERVER_URL`,
-   `HOST_VNC_STREAM_PATH`, `HOST_URL`, `VITE_SUPABASE_URL` and `SUPABASE_PUBLIC_URL` /
-   `SITE_URL` accordingly — worked example in
-   [Google Cloud standalone §9.6](gcp-standalone.md#96-wire-the-stack-to-the-hostnames);
-3. firewall everything else:
-   ```bash
-   sudo ufw default deny incoming && sudo ufw default allow outgoing
-   sudo ufw allow from <your-lan>/24 to any port 22
-   sudo ufw allow 80/tcp && sudo ufw allow 443/tcp        # the proxy
-   sudo ufw enable
-   ```
-   Studio (54321), Postgres (54322), MinIO (9000/9001) and Grafana (3000) must never be
-   reachable from the internet; change the `DASHBOARD_PASSWORD` / `MINIO_SECRET_KEY` /
-   `GRAFANA_ADMIN_PASSWORD` defaults if the machine is shared.
+1. Turn on login. See [supabase.md](supabase.md#enforce-login).
+2. Put a reverse proxy with TLS in front of it, using the nginx example in `infra/proxy/nginx/config/docker.conf`.
+3. Close every other port with a firewall. Keep the database, admin screens and file storage off the internet.
+
+<div data-technical>
+
+Step 2 in detail: set `PUBLIC_HOST` to the public name, then start the containers again with
+`./setup/docker/launch.sh`. No rebuild is needed, because the frontend reads its `VITE_*` values when the
+container starts. If the API, noVNC or Supabase end up on hostnames other than the UI's, set
+`VITE_SERVER_URL`, `HOST_VNC_STREAM_PATH`, `HOST_URL`, `VITE_SUPABASE_URL` and `SUPABASE_PUBLIC_URL` /
+`SITE_URL` to match. A worked example is in [Google Cloud standalone §9.6](gcp-standalone.md#96-wire-the-stack-to-the-hostnames).
+
+Step 3, the firewall:
+
+```bash
+sudo ufw default deny incoming && sudo ufw default allow outgoing
+sudo ufw allow from <your-lan>/24 to any port 22
+sudo ufw allow 80/tcp && sudo ufw allow 443/tcp        # the proxy
+sudo ufw enable
+```
+
+Studio (54321), Postgres (54322), MinIO (9000/9001) and Grafana (3000) must never be reachable from the
+internet. If the machine is shared, change the `DASHBOARD_PASSWORD`, `MINIO_SECRET_KEY` and
+`GRAFANA_ADMIN_PASSWORD` defaults.
+
+</div>
 
 ## Troubleshooting
 
-- **`launch.sh` stops at "waiting for http://localhost:5109/server/health"** — run
-  `./setup/docker/launch.sh --logs` and look at `vpt-server`. The usual cause on a first run
-  is `vpt-db-init` failing on a schema file; its log names the file.
-- **Web UI loads but every action fails** — the browser cannot reach `PUBLIC_HOST:5109`.
-  Check that `PUBLIC_HOST` in `setup/docker/.env` is the address your browser uses and that
-  the firewall allows 5109, 6109, 6080, 3000, 9000.
-- **`permission denied while trying to connect to the Docker daemon`** — your user is not in
-  the `docker` group yet: `newgrp docker` or log out and back in.
-- **Host container restarts in a loop** — `docker logs vpt-host`. It refuses to start when
-  `backend_host/src/.env` has no capture path (`HOST_VIDEO_CAPTURE_PATH` must be set) and on
-  macOS when a `DEVICEn_VIDEO=/dev/videoX` is enabled.
-- **Image pulls hang at "Downloading" with no traffic** while `curl` from the same machine is
-  fast — the machine resolves IPv6 addresses for Docker Hub but has no IPv6 route (typical
-  behind a NAT-only hypervisor). `sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1`, restart
-  Docker, run `launch.sh` again (make it permanent in `/etc/sysctl.d/`).
-- **Grafana answers nothing for the first 10–20 minutes on a slow disk** — its first start runs
-  a few hundred SQLite migrations, each an fsync; the launcher does not wait for it. It is
-  fine once `http://<PUBLIC_HOST>:3000/api/health` returns `ok`.
-- **Ports already in use** — another service on 5073/5109/3000/54321/9000. Stop it, or edit
-  the `ports:` lines in `setup/docker/docker-compose.yml`.
+**The launcher stops at "waiting for http://localhost:5109/server/health".** Look at the server's log.
+On a first run, the usual cause is a database setup file that failed. Its log names the file.
+
+<div data-technical>
+
+```bash
+./setup/docker/launch.sh --logs   # look at vpt-server; vpt-db-init names the failing schema file
+```
+
+</div>
+
+**The web app loads, but every action fails.** The browser cannot reach the server. Check that the address is the one your browser uses, and that the
+firewall allows the ports listed below.
+
+<div data-technical>
+
+The browser must reach `PUBLIC_HOST:5109`. The setting is `PUBLIC_HOST` in `setup/docker/.env`. The firewall
+must allow 5109, 6109, 6080, 3000 and 9000.
+
+</div>
+
+**"permission denied while trying to connect to the Docker daemon".** Your user is not in the Docker
+group yet. Start a new login session.
+
+<div data-technical>
+
+```bash
+newgrp docker   # or log out and back in
+```
+
+</div>
+
+**The host container restarts in a loop.** Read its log. The host refuses to start when
+`backend_host/src/.env` has no capture path, or, on macOS, when a `DEVICEn_VIDEO=/dev/videoX` line is enabled.
+
+<div data-technical>
+
+```bash
+docker logs vpt-host
+```
+
+`HOST_VIDEO_CAPTURE_PATH` must be set in `backend_host/src/.env`.
+
+</div>
+
+**Image downloads hang at "Downloading" with no traffic,** while `curl` works fine on the same machine.
+This happens on a machine that finds IPv6 addresses for Docker Hub but has no IPv6 route, which is typical
+behind a NAT-only hypervisor. Turn IPv6 off, restart Docker and run the launcher again. Make the change permanent to keep it after a reboot.
+
+<div data-technical>
+
+```bash
+sudo sysctl -w net.ipv6.conf.all.disable_ipv6=1
+```
+
+Make it permanent in `/etc/sysctl.d/`.
+
+</div>
+
+**Grafana answers nothing for the first 10 to 20 minutes on a slow disk.** Its first start runs a few
+hundred database migrations, and the launcher does not wait for it. It is fine once Grafana reports healthy.
+
+<div data-technical>
+
+The first start runs a few hundred SQLite migrations, each an fsync. Check `http://<PUBLIC_HOST>:3000/api/health` until it returns `ok`.
+
+</div>
+
+**Another program already uses one of the ports** (5073, 5109, 3000, 54321 or 9000). Stop that program,
+or change the ports in the Compose file.
+
+<div data-technical>
+
+The ports are the `ports:` lines in `setup/docker/docker-compose.yml`.
+
+</div>
 
 Variable reference: [configuration.md](configuration.md).

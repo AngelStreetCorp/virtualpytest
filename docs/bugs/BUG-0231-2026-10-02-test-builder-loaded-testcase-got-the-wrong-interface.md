@@ -9,7 +9,7 @@
 | Status    | Fixed — deployed and verified 2026-10-02                     |
 | Severity  | Medium — the testcase's navigation blocks are checked and run against the wrong tree until the user notices and picks the interface again |
 | Area      | `frontend/src/hooks/pages/useTestCaseBuilderPage.ts` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

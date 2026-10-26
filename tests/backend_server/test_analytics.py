@@ -193,6 +193,67 @@ def test_overview_never_reads_the_expensive_rollup(views, monkeypatch):
     assert 'analytics_device_availability_daily' not in views
 
 
+def test_overview_reads_the_incidents_figure_it_is_given(views, monkeypatch):
+    """The Overview tile takes the figure the caller hands it (BUG-0788).
+
+    The Overview tab and the Incidents tab show the same open-incident count. They
+    used to compute it twice, on two different cache clocks, so the two tabs could
+    disagree for minutes (the Overview recomputed every 30 s, the Incidents tab
+    served a value up to five minutes old).
+    """
+    monkeypatch.setattr(A, 'get_kpi_section',
+                        lambda team_id=None, days=30: {'pass_rate': 82.0, 'timeline': [],
+                                                       'total_runs': 100})
+    incidents = A.get_incidents_section(days=14)
+    tiles = A.get_overview_section(team_id=None, incidents=incidents)['tiles']
+    assert tiles['incidents_open'] == incidents['open']
+
+
+def test_the_overview_loader_takes_the_figure_from_the_incidents_cache(views, monkeypatch):
+    """The Overview tile and the Incidents tab read one cache entry, so one number."""
+    monkeypatch.setattr(A, 'get_kpi_section',
+                        lambda team_id=None, days=30: {'pass_rate': 82.0, 'timeline': [],
+                                                       'total_runs': 100})
+    from backend_server.src.routes import server_analytics_routes as routes
+
+    asked = []
+
+    def fake_get(section, team_id=None):
+        asked.append(section)
+        return {'open': 42, 'timeline': [], 'severities': []}, 'fresh'
+
+    monkeypatch.setattr(routes.analytics_cache, 'get', fake_get)
+    tiles = routes._overview_loader('team-1')['tiles']
+    assert tiles['incidents_open'] == 42
+    assert asked == ['incidents'], "the Overview must read the incidents cache, not the database"
+
+
+def test_the_overview_response_carries_the_incidents_cache_figure(monkeypatch):
+    """The Overview tile and the Incidents tab read one cache entry (BUG-0788).
+
+    The Overview payload is cached on its own clock, so the copy of the figure it
+    holds can be a pre-warm pass behind the incidents entry. The route reads the
+    figure from the incidents cache at request time, so the two tabs cannot
+    disagree — not even for the half hour between two pre-warm passes.
+    """
+    from flask import Flask
+
+    from backend_server.src.routes import server_analytics_routes as routes
+
+    flask_app = Flask(__name__)
+    monkeypatch.setattr(routes, 'check_supabase', lambda: None)
+
+    cache = SectionCache()
+    cache.register('overview', lambda team_id: {'tiles': {'incidents_open': 999}}, fresh=60, stale=600)
+    cache.register('incidents', lambda team_id: {'open': 42}, fresh=60, stale=600)
+    monkeypatch.setattr(routes, 'analytics_cache', cache)
+
+    with flask_app.test_request_context('/server/analytics/overview'):
+        body = routes.get_section('overview').get_json()
+
+    assert body['data']['tiles']['incidents_open'] == 42
+
+
 def test_overview_tiles_carry_every_headline_number(views, monkeypatch):
     monkeypatch.setattr(A, 'get_kpi_section',
                         lambda team_id=None, days=30: {'pass_rate': 82.0, 'timeline': [],
@@ -334,3 +395,22 @@ def test_register_rejects_a_stale_window_shorter_than_fresh():
     cache = SectionCache()
     with pytest.raises(ValueError):
         cache.register('x', lambda team_id: 1, fresh=600, stale=30)
+
+
+def test_the_overview_charts_keep_a_14_day_window(views, monkeypatch):
+    """The Overview says "last 14 days": the 30-day incidents cache entry must not feed its charts."""
+    monkeypatch.setattr(A, 'get_kpi_section',
+                        lambda team_id=None, days=30: {'pass_rate': 82.0, 'timeline': [], 'total_runs': 1})
+    from backend_server.src.routes import server_analytics_routes as routes
+
+    days = [f'2026-09-{d:02d}' for d in range(1, 31)]
+    rows = [{'day': d, 'severity': 'high', 'incidents': 1, 'status': 'resolved'} for d in days]
+    monkeypatch.setitem(VIEW_FIXTURES, 'analytics_incidents_daily', rows)
+    thirty_day = A.get_incidents_section(days=30)
+    assert len(thirty_day['timeline']) == 30
+    thirty_day['open'] = 7
+    monkeypatch.setattr(routes.analytics_cache, 'get', lambda section, team_id=None: (thirty_day, 'fresh'))
+
+    out = routes._overview_loader('team-1')
+    assert len(out['incidents_timeline']) == 14
+    assert out['tiles']['incidents_open'] == 7

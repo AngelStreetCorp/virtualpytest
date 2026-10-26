@@ -68,6 +68,11 @@ def is_connection_error(exc: BaseException) -> bool:
         return False
 
 
+class RequestNotSent(ValueError):
+    """Our own client refused the call before any request left (no image, no key, no URL): nothing was sent or billed,
+    so the call log counts it as skipped, not as a failed request."""
+
+
 ERROR_TYPES = ("timeout", "rate_limit", "no_credit", "auth", "bad_request", "server", "connection",
                "empty_answer", "busy", "parse", "refusal", "other")
 
@@ -159,14 +164,21 @@ class ProviderUsage:
 
 def _openai_usage(usage: dict) -> ProviderUsage:
     """OpenAI-shaped ``usage`` object -> ProviderUsage (cache, reasoning, search and cost fields)."""
-    prompt_details = usage.get("prompt_tokens_details") or {}
-    completion_details = usage.get("completion_tokens_details") or {}
+    # Chat Completions names (prompt_/completion_tokens) or the Responses API names (input_/output_tokens).
+    prompt_details = usage.get("prompt_tokens_details") or usage.get("input_tokens_details") or {}
+    completion_details = usage.get("completion_tokens_details") or usage.get("output_tokens_details") or {}
     cost = usage.get("cost")
+    cache_read = int(prompt_details.get("cached_tokens") or 0)
+    cache_write = int(prompt_details.get("cache_write_tokens") or 0)
+    prompt = usage.get("prompt_tokens") if usage.get("prompt_tokens") is not None else usage.get("input_tokens")
+    completion = (usage.get("completion_tokens") if usage.get("completion_tokens") is not None
+                  else usage.get("output_tokens"))
     return ProviderUsage(
-        input_tokens=usage.get("prompt_tokens", 0),
-        output_tokens=usage.get("completion_tokens", 0),
-        cache_read_input_tokens=int(prompt_details.get("cached_tokens") or 0),
-        cache_creation_input_tokens=int(prompt_details.get("cache_write_tokens") or 0),
+        # Anthropic meaning, like the field names: the uncached part. ``prompt_tokens`` counts the cache too.
+        input_tokens=max(int(prompt or 0) - cache_read - cache_write, 0),
+        output_tokens=int(completion or 0),
+        cache_read_input_tokens=cache_read,
+        cache_creation_input_tokens=cache_write,
         reasoning_tokens=int(completion_details.get("reasoning_tokens") or 0),
         web_searches=int((usage.get("server_tool_use") or {}).get("web_search_requests") or 0),
         cost=float(cost) if isinstance(cost, (int, float)) else None,
@@ -211,9 +223,53 @@ class BaseProviderClient:
         raise NotImplementedError
 
 
+MAX_CACHE_BREAKPOINTS = 4  # Anthropic per-request limit; the automatic breakpoint takes one of them
+
+
+def _sdk_accepts(name: str) -> bool:
+    """Does the INSTALLED anthropic SDK's ``Messages.create`` take this keyword?
+
+    The SDK's signature is not stable across the range this repo allows
+    (backend_server/requirements.txt: ``anthropic>=0.40.0,<1.0``). 1.x rewrote ``create()`` with an explicit
+    keyword-only signature and DROPPED ``temperature`` from it, so a call that carries it raises
+    ``TypeError: Messages.create() got an unexpected keyword argument 'temperature'`` before a byte goes
+    out. That is what the M3.1-Flash profile on the ``minimax`` (Anthropic-compatible) endpoint hit:
+    ``gateway.execute`` defaults ``temperature`` to 0.0, and 0.0 is not None, so the wrapper kept it.
+
+    Feature-detected once at import: the wrapper then sends the parameter only where it exists, which is
+    exactly the old behaviour on the pinned SDK and no breakage on a newer one.
+    """
+    try:
+        import inspect
+        from anthropic.resources.messages import Messages
+        return name in inspect.signature(Messages.create).parameters
+    except Exception:  # noqa: BLE001 — an unknown SDK is treated as "accepts everything we may send"
+        return True
+
+
+_SDK_ACCEPTS_TEMPERATURE = _sdk_accepts('temperature')
+
+
+def cache_breakpoints(kwargs: dict[str, Any]) -> int:
+    """Explicit ``cache_control`` markers in a request's tools, system and message blocks."""
+    blocks: list[Any] = list(kwargs.get("tools") or []) + list(kwargs.get("system") or [])
+    for message in kwargs.get("messages") or []:
+        content = message.get("content") if isinstance(message, dict) else None
+        if isinstance(content, list):
+            blocks.extend(content)
+    return sum(1 for b in blocks if isinstance(b, dict) and b.get("cache_control"))
+
+
+def _wants_auto_cache(kwargs: dict[str, Any]) -> bool:
+    """Automatic caching only pays on a conversation (more than one message), where the next request
+    re-sends this one's tail. On a one-shot call the tail is the unique part (a screenshot, a question):
+    caching it is a write surcharge never read back, so those rely on the system-block breakpoint."""
+    return len(kwargs.get("messages") or []) > 1 and cache_breakpoints(kwargs) < MAX_CACHE_BREAKPOINTS
+
+
 class AnthropicProviderClient(BaseProviderClient):
     def __init__(self, api_key: str, base_url: Optional[str] = None, provider: str = "anthropic",
-                 timeout: int = 120):
+                 timeout: int = 120, default_headers: Optional[dict[str, str]] = None):
         super().__init__(provider, api_key)
         client_kwargs: dict[str, Any] = {
             "api_key": api_key,
@@ -224,6 +280,8 @@ class AnthropicProviderClient(BaseProviderClient):
         }
         if base_url:
             client_kwargs["base_url"] = base_url
+        if default_headers:
+            client_kwargs["default_headers"] = default_headers
         self._client = anthropic.Anthropic(**client_kwargs)
 
     def create(self, **kwargs: Any) -> Any:
@@ -240,7 +298,24 @@ class AnthropicProviderClient(BaseProviderClient):
             kwargs.pop("extra_headers", None)
         if kwargs.get("temperature") is None:
             kwargs.pop("temperature", None)
-        if not kwargs.get("extra_body"):
+        # ``omit_temperature`` is a profile flag, not an Anthropic body field: some
+        # models (e.g. claude-haiku-5-5) reject `temperature` entirely. Consume the
+        # flag here so it is never sent, and drop the parameter when it is set.
+        extra_body = dict(kwargs.get("extra_body") or {})
+        if extra_body.pop("omit_temperature", False):
+            kwargs.pop("temperature", None)
+        if not _SDK_ACCEPTS_TEMPERATURE:
+            # The installed SDK has no `temperature` parameter at all (1.x rewrote create() with an
+            # explicit keyword-only signature), so sending it raises TypeError before the request.
+            # Nothing is lost by dropping it: the profile sets none, so the model samples by default.
+            kwargs.pop("temperature", None)
+        if self.provider == "anthropic" and _wants_auto_cache(kwargs):
+            # Top-level automatic caching keeps the growing conversation tail cached. SDK 0.58 has no
+            # ``cache_control`` argument, so it goes in the body.
+            extra_body.setdefault("cache_control", {"type": "ephemeral"})
+        if extra_body:
+            kwargs["extra_body"] = extra_body
+        else:
             kwargs.pop("extra_body", None)
         return self._client.messages.create(**kwargs)
 
@@ -650,13 +725,13 @@ class MiniMaxVLMClient(BaseProviderClient):
         extra_body: Optional[dict[str, Any]] = None,
     ) -> ProviderResponse:
         if tools:
-            raise ValueError("The MiniMax VLM endpoint does not support tool calling")
+            raise RequestNotSent("The MiniMax VLM endpoint does not support tool calling")
         content = messages[-1].get("content") if messages else ""
         blocks = content if isinstance(content, list) else [{"type": "text", "text": content or ""}]
         texts = [b.get("text", "") for b in (_block_as_dict(x) for x in blocks) if b.get("type") == "text"]
         images = [b.get("source") or {} for b in (_block_as_dict(x) for x in blocks) if b.get("type") == "image"]
         if not images:
-            raise ValueError("The MiniMax VLM endpoint needs an image")
+            raise RequestNotSent("The MiniMax VLM endpoint needs an image")
         system_text = "\n".join(b.get("text", "") for b in system if b.get("type") == "text")
         prompt = "\n\n".join(t for t in [system_text, *texts] if t)
         source = images[0]
@@ -670,7 +745,28 @@ class MiniMaxVLMClient(BaseProviderClient):
         if response.status_code >= 400:
             raise requests.HTTPError(f"{response.status_code} from minimax_vlm: {response.text[:500]}",
                                      response=response)
-        text = (response.json() or {}).get("content")
+        payload = response.json() or {}
+        # A provider-level error can arrive with HTTP 200 and an EMPTY content field. MiniMax does exactly
+        # that when the coding plan's token allowance is used up: HTTP 200, body
+        # {"content":"", "base_resp":{"status_code":2056,"status_msg":"Token Plan usage limit reached"}}.
+        # Read as an empty answer it is invisible: the call looks like the model had nothing to say, so it
+        # is logged as an empty answer (which the dashboard calls wasted) instead of the quota wall it
+        # really is, and the caller cannot tell "the plan is finished" from "this frame was hard".
+        # Surface it as a failure carrying the provider's own words, mapped to the fixed error_type list:
+        # a token-plan limit is a quota wall, i.e. no_credit (402), not an empty answer.
+        base = payload.get('base_resp') or {}
+        code = base.get('status_code')
+        if isinstance(code, int) and code != 0:
+            msg = str(base.get('status_msg') or payload.get('content') or f'provider error {code}')
+            lowered = msg.lower()
+            status = 402 if ('usage limit' in lowered or 'token plan' in lowered
+                             or 'quota' in lowered or 'insufficient' in lowered) else 400
+            err = requests.HTTPError(f"{status} from minimax_vlm: {msg} (base_resp {code})")
+            err.response = requests.Response()
+            err.response.status_code = status
+            err.response._content = str(payload).encode()
+            raise err
+        text = payload.get("content")
         return ProviderResponse(
             content=[ProviderBlock(type="text", text=strip_reasoning(text))] if isinstance(text, str) and text.strip() else [],
             usage=ProviderUsage(),
@@ -679,21 +775,23 @@ class MiniMaxVLMClient(BaseProviderClient):
 
 
 def create_client(preset: str, api_key: Optional[str], base_url: Optional[str] = None,
-                  timeout: int = 120) -> BaseProviderClient:
-    """Build the compatibility client for one endpoint (see ``config.PRESETS``)."""
+                  timeout: int = 120, headers: Optional[dict[str, str]] = None) -> BaseProviderClient:
+    """Build the compatibility client for one endpoint (see ``config.PRESETS``). ``headers`` go on every request
+    (an Anthropic user key's ``anthropic-workspace-id``)."""
     spec = get_preset(preset)
     url = (base_url or "").strip() or spec.base_url
     if spec.needs_key and not api_key:
-        raise ValueError(f"No API key configured for this {spec.label} endpoint")
+        raise RequestNotSent(f"No API key configured for this {spec.label} endpoint")
     key = api_key or KEYLESS_PLACEHOLDER
     if spec.client == "anthropic":
-        return AnthropicProviderClient(api_key=key, base_url=url, provider=spec.name, timeout=timeout)
+        return AnthropicProviderClient(api_key=key, base_url=url, provider=spec.name, timeout=timeout,
+                                       default_headers=headers)
     if spec.client == "google":
         return GoogleProviderClient(key, base_url=url, timeout=timeout)
     if spec.client == "minimax_vlm":
         return MiniMaxVLMClient(key, url, timeout=timeout)
     if not url:
-        raise ValueError(f"A base URL is required for a {spec.label} endpoint")
+        raise RequestNotSent(f"A base URL is required for a {spec.label} endpoint")
     return OpenAICompatibleProviderClient(
         provider=spec.name,
         api_key=key,
@@ -777,13 +875,17 @@ def web_search_request(mechanism: str) -> tuple[list[dict[str, Any]], dict[str, 
 
 
 def response_tokens(resp: Any) -> tuple[int, int]:
-    usage = getattr(resp, "usage", None)
-    return (int(getattr(usage, "input_tokens", 0) or 0), int(getattr(usage, "output_tokens", 0) or 0))
+    """(prompt tokens including cached ones, output tokens) of a response."""
+    used = response_usage(resp)
+    return used.tokens_in, used.tokens_out
 
 
 @dataclass
 class CallUsage:
-    """Everything a response says about what the call consumed (and, if given, cost)."""
+    """Everything a response says about what the call consumed (and, if given, cost).
+
+    ``tokens_in`` is the whole prompt on every provider: uncached + cache read + cache write. Anthropic's
+    ``input_tokens`` is only the uncached part (0 when the whole prompt was cached, as on MiniMax)."""
     tokens_in: int = 0
     tokens_out: int = 0
     cache_read: int = 0
@@ -801,9 +903,21 @@ def _num(obj: Any, name: str) -> int:
 def openai_call_usage(usage: dict) -> CallUsage:
     """CallUsage from a raw OpenAI-shaped ``usage`` dict (passthrough and host-side callers)."""
     u = _openai_usage(usage or {})
-    return CallUsage(tokens_in=u.input_tokens, tokens_out=u.output_tokens, cache_read=u.cache_read_input_tokens,
+    return CallUsage(tokens_in=u.input_tokens + u.cache_read_input_tokens + u.cache_creation_input_tokens,
+                     tokens_out=u.output_tokens, cache_read=u.cache_read_input_tokens,
                      cache_write=u.cache_creation_input_tokens, reasoning=u.reasoning_tokens,
                      web_searches=u.web_searches, cost=u.cost)
+
+
+def anthropic_call_usage(usage: dict) -> CallUsage:
+    """CallUsage from a raw Anthropic Messages ``usage`` dict (scripts that call /v1/messages themselves).
+    ``input_tokens`` there is the uncached part: the cache counts are added back."""
+    usage = usage or {}
+    cache_read = int(usage.get("cache_read_input_tokens") or 0)
+    cache_write = int(usage.get("cache_creation_input_tokens") or 0)
+    return CallUsage(tokens_in=int(usage.get("input_tokens") or 0) + cache_read + cache_write,
+                     tokens_out=int(usage.get("output_tokens") or 0), cache_read=cache_read, cache_write=cache_write,
+                     web_searches=int((usage.get("server_tool_use") or {}).get("web_search_requests") or 0))
 
 
 def response_usage(resp: Any) -> CallUsage:
@@ -817,11 +931,12 @@ def response_usage(resp: Any) -> CallUsage:
         return CallUsage()
     server_tool = getattr(usage, "server_tool_use", None)
     cost = getattr(usage, "cost", None)
+    cache_read, cache_write = _num(usage, "cache_read_input_tokens"), _num(usage, "cache_creation_input_tokens")
     return CallUsage(
-        tokens_in=_num(usage, "input_tokens"),
+        tokens_in=_num(usage, "input_tokens") + cache_read + cache_write,
         tokens_out=_num(usage, "output_tokens"),
-        cache_read=_num(usage, "cache_read_input_tokens"),
-        cache_write=_num(usage, "cache_creation_input_tokens"),
+        cache_read=cache_read,
+        cache_write=cache_write,
         reasoning=_num(usage, "reasoning_tokens"),
         web_searches=_num(usage, "web_searches") or _num(server_tool, "web_search_requests"),
         cost=float(cost) if isinstance(cost, (int, float)) and not isinstance(cost, bool) else None,
@@ -845,11 +960,15 @@ def single_completion(
 
     ``web_search`` (a ``ProviderPreset.web_search`` mechanism) lets the provider search the
     web before answering; the pages used come back via ``response_sources``.
+
+    The system prompt is the stable part and carries the prompt-cache breakpoint; the image and the
+    prompt change per call and come after it. A system prompt under the model's minimum cacheable
+    size (512-4096 tokens) is simply not cached. Non-Anthropic clients read only the block text.
     """
     if image_b64 is not None:
         content: Any = [
-            {"type": "text", "text": prompt},
             {"type": "image", "source": {"type": "base64", "media_type": media_type, "data": image_b64}},
+            {"type": "text", "text": prompt},
         ]
     else:
         content = prompt
@@ -860,7 +979,7 @@ def single_completion(
     return client.messages.create(
         model=model,
         max_tokens=max_tokens,
-        system=[{"type": "text", "text": system}] if system else [],
+        system=[{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}] if system else [],
         messages=[{"role": "user", "content": content}],
         tools=tools,
         tool_choice=None,

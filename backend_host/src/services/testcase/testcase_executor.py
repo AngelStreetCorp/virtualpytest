@@ -1467,7 +1467,7 @@ class TestCaseExecutor:
             
             if node_type == 'failure':
                 context.overall_success = False
-                return {'success': False, 'result_type': 'failure', 'error': 'Test case reached FAILURE block'}
+                return {'success': False, 'result_type': 'failure', 'error': self._failure_terminal_error(context)}
             
             # Execute block
             block_start_time = time.time()
@@ -1517,6 +1517,7 @@ class TestCaseExecutor:
                     }
             
             # Record step
+            await self._explain_block_failure(current_node, block_result, context)
             self._record_block_step(
                 context=context,
                 node=current_node,
@@ -1664,7 +1665,7 @@ class TestCaseExecutor:
             if node_type == 'failure':
                 context.overall_success = False
                 print(f"[@testcase_executor] Reached FAILURE terminal block - test failed")
-                return {'success': False, 'result_type': 'failure', 'error': 'Test case reached FAILURE block'}
+                return {'success': False, 'result_type': 'failure', 'error': self._failure_terminal_error(context)}
 
             # break_success is a loop-only terminal (QuickTest "break on success"):
             # like SUCCESS, but the result_type signals the enclosing loop to stop
@@ -1707,6 +1708,7 @@ class TestCaseExecutor:
                 print(f"[@testcase_executor]   Error: {block_result['error']}")
             
             # Record step with block ID for frontend tracking
+            await self._explain_block_failure(current_node, block_result, context)
             self._record_block_step(
                 context=context,
                 node=current_node,
@@ -1747,6 +1749,50 @@ class TestCaseExecutor:
         
         return {'success': False, 'result_type': 'error', 'error': 'Graph execution ended unexpectedly'}
     
+    # Captcha widgets a web page can show instead of letting an automated browser through. Matching one of
+    # these on the page of a failed block turns "Test case reached FAILURE block" into a reason a person can act on.
+    _CAPTCHA_PROBE_JS = (
+        "(function(){var h=function(sel){return document.querySelector(sel)!==null;};"
+        "if(h('iframe[src*=hcaptcha],.h-captcha,[data-hcaptcha-widget-id]'))return 'hCaptcha';"
+        "if(h('iframe[src*=recaptcha],.g-recaptcha'))return 'reCAPTCHA';"
+        "if(h('iframe[src*=challenges.cloudflare],.cf-turnstile'))return 'Cloudflare Turnstile';"
+        "return '';})()"
+    )
+
+    async def _detect_captcha(self) -> str:
+        """Name of the captcha widget on the current page of the device's web controller, or '' (also on any error)."""
+        try:
+            controllers = self.device.get_controllers('web')
+            if not controllers or not hasattr(controllers[0], 'execute_javascript'):
+                return ''
+            result = await controllers[0].execute_javascript(self._CAPTCHA_PROBE_JS, timeout=5.0)
+            value = result.get('result') if isinstance(result, dict) else ''
+            return value if isinstance(value, str) else ''
+        except Exception:
+            return ''
+
+    async def _explain_block_failure(self, node: Dict, block_result: Dict[str, Any], context: ScriptExecutionContext) -> None:
+        """Remember why a block failed, and say so in the step when a captcha is on the page it failed on."""
+        if block_result.get('success'):
+            return
+        label = (node.get('data') or {}).get('label') or node.get('id')
+        error = block_result.get('error') or block_result.get('message') or 'the block failed'
+        captcha = await self._detect_captcha()
+        if captcha:
+            error = f"{error} - the page shows a {captcha} captcha, which an automated test cannot pass"
+            block_result['error'] = error
+        context.last_block_failure = {'label': label, 'error': error, 'captcha': captcha}
+
+    @staticmethod
+    def _failure_terminal_error(context: ScriptExecutionContext) -> str:
+        """Message for a run that ended on the FAILURE block: the step that failed and why, not just that it ended there."""
+        failure = getattr(context, 'last_block_failure', None)
+        if not failure:
+            return 'Test case reached FAILURE block'
+        if failure.get('captcha'):
+            return f"Blocked by {failure['captcha']} captcha at step '{failure['label']}': {failure['error']}"
+        return f"Failed at step '{failure['label']}': {failure['error']}"
+
     async def _execute_block(self, node: Dict, context: ScriptExecutionContext) -> Dict[str, Any]:
         """
         Execute a single block by delegating to appropriate executor.

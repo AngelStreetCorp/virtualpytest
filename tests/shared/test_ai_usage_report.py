@@ -82,3 +82,52 @@ def test_cache_saving_and_avoided_make_saved_cost():
     r = usage_report.aggregate([row(0, cost=1.0, priced_calls=10, avoided=5, cache_saved=0.25)], "usage", hours=24, now=NOW)
     top = r["rows"][0]
     assert top["saved_cost"] == pytest.approx(5 * 1.0 / 10 + 0.25) and top["cache_saved"] == 0.25
+
+
+def test_cost_series_lands_in_the_slot_and_sums_to_cost():
+    rows = [row(0, cost=0.5, priced_calls=10), row(2, cost=0.25, priced_calls=10), row(2, cost=None, priced_calls=0),
+            row(3, cost=0.125, priced_calls=10)]
+    report = usage_report.aggregate(rows, "usage", hours=24, now=NOW)
+    for r in (report["rows"][0], report["totals"]):
+        cs = r["cost_series"]
+        assert len(cs) == len(r["series"]) == 24
+        assert cs[-1] == 0.5 and cs[-3] == 0.25 and cs[-4] == 0.125 and cs[-2] == 0.0
+        assert abs(sum(cs) - r["cost"]) < 1e-9
+    daily = usage_report.aggregate([row(0, cost=1.0, priced_calls=10)], "usage", hours=24 * 30, now=NOW)
+    assert daily["totals"]["cost_series"][-1] == 1.0 and len(daily["totals"]["cost_series"]) == 30
+
+
+class _Q:
+    """Records the PostgREST calls ``get_recent_calls`` makes."""
+    def __init__(self):
+        self.ops = []
+
+    def __getattr__(self, name):
+        def op(*a, **k):
+            self.ops.append((name, a))
+            return self
+        return op
+
+    def execute(self):
+        return type("R", (), {"data": []})()
+
+
+def _recent_ops(monkeypatch, filters, **kw):
+    from shared.src.lib.database import ai_routing_db
+    q = _Q()
+    monkeypatch.setattr(ai_routing_db, "get_supabase", lambda: type("S", (), {"table": lambda self, n: q})())
+    ai_routing_db.get_recent_calls("t1", 24, filters, **kw)
+    return q.ops
+
+
+def test_empty_group_key_matches_null_or_empty_in_the_call_list(monkeypatch):
+    ops = _recent_ops(monkeypatch, {"host": usage_report.NONE_KEY, "user": usage_report.NONE_KEY, "origin": "script"})
+    assert ("or_", ("host_name.is.null,host_name.eq.",)) in ops   # text column: NULL or ''
+    assert ("is_", ("user_id", "null")) in ops                    # uuid column: NULL only
+    assert ("eq", ("origin", "script")) in ops
+    assert not any(o == ("eq", ("host_name", usage_report.NONE_KEY)) for o in ops)
+
+
+def test_call_list_can_leave_avoided_calls_to_the_database(monkeypatch):
+    assert ("neq", ("outcome", "avoided")) in _recent_ops(monkeypatch, {}, include_avoided=False)
+    assert ("neq", ("outcome", "avoided")) not in _recent_ops(monkeypatch, {})

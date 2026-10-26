@@ -1,0 +1,24 @@
+{
+  "id": "crimson",
+  "name": "Crimson",
+  "accent": "#d6283a",
+  "tone": "neutral",
+  "dark": {
+    "background": "#1b1c1e", "surface": "#26282b", "inputBg": "#2c2f33", "sidebarBg": "#202224",
+    "textPrimary": "#f0f1f2", "textSecondary": "#9ea3a8", "textMuted": "#6b7075",
+    "accent": "#d6283a", "accentHover": "#b81f2f", "accentLight": "#f08a94", "accentText": "#ef5a66",
+    "gold": "#ff6b6b",
+    "agentBubble": "#2a2c30", "agentBorder": "#3a3d41", "userBubble": "#34373c", "userBorder": "#474b51",
+    "borderColor": "#3a3d41", "hoverBg": "#2c2f33", "cardShadow": "0 2px 8px rgba(0,0,0,0.35)",
+    "series": ["#d6283a", "#7aa6c2", "#a98bc7", "#9ea3a8", "#8fbf9f"]
+  },
+  "light": {
+    "background": "#eef0f2", "surface": "#ffffff", "inputBg": "#ffffff", "sidebarBg": "#ffffff",
+    "textPrimary": "#16181a", "textSecondary": "#4b5056", "textMuted": "#6b7075",
+    "accent": "#c8102e", "accentHover": "#a50d25", "accentLight": "#f08a94", "accentText": "#a50d25",
+    "gold": "#b3122a",
+    "agentBubble": "#f6f7f8", "agentBorder": "#d3d7dc", "userBubble": "#e6e9ec", "userBorder": "#c8cdd3",
+    "borderColor": "#d3d7dc", "hoverBg": "#e6e9ec", "cardShadow": "0 1px 3px rgba(20,24,28,0.08)",
+    "series": ["#a50d25", "#3f6f8f", "#6f5596", "#4b5056", "#4f7f5f"]
+  }
+}

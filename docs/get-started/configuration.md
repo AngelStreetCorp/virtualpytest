@@ -1,5 +1,9 @@
 # Configuration reference
 
+This page lists every setting the platform reads and where each one is kept. You normally do not need it: the installer fills in almost everything for you. Come back here when you want to change a setting, move to another address, or understand what a value does.
+
+<div data-technical>
+
 Every variable the platform reads, where it lives, and which install path fills it for you.
 Three files, one per component — the installers create all three:
 
@@ -13,7 +17,17 @@ Templates: `.env.example`, `backend_host/src/.env.example`, `frontend/.env.examp
 `setup/docker/.env.example`. A value the installer generated is safe to change by hand;
 re-run `write_env.sh` (VM) or `./setup/docker/launch.sh --rebuild` (Docker) afterwards.
 
+</div>
+
+The platform keeps its settings in three files, one for each part. The installer creates all three. If you change a setting, the web app and the other parts need to be restarted or rebuilt to pick it up.
+
+---
+
 ## Ports
+
+The ports each service listens on. Use this when a firewall or a proxy needs to know what to open.
+
+<div data-technical>
 
 | Port | Service | Docker | One VM |
 |---|---|---|---|
@@ -28,7 +42,15 @@ re-run `write_env.sh` (VM) or `./setup/docker/launch.sh --rebuild` (Docker) afte
 | 9000 / 9001 | MinIO S3 / console | ✓ | ✓ |
 | 6379 | Redis | internal only | ✓ (`REDIS_PASSWORD`, generated per install) |
 
+</div>
+
+---
+
 ## Server — `.env`
+
+The settings for the server: its name and address, its login, its database and its storage. Most are filled in by the installer.
+
+<div data-technical>
 
 | Variable | Meaning | Default / who sets it |
 |---|---|---|
@@ -52,12 +74,17 @@ re-run `write_env.sh` (VM) or `./setup/docker/launch.sh --rebuild` (Docker) afte
 | `REDIS_URL` (+ `REDIS_TOKEN` for Upstash) | alert / script queues | `redis://:<REDIS_PASSWORD>@localhost:6379/0` (password generated per install) |
 | `GRAFANA_URL` | internal Grafana base the server calls (with sub-path when behind nginx) | `http://localhost:3000` |
 | `GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` | Grafana admin the server uses | `admin` / generated |
-| *(AI models and API keys)* | **not in `.env` any more.** Configure them in **Settings → AI** (Endpoints: provider + API key; Profiles: model + parameters; Routing: which model serves each use case). Keys are stored server-side in `~/.config/virtualpytest/ai_secrets.json`. Upgrading an install that had `AI_*` / `LOCAL_AI_*` / `VLM_*` / `*_API_KEY` keys: run `scripts/ai_routing_import_env.py` once, then delete them (see [AI routing](../agent/ai/AI_ROUTING.md)) | seeded default: Anthropic for agents, OpenRouter for vision/text — AI off until a key is entered |
 | `MCP_SECRET_KEY` | bearer token for the MCP endpoint | generated |
 | `VPT_CONFIG_DIR` | where the server keeps credentials entered in the UI (TestRail, JIRA, Slack). Must be outside the project folder, which deploys wipe | `~/.config/virtualpytest` of the service user |
 | `ENVIRONMENT` / `DEBUG` | `production` / `0` | |
 
+</div>
+
 ### AI configuration lives in the database (since TASK-30)
+
+AI models and their keys are not kept in the settings file any more. You set them in the web app, under **Settings → AI**. A new install starts with AI switched off until you enter a key.
+
+<div data-technical>
 
 Which model serves each AI use case, and the provider API keys, are set in **Settings → AI**, not in
 any `.env`: **Endpoints** (provider preset, base URL, write-only API key, Test), **Profiles** (model +
@@ -79,7 +106,17 @@ AI key — they call models through the server. Details: [AI routing](../agent/a
    `GOOGLE_API_KEY`, `GEMINI_API_KEY`. The Settings `.env` editor refuses to write the model keys back.
 5. Settings → AI → Routing must show the same models as before; press the Test buttons.
 
+Keys are stored server-side in `~/.config/virtualpytest/ai_secrets.json`. An install that had `AI_*` / `LOCAL_AI_*` / `VLM_*` / `*_API_KEY` keys in `.env` must move them as described below.
+
+</div>
+
+---
+
 ## Host — `backend_host/src/.env`
+
+The settings for a host, the machine that is plugged into your devices. Set the name and addresses, then the devices that machine controls.
+
+<div data-technical>
 
 | Variable | Meaning | Default / who sets it |
 |---|---|---|
@@ -106,7 +143,15 @@ AI key — they call models through the server. Details: [AI routing](../agent/a
 
 The template `backend_host/src/.env.example` documents every device option inline.
 
+</div>
+
+---
+
 ## Frontend — `frontend/.env` (build time)
+
+The settings the web app reads when it is built. They are fixed into the app at build time, so you must build again after a change.
+
+<div data-technical>
 
 | Variable | Meaning | Default / who sets it |
 |---|---|---|
@@ -123,7 +168,15 @@ The template `backend_host/src/.env.example` documents every device option inlin
 | `VITE_FEATURE_DEPLOYMENTS` · `VITE_NAV_HIDDEN` / `_DISABLED` / `_COMING_SOON` | feature toggle and navbar overrides (full route paths) | |
 | `VITE_DEV_MODE` | dev-only conveniences | `false` |
 
+</div>
+
+---
+
 ## Docker stack — `setup/docker/.env`
+
+The settings for the Docker installation. They are the same names as above, plus a few the Docker files need.
+
+<div data-technical>
 
 Same names, plus the values the compose files need: `PUBLIC_HOST`, `POSTGRES_PASSWORD`,
 `JWT_SECRET`, `ANON_KEY`, `SERVICE_ROLE_KEY` (compose maps them to `SUPABASE_*` for the
@@ -131,7 +184,15 @@ server and host), `DASHBOARD_USERNAME` / `DASHBOARD_PASSWORD` (Studio), `PG_META
 `SUPABASE_API_PORT` / `SUPABASE_DB_PORT`, `GRAFANA_DB_PASSWORD`. `setup/docker/.env.example`
 lists them all; `launch.sh` fills every `CHANGE_ME`.
 
+</div>
+
+---
+
 ## Versions the installers use
+
+The versions of each tool the installers set up, and where each one is set.
+
+<div data-technical>
 
 | Component | Version | Where it is pinned |
 |---|---|---|
@@ -141,3 +202,5 @@ lists them all; `launch.sh` fills every `CHANGE_ME`.
 | Supabase services | pinned tags in `setup/docker/supabase/docker-compose.yml`; VM path = current Supabase CLI | |
 | Grafana | 11.6 (Docker) / distro package (VM) | |
 | Docker Engine | 24+ with the `docker compose` v2 plugin | `setup/docker/install_docker.sh` |
+
+</div>

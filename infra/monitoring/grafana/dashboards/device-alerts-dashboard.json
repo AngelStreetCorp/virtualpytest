@@ -23,6 +23,19 @@
   "links": [],
   "panels": [
     {
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "collapsed": false,
+      "panels": []
+    },
+    {
       "datasource": {
         "uid": "supabase-postgres"
       },
@@ -57,7 +70,7 @@
         "h": 3,
         "w": 4,
         "x": 0,
-        "y": 0
+        "y": 1
       },
       "id": 1,
       "options": {
@@ -118,7 +131,7 @@
         "h": 3,
         "w": 4,
         "x": 4,
-        "y": 0
+        "y": 1
       },
       "id": 2,
       "options": {
@@ -179,7 +192,7 @@
         "h": 3,
         "w": 4,
         "x": 8,
-        "y": 0
+        "y": 1
       },
       "id": 3,
       "options": {
@@ -248,7 +261,7 @@
         "h": 3,
         "w": 4,
         "x": 12,
-        "y": 0
+        "y": 1
       },
       "id": 4,
       "options": {
@@ -317,7 +330,7 @@
         "h": 3,
         "w": 4,
         "x": 16,
-        "y": 0
+        "y": 1
       },
       "id": 5,
       "options": {
@@ -386,7 +399,7 @@
         "h": 3,
         "w": 4,
         "x": 20,
-        "y": 0
+        "y": 1
       },
       "id": 15,
       "options": {
@@ -489,7 +502,7 @@
         "h": 4,
         "w": 24,
         "x": 0,
-        "y": 3
+        "y": 4
       },
       "id": 19,
       "options": {
@@ -525,7 +538,7 @@
           "refId": "A"
         }
       ],
-      "title": "\ud83d\udea8 Device Alert Status",
+      "title": "🚨 Device Alert Status",
       "type": "stat"
     },
     {
@@ -581,7 +594,7 @@
         "h": 6,
         "w": 4,
         "x": 0,
-        "y": 7
+        "y": 8
       },
       "id": 6,
       "options": {
@@ -688,7 +701,7 @@
         "h": 6,
         "w": 4,
         "x": 4,
-        "y": 7
+        "y": 8
       },
       "id": 7,
       "options": {
@@ -776,7 +789,7 @@
         "h": 6,
         "w": 4,
         "x": 8,
-        "y": 7
+        "y": 8
       },
       "id": 8,
       "options": {
@@ -872,7 +885,7 @@
         "h": 6,
         "w": 4,
         "x": 12,
-        "y": 7
+        "y": 8
       },
       "id": 9,
       "options": {
@@ -968,7 +981,7 @@
         "h": 6,
         "w": 4,
         "x": 16,
-        "y": 7
+        "y": 8
       },
       "id": 10,
       "options": {
@@ -1064,7 +1077,7 @@
         "h": 6,
         "w": 4,
         "x": 20,
-        "y": 7
+        "y": 8
       },
       "id": 16,
       "options": {
@@ -1170,7 +1183,7 @@
         "h": 5,
         "w": 24,
         "x": 0,
-        "y": 13
+        "y": 14
       },
       "id": 12,
       "options": {
@@ -1220,185 +1233,199 @@
       "type": "timeseries"
     },
     {
-      "datasource": {
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
+      "type": "row",
+      "title": "Details",
       "gridPos": {
-        "h": 6,
+        "h": 1,
         "w": 24,
         "x": 0,
-        "y": 18
+        "y": 19
       },
-      "id": 11,
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Detected At"
-          }
-        ]
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
+      "id": 101,
+      "collapsed": true,
+      "panels": [
         {
           "datasource": {
             "uid": "supabase-postgres"
           },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT host_name as \"Host\", device_name as \"Device\", incident_type as \"Type\", TO_CHAR(start_time, 'YYYY-MM-DD HH24:MI:SS') as \"Detected At\", ROUND(EXTRACT(EPOCH FROM (NOW() - start_time))/60, 1) as \"Duration (min)\" FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE status = 'active' ORDER BY start_time DESC LIMIT 50",
-          "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
                 },
-                "type": "groupBy"
-              }
-            ],
-            "limit": 50
-          }
-        }
-      ],
-      "title": "\ud83d\udea8 Active Incidents",
-      "type": "table"
-    },
-    {
-      "datasource": {
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "inspect": false,
-            "minWidth": 50
-          },
-          "decimals": 1,
-          "mappings": [],
-          "max": 1,
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
+                "inspect": false
               },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 20
+          },
+          "id": 11,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "countRows": false,
+              "fields": "",
+              "reducer": [
+                "sum"
+              ],
+              "show": false
+            },
+            "showHeader": true,
+            "sortBy": [
               {
-                "color": "red",
-                "value": 1
+                "desc": true,
+                "displayName": "Detected At"
               }
             ]
-          }
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 6,
-        "w": 24,
-        "x": 0,
-        "y": 24
-      },
-      "id": 13,
-      "options": {
-        "cellHeight": "sm",
-        "displayMode": "list",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT host_name as \"Host\", device_name as \"Device\", incident_type as \"Type\", TO_CHAR(start_time, 'YYYY-MM-DD HH24:MI:SS') as \"Detected At\", ROUND(EXTRACT(EPOCH FROM (NOW() - start_time))/60, 1) as \"Duration (min)\" FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE status = 'active' ORDER BY start_time DESC LIMIT 50",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
           ],
-          "show": false
+          "title": "🚨 Active Incidents",
+          "type": "table"
         },
-        "orientation": "vertical",
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Resolved At"
-          }
-        ]
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
         {
           "datasource": {
             "uid": "supabase-postgres"
           },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT \n    all_devices.device_name as \"metric\",\n    CASE \n        WHEN COUNT(active_alerts.id) > 0 THEN 1\n        ELSE 0\n    END as \"value\"\nFROM (\n    SELECT DISTINCT device_name FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE device_name IS NOT NULL\n) all_devices\nLEFT JOIN (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) active_alerts ON (\n    all_devices.device_name = active_alerts.device_name \n    AND active_alerts.status = 'active'\n)\nGROUP BY all_devices.device_name\nORDER BY all_devices.device_name",
-          "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
                 },
-                "type": "groupBy"
+                "inspect": false,
+                "minWidth": 50
+              },
+              "decimals": 1,
+              "mappings": [],
+              "max": 1,
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 1
+                  }
+                ]
               }
-            ],
-            "limit": 50
-          }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 26
+          },
+          "id": 13,
+          "options": {
+            "cellHeight": "sm",
+            "displayMode": "list",
+            "footer": {
+              "countRows": false,
+              "fields": "",
+              "reducer": [
+                "sum"
+              ],
+              "show": false
+            },
+            "orientation": "vertical",
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "Resolved At"
+              }
+            ]
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT \n    all_devices.device_name as \"metric\",\n    CASE \n        WHEN COUNT(active_alerts.id) > 0 THEN 1\n        ELSE 0\n    END as \"value\"\nFROM (\n    SELECT DISTINCT device_name FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE device_name IS NOT NULL\n) all_devices\nLEFT JOIN (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) active_alerts ON (\n    all_devices.device_name = active_alerts.device_name \n    AND active_alerts.status = 'active'\n)\nGROUP BY all_devices.device_name\nORDER BY all_devices.device_name",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "Recent Resolved",
+          "type": "table"
         }
-      ],
-      "title": "Recent Resolved",
-      "type": "table"
+      ]
     }
   ],
   "preload": false,

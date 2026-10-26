@@ -6,7 +6,7 @@
  * The MUI ripple is off here: inside a full-height bar item or a menu row it was clipped
  * by the element's box and looked cropped. Feedback is a flat background instead:
  * - menu rows: palette `hoverBg` on hover, a gold tint while pressed / keyboard-focused;
- * - bar items and icon buttons: see `navItemSx` (Navigation_ItemStyle.ts).
+ * - bar items and icon buttons: see `navItemSx` (Navigation_ItemStyle.tsx).
  */
 import { ThemeProvider, type Theme } from '@mui/material';
 import React, { useCallback } from 'react';

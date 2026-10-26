@@ -235,64 +235,93 @@ class ADBUtils:
         except Exception as e:
             return False, str(e)
         
+    def _list_devices(self) -> Optional[Dict[str, str]]:
+        """`adb devices` as {serial: state}; None when the adb server does not answer."""
+        success, stdout, stderr, exit_code = self.execute_command("adb devices", timeout=10)
+        if not success or exit_code != 0:
+            return None
+        devices = {}
+        for line in stdout.split('\n'):
+            parts = line.split()
+            if len(parts) >= 2 and not line.startswith('List of devices'):
+                devices[parts[0]] = parts[1]
+        return devices
+
+    def _restart_adb_server(self) -> None:
+        """kill-server + start-server. Drops every adb device on this host, so it is
+        only used when the server itself does not answer."""
+        print("[@lib:adbUtils:connect_device] adb server not answering: kill-server + start-server")
+        self.execute_command("adb kill-server", timeout=10)
+        self.execute_command("adb start-server", timeout=20)
+
+    def _usb_serial_for_ip(self, devices: Dict[str, str], ip: str) -> Optional[str]:
+        """The USB-attached device whose Wi-Fi address is `ip`, if any."""
+        for serial, state in devices.items():
+            if ':' in serial or state != 'device':
+                continue
+            success, stdout, _, _ = self.execute_command(f"adb -s {serial} shell ip -o -4 addr show", timeout=5)
+            if success and re.search(rf"inet {re.escape(ip)}/", stdout):
+                return serial
+        return None
+
     def connect_device(self, device_id: str) -> bool:
         """
-        Connect to ADB device.
-        
+        Connect to ADB device, recovering the usual ways it gets lost.
+
+        Ladder, least disruptive first:
+          1. adb server does not answer -> kill-server + start-server.
+          2. TCP endpoint (ip:port) -> `adb connect`.
+          3. Still missing but the same phone is on USB -> `adb -s <usb> tcpip <port>`, connect again.
+          4. Listed as offline -> `adb disconnect` + `adb connect` (TCP) once.
+        USB serials (DEVICE<N>_ADB_SERIAL) are enumerated by the adb server directly:
+        for those only step 1 applies.
+
         Args:
             device_id: Android device ID — TCP endpoint (IP:port) or USB serial
 
         Returns:
-            bool: True if connection successful
+            bool: True if the device is listed in state `device`
         """
         try:
-            # `adb connect` only applies to TCP endpoints (ip:port). USB serials
-            # (DEVICE<N>_ADB_SERIAL) are enumerated by the adb server directly, so
-            # for those we only verify presence in `adb devices`.
-            if ':' in device_id:
-                success, stdout, stderr, exit_code = self.execute_command(f"adb connect {device_id}")
+            is_tcp = ':' in device_id
 
-                if not success or exit_code != 0:
-                    print(f"[@lib:adbUtils:connect_device] ADB connect failed: {stderr}")
+            devices = self._list_devices()
+            if devices is None:
+                self._restart_adb_server()
+                devices = self._list_devices()
+                if devices is None:
+                    print(f"[@lib:adbUtils:connect_device] adb server still not answering after restart")
                     return False
 
-            # Verify device is connected
-            success, stdout, stderr, exit_code = self.execute_command("adb devices")
-            
-            if not success or exit_code != 0:
-                print(f"[@lib:adbUtils:connect_device] Failed to verify device connection")
-                return False
-                
-            # Check if device appears in devices list
-            device_lines = [line.strip() for line in stdout.split('\n') 
-                          if line.strip() and not line.startswith('List of devices')]
-            
-            device_found = None
-            for line in device_lines:
-                # Exact match on the serial column: a USB serial may be a prefix of another
-                if line.split()[0] == device_id:
-                    device_found = line
-                    break
+            if is_tcp and devices.get(device_id) != 'device':
+                if devices.get(device_id) == 'offline':
+                    self.execute_command(f"adb disconnect {device_id}")
+                self.execute_command(f"adb connect {device_id}", timeout=10)
+                devices = self._list_devices() or {}
 
-            if not device_found:
+                if devices.get(device_id) != 'device':
+                    ip, port = device_id.rsplit(':', 1)
+                    usb_serial = self._usb_serial_for_ip(devices, ip)
+                    if usb_serial:
+                        print(f"[@lib:adbUtils:connect_device] {device_id} not on TCP but on USB as {usb_serial}: adb tcpip {port}")
+                        self.execute_command(f"adb -s {usb_serial} tcpip {port}", timeout=10)
+                        time.sleep(2)
+                        self.execute_command(f"adb connect {device_id}", timeout=10)
+                        devices = self._list_devices() or {}
+
+            state = devices.get(device_id)
+            if state is None:
                 print(f"[@lib:adbUtils:connect_device] Device {device_id} not found in adb devices list")
                 return False
-                
-            if 'offline' in device_found:
-                print(f"[@lib:adbUtils:connect_device] Device {device_id} is offline")
+            if state != 'device':
+                print(f"[@lib:adbUtils:connect_device] Device {device_id} status: {state}")
                 return False
-                
-            if 'device' not in device_found:
-                status = device_found.split('\t')[1] if '\t' in device_found else 'unknown'
-                print(f"[@lib:adbUtils:connect_device] Device {device_id} status: {status}")
-                return False
-                
             return True
-            
+
         except Exception as e:
             print(f"[@lib:adbUtils:connect_device] Error: {e}")
             return False
-            
+
     def execute_key_command(self, device_id: str, key: str) -> bool:
         """
         Execute ADB key command.

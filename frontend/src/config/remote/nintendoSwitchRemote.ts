@@ -107,7 +107,7 @@ export const nintendoSwitchRemoteConfig = {
     image_size: { width: 791, height: 550 },
     top_strip_height: 64,
     text_style: {
-      fontSize: '20px',
+      fontSize: '20px', // ui-ok: no-literal-font-size - remote overlay text scales with the screenshot (remoteScale)
       fontWeight: 'bold',
       color: 'white',
       textShadow: '1px 1px 3px rgba(0,0,0,0.9)',
@@ -134,7 +134,7 @@ export const nintendoSwitchRemoteConfig = {
     showScreenshotInExpanded: true,
     header: {
       height: '40px',
-      fontSize: '0.875rem',
+      fontSize: '0.875rem', // ui-ok: no-literal-font-size - layout data, read by the remote/AV panel renderer
       fontWeight: 'bold',
       iconSize: 'small',
       padding: '8px',

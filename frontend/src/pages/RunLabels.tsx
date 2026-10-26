@@ -35,6 +35,8 @@ import { useGovernanceMutations, useLabels, useReportPermissions } from '../hook
 import { useToast } from '../hooks/useToast';
 import { LABEL_NAME_MAX, REPORT_ROUTES, validateLabelName, type RunLabel } from '../types/reports';
 import { useI18n } from '../i18n/useI18n';
+import { dangerButtonSx } from '../components/common/PageChrome';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 
 const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
 const DEFAULT_COLOR = '#2a78d6';
@@ -149,6 +151,7 @@ const LabelDialog: React.FC<LabelDialogProps> = ({ open, label, existing, onClos
 };
 
 const RunLabels: React.FC = () => {
+  const P = useAgentChatPalette();
   const { t } = useI18n();
   const labels = useLabels();
   const { canEdit } = useReportPermissions();
@@ -245,7 +248,7 @@ const RunLabels: React.FC = () => {
                             <Button size="small" onClick={() => setDialog({ open: true, label })}>
                               Rename
                             </Button>
-                            <Button size="small" color="error" onClick={() => setToDelete(label)}>
+                            <Button size="small" onClick={() => setToDelete(label)} sx={dangerButtonSx(P)}>
                               Remove
                             </Button>
                           </>

@@ -1,6 +1,7 @@
 import { Box, Tab, Tabs } from '@mui/material';
 import React from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 type RunNavSection = 'tests' | 'build' | 'deployments';
 
@@ -50,7 +51,7 @@ const MobileRunNavTabs: React.FC = () => {
         variant="fullWidth"
         textColor="primary"
         indicatorColor="primary"
-        sx={{ minHeight: 42, '& .MuiTab-root': { minHeight: 42, textTransform: 'none', fontSize: '0.8rem' } }}
+        sx={{ minHeight: 42, '& .MuiTab-root': { minHeight: 42, textTransform: 'none', fontSize: TYPOGRAPHY.body.size } }}
       >
         <Tab label="Tests" value="tests" />
         <Tab label="Build" value="build" />

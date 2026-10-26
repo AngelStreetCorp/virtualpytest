@@ -476,7 +476,7 @@
     },
     {
       "type": "row",
-      "title": "History before session tracking (2026-07-15)",
+      "title": "Details",
       "collapsed": true,
       "gridPos": {
         "h": 1,
@@ -545,7 +545,8 @@
             }
           ]
         }
-      ]
+      ],
+      "description": "History before session tracking (2026-07-15)"
     }
   ],
   "preload": false,

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — false audio-loss in heatmap, KPIs and alerts        |
 | Area      | `backend_host/scripts/transcript_accumulator.py` (audio detection worker) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `6386679964`, `4d9853e009`                                   |
 
 ---

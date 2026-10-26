@@ -6,7 +6,12 @@ The host continuously takes screenshots using FFmpeg, and this controller refere
 Uses shared FFmpeg-based capture functionality.
 """
 
+import glob
+import json
+import os
+import re
 import subprocess
+import time
 from typing import Dict, Any, Optional
 from ..base_controller import FFmpegCaptureController
 
@@ -24,53 +29,39 @@ class HDMIStreamController(FFmpegCaptureController):
         """
         super().__init__("HDMI Stream Controller", "HDMI", video_stream_path, video_capture_path, **kwargs)
 
-        
-    def set_quality(self, quality: str = 'sd') -> bool:
-        """Soft per-device quality change: rewrite this device's line in
-        active_captures.conf. The (already running) vpt-stream service loop
-        detects the change and recycles just this device's ffmpeg. Does NOT
-        restart the service — use the restart endpoint for that."""
+    # A monitor frame record older than this says nothing about the box now.
+    SIGNAL_FRAME_MAX_AGE_S = 15
+
+    def get_signal_state(self) -> Dict[str, Any]:
+        """Is the box on this input asleep? `standby` True / False, or None when nothing can tell.
+
+        1. `hdmi_hid`: the capture dongle's own HDMI flag (shared/src/lib/utils/hdmi_signal.py, MS2130).
+        2. `monitor`: the newest frame record the capture monitor wrote (no_signal or blackscreen = standby).
+        `signal` is the HDMI flag when the dongle gives one, else None.
+        """
+        from shared.src.lib.utils.hdmi_signal import signal_present
+        m = re.search(r'(\d+)$', str(getattr(self, 'device_id', '')))
+        signal = signal_present(int(m.group(1))) if m else None
+        if signal is not None:
+            return {'standby': not signal, 'signal': signal, 'source': 'hdmi_hid'}
+        frame = self._latest_monitor_record()
+        if frame is not None:
+            return {'standby': bool(frame.get('no_signal') or frame.get('blackscreen')), 'signal': None, 'source': 'monitor',
+                    'no_signal': bool(frame.get('no_signal')), 'blackscreen': bool(frame.get('blackscreen'))}
+        return {'standby': None, 'signal': None, 'source': None}
+
+    def _latest_monitor_record(self) -> Optional[Dict[str, Any]]:
+        files = glob.glob(os.path.join(self.video_capture_path, 'hot', 'metadata', 'capture_*.json'))
+        if not files:
+            return None
+        newest = max(files, key=os.path.getmtime)
+        if time.time() - os.path.getmtime(newest) > self.SIGNAL_FRAME_MAX_AGE_S:
+            return None
         try:
-            import os
-            from shared.src.lib.utils.storage_path_utils import get_active_captures_conf_path
-            
-            device_id = self.device_id
-            capture_dir = self.video_capture_path
-            config_file = get_active_captures_conf_path()
-            
-            print(f"[HDMI] Updating quality for {device_id} to {quality}")
-            
-            # Read existing entries
-            entries = []
-            if os.path.exists(config_file):
-                with open(config_file, 'r') as f:
-                    entries = [line.strip() for line in f if line.strip()]
-            
-            # Update quality for this device. Match on a normalized path so
-            # Windows separator/trailing-slash/case differences still hit.
-            target = os.path.normcase(os.path.normpath(capture_dir))
-            found = False
-            for i, entry in enumerate(entries):
-                parts = entry.split(',')
-                if len(parts) == 3 and os.path.normcase(os.path.normpath(parts[0])) == target:
-                    entries[i] = f"{parts[0]},{parts[1]},{quality}"
-                    found = True
-                    break
-            
-            if not found:
-                print(f"[HDMI] Device {device_id} not running yet")
-                return False
-            
-            # Simple direct write (file is 666, already exists, world-writable)
-            with open(config_file, 'w') as f:
-                f.write('\n'.join(entries) + '\n')
-            
-            print(f"[HDMI] Quality updated: {device_id} → {quality}")
-            return True
-            
-        except Exception as e:
-            print(f"[HDMI] Error updating quality: {e}")
-            return False
+            with open(newest) as f:
+                return json.load(f)
+        except (OSError, ValueError):
+            return None
 
 
             

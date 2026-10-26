@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — misleading report, no data loss                     |
 | Area      | backend_host / reports / test_scripts                        |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `c4858fb32`                                                  |
 
 ---

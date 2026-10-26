@@ -49,6 +49,9 @@ class _FakeHelpers:
         self.result = result
         self.calls = []
 
+    def classify_special_state(self, img):
+        return None          # Localize v3 step 1 (TASK-104): never a black / no-signal frame here
+
     def identify_screen(self, img, node_fps):
         self.calls.append((img, node_fps))
         return self.result
@@ -126,19 +129,37 @@ def test_tier2_fields_absent_on_a_gate_skip(monkeypatch, tmp_path):
 
 
 def test_screen_state_failure_keeps_the_verdict(monkeypatch, tmp_path):
-    """If `screen_state_cv` raises (e.g. a future caller breaks its signature),
-    the matcher verdict is still returned with no Tier-2 fields. The gate
-    must not be a correctness gate.
-    """
+    """Each Tier-2 check runs on its own (its own input shape): one that raises answers 'unknown'
+    and the others still answer; the matcher verdict is never touched. Tier 2 is not a
+    correctness gate (TASK-107 goal 7)."""
     m = _make_monitor(monkeypatch, tmp_path)
-    # Force screen_state_cv to raise on every call.
     import shared.src.lib.ai.screen_state_cv as scv
-    monkeypatch.setattr(scv, 'screen_state', lambda *a, **k: (_ for _ in ()).throw(RuntimeError('boom')))
+    monkeypatch.setattr(scv, 'overlay', lambda *a, **k: (_ for _ in ()).throw(RuntimeError('boom')))
     out = m.localize_frame('device4', m.frame, motion={'kind': 'static', 'state': 'static', 'pct': 0.0})
     assert out is not None
     assert out.get('node') == 'home'
-    for fld in ('loaded', 'overlay', 'playback', 'error'):
-        assert fld not in out
+    assert out['overlay'] == 'unknown'
+    assert {'loaded', 'playback', 'error'} <= set(out)
+
+
+def test_each_check_gets_its_own_input(monkeypatch, tmp_path):
+    """loaded <- the per-device window of motion.pct (deque, last 8); overlay <- the frame;
+    playback <- (is_media, current pct); error <- OCR tokens (skipped on a media surface)."""
+    m = _make_monitor(monkeypatch, tmp_path)
+    import shared.src.lib.ai.screen_state_cv as scv
+    seen = {}
+    monkeypatch.setattr(scv, 'loaded', lambda win, **k: seen.setdefault('loaded', list(win)) and 'yes')
+    monkeypatch.setattr(scv, 'overlay', lambda img, **k: seen.setdefault('overlay', getattr(img, 'shape', None)) and 'none')
+    monkeypatch.setattr(scv, 'playback', lambda is_media, pct, **k: seen.setdefault('playback', (is_media, pct)) and 'playing')
+    monkeypatch.setattr(scv, 'error', lambda tokens, **k: seen.setdefault('error', tokens) or 'none')
+    m._ui_meta = lambda ui: {'is_media': True}
+    for pct in (0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9):
+        seen.clear()
+        m._matched_thumb.clear()     # the same frame every tick: defeat the unchanged-frame skip (TASK-115)
+        m.localize_frame('device4', m.frame, motion={'kind': 'static', 'state': 'static', 'pct': pct})
+    assert seen['loaded'] == [0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9]     # the last 8, oldest first
+    assert seen['overlay'] is not None and seen['playback'] == (True, 0.9)
+    assert seen['error'] is None                                         # media surface: no OCR
 
 
 # ── AVQ analyze_positions: Tier-2 lanes appear when the JSON carries them ───

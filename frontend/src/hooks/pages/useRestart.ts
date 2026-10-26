@@ -310,9 +310,9 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
     const hasAudioData = status.audio === 'completed' && status.audio_data;
     const hasVisualData = status.visual === 'completed' && status.subtitle_analysis && status.video_analysis;
     
-    console.log(`[@hook:useRestart] 🔍 Analysis completeness check:`, {
-      audio: hasAudioData ? '✅' : '❌',
-      visual: hasVisualData ? '✅' : '❌',
+    console.log(`[@hook:useRestart] Analysis completeness check:`, {
+      audio: hasAudioData,
+      visual: hasVisualData,
       audioStatus: status.audio,
       visualStatus: status.visual,
       hasAudioData: !!status.audio_data,
@@ -327,14 +327,14 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
     try {
       // Check if we have complete analysis data before proceeding
       if (!hasCompleteAnalysisData(status)) {
-        console.log('[@hook:useRestart] 📊 Incomplete analysis data - skipping report generation until both audio and visual are complete');
+        console.log('[@hook:useRestart] Incomplete analysis data - skipping report generation until both audio and visual are complete');
         return;
       }
 
       // Deduplication protection - prevent duplicate report generation
       // Allow regeneration if forceRegenerate is true (when audio completes after visual)
       if (isReportGenerationInProgress.current || (reportGeneratedRef.current && !forceRegenerate)) {
-        console.log('[@hook:useRestart] 📊 Report generation already in progress or completed, skipping duplicate request');
+        console.log('[@hook:useRestart] Report generation already in progress or completed, skipping duplicate request');
         return;
       }
       
@@ -342,17 +342,17 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
       isReportGenerationInProgress.current = true;
       
       const isRegeneration = reportGeneratedRef.current && forceRegenerate;
-      console.log(`[@hook:useRestart] 📊 ${isRegeneration ? 'Regenerating' : 'Starting'} report generation${isRegeneration ? ' with complete audio data' : ''}`);
+      console.log(`[@hook:useRestart] ${isRegeneration ? 'Regenerating' : 'Starting'} report generation${isRegeneration ? ' with complete audio data' : ''}`);
       
       if (!currentVideoUrl) {
-        console.error('[@hook:useRestart] ❌ No video URL available for report');
-        toast.showError('❌ No video available for report generation');
+        console.error('[@hook:useRestart] No video URL available for report');
+        toast.showError('No video available for report generation');
         isReportGenerationInProgress.current = false;
         return;
       }
       
       setAnalysisProgress(prev => ({ ...prev, report: 'loading' }));
-      const loadingMessage = isRegeneration ? '📊 Updating report with audio data...' : '📊 Generating report...';
+      const loadingMessage = isRegeneration ? 'Updating report with audio data...' : 'Generating report...';
       toast.showInfo(loadingMessage, { duration: 3000 });
       
       const reportData = await api.post(buildServerUrl('/server/restart/generateRestartReport'), {
@@ -369,9 +369,9 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
       if (reportData.success && reportData.report_url) {
         setReportUrl(reportData.report_url);
         setAnalysisProgress(prev => ({ ...prev, report: 'completed' }));
-        const successMessage = isRegeneration ? '📊 Report updated! (1.2s)' : '📊 Report complete! (1.8s)';
+        const successMessage = isRegeneration ? 'Report updated! (1.2s)' : 'Report complete! (1.8s)';
         toast.showSuccess(successMessage, { duration: 3000 });
-        console.log(`[@hook:useRestart] ✅ Report ${isRegeneration ? 'regeneration' : 'generation'} completed`);
+        console.log(`[@hook:useRestart] Report ${isRegeneration ? 'regeneration' : 'generation'} completed`);
         
         // Mark report as successfully generated
         reportGeneratedRef.current = true;
@@ -379,9 +379,9 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
         throw new Error(reportData.error || 'Report generation failed');
       }
     } catch (error) {
-      console.error('[@hook:useRestart] ❌ Report generation failed:', error);
+      console.error('[@hook:useRestart] Report generation failed:', error);
       setAnalysisProgress(prev => ({ ...prev, report: 'error' }));
-      toast.showError('❌ Report generation failed');
+      toast.showError('Report generation failed');
     } finally {
       // Clear the in-progress flag
       isReportGenerationInProgress.current = false;
@@ -393,14 +393,14 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
     const TIMEOUT_MS = 60000; // 60 second timeout (analysis should complete in ~10s)
     const startTime = Date.now();
     
-    console.log(`[@hook:useRestart] 🔄 Starting polling for ${videoId} (${TIMEOUT_MS/1000}s timeout)`);
+    console.log(`[@hook:useRestart] Starting polling for ${videoId} (${TIMEOUT_MS/1000}s timeout)`);
     
     const pollInterval = setInterval(async () => {
       try {
         // Check timeout
         const elapsedMs = Date.now() - startTime;
         if (elapsedMs > TIMEOUT_MS) {
-          console.error(`[@hook:useRestart] ⏰ TIMEOUT: Analysis exceeded ${TIMEOUT_MS/1000}s - stopping polling`);
+          console.error(`[@hook:useRestart] TIMEOUT: Analysis exceeded ${TIMEOUT_MS/1000}s - stopping polling`);
           clearInterval(pollInterval);
           
           // Mark stuck analyses as error
@@ -412,7 +412,7 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
           }));
           
           // Notify user
-          toast.showError('⏰ Analysis timed out. Video is ready but analysis incomplete.', { duration: 8000 });
+          toast.showError('Analysis timed out. Video is ready but analysis incomplete.', { duration: 8000 });
           return;
         }
         
@@ -438,33 +438,33 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
               ...prev,
               audio: status.audio_data
             }));
-            toast.showSuccess('🎤 Audio analysis complete! (3.2s)', { duration: 3000 });
+            toast.showSuccess('Audio analysis complete! (3.2s)', { duration: 3000 });
             notifiedRef.current.audio = true;
             
             // Check if we now have complete data for report generation
             if (hasCompleteAnalysisData(status)) {
-              console.log('[@hook:useRestart] 🔄 Audio completed - now have complete data, generating report');
+              console.log('[@hook:useRestart] Audio completed - now have complete data, generating report');
               generateReportWithVideoUrl(status, currentVideoUrl, true); // Force regeneration if needed
             }
           }
           
           // Update visual analysis when complete
           if (status.visual === 'completed' && !notifiedRef.current.visual) {
-            console.log('[@hook:useRestart] 🎯 Visual analysis completed, updating UI');
+            console.log('[@hook:useRestart] Visual analysis completed, updating UI');
             setAnalysisResults(prev => ({
               ...prev,
               subtitles: status.subtitle_analysis,
               videoDescription: status.video_analysis
             }));
-            toast.showSuccess('✅ Subtitles and summary complete! (2.8s)', { duration: 3000 });
+            toast.showSuccess('Subtitles and summary complete! (2.8s)', { duration: 3000 });
             notifiedRef.current.visual = true;
             
             // Check if we now have complete data for report generation
             if (hasCompleteAnalysisData(status)) {
-              console.log('[@hook:useRestart] 📊 Visual completed - now have complete data, generating report');
+              console.log('[@hook:useRestart] Visual completed - now have complete data, generating report');
               generateReportWithVideoUrl(status, currentVideoUrl);
             } else {
-              console.log('[@hook:useRestart] 📊 Visual completed but waiting for audio analysis to finish before generating report');
+              console.log('[@hook:useRestart] Visual completed but waiting for audio analysis to finish before generating report');
             }
           }
           
@@ -472,16 +472,16 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
           if (status.visual === 'error' && !notifiedRef.current.visual) {
             const errorMsg = status.visual_error || 'Unknown error';
             const errorType = status.error_type || 'unknown';
-            console.error('[@hook:useRestart] ❌ Visual analysis failed:', errorMsg, `(type: ${errorType})`);
-            toast.showError(`❌ Visual analysis failed: ${errorMsg}`, { duration: 8000 });
+            console.error('[@hook:useRestart] Visual analysis failed:', errorMsg, `(type: ${errorType})`);
+            toast.showError(`Visual analysis failed: ${errorMsg}`, { duration: 8000 });
             notifiedRef.current.visual = true;
           }
           
           // Handle audio analysis errors
           if (status.audio === 'error' && !notifiedRef.current.audio) {
             const errorMsg = status.audio_error || 'Unknown error';
-            console.error('[@hook:useRestart] ❌ Audio analysis failed:', errorMsg);
-            toast.showError(`❌ Audio analysis failed: ${errorMsg}`, { duration: 8000 });
+            console.error('[@hook:useRestart] Audio analysis failed:', errorMsg);
+            toast.showError(`Audio analysis failed: ${errorMsg}`, { duration: 8000 });
             notifiedRef.current.audio = true;
           }
           
@@ -490,7 +490,7 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
           const visualComplete = status.visual === 'completed' || status.visual === 'error';
           
           if (audioComplete && visualComplete) {
-            console.log('[@hook:useRestart] 🎯 Analysis finished, stopping polling');
+            console.log('[@hook:useRestart] Analysis finished, stopping polling');
             console.log('[@hook:useRestart]   - Audio:', status.audio, status.audio === 'error' ? `(${status.audio_error})` : '');
             console.log('[@hook:useRestart]   - Visual:', status.visual, status.visual === 'error' ? `(${status.visual_error})` : '');
             clearInterval(pollInterval);
@@ -498,7 +498,7 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
             // No additional completion toast - individual toasts already shown
             
             if (status.heavy === 'completed') {
-              toast.showSuccess('🎬 Audio prepared! Dubbing and sync now available.', { duration: 3000 });
+              toast.showSuccess('Audio prepared! Dubbing and sync now available.', { duration: 3000 });
             }
           }
         }
@@ -543,15 +543,15 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
 
       // Video ready - show immediately (FAST LAUNCH)
       const videoGenerationDuration = ((Date.now() - videoGenerationStartTime) / 1000).toFixed(1);
-      console.log(`[@hook:useRestart] ✅ Video ready! Launching player immediately: ${videoData.video_url}`);
-      console.log(`[@hook:useRestart] 🎬 Video generated in ${videoGenerationDuration}s`);
+      console.log(`[@hook:useRestart] Video ready! Launching player immediately: ${videoData.video_url}`);
+      console.log(`[@hook:useRestart] Video generated in ${videoGenerationDuration}s`);
       
       setVideoUrl(videoData.video_url);
       setIsReady(true);
       setAnalysisProgress(prev => ({ ...prev, video: 'completed' }));
       
       // Show success toast with generation time
-      toast.showSuccess(`🎬 Video generated in ${videoGenerationDuration}s`, { duration: 4000 });
+      toast.showSuccess(`Video generated in ${videoGenerationDuration}s`, { duration: 4000 });
       
       // Start polling for background processing
       if (includeAudioAnalysis && videoData.video_id) {
@@ -572,12 +572,12 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
       
       // Keep "generating" state visible for 1.5 seconds so user sees the process
       setTimeout(() => {
-        console.log(`[@hook:useRestart] 🎬 Switching from "generating" to "ready" state`);
+        console.log(`[@hook:useRestart] Switching from "generating" to "ready" state`);
         setIsGenerating(false);
       }, 1500);
 
       if (!includeAudioAnalysis) {
-        console.log(`[@hook:useRestart] ✅ Analysis disabled - video player ready for immediate use`);
+        console.log(`[@hook:useRestart] Analysis disabled - video player ready for immediate use`);
         return;
       }
 
@@ -590,7 +590,7 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
       
       const errorMessage = err instanceof Error ? err.message : 'Video generation failed';
       console.error('[@hook:useRestart] Video generation error:', errorMessage);
-      toast.showError(`❌ ${errorMessage}`, { duration: 5000 });
+      toast.showError(`${errorMessage}`, { duration: 5000 });
       setError(errorMessage);
       setIsGenerating(false);
       setAnalysisProgress({ video: 'error', audio: 'idle', subtitles: 'idle', summary: 'idle', report: 'idle' });
@@ -653,12 +653,12 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
     try {
       // Check if dubbing already exists for this language
       if (dubbedVideos[language] && dubbingCache[language]) {
-        console.log(`[@hook:useRestart] 🎤 Using cached dubbed video for ${language}`);
-        toast.showSuccess(`✅ Dubbed video for ${language}`, { duration: 2000 });
+        console.log(`[@hook:useRestart] Using cached dubbed video for ${language}`);
+        toast.showSuccess(`Dubbed video for ${language}`, { duration: 2000 });
         return;
       }
 
-      console.log(`[@hook:useRestart] ⚡ Starting fast 2-step dubbing generation for ${language}...`);
+      console.log(`[@hook:useRestart] Starting fast 2-step dubbing generation for ${language}...`);
       setIsDubbing(true);
       
       const basePayload = {
@@ -670,9 +670,9 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
       };
       
       // NEW: Single fast dubbing call (combines Edge-TTS + video muting)
-      toast.showInfo(`⚡ Fast dubbing for ${language}...`, { duration: 5000 });
-      console.log(`[@hook:useRestart] ⚡ Fast dubbing: Edge-TTS + video muting for ${language}...`);
-      console.log(`[@hook:useRestart] 🔍 CALLING FAST ENDPOINT: /server/restart/createDubbedVideoFast`);
+      toast.showInfo(`Fast dubbing for ${language}...`, { duration: 5000 });
+      console.log(`[@hook:useRestart] Fast dubbing: Edge-TTS + video muting for ${language}...`);
+      console.log(`[@hook:useRestart] CALLING FAST ENDPOINT: /server/restart/createDubbedVideoFast`);
       
       const fastResult = await api.post(
         buildServerUrl('/server/restart/createDubbedVideoFast') + `?v=${Date.now()}`,
@@ -684,8 +684,8 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
       }
       
       const dubbingDuration = ((Date.now() - dubbingStartTime) / 1000).toFixed(1);
-      toast.showSuccess(`🎉 Fast dubbing for ${language} completed in ${dubbingDuration}s!`, { duration: 5000 });
-      console.log(`[@hook:useRestart] ✅ Fast dubbing completed for ${language} in ${dubbingDuration}s`);
+      toast.showSuccess(`Fast dubbing for ${language} completed in ${dubbingDuration}s!`, { duration: 5000 });
+      console.log(`[@hook:useRestart] Fast dubbing completed for ${language} in ${dubbingDuration}s`);
       
       // Store final video URL
       setDubbedVideos(prev => ({
@@ -712,7 +712,7 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
       
     } catch (error) {
       console.error(`[@hook:useRestart] Dubbing failed for ${language}:`, error);
-      toast.showError(`❌ Dubbing for ${language} failed: ${error instanceof Error ? error.message : String(error)}`, { duration: 8000 });
+      toast.showError(`Dubbing for ${language} failed: ${error instanceof Error ? error.message : String(error)}`, { duration: 8000 });
     } finally {
       setIsDubbing(false);
     }
@@ -725,29 +725,29 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
       
       if (language === 'en') {
         // Reset to original content for English - instant switch
-        console.log(`[@hook:useRestart] 🌐 Switching to original English content`);
+        console.log(`[@hook:useRestart] Switching to original English content`);
         
         // Auto-play original video when switching back to English
         if (videoUrl) {
-          console.log(`[@hook:useRestart] 🎬 Auto-playing original video: ${videoUrl}`);
+          console.log(`[@hook:useRestart] Auto-playing original video: ${videoUrl}`);
           setVideoUrl(videoUrl); // Trigger video player update
         }
         
-        toast.showSuccess(`✅ Switched to English`, { duration: 2000 });
+        toast.showSuccess(`Switched to English`, { duration: 2000 });
         return;
       }
 
       // Check cache first - if translation exists, use it immediately
       if (translationResults[language]) {
-        console.log(`[@hook:useRestart] 🌐 Using cached translation for ${language}`);
+        console.log(`[@hook:useRestart] Using cached translation for ${language}`);
         
         // Auto-play dubbed video if available when switching to cached language
         if (dubbedVideos[language]) {
-          console.log(`[@hook:useRestart] 🎬 Auto-playing dubbed video for ${language}: ${dubbedVideos[language]}`);
+          console.log(`[@hook:useRestart] Auto-playing dubbed video for ${language}: ${dubbedVideos[language]}`);
           setVideoUrl(dubbedVideos[language]); // Trigger video player update
         }
         
-        toast.showSuccess(`✅ Switched to ${language}`, { duration: 2000 });
+        toast.showSuccess(`Switched to ${language}`, { duration: 2000 });
         return;
       }
 
@@ -762,8 +762,8 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
       currentTranslationLanguage.current = language;
       setIsTranslating(true);
       
-      console.log(`[@hook:useRestart] 🌐 Starting translation to ${language}...`);
-      toast.showInfo(`🌐 Starting translation to ${language}...`, { duration: 3000 });
+      console.log(`[@hook:useRestart] Starting translation to ${language}...`);
+      toast.showInfo(`Starting translation to ${language}...`, { duration: 3000 });
 
       // Prepare all content for single batch translation
       const contentBlocks = {
@@ -853,15 +853,15 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
         }));
         
         const translationDuration = ((Date.now() - translationStartTime) / 1000).toFixed(1);
-        console.log(`[@hook:useRestart] ✅ Translation to ${language} completed in ${translationDuration}s`);
-        toast.showSuccess(`✅ Translation to ${language} complete! (${translationDuration}s`, { duration: 4000 });
+        console.log(`[@hook:useRestart] Translation to ${language} completed in ${translationDuration}s`);
+        toast.showSuccess(`Translation to ${language} complete! (${translationDuration}s`, { duration: 4000 });
         
         // Auto-trigger dubbing after successful translation (if audio transcript available)
         if (analysisResults.audio?.combined_transcript && analysisResults.videoDescription) {
           const videoId = `restart_${Date.now()}`;
           const dubbingAutoStartTime = Date.now();
           console.log(`[@hook:useRestart] Auto-triggering dubbing for language: ${language}`);
-          toast.showInfo(`🎤 Starting dubbing for ${language}...`, { duration: 3000 });
+          toast.showInfo(`Starting dubbing for ${language}...`, { duration: 3000 });
           
           try {
             // Use the local newTranscript variable instead of state (timing issue fix)
@@ -870,11 +870,11 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
             }
             await generateDubbedVersion(language, newTranscript, videoId);
             const totalDubbingDuration = ((Date.now() - dubbingAutoStartTime) / 1000).toFixed(1);
-            console.log(`[@hook:useRestart] 🎬 Complete dubbing workflow for ${language} finished in ${totalDubbingDuration}s`);
-            toast.showSuccess(`🎬 Dubbing for ${language} complete! (${totalDubbingDuration}s)`, { duration: 4000 });
+            console.log(`[@hook:useRestart] Complete dubbing workflow for ${language} finished in ${totalDubbingDuration}s`);
+            toast.showSuccess(`Dubbing for ${language} complete! (${totalDubbingDuration}s)`, { duration: 4000 });
           } catch (dubbingError) {
             console.error('[@hook:useRestart] Auto-dubbing failed:', dubbingError);
-            toast.showError(`❌ Dubbing for ${language} failed`, { duration: 5000 });
+            toast.showError(`Dubbing for ${language} failed`, { duration: 5000 });
           }
         } else {
           console.warn('[@hook:useRestart] Cannot auto-trigger dubbing - missing audio transcript or video data');
@@ -887,7 +887,7 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
     } catch (error) {
       console.error('[@hook:useRestart] Batch translation error:', error);
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      toast.showError(`❌ Translation failed: ${errorMessage}`, { duration: 5000 });
+      toast.showError(`Translation failed: ${errorMessage}`, { duration: 5000 });
     } finally {
       setIsTranslating(false);
       // Clear deduplication flags
@@ -905,7 +905,7 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
     
     if (!baseVideoUrl) {
       console.error('[@hook:useRestart] No video available for timing adjustment');
-      toast.showError('❌ No video available for timing adjustment');
+      toast.showError('No video available for timing adjustment');
       return;
     }
     
@@ -915,7 +915,7 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
     
     if (cachedVideoUrl) {
       // Use cached video - instant switch
-      console.log(`[@hook:useRestart] 🎵 Using cached video for ${offsetMs > 0 ? '+' : ''}${offsetMs}ms timing (${currentLanguage})`);
+      console.log(`[@hook:useRestart] Using cached video for ${offsetMs > 0 ? '+' : ''}${offsetMs}ms timing (${currentLanguage})`);
       setIsApplyingTiming(true);
       
       try {
@@ -926,11 +926,11 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
           setVideoUrl(cachedVideoUrl);
         }
         setAudioTimingOffset(offsetMs);
-        console.log(`[@hook:useRestart] ✅ Instant timing switch to ${offsetMs > 0 ? '+' : ''}${offsetMs}ms`);
-        toast.showSuccess(`✅ Audio timing: ${offsetMs > 0 ? '+' : ''}${offsetMs}ms`);
+        console.log(`[@hook:useRestart] Instant timing switch to ${offsetMs > 0 ? '+' : ''}${offsetMs}ms`);
+        toast.showSuccess(`Audio timing: ${offsetMs > 0 ? '+' : ''}${offsetMs}ms`);
       } catch (error) {
         console.error('[@hook:useRestart] Cached timing switch failed:', error);
-        toast.showError('❌ Timing switch failed');
+        toast.showError('Timing switch failed');
       } finally {
         setIsApplyingTiming(false);
       }
@@ -939,7 +939,7 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
     
     // Handle 0ms timing reset by selecting original video (no backend call needed)
     if (offsetMs === 0) {
-      console.log(`[@hook:useRestart] 🎵 Resetting audio timing to 0ms for ${currentLanguage}`);
+      console.log(`[@hook:useRestart] Resetting audio timing to 0ms for ${currentLanguage}`);
       setIsApplyingTiming(true);
       
       try {
@@ -963,11 +963,11 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
         }));
         
         setAudioTimingOffset(0);
-        console.log(`[@hook:useRestart] ✅ Audio timing reset to 0ms`);
-        toast.showSuccess(`✅ Audio timing reset to 0ms`);
+        console.log(`[@hook:useRestart] Audio timing reset to 0ms`);
+        toast.showSuccess(`Audio timing reset to 0ms`);
       } catch (error) {
         console.error('[@hook:useRestart] Audio timing reset failed:', error);
-        toast.showError('❌ Audio timing reset failed');
+        toast.showError('Audio timing reset failed');
       } finally {
         setIsApplyingTiming(false);
       }
@@ -988,7 +988,7 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
     currentTimingAdjustmentKey.current = timingKey;
     
     try {
-      console.log(`[@hook:useRestart] 🎵 Processing new audio timing: ${offsetMs > 0 ? '+' : ''}${offsetMs}ms for ${currentLanguage}`);
+      console.log(`[@hook:useRestart] Processing new audio timing: ${offsetMs > 0 ? '+' : ''}${offsetMs}ms for ${currentLanguage}`);
       setIsApplyingTiming(true);
       
       // Get the original video URL (without timing suffix) for backend processing
@@ -1000,11 +1000,11 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
       
       // Show appropriate start toast based on cache status
       if (cachedComponents) {
-        console.log('[@hook:useRestart] 🎯 Using cached components');
-        toast.showInfo(`🎵 Adjusting audio timing: ${offsetMs > 0 ? '+' : ''}${offsetMs}ms`, { duration: 4000 });
+        console.log('[@hook:useRestart] Using cached components');
+        toast.showInfo(`Adjusting audio timing: ${offsetMs > 0 ? '+' : ''}${offsetMs}ms`, { duration: 4000 });
       } else {
-        console.log('[@hook:useRestart] 🔧 No cached components - backend will create them');
-        toast.showInfo(`🎵 Adjusting audio timing: ${offsetMs > 0 ? '+' : ''}${offsetMs}ms`, { duration: 8000 });
+        console.log('[@hook:useRestart] No cached components - backend will create them');
+        toast.showInfo(`Adjusting audio timing: ${offsetMs > 0 ? '+' : ''}${offsetMs}ms`, { duration: 8000 });
       }
       
       const requestBody: any = {
@@ -1059,18 +1059,18 @@ export const useRestart = ({ host, device, includeAudioAnalysis }: UseRestartPar
               dubbed_vocals: prev[videoKey]?.dubbed_vocals || {}
             }
           }));
-          console.log(`[@hook:useRestart] 💾 Cached new components for video: ${videoKey}`);
+          console.log(`[@hook:useRestart] Cached new components for video: ${videoKey}`);
         }
         
         setAudioTimingOffset(offsetMs);
-        console.log(`[@hook:useRestart] ✅ Audio timing adjustment completed: ${offsetMs > 0 ? '+' : ''}${offsetMs}ms (cached for future use)`);
-        toast.showSuccess(`✅ Audio timing adjusted: ${offsetMs > 0 ? '+' : ''}${offsetMs}ms`);
+        console.log(`[@hook:useRestart] Audio timing adjustment completed: ${offsetMs > 0 ? '+' : ''}${offsetMs}ms (cached for future use)`);
+        toast.showSuccess(`Audio timing adjusted: ${offsetMs > 0 ? '+' : ''}${offsetMs}ms`);
       } else {
         throw new Error(result.error);
       }
     } catch (error) {
       console.error('[@hook:useRestart] Audio timing adjustment failed:', error);
-      toast.showError('❌ Audio timing adjustment failed');
+      toast.showError('Audio timing adjustment failed');
     } finally {
       setIsApplyingTiming(false);
       // Clear deduplication flags

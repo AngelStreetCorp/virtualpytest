@@ -9,7 +9,7 @@
 | Severity  | High — verification unusable on the host, and nothing surfaced the cause      |
 | Status    | Fixed (pending deploy)                                                       |
 | Area      | backend_host (metrics, screenshot, archiver) / frontend (dashboard, verification) |
-| Fixed in  | Unreleased                                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                                  |
 
 ---

@@ -1,0 +1,5 @@
+# VirtualPyTest: let vpt_user (plugdev) read the HID interface of MacroSilicon HDMI grabbers: the HDMI
+# signal flag read by shared/src/lib/utils/hdmi_signal.py. Installed to /etc/udev/rules.d by
+# setup/proxmox/node/ensure_host_prereqs.sh (every deploy) and install_host.sh (new host).
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="345f", MODE="0660", GROUP="plugdev"
+SUBSYSTEM=="hidraw", ATTRS{idVendor}=="534d", MODE="0660", GROUP="plugdev"

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — the scripts run, but only ever on their defaults     |
 | Area      | backend_server / test_scripts                                |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `4ad48c3d4`                                                  |
 
 ---

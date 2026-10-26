@@ -3,6 +3,8 @@ name: manage-script
 description: List and execute Python scripts on devices
 requires_device: true
 timeout_seconds: 3600
+think_budget_seconds: 120
+max_tool_calls: 40
 tools:
   - list_scripts
   - get_compatible_hosts

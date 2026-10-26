@@ -9,7 +9,7 @@
 | Status    | Fixed                                                        |
 | Severity  | High - a correct navigation failed its check (stb_tv `home → live`), and every passing check waited its full timeout |
 | Area      | `backend_host/src/controllers/verification/image.py` (`waitForImageToDisappear`) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `065b8ae9df`                                                 |
 
 ---

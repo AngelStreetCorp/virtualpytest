@@ -204,6 +204,18 @@ vi.mock('../../frontend/src/contexts/auth/AuthContext', async (importOriginal) =
 }));
 const authContextValue = { user: { id: 'test-user', email: 'tester@vpt.local' } };
 
+// RunTests.tsx calls useServerManager() for per-server script resolution (TASK-113); the hook
+// throws "useServerManager must be used within a ServerManagerProvider" without a provider.
+// Other suites mock the hook the same way instead of mounting the real provider.
+vi.mock('../../frontend/src/hooks/useServerManager', () => ({
+  useServerManager: () => ({
+    serverHostsData: [],
+    selectedServer: 'test-server',
+    selectServer: () => {},
+    refreshServerData: async () => {},
+  }),
+}));
+
 import RunTests from '../../frontend/src/pages/RunTests';
 
 describe('RunTests page', () => {

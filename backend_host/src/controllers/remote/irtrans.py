@@ -31,6 +31,7 @@ import time
 import json
 import os
 from ..base_controller import RemoteControllerInterface
+from .ir_keymap import missing_keymap_message
 
 
 class IRTransRemoteController(RemoteControllerInterface):
@@ -94,7 +95,8 @@ class IRTransRemoteController(RemoteControllerInterface):
         try:
             ir_config_full_path = os.path.join(self.ir_config_path, self.ir_config_file)
             if not os.path.exists(ir_config_full_path):
-                print(f"Remote[{self.device_type.upper()}]: IRTrans keymap not found: {ir_config_full_path}")
+                self.connect_error = missing_keymap_message(self.ir_config_path, self.ir_type)
+                print(f"Remote[{self.device_type.upper()}]: {self.connect_error}")
                 return False
 
             with open(ir_config_full_path, 'r') as f:
@@ -133,12 +135,14 @@ class IRTransRemoteController(RemoteControllerInterface):
             self._record_send(False, f"Key {key_upper} not mapped in {self.ir_config_file}")
             return False
 
+        led = f"l{self.ir_led}" if self.ir_led is not None else None
         if self.raw_mode:
-            payload = f"sndccf {self._raw_to_ccf(command)}"
+            # `<ccf>,l13` is refused with "Illegal / not supported CCF Code" (Multistream
+            # V3.1, LAN L5.12.26): the comma is read as part of the code. A space before
+            # the LED is accepted and targets that output.
+            payload = f"sndccf {self._raw_to_ccf(command)}" + (f" {led}" if led else "")
         else:
-            payload = f"snd {self.ir_remote},{command}"
-        if self.ir_led is not None:
-            payload += f",l{self.ir_led}"
+            payload = f"snd {self.ir_remote},{command}" + (f",{led}" if led else "")
         payload += "\r"
 
         print(f"Remote[{self.device_type.upper()}]: Sending {key_upper} -> {payload!r} "
@@ -147,12 +151,30 @@ class IRTransRemoteController(RemoteControllerInterface):
         try:
             with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
                 sock.sendto(payload.encode('ascii'), (self.ir_ip, self.ir_port))
-            self._record_send(True)
-            return True
+                reply = self._read_result(sock)
         except Exception as e:
             print(f"Remote[{self.device_type.upper()}]: Failed to send IRTrans command: {e}")
             self._record_send(False, str(e))
             return False
+
+        # The box answers every command with `**000NN RESULT OK` or `RESULT Error: <why>`.
+        # A proxy may swallow it (nginx `proxy_responses 0`): no reply = sent, not confirmed.
+        if reply and 'error' in reply.lower():
+            print(f"Remote[{self.device_type.upper()}]: IRTrans refused {key_upper}: {reply}")
+            self._record_send(False, f"IRTrans refused {key_upper}: {reply}")
+            return False
+        self._record_send(True)
+        return True
+
+    @staticmethod
+    def _read_result(sock: socket.socket, timeout: float = 0.3) -> Optional[str]:
+        """The box's RESULT line for the command just sent, or None when nothing came back."""
+        sock.settimeout(timeout)
+        try:
+            data, _ = sock.recvfrom(256)
+        except (socket.timeout, OSError):
+            return None
+        return data.decode('ascii', 'replace').strip().lstrip('*0123456789 ')
 
     @staticmethod
     def _raw_to_ccf(raw_code: str, carrier_hz: int = 38000) -> str:

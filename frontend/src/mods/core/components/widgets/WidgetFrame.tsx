@@ -7,6 +7,7 @@ import { useI18n } from '../../../../i18n/useI18n';
 import { WIDGET_SPAN } from '../../constants';
 import type { WidgetSize } from '../../types';
 import { ModErrorBoundary } from '../ModErrorBoundary';
+import { TYPOGRAPHY } from '../../../../constants/typography';
 
 interface Props {
   title: string;
@@ -38,7 +39,7 @@ export const WidgetFrame: React.FC<Props> = ({ title, size, hasSettings, isFirst
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', px: 1.5, pt: 1 }}>
-        <Typography sx={{ fontSize: '0.85rem', fontWeight: 600, color: P.textPrimary, flex: 1 }} noWrap>
+        <Typography sx={{ fontSize: TYPOGRAPHY.body.size, fontWeight: 600, color: P.textPrimary, flex: 1 }} noWrap>
           {title}
         </Typography>
         <Box className="widget-controls" sx={{ display: 'flex', opacity: { xs: 1, md: 0 }, transition: 'opacity 0.15s' }}>
@@ -73,7 +74,7 @@ export const WidgetFrame: React.FC<Props> = ({ title, size, hasSettings, isFirst
       <Box sx={{ px: 1.5, pb: 1.5, pt: 0.5 }}>
         <ModErrorBoundary
           slot={`widget ${title}`}
-          fallback={<Typography sx={{ fontSize: '0.8rem', color: P.textMuted }}>{t('This widget failed to load.')}</Typography>}
+          fallback={<Typography sx={{ fontSize: TYPOGRAPHY.body.size, color: P.textMuted }}>{t('This widget failed to load.')}</Typography>}
         >
           {children}
         </ModErrorBoundary>

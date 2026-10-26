@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low — cosmetic, inconsistent with every other page           |
 | Area      | `features/ai-test/frontend/TestPrompt.tsx`, `frontend/src/constants/agentChatTheme.ts` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

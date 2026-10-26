@@ -101,10 +101,10 @@ def test_tree_walk_root_plus_nested_only():
 
 def test_screenshot_keys_resolved_then_label_fallback():
     n = node("n1", "home_movies&series", shot=False,
-             screenshot="https://pub.example.r2.dev/navigation/perseus_360_web/home_moviesseries.jpg")
+             screenshot="https://pub.example.r2.dev/navigation/web_player/home_moviesseries.jpg")
     resolve = lambda url: url.split(".dev/", 1)[1]  # noqa: E731
     assert scope.screenshot_keys(n, "web_tv", resolve) == [
-        "navigation/perseus_360_web/home_moviesseries.jpg", "navigation/web_tv/home_moviesseries.jpg"]
+        "navigation/web_player/home_moviesseries.jpg", "navigation/web_tv/home_moviesseries.jpg"]
     assert scope.screenshot_keys(node("n2", shot=False), "web_tv", resolve) == []
     assert scope.sanitize_label("Live TV guide") == "Live_TV_guide"
 

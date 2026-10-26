@@ -27,6 +27,7 @@ import {
 } from './palette';
 import StatTile from './StatTile';
 import { bottomN, topN } from './topN';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 /**
  * One component per tab. Each owns its own fetch, so opening the page costs exactly
@@ -492,7 +493,7 @@ export const ProjectPanel: React.FC = () => {
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, width: '100%' }}>
             {openBugs.map((b) => (
               <Box key={b.id} sx={{ display: 'flex', alignItems: 'baseline', gap: 1.5, minWidth: 0 }}>
-                <Link component={RouterLink} to={b.doc} underline="hover" sx={{ fontSize: '0.75rem', fontWeight: 600, flexShrink: 0 }}>
+                <Link component={RouterLink} to={b.doc} underline="hover" sx={{ fontSize: TYPOGRAPHY.caption.size, fontWeight: 600, flexShrink: 0 }}>
                   {b.id}
                 </Link>
                 <Typography

@@ -8,6 +8,11 @@ import { getCachedExecutableList } from '../../utils/executionListCache';
 import { SelectorFilterBar } from './SelectorFilterBar';
 import { useIdentityMap } from '../../hooks/useIdentityMap';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { ExecutableKind, executableKind, useExecutableFavorites } from '../../hooks/useExecutableFavorites';
+import { ExecutableFavoriteStar } from './DeviceFavoriteStar';
+import { DeviceFavoriteGroupHeader } from './DeviceFavoriteGroupHeader';
+import { FavoritesChip } from './FavoritesChip';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export interface ExecutableItem {
   type: 'script' | 'testcase';
@@ -54,6 +59,9 @@ export interface UnifiedExecutableSelectorProps {
   compatibilityFilter?: (item: ExecutableItem) => boolean;
   onSelectAllVisible?: (items: ExecutableItem[]) => void;
   onUnselectAllVisible?: (items: ExecutableItem[]) => void;
+  /** Removes just these items from the selection (the Favorites chip's second click). Falls back to
+   *  onUnselectAllVisible, which on some pages clears everything. */
+  onUnselectItems?: (items: ExecutableItem[]) => void;
   utilityLabel?: string;
   maxListHeight?: number | string;
   dataKey?: string;
@@ -65,6 +73,9 @@ export interface UnifiedExecutableSelectorProps {
   emptyStateText?: string;
   itemFilter?: (item: ExecutableItem) => boolean;
   disableInternalScroll?: boolean;
+  /** Favorites kind of every listed item when it is not derived from the item (TASK-100): a campaign
+   *  is listed as a script or test case, so the campaign list passes 'campaign'. */
+  favoriteKind?: ExecutableKind;
 }
 
 export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps> = ({
@@ -80,6 +91,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
   onItemClick,
   onSelectAllVisible,
   onUnselectAllVisible,
+  onUnselectItems,
   utilityLabel,
   maxListHeight = 200,
   dataKey,
@@ -91,9 +103,11 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
   emptyStateText = 'No executables found',
   itemFilter,
   disableInternalScroll = false,
+  favoriteKind,
 }) => {
   const P = useAgentChatPalette();
   const { resolveScript } = useIdentityMap();
+  const favorites = useExecutableFavorites();
   const [internalLoading, setInternalLoading] = useState(true);
   const [internalError, setInternalError] = useState<string | null>(null);
   const [allItems, setAllItems] = useState<ExecutableItem[]>([]);
@@ -223,6 +237,12 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
     return items;
   }, [resolvedItems, searchQuery, selectedTags, selectedFolder, allowedTypes, compatibilityFilter, itemFilter, resolveScript]);
 
+  // Favorites pinned first (TASK-100); the filters above still decide what is visible.
+  const kindOf = (item: ExecutableItem): ExecutableKind => favoriteKind ?? executableKind(item);
+  const favoriteItems = filteredItems.filter((item) => favorites.isFavorite(kindOf(item), item.id));
+  const otherItems = filteredItems.filter((item) => !favorites.isFavorite(kindOf(item), item.id));
+  const orderedItems = [...favoriteItems, ...otherItems];
+
   const selectedVisibleCount = useMemo(() => {
     if (selectedItems.length === 0 || filteredItems.length === 0) {
       return 0;
@@ -243,6 +263,13 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
     });
     return counts;
   }, [selectedItems]);
+
+  const allFavoritesSelected =
+    favoriteItems.length > 0 && favoriteItems.every((item) => selectedItemIds.has(item.id));
+  const handleToggleFavorites = () => {
+    if (allFavoritesSelected) (onUnselectItems ?? onUnselectAllVisible)?.(favoriteItems);
+    else onSelectAllVisible?.(favoriteItems);
+  };
 
   const toggleFolderFilter = (folderName?: string) => {
     if (!folderName || folderName === 'All') {
@@ -288,14 +315,15 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
         rightContent={collapseIcon}
       />
 
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75, px: 0.25, flexWrap: 'wrap' }}>
-        <Typography variant="caption" color="text.secondary" sx={{ fontWeight: 500 }}>
+      {/* One line, never wrapped: the Favorites chip joins this row (TASK-100); the item count gives way (ellipsis). */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.75, px: 0.25, flexWrap: 'nowrap', whiteSpace: 'nowrap' }}>
+        <Typography variant="caption" color="text.secondary" noWrap sx={{ fontWeight: 500, minWidth: 0, flexShrink: 1 }}>
           {utilityLabel || `${filteredItems.length} item${filteredItems.length !== 1 ? 's' : ''}`}
         </Typography>
         <Typography
           variant="caption"
           color={onSelectAllVisible && filteredItems.length > 0 ? P.accentText : 'text.disabled'}
-          sx={{ cursor: onSelectAllVisible && filteredItems.length > 0 ? 'pointer' : 'default' }}
+          sx={{ cursor: onSelectAllVisible && filteredItems.length > 0 ? 'pointer' : 'default', flexShrink: 0 }}
           onClick={onSelectAllVisible && filteredItems.length > 0 ? () => onSelectAllVisible(filteredItems) : undefined}
         >
           select all
@@ -304,11 +332,22 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
         <Typography
           variant="caption"
           color={onUnselectAllVisible && selectedVisibleCount > 0 ? P.accentText : 'text.disabled'}
-          sx={{ cursor: onUnselectAllVisible && selectedVisibleCount > 0 ? 'pointer' : 'default' }}
+          sx={{ cursor: onUnselectAllVisible && selectedVisibleCount > 0 ? 'pointer' : 'default', flexShrink: 0 }}
           onClick={onUnselectAllVisible && selectedVisibleCount > 0 ? () => onUnselectAllVisible(filteredItems) : undefined}
         >
           unselect all
         </Typography>
+        {favoriteItems.length > 0 && onSelectAllVisible && (
+          <Box sx={{ ml: 'auto', flexShrink: 0 }}>
+            <FavoritesChip
+              count={favoriteItems.length}
+              allSelected={allFavoritesSelected}
+              onClick={handleToggleFavorites}
+              // Nothing can clear them on this page: a second click would only add them again.
+              disabled={allFavoritesSelected && !onUnselectItems && !onUnselectAllVisible}
+            />
+          </Box>
+        )}
       </Box>
 
       {/* Flat Item List - Full width */}
@@ -345,7 +384,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
               </Box>
             ) : (
               <List dense disablePadding>
-                {filteredItems.map(item => {
+                {orderedItems.map((item, index) => {
                   const isFocused = value?.id === item.id;
                   const isSelected = selectedItemIds.has(item.id);
                   const isHighlighted = isFocused || isSelected;
@@ -354,8 +393,12 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
                   const identity = resolveScript(item.id);
                   const folderLabel = item.folder && item.folder !== 'All' ? item.folder : '';
                   return (
+                    <React.Fragment key={item.id}>
+                    {favoriteItems.length > 0 && index === 0 && <DeviceFavoriteGroupHeader kind="favorites" />}
+                    {favoriteItems.length > 0 && otherItems.length > 0 && index === favoriteItems.length && (
+                      <DeviceFavoriteGroupHeader kind="allItems" />
+                    )}
                     <ListItem
-                      key={item.id}
                       disablePadding
                       sx={{
                         bgcolor: isHighlighted ? 'action.selected' : 'transparent',
@@ -378,13 +421,14 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
                       >
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, width: '100%', minWidth: 0 }}>
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flex: '1 1 48%', minWidth: 0 }}>
+                            <ExecutableFavoriteStar kind={kindOf(item)} itemId={item.id} />
                             <Chip
                               label={badgeLabel}
                               size="small"
                               color={badgeColor}
                               sx={{
                                 height: '16px',
-                                fontSize: '0.6rem',
+                                fontSize: TYPOGRAPHY.microMeta.size,
                                 minWidth: '24px',
                                 '.MuiChip-label': { px: 0.5 },
                                 opacity: isHighlighted ? 0.95 : 1,
@@ -396,7 +440,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
                                 size="small"
                                 sx={{
                                   height: 16,
-                                  fontSize: '0.6rem',
+                                  fontSize: TYPOGRAPHY.microMeta.size,
                                   fontFamily: 'monospace',
                                   flexShrink: 0,
                                   '.MuiChip-label': { px: 0.5 },
@@ -406,7 +450,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
                             <Typography
                               variant="body2"
                               sx={{
-                                fontSize: '0.8rem',
+                                fontSize: TYPOGRAPHY.body.size,
                                 minWidth: 0,
                                 overflow: 'hidden',
                                 textOverflow: 'ellipsis',
@@ -425,7 +469,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
                                 color={selectedFolder === folderLabel ? P.accentText : 'text.secondary'}
                                 sx={{
                                   display: 'block',
-                                  fontSize: '0.68rem',
+                                  fontSize: TYPOGRAPHY.microMeta.size,
                                   overflow: 'hidden',
                                   textOverflow: 'ellipsis',
                                   whiteSpace: 'nowrap',
@@ -449,7 +493,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
                                 color="primary"
                                 sx={{
                                   height: '16px',
-                                  fontSize: '0.6rem',
+                                  fontSize: TYPOGRAPHY.microMeta.size,
                                   minWidth: '24px',
                                   flexShrink: 0,
                                   bgcolor: P.hoverBg,
@@ -473,7 +517,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
                                   title={item.tags && item.tags.length > 2 ? item.tags.join(', ') : undefined}
                                   sx={{
                                     height: '14px',
-                                    fontSize: '0.55rem',
+                                    fontSize: TYPOGRAPHY.microMeta.size,
                                     backgroundColor: tag?.color || P.textMuted,
                                     color: 'white',
                                     cursor: 'pointer',
@@ -488,6 +532,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
                         </Box>
                       </ListItemButton>
                     </ListItem>
+                    </React.Fragment>
                   );
                 })}
               </List>
@@ -497,7 +542,7 @@ export const UnifiedExecutableSelector: React.FC<UnifiedExecutableSelectorProps>
 
       {/* Summary - Compact */}
       <Box sx={{ mt: 0.5, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem' }}>
+        <Typography variant="caption" color="text.secondary" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
           {filteredItems.length} items
           {selectedFolder && selectedFolder !== 'All' && ` in ${selectedFolder}`}
           {selectedTags.length > 0 && ` • ${selectedTags.join(', ')}`}

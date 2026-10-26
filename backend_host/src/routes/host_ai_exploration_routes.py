@@ -10,6 +10,10 @@ Architecture:
 
 from flask import Blueprint, request, jsonify, current_app
 from backend_host.src.lib.utils.route_decorators import route_exception_handler
+# Exploration steps drive the device through bare asyncio.run() (phases/validation_runner.py). vpt-host runs gevent
+# without monkey patching, so on the request greenlet that run blocks the hub in a real select() and the host stops
+# serving every request until it returns (2026-10-19, auto-discover-screen wedged host-clone-2 for 30 min).
+from backend_host.src.lib.utils.gevent_utils import off_hub
 from shared.src.lib.database.navigation_trees_db import (
     get_tree_nodes,
     get_tree_edges,
@@ -177,7 +181,7 @@ def init_exploration():
     device = current_app.host_devices[device_id]
     
     # Delegate to exploration executor
-    result = device.exploration_executor.execute_phase0()
+    result = off_hub(device.exploration_executor.execute_phase0)
     
     return jsonify(result)
     
@@ -194,7 +198,7 @@ def next_item():
     device = current_app.host_devices[device_id]
     
     # Delegate to exploration executor
-    result = device.exploration_executor.execute_phase2_next_item()
+    result = off_hub(device.exploration_executor.execute_phase2_next_item)
     
     return jsonify(result)
     
@@ -257,12 +261,12 @@ def continue_exploration():
     device = current_app.host_devices[device_id]
     
     # Delegate to exploration executor with selected items and cleaned data
-    result = device.exploration_executor.continue_exploration(
+    result = off_hub(lambda: device.exploration_executor.continue_exploration(
         team_id=team_id,
         selected_items=selected_items,
         cleaned_lines=cleaned_lines,
         cleaned_duplicate_positions=cleaned_duplicate_positions
-    )
+    ))
     
     return jsonify(result)
     
@@ -279,7 +283,7 @@ def start_validation():
     device = current_app.host_devices[device_id]
     
     # Delegate to exploration executor
-    result = device.exploration_executor.start_validation()
+    result = off_hub(device.exploration_executor.start_validation)
     
     return jsonify(result)
     
@@ -296,7 +300,7 @@ def validate_next_item():
     device = current_app.host_devices[device_id]
     
     # Delegate to exploration executor
-    result = device.exploration_executor.validate_next_item()
+    result = off_hub(device.exploration_executor.validate_next_item)
     
     return jsonify(result)
     
@@ -316,7 +320,7 @@ def start_node_verification():
     
     device = current_app.host_devices[device_id]
     print(f"[@route:ai_generation:start_node_verification] Calling device.exploration_executor.start_node_verification()")
-    result = device.exploration_executor.start_node_verification()
+    result = off_hub(device.exploration_executor.start_node_verification)
     
     print(f"[@route:ai_generation:start_node_verification] Result: {result}")
     return jsonify(result)
@@ -336,10 +340,10 @@ def approve_node_verifications():
         return jsonify({'success': False, 'error': f'Device {device_id} not found'}), 404
     
     device = current_app.host_devices[device_id]
-    result = device.exploration_executor.approve_node_verifications(
+    result = off_hub(lambda: device.exploration_executor.approve_node_verifications(
         approved_verifications=approved_verifications,
         team_id=team_id
-    )
+    ))
     
     return jsonify(result)
     
@@ -499,7 +503,7 @@ def auto_discover_screen():
         return jsonify({'success': False, 'error': f'Device {device_id} not found'}), 404
     
     device = current_app.host_devices[device_id]
-    result = device.exploration_executor.auto_discover_screen(tree_id, team_id, userinterface_name, parent_node_id)
+    result = off_hub(device.exploration_executor.auto_discover_screen, tree_id, team_id, userinterface_name, parent_node_id)
     
     return jsonify(result)
     

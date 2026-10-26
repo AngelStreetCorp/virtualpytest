@@ -85,7 +85,7 @@ SELECT
     "timestamp" AS last_seen,
     CASE
         WHEN "timestamp" < now() - interval '10 minutes' THEN 'down'
-        WHEN ffmpeg_status = 'active' AND monitor_status = 'active' THEN 'up'
+        WHEN ffmpeg_status = 'active' AND monitor_status IN ('active', 'off') THEN 'up'
         ELSE 'issue'
     END AS status
 FROM latest;
@@ -231,10 +231,10 @@ SELECT
     device_name,
     count(*) AS total_minutes,
     count(*) FILTER (
-        WHERE ffmpeg_status = 'active' AND monitor_status = 'active'
+        WHERE ffmpeg_status = 'active' AND monitor_status IN ('active', 'off')
     ) AS healthy_minutes,
     round(
-        100.0 * count(*) FILTER (WHERE ffmpeg_status = 'active' AND monitor_status = 'active')
+        100.0 * count(*) FILTER (WHERE ffmpeg_status = 'active' AND monitor_status IN ('active', 'off'))
         / NULLIF(count(*), 0), 1
     ) AS availability_percent
 FROM public.system_device_metrics

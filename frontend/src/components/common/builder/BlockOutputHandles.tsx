@@ -10,6 +10,7 @@ import { Box, Typography } from '@mui/material';
 import { Handle, Position } from 'reactflow';
 import CheckIcon from '@mui/icons-material/Check';
 import CloseIcon from '@mui/icons-material/Close';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 export type OutputType = 'success' | 'failure' | 'true' | 'false' | 'complete' | 'break' | 'pass' | 'fail';
 
@@ -82,7 +83,7 @@ const getHandleContent = (output: OutputType, isActive: boolean) => {
     return <CloseIcon sx={{ fontSize: isActive ? 16 : 14 }} />;
   }
   if (output === 'break') {
-    return <Typography fontSize={9} fontWeight="bold">BRK</Typography>;
+    return <Typography fontSize="0.5625rem" fontWeight="bold">BRK</Typography>;
   }
   return null;
 };
@@ -122,7 +123,7 @@ export const BlockOutputHandles: React.FC<BlockOutputHandlesProps> = ({
           justifyContent: 'center',
           color: 'white',
           fontWeight: 'bold',
-          fontSize: 12,
+          fontSize: TYPOGRAPHY.caption.size,
           cursor: 'pointer',
           boxShadow: isActive ? `0 0 12px ${handleColor}` : '0 1px 3px rgba(0,0,0,0.2)',
           transition: 'all 0.2s ease',
@@ -185,7 +186,7 @@ export const BlockOutputHandles: React.FC<BlockOutputHandlesProps> = ({
               justifyContent: 'center',
               color: 'white',
               fontWeight: 'bold',
-              fontSize: 12,
+              fontSize: TYPOGRAPHY.caption.size,
               cursor: 'pointer',
               boxShadow: isActive ? `0 0 12px ${handleColor}` : '0 1px 3px rgba(0,0,0,0.2)',
               transition: 'all 0.2s ease',

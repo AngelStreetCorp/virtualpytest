@@ -9,7 +9,7 @@
 | Status    | Closed                                                       |
 | Severity  | Low                                                          |
 | Area      | backend_host / shared executors                              |
-| Fixed in  | Unreleased |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---

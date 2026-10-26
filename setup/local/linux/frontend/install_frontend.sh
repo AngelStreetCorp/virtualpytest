@@ -44,30 +44,26 @@ sudo apt install -y build-essential xsel python3 python3-pip
 echo "✅ System dependencies installed"
 
 # Install Node.js and npm if not present
-# NOTE: This script requires Node.js 22+
+# NOTE: This script requires a Node.js build patched for CVE-2026-111497
+# ("HTTP2Shell", out-of-bounds write in the Brotli decoder Node vendors in
+# node:zlib). The fixed builds are 22.23.4 / 24.22.1 / 26.12.1; Node 18, 20,
+# 23 and 25 are EOL and get no fix. ensure_node.sh owns that check.
 # If you have Node.js older than 22, update it by running:
 #   sudo apt-get remove -y nodejs npm
 #   curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
 #   sudo apt-get install -y nodejs
 echo "📦 Checking Node.js installation..."
 NODE_MAJOR=22
-if ! command -v node &> /dev/null; then
-    echo "🔧 Installing Node.js ${NODE_MAJOR}..."
-    curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | sudo -E bash -
-    sudo apt-get install -y nodejs
-    echo "✅ Node.js installed successfully"
+
+# Load the Node.js version guard (CVE-2026-111497)
+if [ -f "$SCRIPT_DIR/../shared/ensure_node.sh" ]; then
+    source "$SCRIPT_DIR/../shared/ensure_node.sh"
 else
-    CURRENT_NODE_MAJOR=$(node --version | sed 's/^v//' | cut -d. -f1)
-    if [ "$CURRENT_NODE_MAJOR" -lt "$NODE_MAJOR" ]; then
-        echo "🔧 Upgrading Node.js to ${NODE_MAJOR} (current: $(node --version))..."
-        sudo apt-get remove -y nodejs npm
-        curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | sudo -E bash -
-        sudo apt-get install -y nodejs
-        echo "✅ Node.js upgraded successfully"
-    else
-        echo "✅ Node.js is already installed ($(node --version))"
-    fi
+    echo "❌ Shared Node.js version guard not found at $SCRIPT_DIR/../shared/ensure_node.sh"
+    exit 1
 fi
+
+ensure_patched_node "$NODE_MAJOR" sudo
 
 # Verify npm is available
 if ! command -v npm &> /dev/null; then

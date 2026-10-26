@@ -73,6 +73,14 @@ def generate_signed_url():
     remote_path = data.get('path')
     if not remote_path:
         return jsonify({'success': False, 'error': 'Missing required field: path'}), 400
+    # A capture that came inline as a data: URI is the picture itself, not a
+    # path in the bucket. Signing it produced a URL whose path was the base64
+    # payload, and the browser asked for it and got nothing (BUG-0798).
+    if isinstance(remote_path, str) and remote_path.startswith('data:'):
+        return jsonify({
+            'success': False,
+            'error': 'A data: URI is the image itself — use it as it is, it cannot be signed'
+        }), 400
     expires_in = data.get('expires_in', 3600)
     if not isinstance(expires_in, int) or expires_in < 60 or expires_in > 604800:
         return jsonify({
@@ -165,14 +173,22 @@ def generate_signed_urls_batch():
     if not isinstance(expires_in, int) or expires_in < 60 or expires_in > 604800:
         return jsonify({'success': False, 'error': 'expires_in must be between 60 and 604800 seconds'}), 400
     print(f"[@storage] User {request.user_email} requesting {len(paths)} signed URLs (expires: {expires_in}s)")
+    # A data: URI is the image itself, not a path in the bucket: signing it
+    # produced a URL whose path was the base64 payload (BUG-0798).
+    inline = [p for p in paths if isinstance(p, str) and p.startswith('data:')]
+    signable = [p for p in paths if not (isinstance(p, str) and p.startswith('data:'))]
     uploader = get_cloudflare_utils()
-    result = uploader.generate_presigned_urls_batch(paths, expires_in)
+    result = (uploader.generate_presigned_urls_batch(signable, expires_in) if signable
+              else {'success': True, 'urls': [], 'failed': [], 'generated_count': 0, 'failed_count': 0})
+    failed = list(result.get('failed') or [])
+    failed.extend({'path': p, 'error': 'A data: URI is the image itself — it cannot be signed'}
+                  for p in inline)
     return jsonify({
-        'success': result['success'],
-        'urls': result['urls'],
-        'failed': result['failed'],
-        'generated_count': result['generated_count'],
-        'failed_count': result['failed_count']
+        'success': result.get('success', True),
+        'urls': result.get('urls') or [],
+        'failed': failed,
+        'generated_count': len(result.get('urls') or []),
+        'failed_count': len(failed)
     }), 200
 
 

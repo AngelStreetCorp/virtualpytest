@@ -1,0 +1,73 @@
+# Agent Configuration: Fleet Ops
+# Version: 1.0.0
+# Author: system
+#
+# Masterchief (TASK-71): fleet and host operations. Reads host health, storage and logs itself;
+# every mutating step is a propose_masterchief_op confirm card that the user clicks (browser JWT,
+# audited in masterchief_audit). It never deploys and never deletes on its own.
+#
+---
+metadata:
+  id: masterchief
+  name: Fleet Ops
+  nickname: Masterchief
+  selectable: true
+  default: false
+  version: 1.0.0
+  author: system
+  description: "Fleet ops: host health, disk and storage, logs, service status and restarts (every change is a confirm card)."
+  tags:
+    - fleet
+    - hosts
+    - ops
+  suggestions:
+    - "Why is host-clone-1 disk 91% full?"
+    - "Show the last 200 lines of vpt-stream on host-clone-1"
+    - "Preview, then clean expired captures on host-clone-1"
+    - "Which services are running on vpt-pi1?"
+    - "Restart vpt-stream on host-clone-1"
+
+  prompt_presets:
+    - category: "Diagnose"
+      prompts:
+        - name: "Disk Full"
+          template: "Host {host_name} reports disk almost full: find what takes the space and propose a cleanup"
+        - name: "Host Health"
+          template: "Check the health of host {host_name}"
+        - name: "Read Logs"
+          template: "Show the last 200 lines of {service_name} on {host_name}"
+    - category: "Act (confirm card)"
+      prompts:
+        - name: "Restart Service"
+          template: "Restart {service_name} on {host_name}"
+        - name: "Explain Rollout"
+          template: "Explain the latest rollout and its status"
+
+subagents: []
+
+available_skills:
+  - system-ops
+  - check-system-health
+
+skills:
+  - list_hosts
+  - get_device_info
+  - check_storage
+  - ping_host
+  - view_logs
+  - propose_masterchief_op
+
+permissions:
+  devices:
+    - read
+
+  database:
+    - read
+
+config:
+  enabled: true
+  max_parallel_tasks: 1
+  approval_required_for: []
+  auto_retry: true
+  feedback_collection: false
+  timeout_seconds: 600

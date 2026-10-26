@@ -1,5 +1,5 @@
 import React from 'react';
-import { Box, Fab, Tooltip } from '@mui/material';
+import { Box, Fab, Tooltip, keyframes } from '@mui/material';
 import { AutoAwesome } from '@mui/icons-material';
 import { useLocation } from 'react-router-dom';
 import { AICommandBar } from './AICommandBar';
@@ -7,9 +7,12 @@ import { LogTerminalPanel } from './panels/LogTerminalPanel';
 import { useAIContext } from '../../contexts/AIContext';
 import { useResponsiveMode } from '../../hooks/useResponsiveMode';
 import { matchesFeatureRoute } from '../../config/features';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import { usePermissions } from '../../hooks/auth/usePermissions';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export const AIOmniOverlay: React.FC = () => {
+  const P = useAgentChatPalette();
   const { isLogsOpen, openCommand, status, suppressFloatingButton } = useAIContext();
   const { isMobile, isTablet } = useResponsiveMode();
   const location = useLocation();
@@ -41,6 +44,21 @@ export const AIOmniOverlay: React.FC = () => {
     isOnFullscreenPlayer ||
     suppressFloatingButton;
 
+  // Slow glow pulse on the floating Ask AI Fab: the accent-coloured halo swells
+  // and fades (~20 % → ~60 % alpha, 8 → 16 px blur) with a 2.5 % scale breath;
+  // kept tight and slow on purpose (a 38 px / 3.2 s glow read as too loud),
+  // one peak per 5 s. Under `prefers-reduced-motion` only the scale is dropped
+  // — the glow keeps running, since a fading halo is not motion (macOS "Reduce
+  // motion" is on for the owner, which is why earlier pulses never showed).
+  const askAiGlow = keyframes`
+    0%, 100% { box-shadow: 0 0 8px 0 ${P.accent}33; }
+    50%      { box-shadow: 0 0 16px 2px ${P.accent}99; }
+  `;
+  const askAiBreath = keyframes`
+    0%, 100% { transform: scale(1); }
+    50%      { transform: scale(1.025); }
+  `;
+
   return (
     <Box sx={{ position: 'fixed', inset: 0, zIndex: 9999, pointerEvents: 'none' }}>
 
@@ -51,13 +69,15 @@ export const AIOmniOverlay: React.FC = () => {
         </Box>
       )}
 
-      {/* Ask AI Button (Bottom Left) */}
+      {/* Ask AI Button (Bottom Left) — lifted so the floating Fab doesn't sit on
+          top of the in-flow Footer copyright line (BUG: footer "© 202…"
+          appeared under the button at the bottom of long pages). */}
       {!hideFloatingAiButton && (
         <Box
           sx={{
             position: 'fixed',
-            bottom: 24,
-            left: 24,
+            bottom: 64,
+            left: 36,
             pointerEvents: 'auto',
             zIndex: 1000
           }}
@@ -68,18 +88,25 @@ export const AIOmniOverlay: React.FC = () => {
                   aria-label="Ask AI"
                   onClick={openCommand}
                   sx={{
-                      bgcolor: 'rgba(212, 175, 55, 0.95)',
+                      bgcolor: P.accent,
                       backdropFilter: 'blur(8px)',
-                      boxShadow: '0 4px 24px rgba(212, 175, 55, 0.35)',
-                      transition: 'all 0.2s ease',
+                      boxShadow: `0 4px 24px ${P.accent}59`,
+                      animation: `${askAiGlow} 5s ease-in-out infinite, ${askAiBreath} 5s ease-in-out infinite`,
+                      transition: 'background-color 0.2s ease',
+                      '@media (prefers-reduced-motion: reduce)': {
+                        animation: `${askAiGlow} 5s ease-in-out infinite`,
+                      },
                       '&:hover': {
-                        bgcolor: '#B8860B',
-                        boxShadow: '0 6px 28px rgba(212, 175, 55, 0.5)',
-                        transform: 'scale(1.05)'
+                        bgcolor: P.accentHover,
+                        boxShadow: `0 6px 28px ${P.accent}80`,
+                        transform: 'scale(1.05)',
+                        // Pause the pulse on hover so the hover state reads cleanly
+                        // against the resting pulse without two transitions stacking.
+                        animationPlayState: 'paused',
                       }
                   }}
               >
-                  <AutoAwesome sx={{ color: '#1a1a1a', fontSize: 24 }} />
+                  <AutoAwesome sx={{ color: '#1a1a1a', fontSize: TYPOGRAPHY.pageTitle.size }} />
               </Fab>
           </Tooltip>
         </Box>

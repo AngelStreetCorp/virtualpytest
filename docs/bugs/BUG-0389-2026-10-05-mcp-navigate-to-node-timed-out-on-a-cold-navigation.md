@@ -9,7 +9,7 @@
 | Status    | Closed                                                       |
 | Severity  | Medium                                                       |
 | Area      | backend_server / MCP                                         |
-| Fixed in  | Unreleased |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---

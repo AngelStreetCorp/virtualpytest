@@ -4,13 +4,15 @@
    Applying overflow-x:hidden + max-width:100vw to both html and body is the only
    durable fix — body-only fixes keep regressing because html can still report overflow. */
 html {
+  /* The Size picker (TASK-100): every rem in the app scales from this one root. */
+  font-size: calc(16px * var(--app-font-scale, 1));
   overflow: hidden;
   max-width: 100vw;
   height: 100%;
 }
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: var(--app-font, Arial, 'Liberation Sans', Helvetica, sans-serif);
   line-height: 1.5;
   font-weight: 400;
 
@@ -159,7 +161,7 @@ body {
   padding: 8px 12px;
   border: 1px solid #ddd;
   border-radius: 4px;
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 .form-group input:focus,
@@ -211,7 +213,7 @@ body {
   border: none;
   border-radius: 4px;
   cursor: pointer;
-  font-size: 14px;
+  font-size: 0.875rem;
   font-weight: 500;
   transition: all 0.2s;
 }
@@ -290,3 +292,10 @@ body {
     flex-direction: column;
   }
 } 
+
+/* The 24 h digest (TASK-166): react-hot-toast gives every visible toast wrapper `z-index: 9999`,
+   so a toast that comes later paints over the list the digest's caret opens. The wrapper that
+   holds the digest is raised above them (the digest's own box carries `data-vpt-digest`). */
+#_rht_toaster > div:has([data-vpt-digest]) {
+  z-index: 10001 !important;
+}

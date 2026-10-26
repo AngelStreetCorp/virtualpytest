@@ -54,7 +54,7 @@ UNIT_DIRS = (
 # Units the deploy scripts restart themselves (update_core.sh / deploy_customer.sh).
 DEPLOY_RESTARTS = {'vpt-server', 'vpt-host', 'vpt-frontend-prod'}
 # Host aux units the deploy scripts restart only when asked (--restart [unit]).
-OPT_IN_RESTARTS = {'vpt-stream', 'vpt-monitor', 'vpt-subtitle', 'vpt-transcript', 'vpt-archiver', 'vpt-avq', 'vpt-kpi'}
+OPT_IN_RESTARTS = {'vpt-stream', 'vpt-monitor-img', 'vpt-monitor-subtitle', 'vpt-monitor-audio', 'vpt-archiver', 'vpt-avq', 'vpt-kpi'}
 # Interactive/desktop units that carry no VPT code: never worth a line.
 IGNORED_UNITS = {'vpt-vnc', 'vpt-websockify', 'vpt-emulator-fifo', 'vpt-ble-remote@', 'vpt-hid-agent@', 'vpt-hid-remote@'}
 

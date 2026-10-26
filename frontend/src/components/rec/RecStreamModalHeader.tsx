@@ -10,23 +10,44 @@ import {
   Visibility as VisibilityIcon,
   VisibilityOff as VisibilityOffIcon,
   Lock as LockIcon,
+  ViewTimeline as TimelineIcon,
+  OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 
+import { AppIcon } from '../../constants/icons';
 import { AIIcon, CameraIcon, FullscreenIcon } from '../common/icons/CustomIcons';
 import { featureDeviceLinks } from '../../config/features';
 import { useResponsiveMode } from '../../hooks/useResponsiveMode';
-import { Box, IconButton, Typography, Button, CircularProgress, ToggleButtonGroup, ToggleButton, Tooltip } from '@mui/material';
-import React from 'react';
+import { ArrowDropDown as ArrowDropDownIcon, Bolt as BoltIcon, Check as CheckIcon, Mic as MicIcon, Route as RouteIcon, PlayCircleOutline as RunScriptIcon } from '@mui/icons-material';
+import { Box, ListItemIcon, ListItemText, Menu, MenuItem, IconButton, Typography, Button, CircularProgress, ToggleButtonGroup, ToggleButton, Tooltip, alpha } from '@mui/material';
+import React, { useEffect, useState } from 'react';
 
+import { useI18n } from '../../i18n/useI18n';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 import { Host, Device } from '../../types/common/Host_Types';
-import LocalizeButton from '../navigation/Navigation_LocalizeButton';
+import LocalizeButton, { LOCALIZE_OFF_TITLE, localizeOff } from '../navigation/Navigation_LocalizeButton';
 import { PowerButton } from '../controller/power/PowerButton';
 
 import type { LiveStreamTransport } from '../../types/controller/WebRTC_Types';
+import { primaryButtonSx, segmentedSx, toggleSx } from '../common/PageChrome';
 import { StreamQualityControl } from './StreamQualityControl';
+import { MonitorProfileBadge } from './MonitorProfileBadge';
+import { AdBreaksDialog } from '../monitoring/AdBreaksDialog';
+import { getDeviceMonitorProfile, deviceTooltipName } from '../../hooks/useDeviceFilters';
+import { DeviceInfoNameTooltip } from '../common/DeviceInfoTooltipIcon';
+import { DeviceMaintenanceBadge } from '../common/DeviceMaintenanceBadge';
+import { api } from '../../utils/apiClient';
+import { buildServerUrlWithParams } from '../../utils/buildUrlUtils';
+import { TYPOGRAPHY } from '../../constants/typography';
+
+
+// AVQ feature link (Audio/Video Quality) renders monitor-derived analysis —
+// on a tv_lite device (no monitor) the page would load but show empty cards,
+// so the link is greys out in the toolbar. Detect by label rather than path
+// so this header does not depend on the AVQ feature being enabled at build time.
+const isAvqLink = (label: string): boolean => /quality/i.test(label);
 
 
 // Hide the Restart button for the time being — the restart mode UX is being
@@ -60,13 +81,21 @@ interface RecStreamModalHeaderProps {
   isLiveMode: boolean;
   currentQuality: 'low' | 'sd' | 'hd' | 'hd_plus';
   streamTransport: LiveStreamTransport;
+  /** Device's declared stream profile; hides/disables WEB where it cannot work (BUG-0833). */
+  streamProtocol?: string;
   isMuted: boolean;
   isControlActive: boolean;
   isControlLoading: boolean;
-  aiAgentMode: boolean;
   showWeb: boolean;
   isDesktopDevice: boolean;
   hasPowerControl: boolean;
+  // Whether this device can be controlled at all — false when it has no remote
+  // controller configured (see useRecDeviceChecks.canTakeControl). Disables the
+  // Control button and explains why, instead of letting the user lock the device
+  // only to land on RemotePanel's "No remote configured" empty state. Required
+  // (not defaulted) so a future caller has to decide, rather than silently
+  // shipping an enabled Control button on a remote-less device.
+  canTakeControl: boolean;
   // When true, hide the "power user" controls (localize, fullscreen, AI query,
   // live/archive toggle, take control, restart, AI agent) and keep only the
   // basic viewing controls. Used for the mobile device-control page, where
@@ -84,8 +113,14 @@ interface RecStreamModalHeaderProps {
   onToggleMute: () => void;
   onToggleControl: () => void;
   onToggleMonitoring: () => void;
+  /** LoL zones/inputs overlay toggle; shown only for desktop (host_vnc) devices. */
+  lolOverlayAvailable?: boolean;
+  lolOverlayOn?: boolean;
+  onToggleLolOverlay?: () => void;
   onToggleRestart: () => void;
-  onToggleAiAgent: () => void;
+  /** Panel currently open from the Actions menu; choosing it again closes it. */
+  activePanel: 'ai' | 'goto' | 'script' | 'voice' | null;
+  onSelectPanel: (panel: 'ai' | 'goto' | 'script' | 'voice') => void;
   onToggleWeb: () => void;
   // Show/Hide Remote was removed from the toolbar — the panel auto-shows when
   // control is taken and auto-hides when control is released (see
@@ -93,6 +128,9 @@ interface RecStreamModalHeaderProps {
   // and RecPanelManager; only the toolbar toggle is gone.
   onClose: () => void;
 }
+
+// Every icon-only toolbar button shares this box (6px padding, 18px glyph) so the gaps between icons are even.
+const compactIconSx = { p: 0.75, '& .MuiSvgIcon-root': { fontSize: TYPOGRAPHY.cardTitle.size } } as const;
 
 export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
   host,
@@ -107,13 +145,14 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
   isLiveMode,
   currentQuality,
   streamTransport,
+  streamProtocol,
   isMuted,
   isControlActive,
   isControlLoading,
-  aiAgentMode,
   showWeb,
   isDesktopDevice,
   hasPowerControl,
+  canTakeControl,
   minimalControls = false,
   onScreenshot,
   onOpenFullscreen,
@@ -124,8 +163,12 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
   onToggleMute,
   onToggleControl,
   onToggleMonitoring,
+  lolOverlayAvailable = false,
+  lolOverlayOn = false,
+  onToggleLolOverlay,
   onToggleRestart,
-  onToggleAiAgent,
+  activePanel,
+  onSelectPanel,
   onToggleWeb,
   onClose,
 }) => {
@@ -136,8 +179,14 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
   const isAudioSupported = true;
   const isArchiveMode = !isLiveMode;
   // ARCHIVE_VIDEO=false on the host: no 24h review buffer to play back.
-  const hasReviewBuffer = host.system_stats?.archive_video !== false;
+  // A device whose profile runs no monitor (tv_lite, TASK-95) has no review buffer and no analysis to overlay.
+  const monitoringOff = (host.system_stats?.monitoring_off ?? []).includes(device?.device_id ?? '');
+  const monitoringOffTitle = 'Monitoring is off for this device (profile tv_lite): stream and control only';
+  const hasReviewBuffer = host.system_stats?.archive_video !== false && !monitoringOff;
   const P = useAgentChatPalette();
+  const { t } = useI18n();
+  const [adBreaksOpen, setAdBreaksOpen] = useState(false);
+  const [splitAnchor, setSplitAnchor] = React.useState<HTMLElement | null>(null);
 
   // Lock indicator — mirror RecHostPreview: show for manual control OR a running
   // script/deployment, with matching colors (manual = info, script = warning).
@@ -154,6 +203,50 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
   );
   const hostStuck = stuckServices.length > 0;
   const stuckServiceNames = stuckServices.map((s) => s.label || s.name).join(', ');
+
+  // Mirror RecHostPreview's displayName exactly: VNC devices show only host.host_name,
+  // every other device shows "<device_name> - <host_name>". The preview tile shows
+  // e.g. "stbv1+ - vpt-mf1" and the modal's title should match.
+  const displayName = device
+    ? device.device_model === 'host_vnc'
+      ? host.host_name
+      : `${device.device_name} - ${host.host_name}`
+    : host.host_name;
+
+  // "Source" is only meaningful for stream-source devices (rtsp_video with a URL,
+  // local_video with a file). Pull the current source from /server/av/status so
+  // the Actions menu can open it in a new tab — the tv_lite profile has no
+  // monitoring, so without this shortcut the only way to verify the source
+  // is to open StreamSourceRemote (extra click) and copy the URL out by hand.
+  const deviceModel = device?.device_model;
+  const isStreamSourceDevice = deviceModel === 'rtsp_video' || deviceModel === 'local_video';
+  const [streamSourceUrl, setStreamSourceUrl] = useState<string | null>(null);
+  useEffect(() => {
+    if (!isStreamSourceDevice || !host?.host_name || !device?.device_id) {
+      setStreamSourceUrl(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await api.get<{ status: { source_url?: string | null; youtube_url?: string | null } }>(
+          buildServerUrlWithParams('/server/av/status', {
+            host_name: host.host_name,
+            device_id: device.device_id,
+          }),
+        );
+        if (cancelled) return;
+        setStreamSourceUrl(res.status?.youtube_url || res.status?.source_url || null);
+      } catch {
+        // Source button stays disabled when the host can't be reached; the
+        // StreamSourceRemote panel does a richer read with a retry surface.
+        if (!cancelled) setStreamSourceUrl(null);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [host?.host_name, device?.device_id, isStreamSourceDevice]);
 
   return (
     <Box
@@ -176,21 +269,29 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
           display: 'flex', 
           alignItems: 'center', 
           gap: 0.75,
-          fontSize: '1rem', // Reduced from h6 default (1.25rem) to ensure single line
+          fontSize: TYPOGRAPHY.navbarItem.size, // Reduced from h6 default (1.25rem) to ensure single line
           whiteSpace: 'nowrap', // Prevent wrapping
           overflow: 'hidden',
           textOverflow: 'ellipsis',
           // Reserved space for the device name: a long name should ellipsize inside
           // this fixed-width slot instead of pushing the whole toolbar around.
-          // 168px fits ~15 characters at 1rem (e.g. "device_vendor_42"), which
+          // 300px fits ~28 characters at 1rem (e.g. "device_vendor_42"), which
           // covers the typical name lengths we see; longer names truncate.
-          width: 168,
+          width: 300,
           flexShrink: 0,
         }}
       >
-        <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
-          {(device?.device_name || host.host_name).replace(/_Host$/, '')}
-        </Box>
+        <DeviceInfoNameTooltip
+          name={deviceTooltipName(host, device, displayName)}
+          info={device?.device_info}
+          gatewayInfo={device?.gateway_info}
+        >
+          <Box component="span" sx={{ overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            {displayName}
+          </Box>
+        </DeviceInfoNameTooltip>
+        {device && <MonitorProfileBadge profile={getDeviceMonitorProfile(host, device)} services={host.system_stats?.monitor_profile_services?.[getDeviceMonitorProfile(host, device)]} />}
+        <DeviceMaintenanceBadge hostName={host.host_name} deviceId={device?.device_id} />
         {showLock && (
           <Tooltip
             arrow
@@ -222,7 +323,7 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
           >
             <LockIcon
               sx={{
-                fontSize: '1rem',
+                fontSize: TYPOGRAPHY.navbarItem.size,
                 color: hasManualControl ? P.accentText : P.warning,
                 flexShrink: 0
               }}
@@ -267,11 +368,11 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
               backgroundColor: hostStuck
                 ? P.error // red when any host service is stuck
                 : hasDeployment
-                  ? '#3a8cff' // blue while a script drives the device
+                  ? P.series[1] // blue while a script drives the device
                   : host.status === 'online'
                     ? '#2ecc71' // green when the host is up
                     : P.error, // red when offline / unknown
-              boxShadow: '0 0 0 2px rgba(255, 255, 255, 0.06)',
+              boxShadow: `0 0 0 2px ${alpha(P.textPrimary, 0.06)}`,
             }}
           />
         </Tooltip>
@@ -293,8 +394,7 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
               '&.Mui-disabled': {
                 color: P.textMuted,
               },
-              '& .MuiSvgIcon-root': { fontSize: '1.125rem' }, // 18px — lighter than the default 24px
-              p: 0.75,
+              ...compactIconSx,
             }}
             aria-label="Take Screenshot"
             title={isArchiveMode ? "Screenshot only available in Live mode" : "Take Screenshot (opens in new tab)"}
@@ -314,40 +414,103 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
             deviceId={device.device_id}
             userinterfaceName={device.preferred_userinterface}
             variant={device.preferred_variant ?? null}
-            disabled={!isLiveMode}
-            disabledTitle="Localize only available in Live mode"
+            disabled={!isLiveMode || localizeOff(host, device.device_id)}
+            disabledTitle={localizeOff(host, device.device_id) ? LOCALIZE_OFF_TITLE : 'Localize only available in Live mode'}
             width={280}
             expandedWidth={380}
             sx={{
               color: isLiveMode ? P.textSecondary : P.textMuted,
               '&:hover': { color: isLiveMode ? P.textPrimary : P.textMuted },
               '&.Mui-disabled': { color: P.textMuted },
-              '& .MuiSvgIcon-root': { fontSize: '1.125rem' }, // 18px — overrides LocalizeButton's default 24px
-              p: 0.75,
+              ...compactIconSx,
             }}
           />
         )}
 
-        {/* Optional-feature per-device pages (docs/technical/FEATURES.md) */}
+        {/* Timeline (TASK-94): the last 24 h of this device as a thumbnail grid. The selected server is
+            already the one that registers this host, so the page finds it from host + device alone.
+            Disabled when the device's monitor is off (tv_lite / no-archiver profile): there is no
+            24h thumbnail stream to grid — the page would just render an empty state. */}
+        {!minimalControls && device?.video_capture_path && (
+          <IconButton
+            size="large"
+            disabled={monitoringOff}
+            onClick={() => {
+              if (monitoringOff) return;
+              // New tab: the stream modal stays where it is.
+              window.open(`/monitoring/timeline?host=${encodeURIComponent(host.host_name)}&device=${encodeURIComponent(device.device_id)}`, '_blank', 'noopener');
+            }}
+            sx={{
+              color: monitoringOff ? P.textMuted : P.textSecondary,
+              '&:hover': { color: monitoringOff ? P.textMuted : P.textPrimary },
+              '&.Mui-disabled': { color: P.textMuted },
+              ...compactIconSx,
+            }}
+            aria-label="Timeline"
+            title={monitoringOff ? monitoringOffTitle : 'Timeline (last 24 h)'}
+          >
+            <TimelineIcon fontSize="medium" />
+          </IconButton>
+        )}
+
+        {/* Ad breaks (ad_meter only): the last 24 h of breaks with the pictures the meter kept, to check them and mark a
+            mistake "not an ad" (owner, 2026-10-26). */}
+        {!minimalControls && device && getDeviceMonitorProfile(host, device) === 'ad_meter' && (
+          <IconButton
+            size="large"
+            onClick={() => setAdBreaksOpen(true)}
+            sx={{ color: P.textSecondary, '&:hover': { color: P.textPrimary }, ...compactIconSx }}
+            aria-label={t('Ad breaks')}
+            title={t('Ad breaks, last 24 h')}
+            data-testid="ad-breaks-button"
+          >
+            <AppIcon name="image" size="md" />
+          </IconButton>
+        )}
+        {device && adBreaksOpen && (
+          <AdBreaksDialog
+            open={adBreaksOpen}
+            onClose={() => setAdBreaksOpen(false)}
+            host={host as unknown as { host_name: string } & Record<string, unknown>}
+            deviceId={device.device_id}
+            deviceName={device.device_name}
+          />
+        )}
+
+        {/* Optional-feature per-device pages (docs/technical/FEATURES.md).
+            AVQ (the Audio/Video Quality feature) reads monitor outputs, so on a
+            tv_lite device the page loads but its cards come up empty — grey it
+            out with the same monitoring-off tooltip the other monitor-dependent
+            controls carry. Other feature links are unaffected. */}
         {!minimalControls &&
           device &&
-          featureDeviceLinks().map((link) => (
-            <IconButton
-              key={link.label}
-              size="large"
-              onClick={() => {
-                // replace: takes the modal's Back-to-close history entry, so Back from the
-                // feature page returns to the page the modal was opened from.
-                navigate(link.path(host.host_name, device.device_id), { replace: true });
-                onClose();
-              }}
-              sx={{ color: P.textSecondary, '&:hover': { color: P.textPrimary } }}
-              aria-label={link.label}
-              title={link.label}
-            >
-              {link.icon}
-            </IconButton>
-          ))}
+          featureDeviceLinks().map((link) => {
+            const linkDisabled = monitoringOff && isAvqLink(link.label);
+            return (
+              <IconButton
+                key={link.label}
+                size="large"
+                disabled={linkDisabled}
+                onClick={() => {
+                  if (linkDisabled) return;
+                  // replace: takes the modal's Back-to-close history entry, so Back from the
+                  // feature page returns to the page the modal was opened from.
+                  navigate(link.path(host.host_name, device.device_id), { replace: true });
+                  onClose();
+                }}
+                sx={{
+                  color: linkDisabled ? P.textMuted : P.textSecondary,
+                  '&:hover': { color: linkDisabled ? P.textMuted : P.textPrimary },
+                  '&.Mui-disabled': { color: P.textMuted },
+                  ...compactIconSx,
+                }}
+                aria-label={link.label}
+                title={linkDisabled ? monitoringOffTitle : link.label}
+              >
+                {link.icon}
+              </IconButton>
+            );
+          })}
 
         {/* Fullscreen Player Button - opens a dedicated quality-focused player in a new tab.
             Disabled in archive/restart mode (live stream only). */}
@@ -360,6 +523,7 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
               color: isLiveMode ? P.textSecondary : P.textMuted,
               '&:hover': { color: isLiveMode ? P.textPrimary : P.textMuted },
               '&.Mui-disabled': { color: P.textMuted },
+              ...compactIconSx,
             }}
             aria-label="Open fullscreen player"
             title={
@@ -372,21 +536,30 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
           </IconButton>
         )}
 
-        {/* AI Image Query Button - disabled in archive/restart mode */}
+        {/* AI Image Query Button - disabled in archive/restart mode and on tv_lite devices
+            (no monitor means no recent frame context for the AI to reason about; the AI Agent
+            panel and the AVQ feature link carry the same monitoring-off tooltip below). */}
         {!minimalControls && !restartMode && onAIImageQuery && (
           <IconButton
             size="large"
             onClick={onAIImageQuery}
-            disabled={!isLiveMode}
+            disabled={!isLiveMode || monitoringOff}
             sx={{
-              color: isLiveMode ? P.accentText : P.textMuted,
-              '&:hover': { color: isLiveMode ? P.accentText : P.textMuted },
+              color: isLiveMode && !monitoringOff ? P.accentText : P.textMuted,
+              '&:hover': { color: isLiveMode && !monitoringOff ? P.accentText : P.textMuted },
               '&.Mui-disabled': {
                 color: P.textMuted,
-              }
+              },
+              ...compactIconSx,
             }}
             aria-label="Ask AI about frame"
-            title={isLiveMode ? "Ask AI about current frame" : "AI Query only available in Live mode"}
+            title={
+              monitoringOff
+                ? monitoringOffTitle
+                : isLiveMode
+                  ? "Ask AI about current frame"
+                  : "AI Query only available in Live mode"
+            }
           >
             <AIIcon fontSize="medium" />
           </IconButton>
@@ -403,24 +576,13 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
               }
             }}
             aria-label="Mode selection"
-            sx={{
-              '& .MuiToggleButton-root': {
-                fontSize: '0.8125rem',
-                fontWeight: 500,
-                minWidth: 68,
-                height: 40,
-                px: 1.5,
-                textTransform: 'none',
-                border: '1px solid rgba(255, 255, 255, 0.12)',
-                '&.Mui-selected': {
-                  backgroundColor: isLiveMode ? P.error : P.accent,
-                  color: 'white',
-                },
-              },
-            }}
+            sx={[
+              ...(Array.isArray(segmentedSx(P)) ? (segmentedSx(P) as object[]) : [segmentedSx(P)]),
+              { '& .MuiToggleButton-root': { fontSize: TYPOGRAPHY.body.size, minWidth: 68, height: 40, px: 1.5 } },
+            ]}
           >
             <ToggleButton value="live" aria-label="Live mode">
-              <LiveIcon sx={{ fontSize: 18, mr: 0.5 }} />
+              <LiveIcon sx={{ fontSize: TYPOGRAPHY.body.size, mr: 0.75, color: P.error }} />
               Live
             </ToggleButton>
             <ToggleButton
@@ -428,12 +590,14 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
               aria-label="Restart mode"
               disabled={isControlActive || !hasReviewBuffer}
               title={
-                !hasReviewBuffer
+                monitoringOff
+                  ? monitoringOffTitle
+                  : !hasReviewBuffer
                   ? "24h review buffer is off on this host (ARCHIVE_VIDEO=false)"
                   : isControlActive ? "Release control to switch to Last 24h mode" : "Last 24h Archive Mode"
               }
             >
-              <ArchiveIcon sx={{ fontSize: 18, mr: 0.5 }} />
+              <ArchiveIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size, mr: 0.5 }} />
               Last 24h
             </ToggleButton>
           </ToggleButtonGroup>
@@ -445,6 +609,7 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
             transport={streamTransport}
             disabled={!isLiveMode}
             compact={minimalControls}
+            streamProtocol={streamProtocol}
             supportsHdPlus={Boolean(host.system_stats?.hardware_encode)}
             onQualityChange={onQualityChange}
             onToggleTransport={onToggleStreamTransport}
@@ -463,8 +628,7 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
               color: isAudioSupported ? P.textSecondary : P.textMuted,
               '&:hover': { color: isAudioSupported ? P.textPrimary : P.textMuted },
               '&.Mui-disabled': { color: P.textMuted },
-              '& .MuiSvgIcon-root': { fontSize: '1rem' }, // 16px — smaller than the 18px capture/localize icons
-              p: 0.5,
+              ...compactIconSx,
             }}
             aria-label={isMuted ? 'Unmute' : 'Mute'}
             title={
@@ -475,23 +639,36 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
                   : 'Mute Audio'
             }
           >
-            {isMuted ? <VolumeOffIcon /> : <VolumeUpIcon />}
+            {isMuted ? <VolumeOffIcon fontSize="medium" /> : <VolumeUpIcon fontSize="medium" />}
           </IconButton>
         )}
 
+        {lolOverlayAvailable && onToggleLolOverlay && (
+          <IconButton
+            size="large"
+            onClick={onToggleLolOverlay}
+            sx={{ color: lolOverlayOn ? P.accentText : P.textSecondary }}
+            aria-label={lolOverlayOn ? 'Hide LoL overlay' : 'Show LoL overlay'}
+            title={lolOverlayOn ? 'Hide LoL overlay (danger / safe zones, bot inputs)' : 'Show LoL overlay (danger / safe zones, bot inputs)'}
+          >
+            <AppIcon name="target" size="md" />
+          </IconButton>
+        )}
         {/* Monitoring Toggle - icon-only on mobile, no room for the "Monitoring" label */}
         {!restartMode && minimalControls && (
           <IconButton
             size="large"
             onClick={onToggleMonitoring}
-            disabled={!isLiveMode}
+            disabled={!isLiveMode || monitoringOff}
             sx={{
               color: monitoringMode ? P.accentText : P.textSecondary,
               opacity: !isLiveMode ? 0.5 : 1,
             }}
             aria-label={monitoringMode ? 'Hide Monitoring Overlay' : 'Show Monitoring Overlay'}
             title={
-              !isLiveMode
+              monitoringOff
+                ? monitoringOffTitle
+                : !isLiveMode
                 ? 'Monitoring only available in Live mode'
                 : monitoringMode
                   ? 'Hide Monitoring Overlay'
@@ -503,23 +680,24 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
         )}
         {!restartMode && !minimalControls && (
           <Button
-            variant={monitoringMode ? 'contained' : 'outlined'}
+            variant="outlined"
             onClick={onToggleMonitoring}
-            disabled={!isLiveMode}
+            disabled={!isLiveMode || monitoringOff}
             startIcon={monitoringMode ? <VisibilityIcon /> : <VisibilityOffIcon />}
-            color={monitoringMode ? 'primary' : 'inherit'}
             sx={{
-              fontSize: '0.8125rem',
+              ...(toggleSx(P, monitoringMode) as object),
+              fontSize: TYPOGRAPHY.body.size,
               fontWeight: 500,
               minWidth: 132,
               height: 40,
               px: 1.5,
               textTransform: 'none',
-              color: monitoringMode ? 'white' : 'inherit',
               opacity: !isLiveMode ? 0.5 : 1,
             }}
             title={
-              !isLiveMode
+              monitoringOff
+                ? monitoringOffTitle
+                : !isLiveMode
                 ? 'Monitoring only available in Live mode'
                 : monitoringMode
                   ? 'Hide Monitoring Overlay'
@@ -536,9 +714,9 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
             on every state change, which read as a flash in the toolbar). */}
         {!minimalControls && (
           <Button
-            variant={isControlActive ? 'contained' : 'outlined'}
+            variant="contained"
             onClick={onToggleControl}
-            disabled={isControlLoading || !isLiveMode}
+            disabled={isControlLoading || !isLiveMode || !canTakeControl}
             startIcon={
               // 24px slot — TvIcon renders at 24px (default), CircularProgress at 16px
               // needs the same slot width so the text doesn't shift. Both children sit
@@ -558,7 +736,7 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
                   component="span"
                   sx={{ display: isControlLoading ? 'none' : 'inline-flex' }}
                 >
-                  <TvIcon sx={{ fontSize: 20 }} />
+                  <TvIcon sx={{ fontSize: TYPOGRAPHY.pageSubtitle.size }} />
                 </Box>
                 <Box
                   component="span"
@@ -568,9 +746,9 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
                 </Box>
               </Box>
             }
-            color={isControlActive ? 'success' : 'primary'}
             sx={{
-              fontSize: '0.8125rem',
+              ...(primaryButtonSx(P) as object),
+              fontSize: TYPOGRAPHY.body.size,
               fontWeight: 500,
               width: 144, // fixed — covers "Processing..." (12ch) + 24px icon + 24px padding
               height: 40,
@@ -578,16 +756,17 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
               textTransform: 'none',
               whiteSpace: 'nowrap',
               justifyContent: 'center',
-              color: isControlActive ? 'white' : 'inherit',
             }}
             title={
-              !isLiveMode
-                ? 'Switch to Live mode to take control'
-                : isControlLoading
-                  ? 'Processing...'
-                  : isControlActive
-                    ? 'Release Control'
-                    : 'Control'
+              !canTakeControl
+                ? 'No remote configured for this device'
+                : !isLiveMode
+                  ? 'Switch to Live mode to take control'
+                  : isControlLoading
+                    ? 'Processing...'
+                    : isControlActive
+                      ? 'Release Control'
+                      : 'Control'
             }
           >
             {isControlLoading
@@ -609,13 +788,13 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
             of the file brings it back without any extra changes. */}
         {SHOW_RESTART_BUTTON && !minimalControls && (
           <Button
-            variant={restartMode ? 'contained' : 'outlined'}
+            variant="outlined"
             onClick={onToggleRestart}
             disabled={!isControlActive || !isLiveMode}
             startIcon={<RefreshIcon />}
-            color={restartMode ? 'secondary' : 'primary'}
             sx={{
-              fontSize: '0.8125rem',
+              ...(toggleSx(P, restartMode) as object),
+              fontSize: TYPOGRAPHY.body.size,
               fontWeight: 500,
               width: 144,
               height: 40,
@@ -623,7 +802,6 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
               textTransform: 'none',
               whiteSpace: 'nowrap',
               justifyContent: 'center',
-              color: restartMode ? 'white' : 'inherit',
             }}
             title={
               !isLiveMode
@@ -639,37 +817,128 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
           </Button>
         )}
 
-        {/* AI Agent Toggle Button — fixed width so "AI Agent" ↔ "Stop AI Agent" doesn't reflow */}
+        {/* Actions menu: AI Agent, Source (stream-source devices only, opens the
+            current source URL in a new tab), Go to node, Run script. AI Agent
+            is greyed out on a monitoring-off device — it relies on the same
+            capture / freeze / KPI data the AVQ feature link reads from, so on
+            tv_lite it would either fail or hallucinate. Source is the tv_lite
+            shortcut for "is the upstream actually reachable right now", which is
+            the question you ask first when a stream freezes. */}
         {!minimalControls && (
-          <Button
-            variant={aiAgentMode ? 'contained' : 'outlined'}
-            onClick={onToggleAiAgent}
-            disabled={!isControlActive || !isLiveMode}
-            startIcon={<AIIcon />}
-            color={aiAgentMode ? 'info' : 'primary'}
-            sx={{
-              fontSize: '0.8125rem',
-              fontWeight: 500,
-              width: 144,
-              height: 40,
-              px: 1.25,
-              textTransform: 'none',
-              whiteSpace: 'nowrap',
-              justifyContent: 'center',
-              color: aiAgentMode ? 'white' : 'inherit',
-            }}
-            title={
-              !isLiveMode
-                ? 'Only available in Live mode'
-                : !isControlActive
-                  ? 'Take control first to enable AI agent'
-                  : aiAgentMode
-                    ? 'Disable AI Agent'
-                    : 'Enable AI Agent'
-            }
-          >
-            {aiAgentMode ? 'Stop AI Agent' : 'AI Agent'}
-          </Button>
+          <>
+            <Button
+              variant="outlined"
+              color="primary"
+              disabled={!isControlActive || !isLiveMode}
+              onClick={(e) => setSplitAnchor(e.currentTarget)}
+              startIcon={<BoltIcon fontSize="small" />}
+              endIcon={<ArrowDropDownIcon />}
+              sx={{
+                width: 144,
+                height: 40,
+                flexShrink: 0,
+                fontSize: TYPOGRAPHY.body.size,
+                fontWeight: 500,
+                px: 0.75,
+                textTransform: 'none',
+                whiteSpace: 'nowrap',
+                color: 'inherit',
+              }}
+              title={
+                !isLiveMode
+                  ? 'Only available in Live mode'
+                  : !isControlActive
+                    ? 'Take control first to enable AI agent'
+                    : undefined
+              }
+            >
+              {t('Actions')}
+            </Button>
+            <Menu anchorEl={splitAnchor} open={!!splitAnchor} onClose={() => setSplitAnchor(null)}>
+              <MenuItem
+                selected={activePanel === 'ai'}
+                disabled={monitoringOff}
+                onClick={() => {
+                  if (monitoringOff) return;
+                  setSplitAnchor(null);
+                  onSelectPanel('ai');
+                }}
+                title={monitoringOff ? monitoringOffTitle : undefined}
+              >
+                <ListItemIcon>
+                  <AIIcon />
+                </ListItemIcon>
+                <ListItemText>{t('AI Agent')}</ListItemText>
+                {activePanel === 'ai' && <CheckIcon fontSize="small" sx={{ ml: 1.5 }} />}
+              </MenuItem>
+              {/* Source — visible only on stream-source devices. The URL is fetched
+                  once on mount; the menu item is disabled until /server/av/status
+                  resolves. Opens the raw URL in a new tab, which is what an operator
+                  wants when they suspect the upstream itself is the failure (the
+                  most common cause of a "freeze of image and audio" on a tv_lite
+                  host with 47 streams — the box can't keep up, but it's worth
+                  confirming the upstream isn't the issue first). */}
+              {isStreamSourceDevice && (
+                <MenuItem
+                  disabled={!streamSourceUrl}
+                  onClick={() => {
+                    if (!streamSourceUrl) return;
+                    window.open(streamSourceUrl, '_blank', 'noopener');
+                    setSplitAnchor(null);
+                  }}
+                  title={
+                    streamSourceUrl
+                      ? streamSourceUrl
+                      : 'Source not yet loaded — close and reopen the modal if it stays empty'
+                  }
+                >
+                  <ListItemIcon>
+                    <OpenInNewIcon fontSize="small" />
+                  </ListItemIcon>
+                  <ListItemText>{t('Source')}</ListItemText>
+                </MenuItem>
+              )}
+              <MenuItem
+                selected={activePanel === 'goto'}
+                onClick={() => {
+                  setSplitAnchor(null);
+                  onSelectPanel('goto');
+                }}
+              >
+                <ListItemIcon>
+                  <RouteIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>{t('Go to node')}</ListItemText>
+                {activePanel === 'goto' && <CheckIcon fontSize="small" sx={{ ml: 1.5 }} />}
+              </MenuItem>
+              <MenuItem
+                selected={activePanel === 'script'}
+                onClick={() => {
+                  setSplitAnchor(null);
+                  onSelectPanel('script');
+                }}
+              >
+                <ListItemIcon>
+                  <RunScriptIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>{t('Run script')}</ListItemText>
+                {activePanel === 'script' && <CheckIcon fontSize="small" sx={{ ml: 1.5 }} />}
+              </MenuItem>
+              <MenuItem
+                selected={activePanel === 'voice'}
+                onClick={() => {
+                  setSplitAnchor(null);
+                  onSelectPanel('voice');
+                }}
+              >
+                <ListItemIcon>
+                  <MicIcon fontSize="small" />
+                </ListItemIcon>
+                <ListItemText>{t('Voice')}</ListItemText>
+                {activePanel === 'voice' && <CheckIcon fontSize="small" sx={{ ml: 1.5 }} />}
+              </MenuItem>
+            </Menu>
+          </>
         )}
 
         {/* Web Panel Toggle Button. Hidden on a phone-width layout: the web automation
@@ -677,13 +946,13 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
             fighting for width there. */}
         {isDesktopDevice && !isMobile && (
           <Button
-            variant={showWeb ? 'contained' : 'outlined'}
+            variant="outlined"
             onClick={onToggleWeb}
             disabled={!isControlActive || !isLiveMode}
             startIcon={<WebIcon />}
-            color={showWeb ? 'secondary' : 'primary'}
             sx={{
-              fontSize: '0.8125rem',
+              ...(toggleSx(P, showWeb) as object),
+              fontSize: TYPOGRAPHY.body.size,
               fontWeight: 500,
               width: 144,
               height: 40,
@@ -691,7 +960,6 @@ export const RecStreamModalHeader: React.FC<RecStreamModalHeaderProps> = ({
               textTransform: 'none',
               whiteSpace: 'nowrap',
               justifyContent: 'center',
-              color: showWeb ? 'white' : 'inherit',
             }}
             title={
               !isLiveMode

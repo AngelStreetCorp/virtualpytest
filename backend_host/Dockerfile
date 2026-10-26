@@ -43,6 +43,17 @@ RUN apt-get update && apt-get install -y \
 
 WORKDIR /app
 
+# Copy backend_host requirements and install with exact versions
+COPY backend_host/requirements.txt backend_host/
+RUN pip install --no-cache-dir -r backend_host/requirements.txt
+
+# Install Playwright WebKit browser and all its system dependencies
+RUN playwright install-deps webkit
+RUN playwright install webkit
+
+# VERSION.txt and shared/ change on nearly every commit, so they are copied AFTER the
+# dependency layers above: copied first, they invalidated the pip + playwright cache and
+# every rebuild reinstalled everything (~13 min on a 4-vCPU VM).
 # Copy VERSION.txt so the host can report its real version (build context is the repo root
 # via compose, so this is `<repo-root>/VERSION.txt`). Without this, _read_local_deployed_version
 # at backend_host/src/lib/utils/host_utils.py falls through and reports "unknown" in the dashboard.
@@ -52,14 +63,6 @@ COPY VERSION.txt /app/VERSION.txt
 COPY shared/ shared/
 # Add shared to PYTHONPATH
 ENV PYTHONPATH="/app/shared:/app/shared/src/lib:/app/backend_host/src"
-
-# Copy backend_host requirements and install with exact versions
-COPY backend_host/requirements.txt backend_host/
-RUN pip install --no-cache-dir -r backend_host/requirements.txt
-
-# Install Playwright WebKit browser and all its system dependencies
-RUN playwright install-deps webkit
-RUN playwright install webkit
 
 # Copy backend_host source scripts configuration
 COPY backend_host/src/ backend_host/src/

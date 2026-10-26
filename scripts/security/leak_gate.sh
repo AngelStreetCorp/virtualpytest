@@ -58,6 +58,53 @@ else
   RED=""; GREEN=""; YELLOW=""; BOLD=""; NC=""
 fi
 
+# --------------------------------------------------------------- scratch cleanup (never PATH rm)
+# The gate's own scratch must disappear AND take its space with it, whatever `rm` means on the
+# caller's PATH. On this platform an agent's `rm` is a recoverable-delete shim: it RELOCATES the
+# target into the platform trash instead of unlinking it. So a --all run did not clean up after
+# itself -- it parked a full copy of the repository (212 MB measured) in the trash, every run;
+# one per-branch scan over 26 branches parked 5.55 GB, and the fleet refuses all new work at
+# 90 % disk. `rm` from PATH is therefore not a dependable way to free scratch, so scratch is
+# unlinked directly (unlink/rmdir), never relocated.
+#
+# SCOPE: only the paths THIS invocation created with mktemp, and never the working tree. The
+# repository root and any ancestor of it are refused outright; everything else the caller passes
+# is scratch this run made, so it is safe to remove.
+scratch_free() {
+  local p
+  local -a targets=()
+  for p in "$@"; do
+    [[ -n "$p" ]] || continue
+    case "$p" in
+      /|"$REPO_ROOT") continue ;;            # the root itself: never
+    esac
+    [[ "$REPO_ROOT" == "$p"/* ]] && continue  # an ancestor of the working tree: never
+    targets+=("$p")
+  done
+  [[ ${#targets[@]} -eq 0 ]] && return 0
+  if command -v python3 >/dev/null 2>&1; then
+    python3 - "${targets[@]}" <<'PY' || true
+import os, shutil, sys
+for p in sys.argv[1:]:
+    try:
+        if os.path.islink(p) or os.path.isfile(p):
+            os.remove(p)
+        elif os.path.isdir(p):
+            shutil.rmtree(p)
+    except OSError:
+        pass
+PY
+  else
+    # No python3: `find -delete` unlinks directly too, and is not routed through PATH rm.
+    for p in "${targets[@]}"; do find "$p" -depth -delete 2>/dev/null || true; done
+  fi
+  for p in "${targets[@]}"; do
+    if [[ -e "$p" || -L "$p" ]]; then
+      echo "  ${YELLOW}note: scratch could not be removed, left in place: ${p}${NC}"
+    fi
+  done
+}
+
 # ---------------------------------------------------------------- resolve the change set
 if [[ "$MODE" == "range" && -z "$RANGE" ]]; then
   branch="$(git rev-parse --abbrev-ref HEAD)"
@@ -301,10 +348,38 @@ else
 fi
 
 # ---------------------------------------------------------------------- 2. secrets check
-if ! command -v gitleaks >/dev/null 2>&1; then
-  echo "${YELLOW}⚠ secrets: SKIPPED — gitleaks not installed (brew install gitleaks).${NC}"
+# `command -v` alone conflates two very different situations, and the wrong one sends people to
+# install software they already have: a non-interactive shell (an agent's Bash tool, a CI step, a
+# fresh login) inherits no PATH entry for Homebrew. On this Mac gitleaks has been installed since
+# Sep 7 at /usr/local/bin/gitleaks and the gate still reported "not installed" — so the secrets
+# half was silently skipped on every push until someone asked why. Look in the usual prefixes
+# before giving up, and when it still is not found, say which of the two problems it is.
+find_gitleaks() {
+  if command -v gitleaks >/dev/null 2>&1; then command -v gitleaks; return 0; fi
+  local candidate
+  for candidate in /usr/local/bin/gitleaks /opt/homebrew/bin/gitleaks "$HOME/go/bin/gitleaks"; do
+    [[ -x "$candidate" ]] && { echo "$candidate"; return 0; }
+  done
+  return 1
+}
+
+if ! GITLEAKS_BIN="$(find_gitleaks)"; then
+  echo "${YELLOW}⚠ secrets: SKIPPED — gitleaks not found.${NC}"
+  if [[ -z "${PATH//*:}" ]] || ! printf '%s' "$PATH" | grep -qE '(^|:)(/usr/local/bin|/opt/homebrew/bin)(:|$)'; then
+    echo "  ${YELLOW}note: your PATH has no Homebrew entry, so this may be a PATH problem rather than${NC}"
+    echo "  ${YELLOW}      a missing install — 'brew install gitleaks' would report 'already installed'.${NC}"
+  fi
+  echo "  ${YELLOW}      Fix the PATH, or run: brew install gitleaks${NC}"
 else
+  # Make it callable by name: every branch below invokes plain `gitleaks`, and a shell variable
+  # of that name would not resolve as a command on a shell whose PATH lacks Homebrew.
+  PATH="$(dirname "$GITLEAKS_BIN"):$PATH"
+  export PATH
   gl_out="$(mktemp)"; gl_rep="$(mktemp)"; gl_tree=""
+  # Backstop: whatever ends this run -- clean, findings, misconfigured, or a signal -- the
+  # scratch this run created is unlinked. The explicit cleanup further down does the same
+  # thing earlier; this one guarantees the export cannot outlive the gate.
+  trap 'scratch_free "$gl_out" "$gl_rep" "$gl_tree"' EXIT
   case "$MODE" in
     range)  gitleaks detect --redact --no-banner --config .gitleaks.toml \
               --log-opts="$RANGE" --report-format json --report-path "$gl_rep" >"$gl_out" 2>&1 ;;
@@ -343,8 +418,10 @@ PY
   else
     echo "${GREEN}✓ secrets: clean${NC}"
   fi
-  rm -f "$gl_out" "$gl_rep"
-  [[ -n "$gl_tree" ]] && rm -rf "$gl_tree"
+  # The scratch is freed here, not relocated: `rm` on an agent's PATH is a recoverable-delete
+  # shim, and a --all run used to park its 212 MB export tree in the platform trash instead of
+  # removing it. scratch_free unlinks directly, so the space comes back.
+  scratch_free "$gl_out" "$gl_rep" "$gl_tree"
 fi
 
 if (( MISCONFIGURED )); then

@@ -15,6 +15,7 @@ import re
 import requests
 import tempfile
 import time
+from datetime import datetime, timezone
 import cv2
 import numpy as np
 import shutil
@@ -665,6 +666,8 @@ class ImageHelpers:
     # above the no_signal smoothness ceiling.
     FP_BLACK_MEAN_MAX = 25.0     # black: mean brightness below this …
     FP_BLACK_STD_MAX = 12.0      # … and near-uniform (low spatial std)
+    FP_BLACK_LIT_LEVEL = 80      # … and no lit region: <=2% of pixels above 80 (a dark live scene is not black)
+    FP_BLACK_LIT_PCT_MAX = 2.0
     FP_NOSIG_SAT_MIN = 160.0     # no_signal: mean HSV saturation above this …
     FP_NOSIG_CANNY_MAX = 2.0     # … smooth solid bands (few edges) …
     FP_NOSIG_STD_MIN = 40.0      # … but high brightness variance across the bars
@@ -691,6 +694,9 @@ class ImageHelpers:
     # match) scores low; below this it is reported as no match ("unknown"), never
     # surfaced. Filtering lives here, not in any UI.
     FP_MIN_CONFIDENCE = 0.55
+    # A nav-path match that is the ONLY underline-agreeing node with two agreeing regions (identify_screen).
+    # Above jev_second_opinion.LOW_CONF (0.80): such a match is not handed to Jev.
+    FP_NAV_UNIQUE_CONFIDENCE = 0.85
     FP_ACCENT_SAT_MIN = 150            # focus accent must be vivid (rejects muddy photo colour)
     FP_ACCENT_VAL_MIN = 120
     FP_ACCENT_HUE = 0                  # default brand accent = red (OpenCV 0-179, red wraps 0/179)
@@ -698,6 +704,7 @@ class ImageHelpers:
     FP_NAV_BAND = (0.10, 0.18)         # vertical band a nav-tab underline lives in
     #   widened 0.16->0.18: some STB renders (example-v1) draw the underline lower,
     #   so the narrower band missed it entirely (focus=none → tabs indistinguishable)
+    FP_NAV_X_SANITY = 0.05             # tab-index match: the underline x may still differ this much (language)
     FP_NAV_X_TOL = 0.03                # nav-underline x match tolerance (settings tabs ~0.06 apart)
     FP_NAV_MAX_SPREAD = 0.25           # a localized underline, not scattered photo-red, spans < this of width
     FP_BOX_MIN_AREA = 0.01             # a focus box must cover >= this fraction of the frame
@@ -843,6 +850,67 @@ class ImageHelpers:
             if tmp and os.path.exists(tmp.name):
                 os.unlink(tmp.name)
 
+    FP_TAB_GAP = 0.0125          # horizontal gap (fraction of width) that separates two tabs; word gaps are smaller
+    FP_TAB_COUNT_SLACK = 1       # old screenshots merge or split one icon: the index from the left still holds
+    FP_TAB_MIN_COUNT = 3         # fewer labelled blocks than this is not a tab bar
+
+    def _nav_tab_index(self, img_bgr: np.ndarray, underline_y: float, underline_x: float,
+                       strip_top: float = 0.075, strip_bottom: float = 0.003):
+        """Which tab of the bar carries the underline: (index, count) counted over the bright
+        text / icon blocks in the strip above it, left to right, or (None, 0). Tab labels change with
+        the UI language and push every tab behind a long label sideways (French: +0.036), the
+        order and the count of the tabs do not (TASK-133, FINGERPRINT.md). Icons count as tabs.
+
+        `strip_top` / `strip_bottom` are the fractions of the frame height that the strip above the
+        underline spans. The default reads the whole strip, which on the Settings page also holds
+        the page header (the user name and its icon at the top right) — see the controller's
+        `_nav_right_index`, which reads the focus's own row instead.
+        """
+        try:
+            h, w = img_bgr.shape[:2]
+            y0, y1 = max(0, int(underline_y - strip_top * h)), int(underline_y - strip_bottom * h)
+            if y1 - y0 < 8:
+                return None, 0
+            g = cv2.cvtColor(img_bgr[y0:y1], cv2.COLOR_BGR2GRAY)
+            th = cv2.morphologyEx(g, cv2.MORPH_TOPHAT, cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (21, 21)))
+            xs = np.where((th > 55).sum(0) >= 2)[0]
+            if len(xs) == 0:
+                return None, 0
+            blocks, start, prev = [], xs[0], xs[0]
+            for x in xs[1:]:
+                if x - prev > self.FP_TAB_GAP * w:
+                    blocks.append((start, prev))
+                    start = x
+                prev = x
+            blocks.append((start, prev))
+            blocks = [b for b in blocks if b[1] - b[0] >= 6]
+            # The search icon at the far left is dim and not always above the threshold: never count it.
+            if blocks and blocks[0][0] < 0.10 * w and blocks[0][1] - blocks[0][0] < 0.03 * w:
+                blocks = blocks[1:]
+            if len(blocks) < self.FP_TAB_MIN_COUNT:
+                return None, 0
+            ux = underline_x * w
+            hit = [i for i, (a, b) in enumerate(blocks) if a - 0.01 * w <= ux <= b + 0.01 * w]
+            return (hit[0], len(blocks)) if len(hit) == 1 else (None, 0)
+        except Exception as e:
+            print(f"[@fingerprint] tab index failed: {e}")
+            return None, 0
+
+    def _underline_candidates(self, mask: np.ndarray, nb0: int, nb1: int, h: int, w: int):
+        """Thin, wide runs of `mask` in the nav band: [(score, x_frac, width_frac, y_in_band)]."""
+        band = cv2.morphologyEx(mask[nb0:nb1, :], cv2.MORPH_CLOSE,
+                                cv2.getStructuringElement(cv2.MORPH_RECT, (9, 3)))
+        cnts, _ = cv2.findContours(band, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        out = []
+        for c in cnts:
+            x, y, bw, bh = cv2.boundingRect(c)
+            if bw < 25 or bw > 0.20 * w or bh < 2 or bh > 12 or bw / max(bh, 1) < 6:
+                continue
+            ay = nb0 + y + bh / 2.0
+            vscore = 1.0 / (1.0 + abs(ay - 0.12 * h))
+            out.append((cv2.contourArea(c) + 5000 * vscore + bw, round((x + bw / 2) / w, 3), round(bw / w, 3), y + bh / 2.0))
+        return out
+
     def _focus_signature(self, img_bgr: np.ndarray) -> Dict[str, Any]:
         """Detect the focus accent and return a focus signature.
 
@@ -853,26 +921,25 @@ class ImageHelpers:
         h, w = img_bgr.shape[:2]
         red = self._accent_mask(img_bgr)
 
-        # 1) nav-tab underline (robust): a THIN, WIDE red run in the nav/tab band.
+        # 1) nav-tab underline (robust): a THIN, WIDE run in the nav/tab band, red OR near-white.
+        #    The operator's app draws the underline red under a dark hero and white under a bright one
+        #    (measured on stb4, STB_UI_OPERATOR.md): a red-only mask finds no underline on the white one,
+        #    the focus then reads as a 'box' (the one+ badge) and Home abstains, one registry row per hero.
         #    Band 0.08-0.21 covers the home menu (y~.13) AND settings tabs (y~.17).
         #    Morph-close stitches the dashed underline; aspect + vertical score reject
         #    tall content-red blobs (carousel/posters). Returns x + normalized width.
         nb0, nb1 = int(0.08 * h), int(0.21 * h)
-        band = cv2.morphologyEx(red[nb0:nb1, :], cv2.MORPH_CLOSE,
-                                cv2.getStructuringElement(cv2.MORPH_RECT, (9, 3)))
-        cnts, _ = cv2.findContours(band, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        best_u = None
-        for c in cnts:
-            x, y, bw, bh = cv2.boundingRect(c)
-            if bw < 25 or bw > 0.20 * w or bh < 2 or bh > 12 or bw / max(bh, 1) < 6:
-                continue
-            ay = nb0 + y + bh / 2.0
-            vscore = 1.0 / (1.0 + abs(ay - 0.12 * h))
-            score = cv2.contourArea(c) + 5000 * vscore + bw
-            if best_u is None or score > best_u[0]:
-                best_u = (score, round((x + bw / 2) / w, 3), round(bw / w, 3))
-        if best_u:
-            return {'kind': 'nav', 'x': best_u[1], 'width': best_u[2]}
+        hsv = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)
+        white = ((hsv[:, :, 2] >= 200) & (hsv[:, :, 1] <= 60)).astype(np.uint8) * 255
+        red_cands = self._underline_candidates(red, nb0, nb1, h, w)
+        # A candidate that yields a tab index is a menu underline; a white or red block that does not is content.
+        for _score, x_frac, bw_frac, ay in sorted(red_cands + self._underline_candidates(white, nb0, nb1, h, w), reverse=True):
+            idx, count = self._nav_tab_index(img_bgr, nb0 + ay, x_frac)
+            if idx is not None:
+                return {'kind': 'nav', 'x': x_frac, 'width': bw_frac, 'tab_index': idx, 'tab_count': count}
+        if red_cands:   # no candidate has an index: the red underline keeps its index-less nav signature
+            _score, x_frac, bw_frac, _ay = max(red_cands)
+            return {'kind': 'nav', 'x': x_frac, 'width': bw_frac}
 
         # 2) focus box/button: largest vivid-accent region (border or fill)
         m = cv2.morphologyEx(red, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
@@ -991,7 +1058,8 @@ class ImageHelpers:
             'discriminative': bool(other_min > self.FP_SELF_DRIFT_FLOOR),
         }
 
-    def compute_fingerprint(self, img_bgr: np.ndarray, region=None) -> Optional[Dict[str, Any]]:
+    def compute_fingerprint(self, img_bgr: np.ndarray, region=None, *, ocr: bool = True
+                            ) -> Optional[Dict[str, Any]]:
         """Compute the Localize fingerprint for a device frame (v6).
 
         Layers: full-frame dHash = the screen FAMILY; per-region dHashes (v5) =
@@ -1001,7 +1069,13 @@ class ImageHelpers:
         OCR layers in the raw device language.
 
         `region` is accepted but ignored — it is kept only so existing callers don't break.
-        Returns None on bad input. See docs/agent/navigation/FINGERPRINT.md.
+
+        `ocr=False` omits the two OCR layers (`title`, `text`) and nothing else. That is
+        the subset the matcher reads (localize_verdicts_db.SAMPLE_KEYS is exactly
+        ``v, dhash, regions, crop, focus``), and it costs no tesseract subprocess — so a
+        per-frame caller can store a real fingerprint instead of nothing. OCR stays the
+        default: the capture/backfill path wants it. Returns None on bad input.
+        See docs/agent/navigation/FINGERPRINT.md.
         """
         if img_bgr is None or img_bgr.size == 0:
             return None
@@ -1013,11 +1087,14 @@ class ImageHelpers:
                                                     # & language robust on structured screens; see docs/agent/navigation/FINGERPRINT.md)
             'crop': self._focus_crop_hex(img_bgr),  # v6: focused-tile logo dHash (app-grid sibling); may be None
             'focus': self._focus_signature(img_bgr),
-            'title': self._title_text(img_bgr),      # layer 3: which screen (raw, device language)
-            'text': self._band_tokens(img_bgr),      # structured top-band tokens (kept for later)
+            # TASK-107: the coverage audit reports fingerprint age from this (UTC ISO).
+            'captured_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),
         }
+        if ocr:
+            fp['title'] = self._title_text(img_bgr)   # layer 3: which screen (raw, device language)
+            fp['text'] = self._band_tokens(img_bgr)   # structured top-band tokens (kept for later)
         print(f"[@fingerprint] v{fp['v']} dhash={fp['dhash'][:12]}… "
-              f"focus={fp['focus']} title={fp['title']!r}")
+              f"focus={fp['focus']} title={fp.get('title')!r}")
         return fp
 
     @staticmethod
@@ -1152,6 +1229,16 @@ class ImageHelpers:
         return int(round(diff * self.FP_DHASH_BITS / max(stable_count, 1)))
 
     @staticmethod
+    def _tab_index_agrees(a: Dict[str, Any], b: Dict[str, Any]) -> Optional[bool]:
+        """None when either side has no tab index or the bars differ in tab count by more than the slack;
+        else whether the same tab carries the underline. Same bar: the position in the bar is the
+        identity (language independent); x only has to be sane (a long label moves it by < 0.12)."""
+        ia, ib = a.get('tab_index'), b.get('tab_index')
+        if ia is None or ib is None or abs(a.get('tab_count', 0) - b.get('tab_count', 0)) > ImageHelpers.FP_TAB_COUNT_SLACK:
+            return None
+        return ia == ib and abs(a.get('x', -1) - b.get('x', -2)) <= ImageHelpers.FP_NAV_X_SANITY
+
+    @staticmethod
     def _focus_agreement(a: Dict[str, Any], b: Dict[str, Any]) -> float:
         """How much two focus signatures agree: 1 identical, 0 contradict, 0.5 unknown."""
         if not a or not b:
@@ -1162,6 +1249,10 @@ class ImageHelpers:
         if ka != kb:
             return 0.3
         if ka == 'nav':
+            # The tab index only ADDS an accept (a long label moved the underline); it never rejects what
+            # the x rule accepts: a layout without one tab (no TV Shop) shifts the index of the icons.
+            if ImageHelpers._tab_index_agrees(a, b):
+                return 1.0
             if abs(a.get('x', -1) - b.get('x', -2)) > ImageHelpers.FP_NAV_X_TOL:
                 return 0.0
             wa, wb = a.get('width'), b.get('width')      # same x but very different underline
@@ -1200,7 +1291,9 @@ class ImageHelpers:
         gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
         mean, std = float(gray.mean()), float(gray.std())
         # Black first (cheapest, mutually exclusive with the vivid no-signal bars).
-        if mean < self.FP_BLACK_MEAN_MAX and std < self.FP_BLACK_STD_MAX:
+        # Uniformly dark only: a dark live scene with a lit floor / logo is NOT black (BUG-0646).
+        if (mean < self.FP_BLACK_MEAN_MAX and std < self.FP_BLACK_STD_MAX
+                and float((gray > self.FP_BLACK_LIT_LEVEL).mean()) * 100 <= self.FP_BLACK_LIT_PCT_MAX):
             return 'blackscreen'
         sat = float(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2HSV)[:, :, 1].mean())
         canny = float(cv2.Canny(gray, 50, 150).mean())
@@ -1338,6 +1431,124 @@ class ImageHelpers:
         prev = result.get('reason')
         result['reason'] = f'{prev} +{note}' if prev else note
 
+    REASON_NEGATIVE = 'operator negative: {n} candidate(s) marked as not this screen'
+    FP_MAX_EXTRA_SAMPLES = 8           # operator-added samples kept per node (oldest dropped)
+    FP_PLATE_REGION_OVERLAP = 0.10     # a region a plate covers more than this share of is not used under it
+
+    @staticmethod
+    def expand_fingerprint_samples(node_fps: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Each node, then one entry per operator-added sample in `fingerprint.extra` (same node_id,
+        label; the stored title / text carried over so the title tie-break still applies)."""
+        out: List[Dict[str, Any]] = []
+        for nf in node_fps:
+            out.append(nf)
+            fp = nf.get('fingerprint') or {}
+            for extra in fp.get('extra') or []:
+                if isinstance(extra, dict) and extra.get('regions'):
+                    sample = {k: v for k, v in extra.items() if k not in ('verdict_id', 'added_at')}
+                    sample.setdefault('title', fp.get('title', ''))
+                    sample.setdefault('text', fp.get('text', []))
+                    out.append({**nf, 'fingerprint': sample, 'sample_of': nf.get('node_id')})
+        return out
+
+    @staticmethod
+    def _dedupe_by_node(result: Dict[str, Any]) -> None:
+        """Keep each node's first (best) entry in `candidates` and `ranked`, in place."""
+        for key in ('candidates', 'ranked'):
+            rows = result.get(key)
+            if not rows:
+                continue
+            seen, kept = set(), []
+            for r in rows:
+                if r.get('node_id') in seen:
+                    continue
+                seen.add(r.get('node_id'))
+                kept.append(r)
+            result[key] = kept
+
+    def _same_screen_by_regions(self, live_regions: Dict[str, str], regs: Dict[str, str]) -> Optional[int]:
+        """v5's qualify rule on a region subset: the best region within FP_SELF_DRIFT_FLOOR and the
+        second within the slack. Returns the best distance, or None when it does not qualify."""
+        d = self._region_dists(live_regions, regs or {})
+        if len(d) < 2:
+            return None
+        if d[0] <= self.FP_SELF_DRIFT_FLOOR and d[1] <= self.FP_SELF_DRIFT_FLOOR + self.FP_2ND_REGION_SLACK:
+            return d[0]
+        return None
+
+    def matches_negative(self, live_regions: Dict[str, str], negatives: List[Dict[str, Any]]) -> bool:
+        """True when the live frame is the same screen as one of a node's negative samples."""
+        return any(isinstance(n, dict) and self._same_screen_by_regions(live_regions, n.get('regions')) is not None
+                   for n in negatives)
+
+    def match_under_plate(self, img_bgr: np.ndarray, plate_box, node_fps: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """Which node is UNDER a popup / keyboard / notification plate (TASK-104 phase 2).
+
+        Drops the v5 regions the plate covers (more than FP_PLATE_REGION_OVERLAP of the region) and
+        scores the rest with v5's own qualify rule (two regions agree). `plate_box` is (x, y, w, h)
+        fractions. Returns {node_id, label, dist, confidence, regions, tied} — node_id None when
+        nothing qualifies or two different nodes tie within FP_CANDIDATE_MARGIN.
+        """
+        gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
+        px, py, pw, ph = plate_box
+        kept_names = []
+        for name, (y0, y1, x0, x1) in self.FP_V5_REGIONS.items():
+            ox = max(0.0, min(x1, px + pw) - max(x0, px))
+            oy = max(0.0, min(y1, py + ph) - max(y0, py))
+            if (ox * oy) / max((x1 - x0) * (y1 - y0), 1e-6) <= self.FP_PLATE_REGION_OVERLAP:
+                kept_names.append(name)
+        out: Dict[str, Any] = {'node_id': None, 'label': None, 'dist': None, 'confidence': 0.0,
+                               'regions': kept_names, 'tied': []}
+        if len(kept_names) < 2:
+            return out
+        live = {k: v for k, v in self._region_dhashes(gray).items() if k in kept_names}
+        scored = []
+        for nf in self.expand_fingerprint_samples(node_fps):
+            fp = nf.get('fingerprint') or {}
+            d = self._same_screen_by_regions(live, fp.get('regions'))
+            if d is not None and not self.matches_negative(live, fp.get('negatives') or []):
+                scored.append((d, nf.get('node_id'), nf.get('label')))
+        if not scored:
+            return out
+        scored.sort(key=lambda t: t[0])
+        best = scored[0]
+        tied = sorted({nid for d, nid, _ in scored if nid != best[1] and d <= best[0] + self.FP_CANDIDATE_MARGIN})
+        out.update({'dist': best[0], 'tied': tied,
+                    'confidence': round(max(0.0, 1.0 - best[0] / self.FP_DHASH_BITS), 3)})
+        if not tied:
+            out.update({'node_id': best[1], 'label': best[2]})
+        return out
+
+    def _v5_qualifies(self, cand: Dict[str, Any]) -> bool:
+        """v5's same-screen rule on a matcher candidate: best region within FP_SELF_DRIFT_FLOOR and the
+        2nd (`second`, or `nav_second` on the nav path) within FP_2ND_REGION_SLACK past it."""
+        second = cand.get('second', cand.get('nav_second', 999))
+        return (cand.get('dist', 999) <= self.FP_SELF_DRIFT_FLOOR
+                and second <= self.FP_SELF_DRIFT_FLOOR + self.FP_2ND_REGION_SLACK)
+
+    def plate_covered_dists(self, img_bgr: np.ndarray, plate_box, fp: Dict[str, Any]) -> List[int]:
+        """Distances, live vs the node's fingerprint, of the v5 regions a plate covers (more than
+        FP_PLATE_REGION_OVERLAP of the region), `full` included; regions degenerate on either side
+        are left out. [] = nothing to compare (the plate erased the texture the node has there)."""
+        px, py, pw, ph = plate_box
+        covered = []
+        for name, (y0, y1, x0, x1) in self.FP_V5_REGIONS.items():
+            ox = max(0.0, min(x1, px + pw) - max(x0, px))
+            oy = max(0.0, min(y1, py + ph) - max(y0, py))
+            if (ox * oy) / max((x1 - x0) * (y1 - y0), 1e-6) > self.FP_PLATE_REGION_OVERLAP:
+                covered.append(name)
+        regs = (fp or {}).get('regions') or {}
+        live = {k: v for k, v in self._region_dhashes(cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)).items()
+                if k in covered}
+        return self._region_dists(live, regs)
+
+    def plate_in_node(self, img_bgr: np.ndarray, plate_box, fp: Dict[str, Any]) -> bool:
+        """True when the plate is PART of the node's own screen (a search page's on-screen keyboard, a
+        PIN dialog node): the regions under it match the node's fingerprint within the drift floor.
+        A popup drawn over the node changes them (or flattens them to nothing comparable)."""
+        d = self.plate_covered_dists(img_bgr, plate_box, fp)
+        return bool(d) and d[len(d) // 2] <= self.FP_SELF_DRIFT_FLOOR
+
     def identify_screen(self, img_bgr: np.ndarray, node_fps: List[Dict[str, Any]]) -> Dict[str, Any]:
         """THE Localize identification: which node does this frame match?
 
@@ -1370,9 +1581,20 @@ class ImageHelpers:
         gray = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2GRAY)
         live_focus = self._focus_signature(img_bgr)
         live_crop = self._focus_crop_hex(img_bgr)                                  # v6: focused-tile logo
-        result = self.match_fingerprint_v6(gray, self._region_dhashes(gray), live_focus, live_crop, node_fps)  # v6
+        live_regions = self._region_dhashes(gray)
+        # Corrections (TASK-104 goal 11): a node's operator-added samples are matched as extra
+        # fingerprints of the same node; duplicates of one node collapse to its best entry.
+        source_fps = node_fps
+        node_fps = self.expand_fingerprint_samples(node_fps)
+        result = self.match_fingerprint_v6(gray, live_regions, live_focus, live_crop, node_fps)  # v6
+        self._dedupe_by_node(result)
 
         is_nav = (live_focus.get('kind') == 'nav')
+        # Underline siblings (before any narrowing) that are the same screen by v5's qualify rule: best
+        # region within the drift floor, 2nd within the slack. A nav single is decided without a title
+        # only when it is the one such sibling (NAV-path confidence below).
+        nav_qualified = ({c.get('node_id') for c in (result.get('candidates') or []) if self._v5_qualifies(c)}
+                         if is_nav else set())
         fp_by_id = {nf['node_id']: (nf.get('fingerprint') or {}) for nf in node_fps}
 
         # Title scores (layer 3 — which SCREEN). OCR the live title ONCE and score
@@ -1468,8 +1690,34 @@ class ImageHelpers:
             cands = result.get('candidates') or []
             for c in cands:
                 c['confidence'] = round(0.6 + 0.4 * c.get('title_score', 0.0), 3)
+            # One node left, its underline (x + width) agrees and it is the ONLY underline sibling that
+            # is the same screen by v5's qualify rule: the identity is decided without a title, so it is
+            # not a borderline answer for Jev (TASK-110 lever 1: 118 of 124 such singles in the
+            # benchmark were right; the wrong ones are duplicate nodes no title would split).
+            if len(cands) == 1 and nav_qualified == {cands[0].get('node_id')}:
+                cands[0]['confidence'] = max(cands[0]['confidence'], self.FP_NAV_UNIQUE_CONFIDENCE)
+                cands[0]['unique_tab'] = True
+            # The bar itself names the tab: one candidate left and the same tab of the same bar carries the
+            # underline (index, tab count, x sane). The rotating hero banner moves the region hashes and the
+            # title OCR, not the bar, so this is no borderline answer either (TASK-133).
+            if (len(cands) == 1 and not cands[0].get('unique_tab')
+                    and self._tab_index_agrees(live_focus, fp_by_id.get(cands[0].get('node_id'), {}).get('focus') or {})):
+                cands[0]['confidence'] = max(cands[0]['confidence'], self.FP_NAV_UNIQUE_CONFIDENCE)
+                cands[0]['unique_tab'] = True
             cands.sort(key=lambda c: -c['confidence'])
             result['candidates'] = cands
+
+        # Negatives (TASK-104 goal 11): a node the operator said does NOT show this screen
+        # ("Unknown screen" on its wrong claim) never claims a frame that looks like the one
+        # they marked. Applied here so the button, the monitor and dispatch all honour it.
+        cands = result.get('candidates') or []
+        if cands:
+            neg_fp = {nf['node_id']: (nf.get('fingerprint') or {}).get('negatives') or [] for nf in source_fps}
+            keep = [c for c in cands if not self.matches_negative(live_regions, neg_fp.get(c.get('node_id')) or [])]
+            if len(keep) < len(cands):
+                result['excluded_count'] = result.get('excluded_count', 0) + (len(cands) - len(keep))
+                result['candidates'] = keep
+                self._note_reason(result, self.REASON_NEGATIVE.format(n=len(cands) - len(keep)))
 
         # Confidence floor — drop any candidate below the minimum. A nearest match
         # that is still far in dHash (live video / no real match) scores low and is
@@ -1545,7 +1793,8 @@ class ImageHelpers:
         def _pack5(cands, reason=None, best=None, ranked=None):  # full v4-compatible contract for callers
             out = [{'node_id': c['node_id'], 'label': c['label'], 'dist': c['dist'], 'dhash_dist': c['dist'],
                     'confidence': round(max(0.0, 1.0 - c['dist'] / self.FP_DHASH_BITS), 3),
-                    **({'second': c['second']} if 'second' in c else {})} for c in cands]
+                    **({'second': c['second']} if 'second' in c else {}),
+                    **({k: c[k] for k in ('all', 'nav_second') if k in c})} for c in cands]
             return {'candidates': out, 'excluded_count': n - len(out), 'total': n, 'reason': reason,
                     'best_excluded': best, 'ranked': ranked}
         if float(cv2.Canny(live_gray, 50, 150).mean()) < self.FP_DARK_EDGE_MIN:
@@ -1559,6 +1808,11 @@ class ImageHelpers:
             d = self._region_dists(live_regions, _regs_of(nf))
             return d[0] if d else 999   # BEST non-degenerate region: one strongly-matching stable region
                                         # is identity (EPG: title region ~6 while the program grid churns)
+        def _all_regions(d):
+            # Sum over EVERY usable region: the tie-break between nodes that share their best region
+            # (autobuild trees hold the same screen with the focus on another tile: the chrome ties at
+            # 0, the focused tile moves a few bits in `center` / `left`). TASK-110 lever 2.
+            return sum(d) if d else 999
         # ── NAV PATH: underline x narrows to same-tab-position siblings; REGION dHash tie-breaks (no OCR)
         if live_focus.get('kind') == 'nav':
             agree = [nf for nf in node_fps
@@ -1571,12 +1825,16 @@ class ImageHelpers:
             # here — it needs the TITLE to avoid rejecting a legit content-heavy menu
             # (home: a huge rotating hero drifts the region to ~70 even when correct),
             # and the matcher is title-agnostic by design.
-            agree.sort(key=_region_score)
+            nav_d = {id(nf): self._region_dists(live_regions, _regs_of(nf)) for nf in agree}
+            agree.sort(key=lambda nf: (nav_d[id(nf)][0] if nav_d[id(nf)] else 999, _all_regions(nav_d[id(nf)])))
             # One scored pass over every node serves both the best_excluded hint and the
             # ranked preview: `score` is the region distance, so it is the 'dist' _preview wants.
             all_scored = [{'node_id': nf.get('node_id'), 'label': nf.get('label'),
                            'score': _region_score(nf)} for nf in node_fps]
-            return _pack5([{'node_id': nf.get('node_id'), 'label': nf.get('label'), 'dist': _region_score(nf)}
+            return _pack5([{'node_id': nf.get('node_id'), 'label': nf.get('label'),
+                            'dist': nav_d[id(nf)][0] if nav_d[id(nf)] else 999,
+                            'nav_second': nav_d[id(nf)][1] if len(nav_d[id(nf)]) > 1 else 999,
+                            'all': _all_regions(nav_d[id(nf)])}
                            for nf in agree],
                           best=_best_excluded(all_scored),
                           ranked=_preview([{'node_id': s['node_id'], 'label': s['label'],
@@ -1588,7 +1846,7 @@ class ImageHelpers:
             if not d:
                 continue
             scored.append({'node_id': nf.get('node_id'), 'label': nf.get('label'),
-                           'score': d[0], 'second': d[1] if len(d) > 1 else d[0],
+                           'score': d[0], 'second': d[1] if len(d) > 1 else d[0], 'all': _all_regions(d),
                            'focus': (nf.get('fingerprint') or {}).get('focus')})
         if not scored:
             return _pack5([], 'no v5 region fingerprints', best=None)
@@ -1612,8 +1870,9 @@ class ImageHelpers:
             refined = [s for s in screen if self._focus_agreement(live_focus, s.get('focus') or {}) >= 0.99]
             if refined:
                 screen = refined
-        return _pack5([{'node_id': s['node_id'], 'label': s['label'], 'dist': s['score'], 'second': s['second']}
-                       for s in sorted(screen, key=lambda s: s['score'])],
+        return _pack5([{'node_id': s['node_id'], 'label': s['label'], 'dist': s['score'], 'second': s['second'],
+                        'all': s['all']}
+                       for s in sorted(screen, key=lambda s: (s['score'], s['all']))],
                       best=_best_excluded(scored),
                       ranked=_preview([{'node_id': s['node_id'], 'label': s['label'],
                                         'dist': s['score']} for s in scored]))
@@ -1651,7 +1910,7 @@ class ImageHelpers:
         without = [c for c in cands if not node_crop(c)]
         if len(with_crop) < 2:
             return res
-        with_crop.sort(key=lambda c: (self._dhash_hamming(live_crop, node_crop(c)), c.get('dist', 0)))
+        with_crop.sort(key=lambda c: (self._dhash_hamming(live_crop, node_crop(c)), c.get('dist', 0), c.get('all', 0)))
         res['candidates'] = with_crop + without
         res['reason'] = (res.get('reason') or '') + ' +v6crop'
         return res

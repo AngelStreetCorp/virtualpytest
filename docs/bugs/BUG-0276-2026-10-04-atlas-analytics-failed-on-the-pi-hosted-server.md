@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High — the analytics layer did not work at all on that server |
 | Area      | `backend_server/src/lib/analytics/service.py`, `backend_server/src/routes/server_atlas_analytics_routes.py`, `backend_server/src/lib/auth_middleware.py` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `47d971fc9`, `06aa2cbd5`, `510bd4281`, `d801d2147`, `927441c13`, `61bfab990` |
 
 ---

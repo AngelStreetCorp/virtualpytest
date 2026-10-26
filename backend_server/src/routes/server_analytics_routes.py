@@ -13,6 +13,7 @@ See backend_server/src/lib/utils/section_cache.py for why that beats a plain TTL
 
 import os
 from datetime import datetime, timezone
+from typing import Any, Dict, Optional
 
 from flask import Blueprint, jsonify, request
 
@@ -38,8 +39,27 @@ server_analytics_bp = Blueprint('server_analytics', __name__, url_prefix='/serve
 # and 'devices' carry live up/down state, so they go stale in 30s. The rest are daily
 # buckets — a five-minute-old answer to "how many incidents on the 3rd" is the same
 # answer, so refreshing faster would be pure waste.
+#
+# The Overview tiles and the Incidents tab show the SAME open-incident figure, so the
+# Overview reads it from the incidents cache instead of computing its own copy: two
+# copies on two clocks drifted apart for minutes (BUG-0788).
+def _overview_loader(team_id: Optional[str]) -> Dict[str, Any]:
+    """The Overview tiles, with only the open-incidents figure taken from the incidents cache.
+
+    One figure, one cache entry: the Overview tile "Open incidents" and the Incidents
+    tab "still open" can no longer disagree, because they are the same value. The
+    charts keep their own 14-day window ("last 14 days"); the cache entry is the
+    30-day one, so it must not feed them (BUG-0788 review).
+    """
+    section = get_overview_section(team_id=team_id)
+    incidents, _state = analytics_cache.get('incidents', team_id=team_id)
+    if isinstance(incidents, dict) and 'open' in incidents:
+        section = {**section, 'tiles': {**section['tiles'], 'incidents_open': incidents['open']}}
+    return section
+
+
 _SECTIONS = {
-    'overview':  (lambda team_id: get_overview_section(team_id=team_id), 30,  600),
+    'overview':  (_overview_loader, 30,  600),
     'system':    (lambda team_id: get_system_section(),                  30,  600),
     'devices':   (lambda team_id: get_devices_section(),                 30,  600),
     'incidents': (lambda team_id: get_incidents_section(),               300, 3600),
@@ -97,6 +117,17 @@ def get_section(section):
             'error': f"Unknown analytics section '{section}'",
             'sections': analytics_cache.sections(),
         }), 404
+
+    # The Overview tile "Open incidents" and the Incidents tab "still open" are one
+    # metric, so they must be one number (BUG-0788). The Overview payload is cached
+    # on its own clock, so its copy of the figure can be a pre-warm pass behind the
+    # incidents entry — read the figure from the incidents cache here, at request
+    # time, and the two tabs cannot disagree.
+    if section == 'overview':
+        incidents, _incidents_state = analytics_cache.get('incidents', team_id=team_id)
+        tiles = data.get('tiles')
+        if isinstance(tiles, dict) and 'open' in incidents:
+            data = {**data, 'tiles': {**tiles, 'incidents_open': incidents['open']}}
 
     response = jsonify({
         'success': True,

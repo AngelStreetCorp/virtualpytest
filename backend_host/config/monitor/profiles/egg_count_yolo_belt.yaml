@@ -1,0 +1,94 @@
+# egg_count_yolo_belt: the egg line, COUNTED, with the belt model and without the quality grade.
+#
+# WHY A PROFILE THAT ONLY COUNTS
+# -------------------------------
+# `egg_quality_yolo_belt` (BUG-0870) finds 98.6 % of the eggs with a model trained on belts, and then
+# grades every one of them good or bad. The GRADE is the part that is not honest: `egg_classify` looks
+# at a crop of a white egg on a blue belt in daylight, where the image carries no evidence at all of
+# what is inside the egg, so it reports ~99 % bad because that is what the model says. A real grade
+# needs candling (the egg against a light).
+#
+# This profile drops the grader and keeps the COUNT, which is the part the image can actually
+# support: one event per tracked egg, so the counter is "eggs that passed through", never "eggs that
+# looked bad". Nothing here claims a quality it cannot see.
+#
+# IT IS ALSO FASTER, AND THE MEASUREMENT IS ON THE BOX (vpt-lenovo1, i3-4150T, 4 cores)
+# -------------------------------------------------------------------------------------------
+#     stage                                   cost
+#     belt detection, one 960x960 whole frame   0.65 - 0.75 s   (1.33 detections/s ceiling)
+#     grading 195 crops with the small CNN     0.23 - 0.26 s   (dropped here)
+#     every other stage of the pipeline        ~0.15 s
+#
+# So a graded cycle costs ~1.0 s and an ungraded one ~0.9 s of work. The worker takes the NEWEST
+# pending frame and analyses it when a period has passed, so the cycle is max(sample period, analysis
+# time) and the rate is the smaller of the two limits. Measured live before this profile: the belt
+# profile asked for 0.5 Hz and delivered 0.47 analyses/s (28 updates a minute, median gap 2.15 s) —
+# the model was idle more than half the time.
+#
+#     sample_hz 1.2  ->  period 0.83 s, analysis ~0.9 s  ->  ~1.1 analyses/s   (this profile)
+#     sample_hz 1.0  ->  period 1.00 s, analysis ~1.0 s  ->  ~0.9 analyses/s   (graded profile)
+#
+# The capture side writes 5 frames a second, so even 1.1 analyses/s is a fifth of the frames: the
+# circles are a snapshot of the belt, refreshed about once a second, and the frame-lock keeps them
+# on the eggs they were measured on.
+#
+# WHAT THE COUNT IS AND IS NOT
+# -----------------------------
+# `egg_seen` fires ONCE per tracked egg (when the track's verdict is final: it was seen twice, or it
+# left the frame), so `count_total` is the number of distinct eggs, not the number of frames they
+# appeared in. `reset_counters` clears the counters every 120 s so a demo shows "eggs in the last
+# two minutes" and not "eggs since the host booted"; the frame JSON also carries `counting.since`.
+#
+# The count is a DETECTION count: it counts what the model saw. It does not count eggs that the
+# model missed (2 of 147 on the measured ground truth) and it does not claim anything about the
+# eggs' interior quality.
+#
+# THE MODEL IS NOT IN GIT
+# -----------------------
+# The same belt model as `egg_quality_yolo_belt`: `model/best.pt` from the public GitHub repo
+# Moein-Talebi/egg-detection-tracking, exported to ONNX outside the project folder (e.g.
+# /var/lib/vpt_user/models/egg_belt.onnx) and pointed at by MONITOR_YOLO_BELT_MODEL. SHA-256 of the
+# downloaded file: c219a234ad9a6ebaf64fed76331e596376f420ee3ee58dc5061769e1113b7767 (verified against
+# the raw file in the repo). The repo has no licence file, so the weights are fetched and exported by
+# the operator, not redistributed here.
+name: egg_count_yolo_belt
+services: { img: true, audio: false, subtitle: false }
+img:
+  runtime: edge
+  analyzers:
+    - type: yolo_seg_detect
+      # One whole-frame pass costs ~0.9 s on the box (measured), so 1.2 Hz is the fastest the
+      # pipeline can actually keep up with: the period (0.83 s) and the analysis time (~0.9 s) are
+      # the same size, and the cycle is the larger of the two.
+      sample_hz: 1.2
+      classes: [egg]                # one name per model class, in the model's order
+      min_conf: 0.02                # the head's scores are already activated; 0.02 is a real 2 %
+      model_env: MONITOR_YOLO_BELT_MODEL
+      input_size: 960               # the model's square input; 960 measured best (98.6 % recall)
+      fill: letterbox               # the frame is 1280x720 and the input is square: pad, do not stretch
+      nms_iou: 0.60                 # two touching eggs overlap ~0.04; the same egg twice ~0.6
+      dedupe_dist: 0.35             # centres within 0.35 diameters = the same egg, one circle
+      dedupe_ratio: 0.35            # ...unless the two boxes differ so much they are different eggs
+      min_side: 8                   # the far eggs at the top of the frame are small
+      max_aspect: 2.6
+    # NO egg_classify HERE, ON PURPOSE. The grader cannot see inside the egg on this feed and its
+    # verdict is not honest, so this profile counts eggs and says nothing about their condition.
+  # ocsort follows an egg across the frames it is seen in, and `votes: 2` is what turns "detected
+  # twice" into "one egg counted once": an egg is counted on its second sighting, or when it leaves
+  # the frame. `min_votes: 1` because there is no classifier whose votes could be missing.
+  track: { algo: ocsort, max_gap_s: 30.0, min_iou: 0.1, cold_gate: 1.5, votes: 2, min_votes: 1 }
+  reset_counters: { every_s: 120 }
+events:
+  egg_seen: { attr: label, in: [egg] }        # one event per TRACK, so one egg counts once
+incidents: {}
+kpis:
+  - { name: count_total, of: egg_seen, window_s: 86400 }   # distinct eggs, not frames
+ui:
+  title: Egg count (belt model)
+  stats:
+    - { label: Eggs, kpi: count_total }
+    - { label: Detections, observations: true }
+  # No counters block: there is no condition to group by, and a good/bad counter here would be a
+  # number the image cannot support.
+  box: { shape: ellipse, badge: votes, colour_by: none }
+  focus_panel: { crop: true, probs: false, title: Last egg }

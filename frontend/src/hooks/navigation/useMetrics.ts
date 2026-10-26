@@ -90,6 +90,8 @@ export const useMetrics = (props?: UseMetricsProps) => {
             volume: metric.volume,
             success_rate: metric.success_rate,
             avg_verification_time: metric.avg_verification_time,
+            verified_frame_url: metric.verified_frame_url ?? null,
+            verified_at: metric.verified_at ?? null,
             confidence: metric.confidence,
             confidence_level: metric.confidence >= CONFIDENCE_HIGH_THRESHOLD ? 'high' : metric.confidence >= CONFIDENCE_MEDIUM_THRESHOLD ? 'medium' : 'low'
           });
@@ -168,6 +170,8 @@ export const useMetrics = (props?: UseMetricsProps) => {
             volume: metric.volume,
             success_rate: metric.success_rate,
             avg_verification_time: metric.avg_verification_time,
+            verified_frame_url: metric.verified_frame_url ?? null,
+            verified_at: metric.verified_at ?? null,
             confidence: metric.confidence,
             confidence_level: metric.confidence >= CONFIDENCE_HIGH_THRESHOLD ? 'high' : metric.confidence >= CONFIDENCE_MEDIUM_THRESHOLD ? 'medium' : 'low'
           });

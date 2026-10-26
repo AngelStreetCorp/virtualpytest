@@ -12,7 +12,7 @@ import {
   UINavigationNode,
 } from '../../types/pages/Navigation_Types';
 import { api } from '../../utils/apiClient';
-import { buildServerUrl, buildServerUrlWithParams } from '../../utils/buildUrlUtils';
+import { buildHostServerUrl, buildServerUrlWithParams } from '../../utils/buildUrlUtils';
 import { invalidateSignedUrl } from '../../utils/infrastructure/cloudflareUtils';
 import { executeNavigationAsync } from '../../utils/navigationExecutionUtils';
 import { useValidationColors } from '../validation/useValidationColors';
@@ -200,7 +200,7 @@ export const useNode = (props?: UseNodeProps) => {
         const sanitizedFilename = variantSlug ? `${baseName}__${variantSlug}` : baseName;
 
         const result = await api.post<{ success?: boolean; screenshot_url?: string; message?: string; fingerprint?: any; dom?: any }>(
-          buildServerUrl('/server/av/saveScreenshot'),
+          buildHostServerUrl(props.selectedHost, '/server/av/saveScreenshot'),
           {
             host_name: props.selectedHost.host_name,
             device_id: props.selectedDeviceId,
@@ -241,7 +241,7 @@ export const useNode = (props?: UseNodeProps) => {
           // resolves it from the screenshot key. Fire-and-forget; failures are non-fatal.
           if (onUpdateNode && result.screenshot_url) {
             api.post<{ success?: boolean; dom?: any }>(
-              buildServerUrl('/server/av/generateDom'),
+              buildHostServerUrl(props.selectedHost, '/server/av/generateDom'),
               {
                 host_name: props.selectedHost.host_name,
                 device_id: props.selectedDeviceId,
@@ -319,7 +319,7 @@ export const useNode = (props?: UseNodeProps) => {
       }
       const base = label.replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_-]/g, '');
       const result = await api.post<{ success?: boolean; screenshot_url?: string; fingerprint?: any }>(
-        buildServerUrl('/server/av/saveScreenshot'),
+        buildHostServerUrl(props.selectedHost, '/server/av/saveScreenshot'),
         {
           host_name: props.selectedHost.host_name,
           device_id: props.selectedDeviceId,
@@ -551,6 +551,9 @@ export const useNode = (props?: UseNodeProps) => {
 
       setIsExecuting(true);
       setNavigationError(null);
+      setExecutionMessage(null);
+      setDebugReportUrl(null);
+      setVerificationReports([]);
       setArrivedOnSibling(null);
 
       // Reset edge colors to grey before starting new navigation
@@ -611,6 +614,7 @@ export const useNode = (props?: UseNodeProps) => {
               targetNodeId: parentNodeId,
               targetNodeLabel: parentNode?.data.label,
               hostName: props.selectedHost.host_name,
+              host: props.selectedHost,
               deviceId: props.selectedDeviceId || currentDeviceId || 'device1',
               userinterfaceName: userInterface?.name || '',
               currentNodeId: currentNodeId || undefined,
@@ -651,6 +655,7 @@ export const useNode = (props?: UseNodeProps) => {
               targetNodeId: selectedNode.id,
               targetNodeLabel: selectedNode.data.label,
               hostName: props.selectedHost.host_name,
+              host: props.selectedHost,
               deviceId: props.selectedDeviceId || currentDeviceId || 'device1',
               userinterfaceName: userInterface?.name || '',
               currentNodeId: currentNodeId || undefined,

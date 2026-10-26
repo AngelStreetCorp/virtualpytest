@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — navigation and AI exploration ran on a graph without the saved change until someone cleared the host cache by hand |
 | Area      | `backend_server/src/routes/server_navigation_trees_routes.py` (node and edge create / update) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

@@ -1,0 +1,22 @@
+[Unit]
+# vpt-localize-bench.service — nightly Localize accuracy benchmark (TASK-107 goal 1)
+#
+# Rebuilds the labelled frame set (node screenshots, corrections, the monitor archive's
+# blackscreen runs, recorded live video, screen memory) and scores the deployed cascade on it.
+# Results: ~vpt_user/.local/share/vpt/localize_bench/results/<date>.json and latest.json.
+# Runs on a host that is also a server (vpt-pi1): it needs the repo, the DB keys in
+# /opt/virtualpytest/.env and the capture archive under /var/www/html/stream.
+# Installed by hand (like the other vpt-* timers): copy both files to /etc/systemd/system,
+# then `systemctl daemon-reload && systemctl enable --now vpt-localize-bench.timer`.
+Description=VPT Localize accuracy benchmark (TASK-107)
+
+[Service]
+Type=oneshot
+User=vpt_user
+WorkingDirectory=/opt/virtualpytest
+ExecStart=/opt/virtualpytest/venv/bin/python3 scripts/localize/bench.py nightly
+Nice=15
+CPUQuota=50%
+Restart=no
+StandardOutput=journal
+StandardError=journal

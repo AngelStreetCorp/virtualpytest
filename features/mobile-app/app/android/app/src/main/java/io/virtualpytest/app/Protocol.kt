@@ -53,6 +53,30 @@ object Protocol {
     const val KEY_NOTIFICATIONS = "NOTIFICATIONS"
     const val KEY_QUICK_SETTINGS = "QUICK_SETTINGS"
 
+    // --- drone bridge (TASK-160) ------------------------------------------------
+    // The phone holds the drone's Wi-Fi conversation and relays it to the host over this
+    // same channel. The host sidecar presents the drone as a local UDP peer, so the host
+    // keeps speaking plain UDP to the drone and nothing else in the stack changes.
+    //
+    // `drone` is the label the owner gave the drone in the app; the host maps it to its
+    // own device slot.
+    const val EV_DRONE_CMD = "drone_cmd"        // host -> phone: {drone, target, cmd}, ack {ok, reply}
+    const val EV_DRONE_STATE = "drone_state"    // phone -> host: {drone, text}
+    const val EV_DRONE_VIDEO = "drone_video"    // phone -> host: ({drone}, rtp bytes)
+    const val EV_DRONE_STATUS = "drone_status"  // phone -> host: {drones: [{label, ip}], hotspot}
+
+    // The drone's own ports, on the phone's hotspot interface.
+    const val DRONE_CMD_PORT = 8889
+    const val DRONE_STATE_PORT = 8890
+    const val DRONE_VIDEO_PORT = 11111
+    // How long the host waits for the phone to acknowledge a drone command: phone ->
+    // drone -> phone -> host carries the drone's latency twice plus the cellular hop.
+    const val DRONE_CMD_TIMEOUT_S = 15
+    // Commands the drone never answers. `rc` holds the stick values until the next
+    // one, so it is sent without waiting - the joystick streams at 10 Hz and a wait
+    // per stick value would cap it at one command per round trip.
+    val DRONE_NO_REPLY_COMMANDS = setOf("rc")
+
     val AGENT_KEYS = setOf(
         KEY_BACK, KEY_HOME, KEY_RECENTS, KEY_VOLUME_UP, KEY_VOLUME_DOWN, KEY_POWER,
         KEY_NOTIFICATIONS, KEY_QUICK_SETTINGS,

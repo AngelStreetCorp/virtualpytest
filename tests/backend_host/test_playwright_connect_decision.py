@@ -162,6 +162,20 @@ def _reset_class_state():
     PlaywrightWebController._browser_connected = False
 
 
+@pytest.fixture(autouse=True)
+def private_port_registry(tmp_path, monkeypatch):
+    """The port registry is per host and shared: a test must not read the host's one.
+
+    A live entry for the debug port would make the cleanup believe another run owns
+    the browser on it (TASK-146) - and that is exactly the decision these tests check.
+    """
+    from shared.src.lib.utils import browser_port_allocator
+    registry_dir = tmp_path / 'registry'
+    registry_dir.mkdir(exist_ok=True)
+    monkeypatch.setenv(browser_port_allocator.REGISTRY_ENV, str(registry_dir))
+    yield
+
+
 @pytest.fixture
 def controller():
     _reset_class_state()

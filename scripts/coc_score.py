@@ -73,8 +73,8 @@ def _load_events_json(path):
 def _grade(p):
     """Returns (score, max_score, breakdown).
 
-    Since §81.1.9 added 2 video criteria and §81.1.10 added 1 tutorial
-    criterion, the scale is now 13."""
+    Since §81.1.9 added 2 video criteria the scale is 12 (the tutorial
+    criterion went with the removed tutorial bot, TASK-100)."""
     k = p.get("kpis") or {}
     cycles_completed = k.get("cycles_completed", 0) or 0
     cycles_observed = (p.get("cycles_observed", 0) or
@@ -91,17 +91,6 @@ def _grade(p):
     play_duration_s = k.get("play_duration_s", 0) or 0
     events = p.get("event_log", []) or []
     action_fired_count = sum(1 for e in events if e.get("kind") == "action_fired")
-    # §81.1.10 tutorial driver state.
-    tut = p.get("tutorial") or {}
-    tutorial_complete = bool(
-        tut.get("complete") or
-        p.get("tutorial_complete") or
-        k.get("tutorial_complete"))
-    tutorial_dialogs_seen = (
-        tut.get("dialogs_seen", 0) or
-        p.get("tutorial_dialogs_seen", 0) or
-        k.get("tutorial_dialogs_seen", 0) or 0)
-
     # §81.1.9 video evidence: prefer the run_video block; fall back to
     # kpi-style fields if the script_results metadata dumped only kpis.
     rv = p.get("run_video") or {}
@@ -147,10 +136,6 @@ def _grade(p):
         ("run_video_uploaded_to_R2",
          bool(rv_r2),
          f"r2_url={rv_r2!r}"),
-        # §81.1.10 tutorial
-        ("tutorial_progress",
-         bool(tutorial_complete or tutorial_dialogs_seen >= 1),
-         f"complete={tutorial_complete} dialogs_seen={tutorial_dialogs_seen}"),
     ]
     score = sum(1 for _, hit, _ in rows if hit)
     rows.append(("play_duration_s (context)", None, f"{play_duration_s}s"))

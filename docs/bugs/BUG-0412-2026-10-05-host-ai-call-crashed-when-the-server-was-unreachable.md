@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low — only while the server is down or restarting            |
 | Area      | `shared/src/lib/ai/gateway.py` (`_complete_remote`)          |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

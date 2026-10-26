@@ -24,6 +24,7 @@ import com.getcapacitor.annotation.CapacitorPlugin
 import com.getcapacitor.annotation.Permission
 import com.getcapacitor.annotation.PermissionCallback
 import com.google.zxing.integration.android.IntentIntegrator
+import org.json.JSONArray
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
@@ -123,6 +124,85 @@ class PhoneAgentPlugin : Plugin() {
             it.copy(connected = false, captureActive = false, projectionGranted = false)
         }
         call.resolve(statusObject())
+    }
+
+    // ---- drone bridge (TASK-167) ----------------------------------------------------------------
+    //
+    // The phone is the radio end of a remote Tello: the drone joins this phone's hotspot and
+    // the phone relays its SDK conversation to the host. The app's Settings page drives this
+    // so the owner can turn the link on, find the drones and name them.
+
+    @PluginMethod
+    fun startDroneBridge(call: PluginCall) {
+        val service = runningService() ?: run {
+            call.reject("the phone agent service is not running")
+            return
+        }
+        service.startDroneBridge()
+        call.resolve(droneStatusObject())
+    }
+
+    @PluginMethod
+    fun stopDroneBridge(call: PluginCall) {
+        runningService()?.stopDroneBridge()
+        call.resolve(droneStatusObject())
+    }
+
+    @PluginMethod
+    fun discoverDrones(call: PluginCall) {
+        val service = runningService() ?: run {
+            call.reject("the phone agent service is not running")
+            return
+        }
+        val found = service.discoverDrones()
+        call.resolve(droneStatusObject(found))
+    }
+
+    /** The drones the owner configured: a list of {label, ip}. */
+    @PluginMethod
+    fun setDrones(call: PluginCall) {
+        val service = runningService() ?: run {
+            call.reject("the phone agent service is not running")
+            return
+        }
+        val array = call.getArray("drones") ?: JSONArray()
+        val drones = mutableListOf<DroneBridge.Drone>()
+        for (i in 0 until array.length()) {
+            val entry = array.optJSONObject(i) ?: continue
+            val label = entry.optString("label")
+            val ip = entry.optString("ip")
+            if (label.isBlank() || ip.isBlank()) continue
+            drones.add(DroneBridge.Drone(label, ip))
+        }
+        service.setDrones(drones)
+        call.resolve(droneStatusObject())
+    }
+
+    @PluginMethod
+    fun getDroneStatus(call: PluginCall) {
+        call.resolve(droneStatusObject())
+    }
+
+    /**
+     * Give a drone the name the host's configuration uses.
+     *
+     * The label is what the host's `.env` names (`DEVICE3_TELLO_BRIDGE_DRONE`), so
+     * the owner renames the drone here, once, and the host follows.
+     */
+    @PluginMethod
+    fun labelDrone(call: PluginCall) {
+        val service = runningService() ?: run {
+            call.reject("the phone agent service is not running")
+            return
+        }
+        val ip = call.getString("ip") ?: ""
+        val label = call.getString("label") ?: ""
+        if (ip.isBlank() || label.isBlank()) {
+            call.reject("ip and label are required")
+            return
+        }
+        service.labelDrone(ip, label)
+        call.resolve(droneStatusObject())
     }
 
     // ---- permissions --------------------------------------------------------------------------
@@ -302,6 +382,39 @@ class PhoneAgentPlugin : Plugin() {
             put("appVersion", installedAppVersion())
             put("lastError", s.lastError)
         }
+    }
+
+    /**
+     * The drone link's state for the Settings page: which drones this phone carries.
+     *
+     * The address of a drone changes whenever the hotspot hands it a new lease, so the
+     * label is the stable name and the host's configuration uses that.
+     */
+    private fun droneStatusObject(drones: List<DroneBridge.Drone>? = null): JSObject {
+        val list = drones ?: runningService()?.droneStatus() ?: emptyList()
+        val array = JSONArray()
+        list.forEach {
+            array.put(JSONObject()
+                .put("label", it.label)
+                .put("ip", it.ip)
+                .put("present", it.present()))
+        }
+        return JSObject().apply {
+            put("active", runningService()?.droneStatus()?.isNotEmpty() == true)
+            // The hybrid (TASK-173): the host picks the path, so the app has to say
+            // what the phone can offer right now - the hotspot, the subnet the drones
+            // are on, and which of them are actually answering.
+            put("hotspot", runningService()?.droneHotspotEnabled() ?: false)
+            put("hotspotSubnet", runningService()?.droneHotspotSubnet() ?: "")
+            put("drones", array)
+        }
+    }
+
+    /** The running phone agent service, or null when the phone is not paired. */
+    private fun runningService(): PhoneAgentService? {
+        // The service is a plain Android Service without a binder, so the plugin talks to
+        // it through the same intent channel the rest of the app uses.
+        return PhoneAgentService.instance
     }
 
     /**

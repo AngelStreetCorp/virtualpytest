@@ -8,6 +8,7 @@ import { Snackbar, Alert, Box, IconButton, Tooltip, Fab } from '@mui/material';
 import { Warning, Error, Close } from '@mui/icons-material';
 
 import { MetricsNotificationData } from '../../types/navigation/Metrics_Types';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export interface MetricsNotificationProps {
   notificationData: MetricsNotificationData;
@@ -109,11 +110,11 @@ export const MetricsNotification: React.FC<MetricsNotificationProps> = ({
           maxWidth: 'none',
           width: 'max-content',
           whiteSpace: 'nowrap',
-          fontSize: '0.8rem',
+          fontSize: TYPOGRAPHY.body.size,
           padding: '4px 12px',
           '& .MuiAlert-message': {
             padding: '4px 0',
-            fontSize: '0.8rem',
+            fontSize: TYPOGRAPHY.body.size,
           },
           '& .MuiAlert-icon': {
             padding: '4px 0',
@@ -141,7 +142,7 @@ export const MetricsNotification: React.FC<MetricsNotificationProps> = ({
             {/* Confidence Score - Emphasized */}
             <Tooltip title="Tree confidence score (0–10). Weighted average of node + edge confidence." placement="top">
               <Box sx={{
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 fontWeight: 'bold',
                 color: notificationData.severity === 'error' ? '#ef4444' : '#f59e0b',
                 padding: '2px 6px',
@@ -156,7 +157,7 @@ export const MetricsNotification: React.FC<MetricsNotificationProps> = ({
 
             {/* Pass rate, run volume, low-confidence count — explicitly labelled
                 so the toast is readable without needing to open the modal. */}
-            <Box sx={{ fontSize: '0.75rem', fontWeight: 400, opacity: 0.9 }}>
+            <Box sx={{ fontSize: TYPOGRAPHY.caption.size, fontWeight: 400, opacity: 0.9 }}>
               Pass {notificationData.global_success_rate
                 ? `${(notificationData.global_success_rate * 100).toFixed(0)}%`
                 : '0%'}

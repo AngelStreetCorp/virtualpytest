@@ -18,9 +18,10 @@ const ModsPage: React.FC = () => {
     <Box sx={pageSurfaceSx(P)}>
       <PageTitle
         title={t('Mods')}
-        subtitle={t('Per-user on/off for each installed mod.')}
+        subtitle={t('Customize your experience with mods')}
       />
       <StatTiles
+        centered
         tiles={[
           { label: t('Installed'), value: installed.length },
           { label: t('On'), value: enabled.length, color: enabled.length ? P.success : P.textMuted },

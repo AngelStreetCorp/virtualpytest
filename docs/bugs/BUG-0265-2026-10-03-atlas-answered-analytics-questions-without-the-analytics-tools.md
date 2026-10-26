@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High — most chart/statistics questions never reached the analytics layer |
 | Area      | `backend_server/src/agent/core/manager.py` (router tool selection) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `26c9672f3`                                                       |
 
 ---

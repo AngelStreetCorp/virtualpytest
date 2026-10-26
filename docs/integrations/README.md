@@ -1,89 +1,153 @@
 # Integrations
 
-**Connect VirtualPyTest to external tools and services.**
+**Connect VirtualPyTest to the other tools you already use.**
 
-Integration guides for third-party tools, services, and platforms.
+Each guide explains one connection.
 
 ---
 
 ## Available Integrations
 
-### 📬 Postman API collections
+### Postman API collections
 
-Browse and test the published VirtualPyTest REST API collections. The public Postman workspace
-contains curated Server collections plus generated Server and Host route inventories; it is
-maintained from the OpenAPI specs and covers registered route/method pairs.
+Try the API from Postman.
 
 **Workspace:** [VirtualPyTest on Postman](https://martian-zodiac-279215.postman.co/workspace/virtualpytest~4e7a465c-a542-4440-8903-48787f03942a)\
 **Guide:** [Postman integration](postman.md) · [API coverage and sync](../api/COVERAGE.md)
 
-VirtualPyTest users can browse it from the app with the `plugins.postman:view` permission. The
-shared workspace ID is public; its Postman API key stays on the backend server.
+<div data-technical>
 
-### 👤 User provisioning (create users / reset passwords)
+You can also browse the collections inside the app, if your account has the Postman view permission.
 
-Push user accounts in from an external system — one HTTPS call creates a user, or resets their
-password, on **both VirtualPyTest and Grafana**, so a person has the same password everywhere they
-log in. Plain HTTP + JSON, callable from any language.
+The public Postman workspace has curated Server collections plus generated Server and Host route lists. The collections are maintained from the OpenAPI specs and cover each registered route and method pair. The shared workspace ID is public. Its Postman API key stays on the backend server. Permission: `plugins.postman:view`.
+
+</div>
+
+### User provisioning (create users, reset passwords)
+
+Add users from your own system with one web call. The user gets the same password in **VirtualPyTest and Grafana**.
+
+<div data-technical>
+
+Plain HTTP and JSON. It works from any language that can send an HTTPS request.
+
+</div>
 
 **Guide:** [user-provisioning.md](user-provisioning.md)
 
 ---
 
-### 🎫 JIRA
+### Zammad (support tickets)
 
-A read-only ticket dashboard inside VirtualPyTest — not a defect-creation or sync pipeline.
+Users send a support ticket from **Settings -> Open a ticket**. It goes to your Zammad helpdesk.
 
-**Features:**
-- Multiple JIRA instances, each with its own API token (stored server-side, never in the browser)
-- Real-time ticket dashboard with status filtering and quick stats
-- One click to open a ticket in JIRA
+<div data-technical>
+
+The ticket carries the version, server, team and page.
+
+</div>
+
+**Guide:** [zammad-setup.md](zammad-setup.md)
+
+---
+
+### JIRA
+
+See and filter your JIRA tickets inside VirtualPyTest. It does not create tickets.
+
+<div data-technical>
+
+You can connect more than one JIRA site. Filter by status, see quick counts and open a ticket in JIRA with one click.
+
+</div>
+
+<div data-technical>
+
+Each JIRA instance has its own API token, stored server-side and never in the browser. Read-only.
+
+</div>
 
 **Setup guide:** [jira-setup.md](jira-setup.md)
 
 ---
 
-### 💬 Slack
+### Slack
 
-One-way sync of AI Agent conversations into a Slack channel — each conversation becomes its own thread so a team can follow along in real time.
+Copies your AI Agent conversations into a Slack channel, one thread each.
+
+<div data-technical>
+
+One-way sync only: VirtualPyTest posts to Slack, and nothing comes back.
+
+</div>
 
 **Setup guide:** [slack-setup.md](slack-setup.md)
 
 ---
 
-### ⚙️ GitHub Actions (CI/CD)
+### GitHub Actions (CI/CD)
 
-Dedicated CI/CD feature: launch and track GitHub Actions runs (self-hosted or GitHub-hosted
-runners) from inside VirtualPyTest, with results stored in their own database and surfaced on a
-Grafana dashboard.
+Start and follow GitHub Actions runs from VirtualPyTest.
+
+<div data-technical>
+
+The results are shown on a Grafana dashboard.
+
+</div>
+
+<div data-technical>
+
+A dedicated CI/CD feature. Runs use self-hosted or GitHub-hosted runners. Results are stored in their own database.
+
+</div>
 
 **Details:** [CI/CD Feature](../features/cicd.md)
 
 ---
 
-### 📊 Grafana
+### Grafana
 
-Built-in dashboards for KPIs, device health, and test analytics — no separate Grafana setup
-required.
+Ready-made dashboards for device health, test results and KPIs.
+
+<div data-technical>
+
+You do not need to set up Grafana yourself.
+
+</div>
+
+<div data-technical>
+
+Built-in dashboards for KPIs, device health and test analytics. No separate Grafana setup is required.
+
+</div>
 
 **Details:** [Features - Analytics](../features/analytics.md)
 
 ---
 
-### 📱 Cloud device farms (Sauce Labs, BrowserStack)
+### Cloud device farms (Sauce Labs, BrowserStack)
 
-Lease a phone from a vendor's cloud and drive it exactly like one on a desk — same remote
-panel, same navigation trees, same scripts, same reports. Sauce Labs is complete;
-BrowserStack runs sessions against an uploaded build. LambdaTest sits behind the same
-provider seam but has not been run against a real account.
+Rent a cloud phone and control it like one on your desk. Sauce Labs works fully. BrowserStack needs a build you upload.
+
+<div data-technical>
+
+Same remote panel, navigation trees, scripts and reports as a local device. Sauce Labs is complete. BrowserStack runs sessions against an uploaded build. LambdaTest sits behind the same provider seam but has not been run against a real account.
+
+</div>
 
 **Guide:** [device-farms.md](device-farms.md)
 
 ---
 
-### ☁️ Cloudflare R2 (capture storage)
+### Cloudflare R2 (capture storage)
 
-Screenshots and videos upload to Cloudflare R2 (S3-compatible), configured at deploy time.
+Screenshots and videos are stored in Cloudflare R2, set up at deploy time.
+
+<div data-technical>
+
+Cloudflare R2 is S3-compatible. It is configured at deploy time.
+
+</div>
 
 **Setup:** [Get Started - Cloud Setup](../get-started/cloud-setup.md)
 
@@ -91,39 +155,37 @@ Screenshots and videos upload to Cloudflare R2 (S3-compatible), configured at de
 
 ## Planned
 
-Not built yet — VirtualPyTest is a CLI-invokable Python test runner, so any CI system can already
-call it as a shell step (`python test_scripts/validation.py`) without a dedicated integration; the
-entries below mean a first-class, dedicated integration (like the JIRA/Slack/GitHub Actions ones
-above), not "can be scripted around."
+These are not built yet. Test management, CI, chat, monitoring and cloud storage tools are on the list.
 
-**Device farms:** LambdaTest (session half written, never run against an account)
+You can already run VirtualPyTest from any CI system as a plain command.
 
-**Test Management:** TestRail · Zephyr · qTest · PractiTest
+<div data-technical>
 
-**CI/CD:** Jenkins · GitLab CI · Azure DevOps · CircleCI
+Planned: LambdaTest; TestRail, Zephyr, qTest, PractiTest; Jenkins, GitLab CI, Azure DevOps, CircleCI; Microsoft Teams, Discord, Mattermost; Datadog, New Relic, Prometheus; AWS S3, Google Cloud Storage, Azure Blob Storage. Run VirtualPyTest from a CI system with a shell step, for example `python test_scripts/validation.py`.
 
-**Communication:** Microsoft Teams · Discord · Mattermost
+</div>
 
-**Monitoring:** Datadog · New Relic · Prometheus
-
-**Cloud Storage:** AWS S3 · Google Cloud Storage · Azure Blob Storage
-
-Want one of these sooner? [Open a feature request](https://github.com/AngelStreetCorp/virtualpytest/issues/new?labels=integration).
+Want one sooner? [Open a feature request](https://github.com/AngelStreetCorp/virtualpytest/issues/new?labels=integration).
 
 ---
 
 ## Related Documentation
 
-- **[Features - Integrations](../features/integrations.md)** - Integration capabilities
-- **[API Reference](../api/README.md)** - REST API documentation
-- **[User Guide](../user-guide/README.md)** - Using integrations
+- **[Features - Integrations](../features/integrations.md)**: what integrations can do
+- **[API Reference](../api/README.md)**: the REST API
+- **[User Guide](../user-guide/README.md)**: using integrations
 
 ---
+
+<div data-technical>
 
 **Ready to connect VirtualPyTest?**
 
 - [Cloud Device Farms Guide](device-farms.md)
-- [User Provisioning Guide](user-provisioning.md) — the one integration with no card on the grid, because it is an API rather than a product
+- [User Provisioning Guide](user-provisioning.md)
 - [JIRA Integration Guide](jira-setup.md)
+- [Zammad setup (support tickets)](zammad-setup.md)
 - [Slack Integration Guide](slack-setup.md)
 - [Postman Integration Guide](postman.md)
+
+</div>

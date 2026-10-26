@@ -39,10 +39,10 @@ if a.decisions_file:
 else:
     from shared.src.lib.ai import decisions  # noqa: E402
 if "text.decision" not in usages.USAGES:  # a deployed build older than the key
-    usages.register(usages._u("text.decision", "Decision (closed choice)", "Decision models picking among options (TASK-38)"))
+    usages.register(usages._u("text.decision", "Decision (closed choice)", "Decision models picking among options"))
 
 if "text.game_strategy" not in usages.USAGES:
-    usages.register(usages._u("text.game_strategy", "Game strategist", "Long-term plan of a game-playing run (TASK-33)", "text"))
+    usages.register(usages._u("text.game_strategy", "Game strategist", "Long-term plan of a game-playing run", "text"))
 from shared.src.lib.ai import gateway  # noqa: E402
 
 gateway.use_local_routing()

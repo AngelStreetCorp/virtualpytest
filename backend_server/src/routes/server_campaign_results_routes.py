@@ -38,7 +38,9 @@ def get_all_campaign_results():
 
     # Frontend (TestReports) only renders these script_results columns; pulling
     # the slim set keeps payloads small (skips heavy metadata jsonb / error_msg).
-    script_columns = 'id,script_name,success,execution_time_ms,started_at,html_report_r2_url,logs_r2_url'
+    # `skipped` is what lets the nightly poller tell "never ran, not configured"
+    # apart from a failure (see scripts/nightly_campaigns/poll_results.py).
+    script_columns = 'id,script_name,success,skipped,execution_time_ms,started_at,html_report_r2_url,logs_r2_url'
 
     # Multi-server isolation: only return campaigns whose host belongs to this
     # backend_server's registered hosts (see server_script_results_routes.py).

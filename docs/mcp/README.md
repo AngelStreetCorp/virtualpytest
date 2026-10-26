@@ -1,92 +1,168 @@
 # VirtualPyTest MCP Server Documentation
 
+MCP lets an AI assistant, such as Cursor or Claude Desktop, control devices and tests in VirtualPyTest. Start with the setup guide, then open the tool group you need.
+
+<div data-technical>
+
 **Version**: 4.8.0  
 **Last Updated**: 2026-10-05  
 **Total Tools**: 77
 
 This documentation has been modularized for easier navigation and maintenance.
 
+</div>
+
 ---
 
-## 📚 Quick Navigation
+## Quick navigation
 
-### Core Documentation
-- **[MCP Core](mcp_core.md)** - Overview, architecture, prerequisites, setup, security, and quick start
-- **[MCP Security](mcp_security.md)** - Sensitive file protection: 3-layer defense (tool filtering, global gate, system prompt)
+### Core documentation
 
-### Tool Documentation by Category
+- **[MCP Core](mcp_core.md)**: setup, architecture and a quick start
+- **[MCP Security](mcp_security.md)**: how sensitive files are protected
 
-#### 🔐 Control & Discovery
+### Tool documentation by category
+
+#### Control and discovery
+
+- **[Control Tools](mcp_tools_control.md)**: take control of a device. Do this first.
+- **[Action Tools](mcp_tools_action.md)**: run actions on a device, and list them.
+- **[Navigation Tools](mcp_tools_navigation.md)**: move through the app's screens.
+- **[Verification Tools](mcp_tools_verification.md)**: check that elements are on screen.
+- **[Screen Analysis Tools](mcp_tools_screen_analysis.md)**: find the best action or check for a screen.
+
+<div data-technical>
+
 - **[Control Tools](mcp_tools_control.md)** (1 tool) - `take_control` ⚠️ **MUST BE FIRST**
 - **[Action Tools](mcp_tools_action.md)** (2 tools) - `execute_device_action`, `list_actions` ⏱️ **[Wait Time Guidelines](mcp_tools_action.md#⏱️-action-wait-time-guidelines)**
 - **[Navigation Tools](mcp_tools_navigation.md)** (3 tools) - `navigate_to_node`, `list_navigation_nodes`, `preview_userinterface` 🆕
 - **[Verification Tools](mcp_tools_verification.md)** (4 tools) - `verify_device_state`, `verify_node`, `list_verifications`, `dump_ui_elements`
 - **[Screen Analysis Tools](mcp_tools_screen_analysis.md)** (2 tools) - `analyze_screen_for_action`, `analyze_screen_for_verification` 🆕 **Unified Selector Scoring**
 
-#### 🔧 Tree Building
+</div>
+
+#### Tree building
+
+- **[Map Builder Tool](mcp_tools_exploration.md)**: maps the current screen.
+- **[Tree Tools](mcp_tools_tree.md)**: create, change and delete the parts of a map by hand.
+
+<div data-technical>
+
 - **[Map Builder Tool](mcp_tools_exploration.md)** (1 tool) - `auto_discover_screen`: rule-based map of the current screen (nodes, edges, each edge validated). Not an agent: no model on Android/web, a vision model on TV/STB only
 - **[Tree Tools](mcp_tools_tree.md)** (11 tools) - Manual primitives (create/update/delete nodes/edges, subtrees, execute_edge)
 
-#### 🧪 Test Management
+</div>
+
+#### Test management
+
+- **[TestCase Tools](mcp_tools_testcase.md)**: save, run and read test cases.
+- **[Script Tools](mcp_tools_script.md)**: run scripts and check their status.
+- **[AI Tools](mcp_tools_ai.md)**: generate tests with AI.
+
+<div data-technical>
+
 - **[TestCase Tools](mcp_tools_testcase.md)** (7 tools) - Save, load, list, execute, rename testcases; `get_testcase_execution_status` reads a run
 - **[Script Tools](mcp_tools_script.md)** (3 tools) - `execute_script`, `get_script_execution_status`, `list_scripts`
 - **[AI Tools](mcp_tools_ai.md)** (2 tools) - `generate_test_graph`, `generate_and_save_testcase`
 
-#### 🎨 App & Requirements
+</div>
+
+#### App and requirements
+
+- **[UserInterface Tools](mcp_tools_userinterface.md)**: create, list and delete app models, screens and links.
+- **[Requirements Tools](mcp_tools_requirements.md)**: track requirements and coverage.
+
+<div data-technical>
+
 - **[UserInterface Tools](mcp_tools_userinterface.md)** (6 tools) - Create/list/delete userinterfaces, nodes, edges
 - **[Requirements Tools](mcp_tools_requirements.md)** (10 tools) - Requirements & coverage tracking
 
-#### 📸 Media & Monitoring
+</div>
+
+#### Media and monitoring
+
+- **[Screenshot Tools](mcp_tools_screenshot.md)**: take screenshots of a device.
+- Device, transcript and log tools are in the core page.
+
+<div data-technical>
+
 - **[Screenshot Tools](mcp_tools_screenshot.md)** (1 tool) - `capture_screenshot`
 - **Device Tools** (3 tools) - `get_device_info`, `get_compatible_hosts`, `get_execution_status` *(in mcp_core.md)*
 - **Transcript Tools** (1 tool) - `get_transcript` *(in mcp_core.md)*
 - **Logs Tools** (2 tools) - `view_logs`, `list_services` *(in mcp_core.md)*
 
-### Additional Resources
-- **[MCP Playground](mcp_playground.md)** - Web interface with voice input (mobile-first)
+</div>
+
+### Additional resources
+
+- **[MCP Playground](mcp_playground.md)**: a web interface with voice input, for phones.
 
 ---
 
-## 🚀 Quick Start Guide
+## Quick start guide
 
-### 1. Prerequisites & Setup
-→ [Installation & Security Configuration](mcp_core.md#prerequisites)
+### 1. Prerequisites and setup
 
-### 2. First Steps
-1. **[Take Control](mcp_tools_control.md)** - Lock device (CRITICAL FIRST STEP)
-2. **[Discover Actions](mcp_tools_action.md#list_actions)** - See what commands are available
-3. **[Execute Action](mcp_tools_action.md#execute_device_action)** - Swipe, tap, type
-4. **[Navigate](mcp_tools_navigation.md)** - Move through UI tree
-5. **[Verify State](mcp_tools_verification.md)** - Check elements exist
+Follow the setup steps first: [Installation & Security Configuration](mcp_core.md#prerequisites).
 
-### 3. Advanced Usage
-- **[Build Navigation Trees](mcp_tools_tree.md)** - Create nodes & edges
-- **[Generate Tests with AI](mcp_tools_ai.md)** - Natural language → test case
-- **[Manage Requirements](mcp_tools_requirements.md)** - Track coverage
+### 2. First steps
+
+1. **[Take Control](mcp_tools_control.md)**: lock the device. This is the critical first step.
+2. **[Discover Actions](mcp_tools_action.md#list_actions)**: see which commands exist.
+3. **[Execute Action](mcp_tools_action.md#execute_device_action)**: swipe, tap, type.
+4. **[Navigate](mcp_tools_navigation.md)** and **[Verify State](mcp_tools_verification.md)**.
+
+### 3. Advanced usage
+
+- **[Build Navigation Trees](mcp_tools_tree.md)**: create nodes and edges.
+- **[Generate Tests with AI](mcp_tools_ai.md)**: from a request to a test case.
+- **[Manage Requirements](mcp_tools_requirements.md)**: track coverage.
 
 ---
 
-## 📖 Common Workflows
+## Common workflows
 
-### Quick Device Test
+### Quick device test
+
+Take control first, then find the screen, go to it, and take a screenshot to check it.
+
+<div data-technical>
+
 ```
 1. take_control (REQUIRED FIRST)
 2. list_navigation_nodes (discover targets)
 3. navigate_to_node (go to screen)
 4. capture_screenshot (verify visually)
 ```
+
 → See: [Control](mcp_tools_control.md) | [Navigation](mcp_tools_navigation.md) | [Screenshot](mcp_tools_screenshot.md)
 
-### Build Navigation Tree (Map Builder)
+</div>
+
+### Build a navigation tree (map builder)
+
+Create the app model, let the builder map the current screen, then fix what failed.
+
+<div data-technical>
+
 ```
 1. create_userinterface (create app model; give the entry edge its actions)
 2. auto_discover_screen (map the current screen: nodes, edges, each edge validated)
 3. update_edge / update_node (fix failed edges, add node verifications, drop _temp from labels)
 ```
+
 The map builder is a tool, not an agent: an agent calling it still decides what to keep and fix.
+
 → See: [Map Builder](mcp_tools_exploration.md) | [UserInterface](mcp_tools_userinterface.md)
 
-### Build Navigation Tree (Manual - Advanced)
+</div>
+
+### Build a navigation tree (manual, advanced)
+
+Create the app model, then build the screens and links one by one.
+
+<div data-technical>
+
 ```
 1. create_userinterface (create app model)
 2. dump_ui_elements (see what's on screen)
@@ -94,9 +170,17 @@ The map builder is a tool, not an agent: an agent calling it still decides what 
 4. create_edge (navigation between screens)
 5. save_node_screenshot (visual documentation)
 ```
+
 → See: [Tree Tools](mcp_tools_tree.md) | [Screen Analysis](mcp_tools_screen_analysis.md)
 
-### Automated Testing (AI Agent Recommended Workflow)
+</div>
+
+### Automated testing (recommended for AI agents)
+
+Crawl the app, define what to test, store the test, run it, wait for the result, and take a screenshot.
+
+<div data-technical>
+
 ```
 1. crawl_app(url, host_name)              → discover app structure
 2. create_requirement(code, name)         → define what to test
@@ -112,7 +196,12 @@ The map builder is a tool, not an agent: an agent calling it still decides what 
 
 → See: [AI Tools](mcp_tools_ai.md) | [TestCase](mcp_tools_testcase.md) | [Requirements](mcp_tools_requirements.md)
 
-### Automated Testing (Legacy — VPT Web UI)
+</div>
+
+### Automated testing (legacy — VPT web UI)
+
+<div data-technical>
+
 ```
 1. generate_test_graph (from natural language)
 2. save_testcase (to database)
@@ -120,13 +209,19 @@ The map builder is a tool, not an agent: an agent calling it still decides what 
 4. link_testcase_to_requirement (track coverage)
 ```
 
+</div>
+
 ---
 
-## 🧭 Navigation Autonomy Concept
+## Navigation autonomy concept
+
+The navigation tree knows how to get from one screen to the next. A test only says which screen to go to, so the same test works on a different app.
+
+<div data-technical>
 
 **CRITICAL UNDERSTANDING FOR AI TEST GENERATION:**
 
-### The Two-Layer Architecture
+**The two-layer architecture**
 
 **Layer 1: Navigation Tree (App-Specific)**
 - Defines HOW to move between screens
@@ -140,33 +235,37 @@ The map builder is a tool, not an agent: an agent calling it still decides what 
 - Reusable across apps by changing `userinterface_name`
 - Example: Navigate to "player" → Verify video plays
 
-### Why This Matters
+**Why this matters**
 
-❌ **Wrong Approach (Manual Navigation in Test Cases):**
+Wrong approach (manual navigation in test cases):
+
 ```json
 {
   "type": "action",
   "data": {"command": "click_element", "text": "Play"}
 }
 ```
+
 *Problem: Hardcodes Netflix-specific actions, not reusable*
 
-✅ **Correct Approach (Reference Navigation Tree):**
+Correct approach (reference the navigation tree):
+
 ```json
 {
   "type": "navigation",
   "data": {"target_node_label": "player"}
 }
 ```
+
 *Solution: Uses navigation tree, works for any streaming app*
 
-### When to Use What
+**When to use what**
 
 - **`navigate_to_node`**: Go to screens defined in navigation tree (DECLARATIVE)
 - **`execute_device_action`**: One-off actions NOT part of navigation (pause video, adjust volume)
 - **`verify_device_state`**: Check screen state after navigation
 
-### Benefits
+**Benefits**
 
 1. **Reusability**: Same test case works on Netflix, YouTube, Hulu
 2. **Maintainability**: UI changes only affect navigation tree, not test cases
@@ -175,11 +274,15 @@ The map builder is a tool, not an agent: an agent calling it still decides what 
 
 → See: [Navigation Tools](mcp_tools_navigation.md) | [TestCase Tools](mcp_tools_testcase.md)
 
+</div>
+
 ---
 
-## 🎯 Tool Categories Overview
+## Tool categories overview
 
-### By Functionality
+Tools are grouped by what they do.
+
+<div data-technical>
 
 **Discovery & Inspection** (7 tools)
 - `list_actions`, `list_verifications`, `list_navigation_nodes`, `dump_ui_elements`, `preview_userinterface` 🆕, `analyze_screen_for_action` 🆕, `analyze_screen_for_verification` 🆕
@@ -200,34 +303,46 @@ The map builder is a tool, not an agent: an agent calling it still decides what 
 **Media & Monitoring** (7 tools)
 - `capture_screenshot`, `save_node_screenshot`, `get_transcript`, `get_device_info`, `get_compatible_hosts`, `get_execution_status`, `view_logs`, `list_services`
 
+</div>
+
 ---
 
-## 🔗 Integration Options
+## Integration options
 
-### 1. Cursor IDE ⭐ PRIMARY
+Three ways to connect an AI tool to the MCP server.
+
+<div data-technical>
+
+**1. Cursor IDE ⭐ PRIMARY**
 Native MCP integration via `~/.cursor/mcp.json`  
 → [Setup Guide](mcp_core.md#integration-with-llms)
 
-### 2. Claude Desktop
+**2. Claude Desktop**
 HTTP MCP client configuration  
 → [Setup Guide](mcp_core.md#integration-with-llms)
 
-### 3. MCP Playground
+**3. MCP Playground**
 Web interface with voice input (mobile-first)  
 → [Full Documentation](mcp_playground.md)
 
+</div>
+
 ---
 
-## ⚠️ Important Notes
+## Important notes
 
-### Critical Prerequisites
+Take control of the device first, and log in with a bearer token.
+
+<div data-technical>
+
+**Critical prerequisites**
 - **`take_control` MUST be called first** before any device operations
 - Bearer token authentication required for all endpoints
 - Tree cache required for navigation operations
 
 → [Control Tools](mcp_tools_control.md)
 
-### Smart Defaults
+**Smart defaults**
 Most tools support optional parameters with sensible defaults:
 - `team_id` → `team_1`
 - `host_name` → `host1`
@@ -235,9 +350,13 @@ Most tools support optional parameters with sensible defaults:
 
 → [Core Documentation - Smart Defaults](mcp_core.md#smart-defaults--configuration)
 
+</div>
+
 ---
 
-## 📊 Statistics
+## Statistics
+
+<div data-technical>
 
 - **Total Tools**: 77
 - **Tool Categories**: 15
@@ -247,62 +366,58 @@ Most tools support optional parameters with sensible defaults:
 - **MCP Server Code**: 351 lines (refactored from 2,028 lines)
 - **Platform-Specific Prompts**: 4 (Generic, Web, Mobile, TV/STB)
 
----
-
-## 🆘 Troubleshooting
-
-### Common Issues
-
-**Authentication errors**  
-→ [Core Documentation - Troubleshooting](mcp_core.md#troubleshooting)
-
-**Device not found**  
-→ [Control Tools - Prerequisites](mcp_tools_control.md)
-
-**Navigation failures**  
-→ [Navigation Tools](mcp_tools_navigation.md)
-
-**Verification issues**  
-→ [Verification Tools](mcp_tools_verification.md)
-
-### Debug Tools
-
-**See what's on screen**  
-→ `dump_ui_elements` in [Tree Tools](mcp_tools_tree.md#dump_ui_elements)
-
-**Check device capabilities**  
-→ `get_device_info` in [Core Documentation](mcp_core.md)
-
-**View system logs**  
-→ `view_logs` in [Core Documentation](mcp_core.md)
+</div>
 
 ---
 
-## 📞 Support
+## Troubleshooting
 
-For issues or questions:
-1. Check the relevant tool documentation
-2. Review [Core Documentation - Troubleshooting](mcp_core.md#troubleshooting)
-3. Check system logs via `view_logs`
-4. Open an issue on GitHub
+Start with the troubleshooting section of the core page, or the page for the tool group that fails.
 
----
+**Authentication errors**: [Core Documentation - Troubleshooting](mcp_core.md#troubleshooting)
 
-## 📝 Quick Start Templates
+**Device not found**: [Control Tools - Prerequisites](mcp_tools_control.md)
 
-Platform-specific automation prompts with AI Exploration:
+**Navigation failures**: [Navigation Tools](mcp_tools_navigation.md)
 
-- **Generic Automation Prompt** - Universal template
-- **Web Automation Prompt** - CSS selectors, click patterns, form handling
-- **Mobile Automation Prompt** - Touch, swipe, resource-id, deep navigation
-- **TV/STB Automation Prompt** - D-pad, dual-layer, subtrees, IR devices
+**Verification issues**: [Verification Tools](mcp_tools_verification.md)
 
-**Example use cases:**
-- Sauce Demo (E-commerce) - Complete web automation example
+### Debug tools
+
+**See what is on screen**: `dump_ui_elements` in [Tree Tools](mcp_tools_tree.md#dump_ui_elements)
+
+**Check device capabilities**: `get_device_info` in [Core Documentation](mcp_core.md)
+
+**View system logs**: `view_logs` in [Core Documentation](mcp_core.md)
 
 ---
 
-## 📈 Version History
+## Support
+
+Check the relevant tool documentation and [Core Documentation - Troubleshooting](mcp_core.md#troubleshooting) first, then open an issue on GitHub.
+
+---
+
+## Quick start templates
+
+Ready-made prompts for each platform, with AI exploration built in: generic, web, mobile and TV/STB.
+
+<div data-technical>
+
+- **Generic Automation Prompt**: a universal template
+- **Web Automation Prompt**: CSS selectors, click patterns, form handling
+- **Mobile Automation Prompt**: touch, swipe, resource-id, deep navigation
+- **TV/STB Automation Prompt**: D-pad, dual layer, subtrees, IR devices
+
+**Example use case:** Sauce Demo (e-commerce), a complete web automation example.
+
+</div>
+
+---
+
+## Version history
+
+<div data-technical>
 
 - **v4.8.0** (2026-10-05): 77 tools (`execute_testcase` / `execute_script` return an `execution_id` at once; + `get_testcase_execution_status`, `get_script_execution_status`. No MCP call holds open for a whole run, so clients behind a proxy no longer get 524s)
 - **v4.7.0** (2025-11-22): 75 tools (+ AI Exploration: start_ai_exploration, approve_exploration_plan, validate_exploration_edges, get_node_verification_suggestions, approve_node_verifications, finalize_exploration, get_exploration_status)
@@ -320,13 +435,21 @@ Platform-specific automation prompts with AI Exploration:
 
 → [Full Version History](mcp_core.md#version-history)
 
----
-
-**Made with ❤️ by the VirtualPyTest team**
+</div>
 
 ---
 
-## 📁 File Structure
+<div data-technical>
+
+**Made with care by the VirtualPyTest team**
+
+</div>
+
+---
+
+## File structure
+
+<div data-technical>
 
 ```
 docs/
@@ -357,3 +480,5 @@ docs/
         ├── sauce-demo-optimal-prompt.md   # Complete e-commerce example
         └── sauce-demo-clean-prompt.md     # Manual approach (legacy)
 ```
+
+</div>

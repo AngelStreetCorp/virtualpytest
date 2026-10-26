@@ -3,7 +3,7 @@ import { useState, useCallback } from 'react';
 import { useDeviceData } from '../../contexts/device/DeviceDataContext';
 import { useToastContext } from '../../contexts/ToastContext';
 import { api } from '../../utils/apiClient';
-import { buildServerUrl } from '../../utils/buildUrlUtils';
+import { buildHostServerUrl } from '../../utils/buildUrlUtils';
 import { invalidateSignedUrl } from '../../utils/infrastructure/cloudflareUtils';
 
 /**
@@ -64,7 +64,7 @@ export const useReferenceRecapture = (userinterfaceName?: string) => {
       try {
         // 1. Fresh frame from the live device → verification_source.jpg
         const shot = await api.post<{ success?: boolean; screenshot_url?: string; error?: string }>(
-          buildServerUrl('/server/av/takeScreenshot'),
+          buildHostServerUrl(currentHost, '/server/av/takeScreenshot'),
           { host_name: currentHost.host_name, device_id: currentDeviceId },
         );
         if (!shot.success || !shot.screenshot_url) {
@@ -73,7 +73,7 @@ export const useReferenceRecapture = (userinterfaceName?: string) => {
 
         // 2. Crop the fresh frame with the reference's existing area.
         const crop = await api.post<{ success?: boolean; filename?: string; message?: string }>(
-          buildServerUrl('/server/verification/image/cropImage'),
+          buildHostServerUrl(currentHost, '/server/verification/image/cropImage'),
           {
             host_name: currentHost.host_name,
             device_id: currentDeviceId,
@@ -96,7 +96,7 @@ export const useReferenceRecapture = (userinterfaceName?: string) => {
           area?: any;
           focus_warning?: string | null;
         }>(
-          buildServerUrl('/server/verification/image/saveImage'),
+          buildHostServerUrl(currentHost, '/server/verification/image/saveImage'),
           {
             host_name: currentHost.host_name,
             device_id: currentDeviceId,

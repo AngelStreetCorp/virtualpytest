@@ -109,7 +109,7 @@ export const INFRARED_REMOTE_DEFAULTS = {
     button_scale_factor: 1.5,
     global_offset: { x: 0, y: 0 },
     text_style: {
-      fontSize: '12px',
+      fontSize: '12px', // ui-ok: no-literal-font-size - remote overlay text scales with the screenshot (remoteScale)
       fontWeight: 'bold',
       color: 'white',
       textShadow: '2px 2px 4px rgba(0,0,0,0.9)',
@@ -136,7 +136,7 @@ export const INFRARED_REMOTE_DEFAULTS = {
     showScreenshotInExpanded: true,
     header: {
 
-      fontSize: '0.875rem',
+      fontSize: '0.875rem', // ui-ok: no-literal-font-size - layout data, read by the remote/AV panel renderer
       fontWeight: 'bold',
       iconSize: 'small',
       padding: '8px',

@@ -2,6 +2,7 @@ import { Box, Typography } from '@mui/material';
 import React, { useEffect, useState } from 'react';
 import { MonitoringAnalysis } from '../../types/pages/Monitoring_Types';
 import { formatTimeWithMs } from '../../utils/dateUtils';
+import { AppIcon } from '../../constants/icons';
 
 interface ActionHistoryProps {
   monitoringAnalysis?: MonitoringAnalysis | null;
@@ -282,7 +283,7 @@ export const ActionHistory: React.FC<ActionHistoryProps> = ({
                   pointerEvents: 'auto',
                 }}
               >
-                📄 Report
+                <AppIcon name="docs" /> Report
               </Typography>
             )}
           </Box>

@@ -761,6 +761,10 @@ main._target_rules = {
     "target_type": "host",
     "host_os": "all",
     "device_model": "all",
+    # This script drives its OWN Chrome (its own debug port and its own profile), so it
+    # does not need the host to itself: two of these can run on one host at the same
+    # time instead of queueing behind each other (TASK-146).
+    "browser_isolated": True,
 }
 
 
@@ -796,6 +800,10 @@ main._target_rules = {
     "target_type": "host",
     "host_os": "all",
     "device_model": "all",
+    # This script drives its OWN Chrome (its own debug port and its own profile), so it
+    # does not need the host to itself: two of these can run on one host at the same
+    # time instead of queueing behind each other (TASK-146).
+    "browser_isolated": True,
 }
 
 if __name__ == "__main__":

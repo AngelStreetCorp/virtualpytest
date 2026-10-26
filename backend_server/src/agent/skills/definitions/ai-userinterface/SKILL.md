@@ -4,6 +4,8 @@ description: Read and execute against the AI-learned UI knowledge base (tables a
 platform: null
 requires_device: false
 timeout_seconds: 600
+think_budget_seconds: 120
+max_tool_calls: 40
 tools:
   # Read — always safe
   - resolve_ai_userinterface

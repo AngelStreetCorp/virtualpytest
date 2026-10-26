@@ -1,0 +1,316 @@
+diff --color -ruN aic.orig/drivers/aic8800/aic8800_fdrv/aicwf_txrxif.h aic/drivers/aic8800/aic8800_fdrv/aicwf_txrxif.h
+--- a/drivers/aic8800/aic8800_fdrv/aicwf_txrxif.h	2026-10-22 21:47:22
++++ b/drivers/aic8800/aic8800_fdrv/aicwf_txrxif.h	2026-10-22 22:05:39
+@@ -152,6 +152,8 @@
+ };
+ 
+ 
++#define DEFRAG_MAX_WAIT         40 /* ms, then the partial frame is dropped */
++
+ #ifdef AICWF_RX_REORDER
+ #define MAX_REORD_RXFRAME       250
+ #define REORDER_UPDATE_TIME     500//50
+diff --color -ruN aic.orig/drivers/aic8800/aic8800_fdrv/rwnx_defs.h aic/drivers/aic8800/aic8800_fdrv/rwnx_defs.h
+--- a/drivers/aic8800/aic8800_fdrv/rwnx_defs.h	2026-10-22 21:47:22
++++ b/drivers/aic8800/aic8800_fdrv/rwnx_defs.h	2026-10-22 22:05:39
+@@ -610,6 +610,19 @@
+     u8 flowctrl;
+ };
+ 
++/* One in-progress 802.11 RX defragmentation (same sta/tid/sequence number). */
++struct defrag_ctrl_info {
++    struct list_head list;
++    u8 sta_idx;
++    u8 tid;
++    u16 sn;
++    u8 next_fn;
++    u16 frm_len;
++    struct sk_buff *skb;
++    struct timer_list defrag_timer;
++    struct rwnx_hw *rwnx_hw;
++};
++
+ struct rwnx_hw {
+     struct rwnx_mod_params *mod_params;
+     struct device *dev;
+@@ -621,6 +634,8 @@
+ #endif
+     struct wiphy *wiphy;
+     struct list_head vifs;
++    struct list_head defrag_list;
++    spinlock_t defrag_lock;
+     struct rwnx_vif *vif_table[NX_VIRT_DEV_MAX + NX_REMOTE_STA_MAX]; /* indexed with fw id */
+     struct rwnx_sta sta_table[NX_REMOTE_STA_MAX + NX_VIRT_DEV_MAX];
+     #ifdef CONFIG_HE_FOR_OLD_KERNEL
+diff --color -ruN aic.orig/drivers/aic8800/aic8800_fdrv/rwnx_main.c aic/drivers/aic8800/aic8800_fdrv/rwnx_main.c
+--- a/drivers/aic8800/aic8800_fdrv/rwnx_main.c	2026-10-22 21:47:22
++++ b/drivers/aic8800/aic8800_fdrv/rwnx_main.c	2026-10-22 22:05:39
+@@ -9015,6 +9015,8 @@
+     rwnx_hw->roc_cookie_cnt = 1;
+ 
+     INIT_LIST_HEAD(&rwnx_hw->vifs);
++    INIT_LIST_HEAD(&rwnx_hw->defrag_list);
++    spin_lock_init(&rwnx_hw->defrag_lock);
+     mutex_init(&rwnx_hw->mutex);
+     mutex_init(&rwnx_hw->dbgdump_elem.mutex);
+     spin_lock_init(&rwnx_hw->tx_lock);
+@@ -9299,12 +9301,26 @@
+ void rwnx_cfg80211_deinit(struct rwnx_hw *rwnx_hw)
+ {
+     struct mm_set_stack_start_cfm set_start_cfm;
++    struct defrag_ctrl_info *defrag_ctrl = NULL, *defrag_next = NULL;
+ 
+     RWNX_DBG(RWNX_FN_ENTRY_STR);
+ 
+     rwnx_send_set_stack_start_req(rwnx_hw, 0, 0, 0, 0, &set_start_cfm);
+ 
+     rwnx_hw->fwlog_en = 0;
++
++    spin_lock_bh(&rwnx_hw->defrag_lock);
++    list_for_each_entry_safe(defrag_ctrl, defrag_next, &rwnx_hw->defrag_list, list) {
++        list_del_init(&defrag_ctrl->list);
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0))
++        timer_delete(&defrag_ctrl->defrag_timer);
++#else
++        del_timer(&defrag_ctrl->defrag_timer);
++#endif
++        dev_kfree_skb(defrag_ctrl->skb);
++        kfree(defrag_ctrl);
++    }
++    spin_unlock_bh(&rwnx_hw->defrag_lock);
+ 
+ #ifdef CONFIG_DEBUG_FS
+     rwnx_dbgfs_unregister(rwnx_hw);
+diff --color -ruN aic.orig/drivers/aic8800/aic8800_fdrv/rwnx_rx.c aic/drivers/aic8800/aic8800_fdrv/rwnx_rx.c
+--- a/drivers/aic8800/aic8800_fdrv/rwnx_rx.c	2026-10-22 21:47:22
++++ b/drivers/aic8800/aic8800_fdrv/rwnx_rx.c	2026-10-22 22:05:39
+@@ -1921,6 +1921,48 @@
+     }
+ }
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
++void defrag_timeout_cb(ulong data)
++#else
++void defrag_timeout_cb(struct timer_list *t)
++#endif
++{
++    struct defrag_ctrl_info *defrag_ctrl;
++    struct rwnx_hw *rwnx_hw;
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
++    defrag_ctrl = (struct defrag_ctrl_info *)data;
++#elif LINUX_VERSION_CODE >= KERNEL_VERSION(6, 16, 0)
++    defrag_ctrl = timer_container_of(defrag_ctrl, t, defrag_timer);
++#else
++    defrag_ctrl = from_timer(defrag_ctrl, t, defrag_timer);
++#endif
++    rwnx_hw = defrag_ctrl->rwnx_hw;
++
++    AICWFDBG(LOGDEBUG, "%s sn=%u fn=%u dropped\n", __func__, defrag_ctrl->sn, defrag_ctrl->next_fn);
++    spin_lock_bh(&rwnx_hw->defrag_lock);
++    list_del_init(&defrag_ctrl->list);
++    dev_kfree_skb(defrag_ctrl->skb);
++    kfree(defrag_ctrl);
++    spin_unlock_bh(&rwnx_hw->defrag_lock);
++}
++
++/* Drop a partial frame from the defrag list (caller holds defrag_lock). */
++static void defrag_entry_free(struct defrag_ctrl_info *defrag_info)
++{
++    list_del_init(&defrag_info->list);
++#if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 15, 0))
++    timer_delete(&defrag_info->defrag_timer);
++#else
++    del_timer(&defrag_info->defrag_timer);
++#endif
++    if (defrag_info->skb)
++        dev_kfree_skb(defrag_info->skb);
++    kfree(defrag_info);
++}
++
++#define MAC_FCTRL_MOREFRAG 0x0400
++#define DEFRAG_SKB_SIZE    2000
++
+ u8 rwnx_rxdataind_aicwf(struct rwnx_hw *rwnx_hw, void *hostid, void *rx_priv)
+ {
+     struct hw_rxhdr *hw_rxhdr;
+@@ -1936,6 +1978,14 @@
+     u8 pull_len = 0;
+     u8 tid = 0;
+     u8 is_qos = 0;
++    u16 frame_ctrl = 0;
++    u8 frag_num = 0;
++    u8 sta_idx = 0;
++    struct defrag_ctrl_info *defrag_info = NULL;
++    struct defrag_ctrl_info *defrag_info_tmp = NULL;
++#ifndef AICWF_RX_REORDER
++    u16 seq_num = 0;
++#endif
+ #ifdef AICWF_RX_REORDER
+     struct aicwf_rx_priv *rx_priv_tmp;
+ 	u16 seq_num = 0;
+@@ -2081,6 +2131,9 @@
+                                &hw_rxhdr->hwvect.rx_vect2);
+         skb_pull(skb, msdu_offset + 2); //+2 since sdio allign 58->60
+ 
++        frame_ctrl = (skb->data[1] << 8) | skb->data[0];
++        frag_num = skb->data[22] & 0x0f;
++
+ 	if(skb->data[1] & 0x80)//htc
+ 		hdr_len += 4;
+ 
+@@ -2122,6 +2175,141 @@
+                 default:
+                     memcpy(ether_type, &skb->data[hdr_len + 6], 2);
+                     break;
++            }
++
++#ifndef AICWF_RX_REORDER
++            seq_num = ((skb->data[22]&0xf0)>>4) | (skb->data[23]<<4);
++#endif
++            if (hw_rxhdr->flags_sta_idx != RWNX_INVALID_STA)
++                sta_idx = hw_rxhdr->flags_sta_idx;
++
++            /*
++             * 802.11 RX defragmentation. The firmware hands every fragment of a
++             * fragmented MSDU to the host as its own MPDU (MoreFrag set, fragment
++             * numbers 0..n, one sequence number); without this block fragment 0
++             * went up the stack as a truncated frame and the rest as junk with a
++             * random ethertype. Fragments carry no LLC/SNAP header after the first,
++             * so only the MAC header (+ crypto IV) is stripped: pull_len - 8.
++             */
++            if (!hw_rxhdr->flags_need_reord &&
++                ((frame_ctrl & MAC_FCTRL_MOREFRAG) || frag_num)) {
++                u16 body_len;
++                AICWFDBG(LOGDEBUG, "rxfrag more=%d fn=%u len=%u sn=%u pull=%u\n",
++                         !!(frame_ctrl & MAC_FCTRL_MOREFRAG), frag_num, skb->len, seq_num, pull_len);
++                spin_lock_bh(&rwnx_hw->defrag_lock);
++                list_for_each_entry(defrag_info_tmp, &rwnx_hw->defrag_list, list) {
++                    if (defrag_info_tmp->sn == seq_num && defrag_info_tmp->tid == tid &&
++                        defrag_info_tmp->sta_idx == sta_idx) {
++                        defrag_info = defrag_info_tmp;
++                        break;
++                    }
++                }
++
++                if (!defrag_info) {
++                    if (frag_num != 0) {
++                        /* a middle/last fragment whose start we never saw */
++                        spin_unlock_bh(&rwnx_hw->defrag_lock);
++                        dev_kfree_skb(skb);
++                        goto end;
++                    }
++                    defrag_info = kzalloc(sizeof(*defrag_info), GFP_ATOMIC);
++                    if (!defrag_info) {
++                        spin_unlock_bh(&rwnx_hw->defrag_lock);
++                        dev_kfree_skb(skb);
++                        goto end;
++                    }
++                    defrag_info->skb = __dev_alloc_skb(DEFRAG_SKB_SIZE, GFP_ATOMIC);
++                    if (!defrag_info->skb) {
++                        kfree(defrag_info);
++                        spin_unlock_bh(&rwnx_hw->defrag_lock);
++                        dev_kfree_skb(skb);
++                        goto end;
++                    }
++                    /* first fragment: becomes the 802.3 head of the reassembled frame */
++                    skb_pull(skb, pull_len);
++                    skb_push(skb, 14);
++                    memcpy(skb->data, ra, MAC_ADDR_LEN);
++                    memcpy(&skb->data[6], ta, MAC_ADDR_LEN);
++                    memcpy(&skb->data[12], ether_type, 2);
++                    if (skb->len > skb_tailroom(defrag_info->skb)) {
++                        dev_kfree_skb(defrag_info->skb);
++                        kfree(defrag_info);
++                        spin_unlock_bh(&rwnx_hw->defrag_lock);
++                        dev_kfree_skb(skb);
++                        goto end;
++                    }
++                    memcpy(skb_put(defrag_info->skb, skb->len), skb->data, skb->len);
++                    defrag_info->frm_len = skb->len;
++                    defrag_info->sn = seq_num;
++                    defrag_info->tid = tid;
++                    defrag_info->sta_idx = sta_idx;
++                    defrag_info->next_fn = 1;
++                    defrag_info->rwnx_hw = rwnx_hw;
++                    list_add_tail(&defrag_info->list, &rwnx_hw->defrag_list);
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
++                    init_timer(&defrag_info->defrag_timer);
++                    defrag_info->defrag_timer.data = (unsigned long)defrag_info;
++                    defrag_info->defrag_timer.function = defrag_timeout_cb;
++#else
++                    timer_setup(&defrag_info->defrag_timer, defrag_timeout_cb, 0);
++#endif
++                    mod_timer(&defrag_info->defrag_timer, jiffies + msecs_to_jiffies(DEFRAG_MAX_WAIT));
++                    spin_unlock_bh(&rwnx_hw->defrag_lock);
++                    dev_kfree_skb(skb);
++                    goto end;
++                }
++
++                /* continuation fragment */
++                if (defrag_info->next_fn != frag_num || skb->len < (u16)(pull_len - 8)) {
++                    AICWFDBG(LOGDEBUG, "rxfrag discard sn=%u expected fn=%u got %u\n",
++                             seq_num, defrag_info->next_fn, frag_num);
++                    defrag_entry_free(defrag_info);
++                    spin_unlock_bh(&rwnx_hw->defrag_lock);
++                    dev_kfree_skb(skb);
++                    goto end;
++                }
++                body_len = skb->len - (pull_len - 8);
++                if (body_len > skb_tailroom(defrag_info->skb)) {
++                    AICWFDBG(LOGERROR, "rxfrag overflow sn=%u frm_len=%u body=%u\n",
++                             seq_num, defrag_info->frm_len, body_len);
++                    defrag_entry_free(defrag_info);
++                    spin_unlock_bh(&rwnx_hw->defrag_lock);
++                    dev_kfree_skb(skb);
++                    goto end;
++                }
++                memcpy(skb_put(defrag_info->skb, body_len), &skb->data[pull_len - 8], body_len);
++                defrag_info->frm_len += body_len;
++                defrag_info->next_fn++;
++
++                if (frame_ctrl & MAC_FCTRL_MOREFRAG) {
++                    spin_unlock_bh(&rwnx_hw->defrag_lock);
++                    dev_kfree_skb(skb);
++                    goto end;
++                }
++
++                /* last fragment: hand the reassembled 802.3 frame up */
++                {
++                    struct sk_buff *skb_full = defrag_info->skb;
++                    defrag_info->skb = NULL;
++                    defrag_entry_free(defrag_info);
++                    spin_unlock_bh(&rwnx_hw->defrag_lock);
++
++                    rwnx_vif = rwnx_rx_get_vif(rwnx_hw, hw_rxhdr->flags_vif_idx);
++                    if (!rwnx_vif) {
++                        dev_kfree_skb(skb_full);
++                        dev_kfree_skb(skb);
++                        goto end;
++                    }
++                    if (hw_rxhdr->flags_sta_idx != RWNX_INVALID_STA)
++                        rwnx_rx_statistic(rwnx_hw, hw_rxhdr, &rwnx_hw->sta_table[hw_rxhdr->flags_sta_idx]);
++                    skb_full->priority = 256 + tid;
++                    hw_rxhdr->flags_is_amsdu = 0;
++                    if (!rwnx_rx_data_skb(rwnx_hw, rwnx_vif, skb_full, hw_rxhdr))
++                        dev_kfree_skb(skb_full);
++                    /* hw_rxhdr lives in the fragment's skb: free it last */
++                    dev_kfree_skb(skb);
++                    goto end;
++                }
+             }
+ 
+             skb_pull(skb, pull_len);
+diff --color -ruN aic.orig/drivers/aic8800/aic8800_fdrv/rwnx_rx.h aic/drivers/aic8800/aic8800_fdrv/rwnx_rx.h
+--- a/drivers/aic8800/aic8800_fdrv/rwnx_rx.h	2026-10-22 21:47:22
++++ b/drivers/aic8800/aic8800_fdrv/rwnx_rx.h	2026-10-22 22:05:39
+@@ -399,4 +399,10 @@
+ #endif
+ #endif
+ 
++#if LINUX_VERSION_CODE < KERNEL_VERSION(4, 15, 0)
++void defrag_timeout_cb(ulong data);
++#else
++void defrag_timeout_cb(struct timer_list *t);
++#endif
++
+ #endif /* _RWNX_RX_H_ */

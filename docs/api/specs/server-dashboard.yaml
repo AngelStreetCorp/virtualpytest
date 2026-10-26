@@ -1,0 +1,140 @@
+openapi: 3.0.0
+info:
+  title: SERVER - Dashboard
+  version: 1.0.0
+  description: Read-only data for the dashboard cards (TASK-123). Each block is null when its source is unavailable; responses are cached 10 s per team and range.
+servers:
+  - url: '{server_url}'
+    variables:
+      server_url:
+        default: 'http://localhost:5109'
+x-postman-variables:
+  - key: server_url
+    value: 'http://localhost:5109'
+    description: Backend server URL
+  - key: jwt_token
+    value: 'your_jwt_token_here'
+    description: JWT bearer token for authorization
+paths:
+  /server/dashboard/summary:
+    get:
+      summary: Dashboard summary
+      description: Running work, results with trend, latest failures, flaky scripts, active deployments and device availability. Any authenticated role; scoped to the team and registered hosts (optionally the workspace host_filter).
+      tags: [Dashboard]
+      parameters:
+        - {name: team_id, in: query, required: false, schema: {type: string}, description: Team id (defaults to the caller's team)}
+        - {name: range, in: query, required: false, schema: {type: string, enum: ['24h', '7d', '30d'], default: '24h'}, description: Window; trend buckets are hourly for 24h, daily otherwise}
+        - {name: host_filter, in: query, required: false, schema: {type: string}, description: JSON array of host names (active workspace scope)}
+        - {name: Authorization, in: header, required: false, schema: {type: string}, description: Bearer token}
+      responses:
+        '200':
+          description: Summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  generated_at: {type: string, format: date-time}
+                  range: {type: string}
+                  running:
+                    type: object
+                    nullable: true
+                    properties:
+                      count: {type: integer}
+                      queued: {type: integer}
+                      items:
+                        type: array
+                        items: {type: object, properties: {script_name: {type: string}, device_id: {type: string}, host_name: {type: string}, started_at: {type: string, nullable: true}, result_id: {type: string, nullable: true}}}
+                  results:
+                    type: object
+                    nullable: true
+                    properties:
+                      total: {type: integer}
+                      passed: {type: integer}
+                      failed: {type: integer}
+                      aborted: {type: integer}
+                      trend:
+                        type: array
+                        items: {type: object, properties: {bucket_start: {type: string, format: date-time}, total: {type: integer}, passed: {type: integer}}}
+                  failures:
+                    type: array
+                    nullable: true
+                    description: Latest 20 failed runs
+                    items: {type: object, properties: {result_id: {type: string}, script_name: {type: string}, host_name: {type: string}, device_id: {type: string}, reason: {type: string, nullable: true}, finished_at: {type: string}}}
+                  failing:
+                    type: array
+                    nullable: true
+                    description: One row per script with at least one failed run in the range (runs and fails in the range, the newest run's verdict), worst first, top 20
+                    items: {type: object, properties: {script_name: {type: string}, runs: {type: integer}, failed: {type: integer}, last_verdict: {type: string, enum: [passed, failed, aborted]}, last_at: {type: string, nullable: true}, last_result_id: {type: string}}}
+                  flaky:
+                    type: array
+                    nullable: true
+                    description: Scripts with mixed verdicts over their last 10 runs, top 10
+                    items: {type: object, properties: {script_name: {type: string}, runs: {type: integer}, failed: {type: integer}}}
+                  deployments:
+                    type: object
+                    nullable: true
+                    properties:
+                      active: {type: integer}
+                      items:
+                        type: array
+                        items: {type: object, properties: {name: {type: string}, next_run_at: {type: string, nullable: true}, state: {type: string}}}
+                  devices:
+                    type: object
+                    nullable: true
+                    properties:
+                      total: {type: integer}
+                      free: {type: integer}
+                      locked: {type: integer}
+                      down: {type: integer}
+                      down_items:
+                        type: array
+                        items: {type: object, properties: {host_name: {type: string}, device_id: {type: string}, device_name: {type: string}}}
+                      hosts:
+                        type: array
+                        items: {type: object, properties: {host_name: {type: string}, total: {type: integer}, down: {type: integer}, locked: {type: integer}}}
+                      locked_items:
+                        type: array
+                        items: {type: object, properties: {host_name: {type: string}, device_id: {type: string}, holder: {type: string, nullable: true}, since: {type: string, nullable: true}}}
+        '400': {description: Invalid range or missing team_id}
+        '403': {description: Team outside the caller's scope}
+  /server/dashboard/system:
+    get:
+      summary: Dashboard system health (admin)
+      description: >-
+        Server storage, monitoring (hosts registered on this server, judged like the Hosts list
+        and /status: not online or heartbeat stale, or disk >= 90 %), AI spend. Admin only,
+        enforced on the server. vms are the machines of the /status VM summary (server psutil
+        plus the latest vm_metrics row per infra VM); the database VM is one row of vms; services
+        is healthy / total of the collector's last report.
+      tags: [Dashboard]
+      parameters:
+        - {name: Authorization, in: header, required: false, schema: {type: string}, description: Bearer token}
+      responses:
+        '200':
+          description: System block
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success: {type: boolean}
+                  generated_at: {type: string, format: date-time}
+                  storage: {type: object, nullable: true, properties: {disk_pct: {type: number, nullable: true}, inode_pct: {type: number, nullable: true}}}
+                  vms:
+                    type: array
+                    nullable: true
+                    items: {type: object, properties: {id: {type: string}, name: {type: string}, cpu: {type: number, nullable: true}, load1: {type: number, nullable: true}, ram: {type: number, nullable: true}, disk: {type: number, nullable: true}, status: {type: string, enum: [ok, warning, error, stale]}, checked_at: {type: string, nullable: true}}}
+                  services: {type: object, nullable: true, properties: {ok: {type: integer}, total: {type: integer}}}
+                  monitoring:
+                    type: object
+                    nullable: true
+                    properties:
+                      hosts_total: {type: integer}
+                      hosts_ok: {type: integer}
+                      problems:
+                        type: array
+                        items: {type: object, properties: {host_name: {type: string}, detail: {type: string}}}
+                  ai_usage: {type: object, nullable: true, properties: {cost_7d: {type: number, nullable: true}, top_model: {type: string, nullable: true}}}
+        '403': {description: Caller is not an admin}

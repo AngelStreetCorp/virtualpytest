@@ -6,6 +6,7 @@
   "header.start": "Début :",
   "header.end": "Fin :",
   "header.open_testcase_builder": "Ouvrir dans le constructeur de cas de test",
+  "header.project_label": "Projet",
   "header.save_pdf": "Enregistrer en PDF",
   "header.share_snapshot": "Partager un lien instantané",
   "summary.status": "Statut :",
@@ -165,5 +166,12 @@
   "msg.loop_stopped_pass": "Boucle arrêtée plus tôt (réussite) à l'itération {i}",
   "msg.loop_failed": "Échec de la boucle à l'itération {i}",
   "msg.loop_exhausted": "Boucle : {n} itérations sans succès",
-  "msg.loop_completed": "Boucle terminée : {n} itérations"
+  "msg.loop_completed": "Boucle terminée : {n} itérations",
+  "timeline.title": "Chronologie vidéo",
+  "timeline.hint": "Cliquez sur une vignette ou une étape pour lire la vidéo à partir de là.",
+  "timeline.ok": "OK",
+  "timeline.fail": "ÉCHEC",
+  "link.timeline": "Chronologie :",
+  "timeline.show_player": "Afficher le lecteur",
+  "timeline.hide_player": "Masquer le lecteur"
 }

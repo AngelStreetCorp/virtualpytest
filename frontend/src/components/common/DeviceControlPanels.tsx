@@ -17,6 +17,7 @@ import { DesktopPanel } from '../controller/desktop/DesktopPanel';
 import { WebPanel } from '../controller/web/WebPanel';
 import { VNCStream } from '../controller/av/VNCStream';
 import { HDMIStream } from '../controller/av/HDMIStream';
+import { VNCStateBoundary } from '../../contexts/VNCStateContext';
 import { DEFAULT_DEVICE_RESOLUTION } from '../../config/deviceResolutions';
 
 interface DeviceControlPanelsProps {
@@ -97,6 +98,13 @@ export const DeviceControlPanels: React.FC<DeviceControlPanelsProps> = ({
   const streamRightPosition = customPosition?.right;
 
   return (
+    // BUG-0777: the AV player (VNCStream) and the browser terminal (PlaywrightWebTerminal)
+    // read the VNC state, which throws without a provider. The pages that render these
+    // panels on their own — the picture-in-picture overlay, the test case builder, the
+    // virtual scripts page — had none, so picking a `host_vnc` device crashed the page.
+    // The boundary provides the state when no ancestor does; an ancestor's provider
+    // (navigation editor, Rec modal, AgentChat, Quick Test) still wins.
+    <VNCStateBoundary>
     <>
       {/* Remote/Desktop Panel */}
       {showRemotePanel && selectedHost && selectedDeviceId && isControlActive && (
@@ -227,6 +235,7 @@ export const DeviceControlPanels: React.FC<DeviceControlPanelsProps> = ({
         </>
       )}
     </>
+    </VNCStateBoundary>
   );
 };
 

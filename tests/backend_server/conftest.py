@@ -1,4 +1,19 @@
 import os
+import re
+
+# The backend app does `gevent.monkey.patch_all()` when it is imported (backend_server/src/app.py),
+# and several tests import the app. Done that late -- after pytest/requests/urllib3 already hold
+# the stdlib `ssl`/`socket` -- it leaves ssl half-patched and every later HTTPS call in the
+# process dies with "TypeError: super(type, obj): obj must be an instance or subtype of type"
+# (gevent/_socket3.py) or "Cannot set verify_mode to CERT_NONE" (gevent.ssl.SSLContext). Patch
+# ONCE, first, before anything imports ssl; the app's own later patch_all() is then a no-op.
+if os.name != "nt":
+    try:
+        from gevent import monkey
+        monkey.patch_all()
+    except ImportError:
+        pass
+
 import time
 
 import pytest
@@ -430,9 +445,13 @@ def assert_not_auth_failure(response, what: str) -> None:
 #: Everything these suites create is named with this prefix so it can be swept.
 CI_FIXTURE_PREFIXES = ("zz-ci-", "zz_ci_")
 
+#: Project names the projects smoke suites create (only admins/owners may delete them).
+SMOKE_PROJECT_RE = re.compile(
+    r"^(Smoke Project |Smoke Delete |Tester Create |Exec Smoke |p-[0-9a-f]{8}$)")
+
 
 @pytest.fixture(scope="session", autouse=True)
-def _sweep_ci_fixtures(base_url, verify_ssl, request_timeout, team_id, api_headers):
+def _sweep_ci_fixtures(base_url, verify_ssl, request_timeout, team_id, api_headers, admin_jwt):
     """Delete anything these suites created, after the whole session.
 
     Per-test teardown is the primary cleanup, but it does not run when a test is
@@ -529,3 +548,18 @@ def device_userinterface(request) -> str:
     if override:
         return override
     return request.getfixturevalue("ci_userinterface")
+
+    # Projects: a tester cannot delete its own project (403), so leftovers pile up — sweep as admin.
+    try:
+        headers = {"Authorization": f"Bearer {admin_jwt}"} if admin_jwt else api_headers
+        listed = requests.get(f"{base_url}/server/projects", headers=headers,
+                              params={"team_id": team_id},
+                              timeout=request_timeout, verify=verify_ssl)
+        if listed.status_code == 200 and isinstance(listed.json(), list):
+            for row in listed.json():
+                if SMOKE_PROJECT_RE.match(str(row.get("name") or "")) and row.get("id"):
+                    requests.delete(f"{base_url}/server/projects/{row['id']}", headers=headers,
+                                    params={"team_id": team_id},
+                                    timeout=request_timeout, verify=verify_ssl)
+    except Exception:
+        pass

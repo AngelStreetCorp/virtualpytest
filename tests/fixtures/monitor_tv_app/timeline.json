@@ -1,0 +1,56 @@
+{
+ "first_seq": 1000,
+ "fps": 5,
+ "segments": [
+  {
+   "kind": "live",
+   "first_seq": 1000,
+   "frames": 200
+  },
+  {
+   "kind": "black",
+   "first_seq": 1200,
+   "frames": 50
+  },
+  {
+   "kind": "live",
+   "first_seq": 1250,
+   "frames": 150
+  },
+  {
+   "kind": "frozen",
+   "first_seq": 1400,
+   "frames": 100
+  },
+  {
+   "kind": "live",
+   "first_seq": 1500,
+   "frames": 100
+  },
+  {
+   "kind": "frozen",
+   "first_seq": 1600,
+   "frames": 40
+  },
+  {
+   "kind": "nosignal",
+   "first_seq": 1640,
+   "frames": 50
+  },
+  {
+   "kind": "live",
+   "first_seq": 1690,
+   "frames": 40
+  },
+  {
+   "kind": "nearblack",
+   "first_seq": 1730,
+   "frames": 40
+  },
+  {
+   "kind": "nearblack_bs",
+   "first_seq": 1770,
+   "frames": 20
+  }
+ ]
+}

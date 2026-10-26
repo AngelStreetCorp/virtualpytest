@@ -8,9 +8,9 @@
  */
 
 import { useCallback, useState } from 'react';
-import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
 import { TestCaseGraph } from '../../types/testcase/TestCase_Types';
+import { useHostScopedUrl } from '../allServer/useRowServerUrl';
 
 export interface AIGraphEditProposal {
   graph: TestCaseGraph;
@@ -39,6 +39,7 @@ interface UseAIGraphEditArgs {
 }
 
 export const useAIGraphEdit = ({ hostName, deviceId, userinterfaceName }: UseAIGraphEditArgs) => {
+  const hostScopedUrl = useHostScopedUrl();
   const [isEditing, setIsEditing] = useState(false);
   const [proposal, setProposal] = useState<AIGraphEditProposal | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -50,7 +51,7 @@ export const useAIGraphEdit = ({ hostName, deviceId, userinterfaceName }: UseAIG
       setError(null);
       setProposal(null);
       try {
-        const result: any = await api.post(buildServerUrl('/server/ai/generatePlan'), {
+        const result: any = await api.post(hostScopedUrl(hostName, '/server/ai/generatePlan'), {
           prompt: prompt.trim(),
           userinterface_name: userinterfaceName,
           device_id: deviceId,
@@ -73,7 +74,7 @@ export const useAIGraphEdit = ({ hostName, deviceId, userinterfaceName }: UseAIG
         setIsEditing(false);
       }
     },
-    [hostName, deviceId, userinterfaceName],
+    [hostName, deviceId, userinterfaceName, hostScopedUrl],
   );
 
   const clear = useCallback(() => {

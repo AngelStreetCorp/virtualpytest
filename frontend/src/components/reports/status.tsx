@@ -7,22 +7,23 @@ import { Chip, type ChipProps } from '@mui/material';
 import React from 'react';
 
 import { STATUS } from '../analytics/palette';
-import { AGENT_CHAT_PALETTE } from '../../constants/agentChatTheme';
+import { AGENT_CHAT_PALETTE, onPalettesChange } from '../../constants/agentChatTheme';
 import type { RunStatus } from '../../types/reports';
 
-// Static (no hooks in this module): both themes use the same neutral grey for unknown status,
-// same muted grey for skipped. The palette's textMuted stays neutral across light/dark.
-const NEUTRAL = AGENT_CHAT_PALETTE.textMuted;
-
-export const STATUS_COLORS: Record<RunStatus, string> = {
+// Not a component (no hooks): rebuilt in place on a colour-theme switch. Running = the theme accent,
+// skipped / unknown = the muted text grey. Status colours (passed/failed/...) are never themed.
+const buildStatusColors = (): Record<RunStatus, string> => ({
   passed: STATUS.good,
   failed: STATUS.critical,
-  running: AGENT_CHAT_PALETTE.accent, // running = the app's gold accent (static: same in both themes)
+  running: AGENT_CHAT_PALETTE.accent,
   pending: STATUS.warning,
   skipped: AGENT_CHAT_PALETTE.textMuted,
   cancelled: STATUS.serious,
-  unknown: NEUTRAL,
-};
+  unknown: AGENT_CHAT_PALETTE.textMuted,
+});
+
+export const STATUS_COLORS: Record<RunStatus, string> = buildStatusColors();
+onPalettesChange(() => Object.assign(STATUS_COLORS, buildStatusColors()));
 
 export const STATUS_LABELS: Record<RunStatus, string> = {
   passed: 'Passed',

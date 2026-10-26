@@ -79,6 +79,7 @@ class ExecutionOrchestrator:
         team_id: str = None,
         context=None,
         userinterface_name: Optional[str] = None,
+        capture_before_action_screenshot: bool = True,
     ) -> Dict[str, Any]:
         """Execute a list of actions on the device (ad-hoc — no edge context).
 
@@ -100,6 +101,7 @@ class ExecutionOrchestrator:
                 team_id=team_id,
                 context=context,
                 userinterface_name=userinterface_name,
+                capture_before_action_screenshot=capture_before_action_screenshot,
             )
 
         return await LoggingManager.execute_with_logging(execute)

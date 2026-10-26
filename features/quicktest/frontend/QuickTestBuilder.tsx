@@ -24,6 +24,7 @@ import {
   AutoAwesome as SparkleIcon,
   Search as SearchIcon,
   DeleteOutline as DeleteOutlineIcon,
+  Send as SendIcon,
 } from '@mui/icons-material';
 import {
   Alert,
@@ -52,6 +53,9 @@ import { StyledDialog } from '../../../frontend/src/components/common/StyledDial
 import { DeviceControlPanels } from '../../../frontend/src/components/common/DeviceControlPanels';
 import { ExecutionProgressOverlay } from '../../../frontend/src/components/common/ExecutionProgressOverlay';
 import { VariantSelector } from '../../../frontend/src/components/common/VariantSelector';
+import { ExecutableFavoriteStar } from '../../../frontend/src/components/common/DeviceFavoriteStar';
+import { DeviceFavoriteGroupHeader } from '../../../frontend/src/components/common/DeviceFavoriteGroupHeader';
+import { useExecutableFavorites } from '../../../frontend/src/hooks/useExecutableFavorites';
 import { QuickTestInputsBar } from './components/QuickTestInputsBar';
 import { AIEditPreview } from '../../../frontend/src/components/testcase/ai/AIEditPreview';
 import { RunWithInputsDialog } from '../../../frontend/src/components/testcase/RunWithInputsDialog';
@@ -123,13 +127,18 @@ const QuickTestBuilderContent: React.FC = () => {
   const h = useQuickTestBuilder();
   const P = useAgentChatPalette();
   const [search, setSearch] = React.useState('');
-  const visibleTests = React.useMemo(() => {
+  const executableFavorites = useExecutableFavorites();
+  const matchingTests = React.useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return h.testcaseList;
     return h.testcaseList.filter((tc) =>
       [tc.testcase_name, tc.userinterface_name, tc.variant].some((v) => (v || '').toLowerCase().includes(q)),
     );
   }, [h.testcaseList, search]);
+  // Starred quick tests are pinned first (TASK-100); the search still decides what is listed.
+  const favoriteTests = matchingTests.filter((tc) => executableFavorites.isFavorite('testcase', tc.testcase_id));
+  const otherTests = matchingTests.filter((tc) => !executableFavorites.isFavorite('testcase', tc.testcase_id));
+  const visibleTests = [...favoriteTests, ...otherTests];
 
   // Shared look for the compact selects in a step row (Type / On fail).
   const compactSelectSx = {
@@ -332,11 +341,12 @@ const QuickTestBuilderContent: React.FC = () => {
     return (
       <Box
         key={step.id}
+        component={Paper}
+        elevation={0}
         sx={{
           px: 1.5,
           py: 1,
           borderRadius: 2,
-          bgcolor: P.surface,
           border: `1px solid ${accent || P.borderColor}`,
           boxShadow: accent ? `0 0 0 1px ${accent}` : 'none',
           transition: 'border-color 0.2s, box-shadow 0.2s',
@@ -692,7 +702,7 @@ const QuickTestBuilderContent: React.FC = () => {
 
       {/* Saved quick tests rail + step list — same "rail beside editor" layout as Virtual Scripts. */}
       <Box sx={{ flex: 1, minHeight: 0, display: 'flex', gap: 1, p: 1, overflow: 'hidden' }}>
-        <Paper variant="outlined" sx={{ width: 230, display: 'flex', flexDirection: 'column', borderRadius: 2, borderColor: P.borderColor, bgcolor: P.sidebarBg }}>
+        <Paper variant="outlined" sx={{ width: 230, display: 'flex', flexDirection: 'column', borderRadius: 2, borderColor: P.borderColor }}>
           {/* Search + New on one row; the page header already names the builder. */}
           <Box sx={{ px: 1.5, pt: 1.25, pb: 1, display: 'flex', alignItems: 'center', gap: 0.75 }}>
             <InputBase
@@ -718,12 +728,16 @@ const QuickTestBuilderContent: React.FC = () => {
             </Tooltip>
           </Box>
           <Box sx={{ overflow: 'auto', flex: 1, px: 1, pb: 1 }}>
-            {visibleTests.map((tc) => {
+            {visibleTests.map((tc, index) => {
               const selected = tc.testcase_id === h.currentTestcaseId;
               const meta = [tc.userinterface_name, tc.variant].filter(Boolean).join(' · ');
               return (
+                <React.Fragment key={tc.testcase_id}>
+                {favoriteTests.length > 0 && index === 0 && <DeviceFavoriteGroupHeader kind="favorites" inline />}
+                {favoriteTests.length > 0 && otherTests.length > 0 && index === favoriteTests.length && (
+                  <DeviceFavoriteGroupHeader kind="allItems" inline />
+                )}
                 <Box
-                  key={tc.testcase_id}
                   title={tc.testcase_name}
                   onClick={() => h.handleLoad(tc.testcase_id)}
                   sx={{
@@ -733,6 +747,7 @@ const QuickTestBuilderContent: React.FC = () => {
                     '&:hover .qt-delete': { opacity: 1 },
                   }}
                 >
+                  <ExecutableFavoriteStar kind="testcase" itemId={tc.testcase_id} />
                   <Box sx={{ flex: 1, minWidth: 0 }}>
                     <Typography noWrap sx={{ fontSize: '0.82rem', lineHeight: 1.35, fontWeight: selected ? 600 : 400, color: selected ? P.accentText : P.textPrimary }}>
                       {tc.testcase_name}
@@ -755,6 +770,7 @@ const QuickTestBuilderContent: React.FC = () => {
                     </IconButton>
                   </Tooltip>
                 </Box>
+                </React.Fragment>
               );
             })}
             {!h.isLoadingTestCases && h.testcaseList.length === 0 && (
@@ -770,11 +786,11 @@ const QuickTestBuilderContent: React.FC = () => {
           </Box>
         </Paper>
 
-        <Box sx={{ flex: 1, overflow: 'auto', bgcolor: P.background, border: `1px solid ${P.borderColor}`, borderRadius: 2, p: 2 }}>
+        <Box sx={{ flex: 1, overflow: 'auto', border: `1px solid ${P.borderColor}`, borderRadius: 2, p: 2 }}>
         {/* The test on the page-tone area: a header card (title + variables) and a steps card. */}
         <Box sx={{ maxWidth: 1000, mx: 'auto' }}>
-          <Box sx={{ bgcolor: P.surface, border: `1px solid ${P.borderColor}`, borderRadius: 3, p: 2, mb: 2 }}>
-          <Box sx={{ mb: 1.5 }}>
+          <Box component={Paper} elevation={0} sx={{ border: `1px solid ${P.borderColor}`, borderRadius: 3, p: 2, mb: 2 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 1.5 }}>
             <InputBase
               fullWidth
               placeholder="Untitled quick test"
@@ -783,7 +799,7 @@ const QuickTestBuilderContent: React.FC = () => {
               inputProps={{ 'aria-label': 'Test name' }}
               sx={{ fontSize: '1.3rem', fontWeight: 600, borderRadius: 1, px: 0.5, mx: -0.5, '&:hover, &.Mui-focused': { bgcolor: P.hoverBg } }}
             />
-            <Typography sx={{ fontSize: '0.75rem', color: P.textMuted }}>
+            <Typography noWrap sx={{ fontSize: '0.75rem', color: P.textMuted, flexShrink: 0, textAlign: 'right' }}>
               {[
                 h.userinterfaceName || 'No interface selected',
                 h.userinterfaceName && h.variant ? h.variant : '',
@@ -835,16 +851,19 @@ const QuickTestBuilderContent: React.FC = () => {
               disabled={!h.isControlActive || h.aiEdit.isEditing}
               sx={{ fontSize: '0.85rem' }}
             />
-            <Button
-              size="small"
-              variant="outlined"
-              onClick={() => h.aiEdit.proposeEdit(h.aiEditPrompt, h.graph)}
-              disabled={!h.isControlActive || !h.aiEditPrompt.trim() || h.aiEdit.isEditing}
-              startIcon={h.aiEdit.isEditing ? <CircularProgress size={14} /> : undefined}
-              sx={{ textTransform: 'none', borderColor: P.accent, color: P.accentText, '&:hover': { borderColor: P.accent, bgcolor: `${P.accent}1a` } }}
-            >
-              Edit
-            </Button>
+            <Tooltip title="Send">
+              <span>
+                <IconButton
+                  size="small"
+                  aria-label="Send"
+                  onClick={() => h.aiEdit.proposeEdit(h.aiEditPrompt, h.graph)}
+                  disabled={!h.isControlActive || !h.aiEditPrompt.trim() || h.aiEdit.isEditing}
+                  sx={{ color: P.accentText }}
+                >
+                  {h.aiEdit.isEditing ? <CircularProgress size={16} /> : <SendIcon sx={{ fontSize: 18 }} />}
+                </IconButton>
+              </span>
+            </Tooltip>
           </Box>
           {h.aiEdit.error && (
             <Alert severity="warning" onClose={h.aiEdit.clear} sx={{ mb: 1.5 }}>
@@ -857,7 +876,7 @@ const QuickTestBuilderContent: React.FC = () => {
             </Box>
           )}
 
-          <Box sx={{ bgcolor: P.surface, border: `1px solid ${P.borderColor}`, borderRadius: 3, p: 2 }}>
+          <Box component={Paper} elevation={0} sx={{ border: `1px solid ${P.borderColor}`, borderRadius: 3, p: 2 }}>
           {/* Steps as a numbered timeline: a dot per unit on a rail, the add strip at the end */}
           <Box sx={{ position: 'relative' }}>
             <Box sx={{ position: 'absolute', left: 13, top: 14, bottom: 14, width: '1px', bgcolor: P.borderColor }} />

@@ -7,8 +7,10 @@ calibrated probabilities, no text, no reasoning. It is text only. The harness li
 legal options with their facts; the model only picks ("Jev-style", TASK-38 §1).
 
 A decision profile is an ordinary ``ai_profiles`` row on an OpenRouter endpoint whose
-``extra`` holds ``{"api": "decisions"}``. ``decide`` refuses any other profile, and no
-chat route should point at one. Resolve with ``router.resolve_profile`` (pinned, no
+``extra`` holds ``{"api": "decisions"}``. A decision usage may also be routed (Settings -> AI) to an
+ordinary chat profile: ``decide`` then asks the same typed questions as JSON over the chat gateway
+(``_decide_chat``; choice and noul, not score) and returns the same answer shape. A decision profile
+must not sit behind a chat usage. Resolve with ``router.resolve_profile`` (pinned, no
 fallback) or ``router.resolve`` (a ``text.decision`` route); every attempt is counted by
 ``router.record`` like a chat call.
 
@@ -38,12 +40,14 @@ cost, ms, model, profile, endpoint, decision_id}``. ``choose`` adds ``choice``, 
 
 from __future__ import annotations
 
+import json
 import os
 import time
 from typing import Any, Optional
 from urllib.parse import urlsplit
 
 from . import router
+from . import tracing
 from .provider_client import CallUsage, classify_error
 from .secrets_store import get_secret
 from shared.src.lib.utils import phase_timing
@@ -251,9 +255,16 @@ def _decide(resolution: router.Resolution, state: Any, questions: dict, timeout_
         return _result(False, error=f"questions must be typed {QUESTION_TYPES}; bad: {bad or 'none given'}")
     errors: list[str] = []
     last_hop: Optional[router.Hop] = None
+    attempts: list[tracing.Attempt] = []
     for hop in resolution.hops:
         if not is_decision_profile(hop):
-            errors.append(f"{hop.profile_name}: not a decision profile (extra.api != 'decisions')")
+            # Settings -> AI may route a decision usage to an ordinary chat profile (e.g. MiniMax M3):
+            # same questions, same answer shape, asked as JSON over the chat gateway.
+            # That path goes through gateway.execute, which traces it itself.
+            out = _decide_chat(resolution, hop, state, questions, timeout_s, errors)
+            if out is not None:
+                return out
+            last_hop = hop
             continue
         if hop.reach == "host":
             errors.append(f"{hop.endpoint_name}: only reachable from hosts")
@@ -267,6 +278,8 @@ def _decide(resolution: router.Resolution, state: Any, questions: dict, timeout_
             continue
         last_hop = hop
         started = time.time()
+        attempt = tracing.Attempt(hop)
+        attempt.fallback = fallback
         try:
             response = requests.post(
                 decisions_url(hop),
@@ -283,6 +296,8 @@ def _decide(resolution: router.Resolution, state: Any, questions: dict, timeout_
             router.record(resolution, hop, ok=False, ms=ms, fallback=fallback,
                           error_type=classify_error(e))
             detail = getattr(getattr(e, "response", None), "text", "") or str(e)
+            attempt.finish(ok=False, error=detail[:300])
+            attempts.append(attempt)
             errors.append(f"{hop.endpoint_name} decisions call failed for '{hop.model}': {detail[:300]}")
             continue
         ms = int((time.time() - started) * 1000)
@@ -296,10 +311,131 @@ def _decide(resolution: router.Resolution, state: Any, questions: dict, timeout_
                       usage=CallUsage(tokens_in=tokens[0], tokens_out=tokens[1],
                                       cost=float(cost) if isinstance(cost, (int, float)) else None),
                       error_type=None if ok else "parse")
+        attempt.finish(ok=ok, output=json.dumps(answers, ensure_ascii=False, default=str),
+                       error=None if ok else f"answer missing or mistyped {wrong}",
+                       tokens=tokens,
+                       usage=CallUsage(tokens_in=tokens[0], tokens_out=tokens[1],
+                                       cost=float(cost) if isinstance(cost, (int, float)) else None))
+        attempts.append(attempt)
         if ok:
+            _trace_decision(resolution, attempts, state, questions, ok=True, output=answers)
             return _result(True, hop=hop, answers=answers, tokens=tokens, cost=usage.get("cost"), ms=ms)
         errors.append(f"{hop.endpoint_name}: answer missing or mistyped {wrong}")
+    _trace_decision(resolution, attempts, state, questions, ok=False,
+                    error="; ".join(errors) or "no decision profile")
     return _result(False, hop=last_hop, error="; ".join(errors) or "no decision profile")
+
+
+def _trace_decision(resolution: router.Resolution, attempts: list, state: Any, questions: dict,
+                    *, ok: bool, output: Any = None, error: Optional[str] = None) -> None:
+    """Send the Langfuse trace for a decision-model call (TASK-143).
+
+    The decisions API is called by hand, not through the chat gateway, so it was counted
+    in the call log but left no trace -- 15 usage keys (``text.decision*``) were invisible
+    in Langfuse. This closes that gap: one trace, one generation per attempted hop, the
+    same shape the gateway produces. The chat fallback (``_decide_chat``) is traced by
+    ``gateway.execute`` itself, so it is not traced twice.
+    """
+    if not attempts:
+        return
+    label = resolution.stats_label
+    tracing.trace_call(
+        name=f"AI {label}",
+        usage=label,
+        trace_id=resolution.request_id,
+        input={"state": state, "questions": questions},
+        attempts=attempts,
+        resolution=resolution,
+        output=output,
+        ok=ok,
+        error=error,
+        team_id=resolution.team_id,
+        session_id=resolution.request_id,
+    )
+
+
+CHAT_MAX_TOKENS = 1500  # room for a reasoning model's thinking before the JSON answer
+
+
+def _chat_prompt(state: Any, questions: dict) -> str:
+    """The Decisions API contract as a chat prompt: JSON out, probabilities in [0, 1]."""
+    import json
+    spec = {}
+    for name, q in questions.items():
+        if q["type"] == "choice":
+            spec[name] = {"question": q.get("instructions"), "options": q.get("criteria"),
+                          "answer": '{"probabilities": {"<option id>": <0..1>, ...}} summing to 1'}
+        else:  # noul
+            spec[name] = {"question": q.get("instructions"), "true_means": (q.get("criteria") or {}).get("true"),
+                          "false_means": (q.get("criteria") or {}).get("false"),
+                          "answer": '{"p": <probability the answer is true, 0..1>}'}
+    return ("You are a calibrated decision model. Read the state, then answer every question.\n"
+            "Reply with ONE JSON object only, no prose, no code fence: {\"<question name>\": <its answer>, ...}.\n\n"
+            f"STATE:\n{json.dumps(state, ensure_ascii=False, default=str)}\n\n"
+            f"QUESTIONS:\n{json.dumps(spec, ensure_ascii=False)}")
+
+
+def _json_object(text: str) -> dict:
+    import json
+    text = (text or "").strip()
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        return {}
+    try:
+        data = json.loads(text[start:end + 1])
+    except ValueError:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _chat_answers(questions: dict, data: dict) -> dict:
+    """Decisions-API-shaped answers from a chat model's JSON; a question it did not answer is left out."""
+    answers: dict = {}
+    for name, q in questions.items():
+        raw = data.get(name)
+        if not isinstance(raw, dict):
+            continue
+        if q["type"] == "choice":
+            ids = list((q.get("criteria") or {}).keys())
+            probs = {i: max(0.0, float(v)) for i, v in (raw.get("probabilities") or {}).items()
+                     if i in ids and isinstance(v, (int, float))}
+            total = sum(probs.values())
+            if not probs or total <= 0:
+                continue
+            probs = {i: round(v / total, 4) for i, v in probs.items()}
+            best = max(probs, key=probs.get)
+            answers[name] = {"type": "choice", "choice": best, "confidence": probs[best], "probabilities": probs}
+        elif q["type"] == "noul":
+            p = raw.get("p")
+            if isinstance(p, (int, float)) and 0 <= p <= 1:
+                answers[name] = {"type": "noul", "noul": float(p)}
+    return answers
+
+
+def _decide_chat(resolution: router.Resolution, hop: router.Hop, state: Any, questions: dict,
+                 timeout_s: Optional[int], errors: list) -> Optional[dict]:
+    """Ask a chat-model hop the decision questions. Returns the success result, or None (reason appended
+    to ``errors``) so the caller moves to the next hop. ``score`` questions need a decision model."""
+    import dataclasses
+    from . import gateway
+    if any(q["type"] == "score" for q in questions.values()):
+        errors.append(f"{hop.profile_name}: 'score' questions need a decision profile (extra.api == 'decisions')")
+        return None
+    started = time.time()
+    res = gateway.execute(dataclasses.replace(resolution, hops=[hop]), _chat_prompt(state, questions),
+                          max_tokens=CHAT_MAX_TOKENS, temperature=0.0,
+                          timeout_s=min(hop.timeout, timeout_s or DEFAULT_TIMEOUT_S))
+    if not res.get("success"):
+        errors.append(f"{hop.profile_name}: {str(res.get('error'))[:300]}")
+        return None
+    answers = _chat_answers(questions, _json_object(res.get("content") or ""))
+    wrong = _answers_match(questions, answers)
+    if wrong:
+        errors.append(f"{hop.profile_name}: answer missing or not JSON for {wrong}")
+        return None
+    usage = res.get("usage") or {}
+    return _result(True, hop=hop, answers=answers, ms=int((time.time() - started) * 1000),
+                   tokens=(int(usage.get("prompt_tokens") or 0), int(usage.get("completion_tokens") or 0)))
 
 
 def choose(resolution: router.Resolution, state: Any, options: list[dict], *, instructions: str,

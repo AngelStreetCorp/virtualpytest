@@ -14,6 +14,7 @@ import {
   Switch,
   Button,
   CircularProgress,
+  Skeleton,
   DialogActions,
   DialogContent,
   DialogTitle,
@@ -31,7 +32,12 @@ import { useAgentChatPalette } from '../../../frontend/src/constants/agentChatTh
 import { useIsNativeApp } from '../../../frontend/src/hooks/useIsNativeApp';
 import { buildServerUrl } from '../../../frontend/src/utils/buildUrlUtils';
 import { PAIRING_CODE_RE, PAIRING_CODE_SEP, pairPayloadFromCode } from './hooks/useMobileApp';
-import { isPhoneAgentAvailable, phoneAgent, type PhoneAgentStatus } from './native/phoneAgent';
+import {
+  isPhoneAgentAvailable,
+  phoneAgent,
+  type DroneBridgeStatus,
+  type PhoneAgentStatus,
+} from './native/phoneAgent';
 
 /** What the blocking overlay says, keyed by the `run()` label that set it. */
 const BUSY_LABEL: Record<string, string> = {
@@ -119,6 +125,18 @@ function ThisPhoneNative() {
   const [codeDialogOpen, setCodeDialogOpen] = useState(false);
   const [pairingCodeInput, setPairingCodeInput] = useState('');
   const [serverUrlInput, setServerUrlInput] = useState('');
+  // The drone link (TASK-167 / TASK-173): this phone can be the radio end of a
+  // remote Tello. The link comes up with the phone agent; the page shows what the
+  // phone can offer the host right now.
+  const [droneStatus, setDroneStatus] = useState<DroneBridgeStatus>({
+    active: false,
+    hotspot: false,
+    hotspotSubnet: '',
+    drones: [],
+  });
+  const [droneBusy, setDroneBusy] = useState(false);
+  // The drone link lives in the native shell; on the web there is no plugin behind it.
+  const droneNative = isPhoneAgentAvailable();
 
   /**
    * Pairing is refused until every permission is green.
@@ -272,6 +290,61 @@ function ThisPhoneNative() {
       refresh();
     });
 
+  // The drone link's state changes on its own (the hotspot comes and goes, the
+  // drone falls asleep), so the page polls it instead of showing a stale picture.
+  useEffect(() => {
+    let alive = true;
+    const pull = async () => {
+      try {
+        const s = await phoneAgent.getDroneStatus();
+        if (alive) setDroneStatus(s);
+      } catch {
+        // The plugin is unavailable (web build): the card stays empty.
+      }
+    };
+    pull();
+    const timer = setInterval(pull, 5000);
+    return () => {
+      alive = false;
+      clearInterval(timer);
+    };
+  }, []);
+
+  const refreshDrones = async () => {
+    setDroneBusy(true);
+    try {
+      setDroneStatus(await phoneAgent.discoverDrones());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDroneBusy(false);
+    }
+  };
+
+  const toggleDroneLink = async () => {
+    setDroneBusy(true);
+    try {
+      setDroneStatus(
+        droneStatus.active ? await phoneAgent.stopDroneBridge() : await phoneAgent.startDroneBridge(),
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDroneBusy(false);
+    }
+  };
+
+  /** Rename a drone: the label is what the host's configuration names. */
+  const renameDrone = async (ip: string, label: string) => {
+    const clean = label.trim();
+    if (!clean) return;
+    try {
+      setDroneStatus(await phoneAgent.labelDrone({ ip, label: clean }));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const unpair = () =>
     run('unpair', async () => {
       // Unpairing here used to be purely local: the phone forgot its credentials and stopped
@@ -302,8 +375,21 @@ function ThisPhoneNative() {
 
   if (loading) {
     return (
-      <Box sx={{ display: 'flex', justifyContent: 'center', py: 6 }}>
-        <CircularProgress />
+      <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1.25 }}>
+        <Typography variant="h6">This phone</Typography>
+        {[1, 2, 3, 4].map((i) => (
+          <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
+            <Skeleton variant="text" width={88} height={18} />
+            <Skeleton variant="rounded" height={18} sx={{ flex: 1 }} />
+          </Box>
+        ))}
+        <Skeleton variant="text" width={100} height={20} sx={{ mt: 1 }} />
+        {[1, 2, 3, 4].map((i) => (
+          <Box key={i} sx={{ display: 'flex', alignItems: 'center', gap: 2, py: 0.25 }}>
+            <Skeleton variant="circular" width={18} height={18} />
+            <Skeleton variant="text" width={200} height={18} />
+          </Box>
+        ))}
       </Box>
     );
   }
@@ -443,6 +529,52 @@ function ThisPhoneNative() {
             }
           />
 
+          {/* The drone link (TASK-167 / TASK-173). It works on its own - the link
+              comes up with the phone agent and the phone finds the drone by itself -
+              so this card is a picture of it and a way to name the drone, not a
+              switch the owner has to remember to flip. It only exists in the APK:
+              on the web there is no native plugin behind it. */}
+          {droneNative && (
+          <Box sx={{ mt: 2, p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: 1 }}>
+            <Typography variant="subtitle2">Drone link</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+              This phone can be the radio end of a remote Tello: the drone joins this phone's
+              hotspot and the phone relays it to the host over the link above.
+            </Typography>
+            <StatusRow
+              label="Link"
+              value={droneStatus.active ? 'On - this phone is the drone\u2019s radio' : 'Off'}
+            />
+            <StatusRow
+              label="Hotspot"
+              value={
+                droneStatus.hotspot
+                  ? `On${droneStatus.hotspotSubnet ? ` (${droneStatus.hotspotSubnet})` : ''}`
+                  : 'Off - the drones cannot be reached'
+              }
+            />
+            <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
+              <Button size="small" variant="outlined" disabled={droneBusy} onClick={refreshDrones}>
+                {droneBusy ? 'Scanning\u2026' : 'Scan for drones'}
+              </Button>
+              <Button size="small" variant="outlined" disabled={droneBusy} onClick={toggleDroneLink}>
+                {droneStatus.active ? 'Turn link off' : 'Turn link on'}
+              </Button>
+            </Box>
+            {droneStatus.drones.length > 0 && (
+              <Box sx={{ mt: 1 }}>
+                {droneStatus.drones.map((d) => (
+                  <DroneRow key={d.ip} label={d.label} ip={d.ip} present={!!d.present} onRename={renameDrone} />
+                ))}
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                  The name is what the host names this drone: set it to the label in the host's
+                  device configuration.
+                </Typography>
+              </Box>
+            )}
+          </Box>
+          )}
+
           <Box sx={{ display: 'flex', gap: 1, mt: 1 }}>
             <Button
               size="small"
@@ -526,6 +658,46 @@ function ThisPhoneNative() {
           </Button>
         </DialogActions>
       </StyledDialog>
+    </Box>
+  );
+}
+
+/** One drone on the hotspot: its name (editable) and whether it is answering. */
+function DroneRow({
+  label,
+  ip,
+  present,
+  onRename,
+}: {
+  label: string;
+  ip: string;
+  present: boolean;
+  onRename: (ip: string, label: string) => void;
+}) {
+  const [draft, setDraft] = useState(label);
+  useEffect(() => setDraft(label), [label]);
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5 }}>
+      <Box
+        sx={{
+          width: 8,
+          height: 8,
+          borderRadius: '50%',
+          bgcolor: present ? 'success.main' : 'grey.400',
+          flex: '0 0 auto',
+        }}
+        title={present ? 'answering on the hotspot' : 'not answering right now'}
+      />
+      <TextField
+        size="small"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => draft.trim() && draft.trim() !== label && onRename(ip, draft)}
+        sx={{ width: 120 }}
+      />
+      <Typography variant="caption" color="text.secondary">
+        {ip}
+      </Typography>
     </Box>
   );
 }

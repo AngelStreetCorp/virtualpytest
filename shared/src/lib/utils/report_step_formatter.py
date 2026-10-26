@@ -293,6 +293,7 @@ def format_single_step(
         error_html = format_step_error(step)  # Error shown AFTER verifications
     script_output_html = format_script_output(step)
     analysis_html = format_analysis_results(step)
+    details_table_html = format_step_details_table(step)
     screenshot_html = format_step_screenshots(step, step_index)
 
     # Row styling: encapsulating block (strong indigo accent) vs
@@ -346,12 +347,46 @@ def format_single_step(
                  {error_html}
                  {script_output_html}
                  {analysis_html}
+                 {details_table_html}
              </div>
              {screenshot_html}
          </div>
          {nested_children_html}
     </div>
     """
+
+
+def format_step_details_table(step: Dict) -> str:
+    """A step can carry a table of evidence - e.g. the audio level of every second.
+
+    The table belongs to the step (next to the frames that carry the video
+    verdict) so the executive summary can stay short: the summary says what
+    happened, the table shows the numbers behind it.
+
+    `details_table` is {"headers": [...], "rows": [[...], ...]}; every cell is
+    translatable (the script's own catalog wins over the platform's).
+    """
+    table = step.get('details_table') or {}
+    rows = table.get('rows') or []
+    headers = table.get('headers') or []
+    if not rows:
+        return ""
+
+    title = step.get('details_table_title')
+    title_html = f'<h4 style="margin: 10px 0 6px;">{tx(title)}</h4>' if title else ''
+
+    head = ''
+    if headers:
+        head = ('<thead><tr>'
+                + ''.join(f'<th>{tx(h)}</th>' for h in headers)
+                + '</tr></thead>')
+    body_rows = []
+    for row in rows:
+        cells = ''.join(f'<td>{tx(cell)}</td>' for cell in row)
+        body_rows.append(f'<tr>{cells}</tr>')
+
+    return (f'{title_html}'
+            f'<table class="details-table">{head}<tbody>{"".join(body_rows)}</tbody></table>')
 
 
 def format_step_error(step: Dict) -> str:
@@ -1421,6 +1456,8 @@ def format_analysis_results(step: Dict) -> str:
 
 def format_step_screenshots(step: Dict, step_index: int) -> str:
     """Format screenshots section for a step."""
+    if step.get('no_capture'):
+        return ""
     screenshots_for_step = []
     
     # Debug logging to see what screenshot fields are available

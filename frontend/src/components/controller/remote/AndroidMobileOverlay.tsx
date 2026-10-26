@@ -5,7 +5,8 @@ import { AndroidElement } from '../../../types/controller/Remote_Types';
 import { getZIndex } from '../../../utils/zIndexUtils';
 
 
-import { buildServerUrl } from '../../../utils/buildUrlUtils';
+import { buildHostServerUrl } from '../../../utils/buildUrlUtils';
+import { TYPOGRAPHY } from '../../../constants/typography';
 interface ScaledElement {
   id: string;
   x: number;
@@ -200,7 +201,7 @@ export const AndroidMobileOverlay = React.memo(
     // Direct server tap function - bypasses useRemoteConfigs double conversion
     const handleDirectTap = async (deviceX: number, deviceY: number) => {
       try {
-        const response = await fetch(buildServerUrl('/server/remote/tapCoordinates'), {
+        const response = await fetch(buildHostServerUrl(host, '/server/remote/tapCoordinates'), {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -458,7 +459,7 @@ export const AndroidMobileOverlay = React.memo(
                     position: 'absolute',
                     bottom: '2px',
                     right: '2px',
-                    fontSize: '10px',
+                    fontSize: TYPOGRAPHY.microMeta.size,
                     color: scaledElement.color, // Colored text instead of white
                     fontWeight: 'bold',
                     lineHeight: '1',
@@ -507,7 +508,7 @@ export const AndroidMobileOverlay = React.memo(
               color: 'white',
               padding: '4px 8px',
               borderRadius: '4px',
-              fontSize: '12px',
+              fontSize: TYPOGRAPHY.caption.size,
               fontFamily: 'monospace',
               fontWeight: 'bold',
               zIndex: getZIndex('ANDROID_MOBILE_OVERLAY'), // Same level as animation

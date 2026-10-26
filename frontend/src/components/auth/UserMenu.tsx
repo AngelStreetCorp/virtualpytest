@@ -18,6 +18,7 @@ import {
   AdminPanelSettings as RolesIcon,
   WorkspacesOutlined as WorkspacesIcon,
   Apartment as TenantIcon,
+  FolderOutlined as ProjectsIcon,
 } from '@mui/icons-material';
 import { useAuth } from '../../hooks/auth/useAuth';
 import { usePermissions } from '../../hooks/auth/usePermissions';
@@ -70,6 +71,11 @@ export const UserMenu: React.FC = () => {
   const handleWorkspaces = () => {
     handleMenuClose();
     navigate('/workspaces');
+  };
+
+  const handleProjects = () => {
+    handleMenuClose();
+    navigate('/projects');
   };
 
   const handleLogout = async () => {
@@ -181,6 +187,13 @@ export const UserMenu: React.FC = () => {
             <ListItemText>{t('Workspaces')}</ListItemText>
           </MenuItem>
         )}
+
+        <MenuItem onClick={handleProjects}>
+          <ListItemIcon>
+            <ProjectsIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>{t('Projects')}</ListItemText>
+        </MenuItem>
 
         <Divider />
 

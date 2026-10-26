@@ -20,6 +20,7 @@ protection trigger).
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
+from shared.src.lib.ai.usage_report import NONE_KEY
 from shared.src.lib.utils.supabase_utils import get_supabase_client
 
 _ENDPOINT_FIELDS = ('name', 'preset', 'base_url', 'secret_name', 'reach', 'timeout_s',
@@ -176,14 +177,33 @@ CALL_FILTER_COLUMNS = {
     'usage': 'usage_key', 'model': 'profile', 'endpoint': 'endpoint', 'team': 'team_id', 'origin': 'origin',
     'host': 'host_name', 'script': 'script_name', 'campaign': 'campaign_id', 'user': 'user_id',
     'server': 'server', 'script_result_id': 'script_result_id', 'request_id': 'request_id',
-    'arm': 'split_arm', 'error': 'error_type', 'client': 'client_hash',
+    'arm': 'split_arm', 'error': 'error_type', 'client': 'client_hash', 'incident': 'ref_kind',
+    'project': 'project_id',
 }
+
+
+# ai_calls columns that hold text: an empty value can be '' as well as NULL (uuid columns only ever hold NULL)
+_TEXT_FILTER_COLUMNS = {'usage_key', 'profile', 'endpoint', 'origin', 'host_name', 'device_id', 'script_name', 'server',
+                        'request_id', 'split_arm', 'error_type', 'client_hash', 'ref_kind'}
+
+
+def _match_column(query, column: str, value: str):
+    """``column = value``; the report's empty-group name matches NULL (and '' in a text column)."""
+    if value != NONE_KEY:
+        return query.eq(column, value)
+    if column in _TEXT_FILTER_COLUMNS:
+        return query.or_(f'{column}.is.null,{column}.eq.')
+    return query.is_(column, 'null')
 
 
 def get_recent_calls(team_id: Optional[str], hours: int, filters: Dict[str, str], limit: int = 200,
                      all_teams: bool = False, user_id: Optional[str] = None, only_errors: bool = False,
-                     only_ok: bool = False, team_ids: Optional[List[str]] = None) -> List[Dict]:
-    """Newest ``ai_calls`` rows of the window matching ``filters`` (a ``CALL_FILTER_COLUMNS`` name -> value)."""
+                     only_ok: bool = False, team_ids: Optional[List[str]] = None,
+                     usage_keys: Optional[List[str]] = None, include_avoided: bool = True) -> List[Dict]:
+    """Newest ``ai_calls`` rows of the window matching ``filters`` (a ``CALL_FILTER_COLUMNS`` name -> value) and,
+    when given, one of ``usage_keys`` (a page category resolved to its keys, so the filter runs before the limit).
+    ``include_avoided=False`` drops calls answered by memory in the query, so the limit counts model calls only.
+    The value ``NONE_KEY`` ("—", the usage report's name for an empty value) matches NULL (or '' in a text column)."""
     since = (datetime.now(timezone.utc) - timedelta(hours=hours)).isoformat()
     query = get_supabase().table('ai_calls').select('*').gte('ts', since).neq('outcome', 'skipped')
     if not all_teams:
@@ -193,14 +213,18 @@ def get_recent_calls(team_id: Optional[str], hours: int, filters: Dict[str, str]
             query = query.or_(f'team_id.is.null,team_id.eq.{team_id}') if team_id else query.is_('team_id', 'null')
     if user_id:
         query = query.eq('user_id', user_id)
+    if not include_avoided:
+        query = query.neq('outcome', 'avoided')
     for name, value in filters.items():
         if name == 'device':
             host, _, device = value.partition(' / ')
-            query = query.eq('host_name', host)
+            query = _match_column(query, 'host_name', host)
             if device:
-                query = query.eq('device_id', device)
+                query = _match_column(query, 'device_id', device)
         elif name in CALL_FILTER_COLUMNS:
-            query = query.eq(CALL_FILTER_COLUMNS[name], value)
+            query = _match_column(query, CALL_FILTER_COLUMNS[name], value)
+    if usage_keys is not None:
+        query = query.in_('usage_key', usage_keys)
     if only_errors:
         query = query.eq('ok', False)
     elif only_ok:
@@ -285,19 +309,63 @@ def get_run_cost(team_id: str, script_result_ids: List[str]) -> Dict[str, Any]:
 
 
 def get_budget(team_id: str) -> Optional[Dict]:
-    """The team's monthly AI budget row (``ai_budgets``), or None."""
-    rows = get_supabase().table('ai_budgets').select('*').eq('team_id', team_id).limit(1).execute().data or []
+    """The team's monthly AI budget row (``ai_budgets``), or None. Backward-compat: looks up
+    by (bucket_type='team', bucket_id=team_id). Use ``get_bucket`` directly for finer buckets."""
+    return get_bucket('team', team_id)
+
+
+def get_bucket(bucket_type: str, bucket_id: str) -> Optional[Dict]:
+    """The budget row for ``(bucket_type, bucket_id)``, or None."""
+    if not bucket_type or not bucket_id:
+        return None
+    rows = (get_supabase().table('ai_budgets').select('*')
+            .eq('bucket_type', bucket_type).eq('bucket_id', str(bucket_id)).limit(1).execute().data or [])
     return rows[0] if rows else None
 
 
+def list_buckets(team_id: Optional[str] = None) -> list[Dict]:
+    """Every budget row, optionally scoped to one team (``team_scope = team_id``). Team admin
+    sees their own team; super admin sees every team. Returns the full list — the UI
+    groups by bucket_type + label."""
+    q = get_supabase().table('ai_budgets').select('*')
+    if team_id:
+        q = q.eq('team_scope', team_id)
+    rows = q.execute().data or []
+    rows.sort(key=lambda r: (r.get('bucket_type') or 'team', r.get('label') or r.get('bucket_id') or ''))
+    return rows
+
+
 def set_budget(team_id: str, month_limit_usd: float, mode: str, warn_at: float, updated_by: Optional[str]) -> Dict:
-    row = {'team_id': team_id, 'month_limit_usd': month_limit_usd, 'mode': mode, 'warn_at': warn_at,
-           'updated_by': updated_by, 'updated_at': datetime.now(timezone.utc).isoformat()}
-    return (get_supabase().table('ai_budgets').upsert(row, on_conflict='team_id').execute().data or [row])[0]
+    """Backward-compat: set the team's bucket row. Use ``upsert_bucket`` for finer buckets."""
+    return upsert_bucket(bucket_type='team', bucket_id=team_id, team_scope=team_id,
+                         month_limit_usd=month_limit_usd, mode=mode, warn_at=warn_at,
+                         label=None, updated_by=updated_by)
+
+
+def upsert_bucket(bucket_type: str, bucket_id: str, team_scope: str, month_limit_usd: float,
+                  mode: str, warn_at: float, label: Optional[str], updated_by: Optional[str]) -> Dict:
+    """Create or update one budget row. ``team_scope`` is the tenant-defending team FK
+    (the team the spend belongs to); the resolver uses it to query spend regardless of
+    the bucket type."""
+    if bucket_type not in ('team', 'user', 'model', 'endpoint', 'usage', 'project'):
+        raise ValueError(f"bucket_type must be one of team/user/model/endpoint/usage/project, got {bucket_type!r}")
+    row = {'bucket_type': bucket_type, 'bucket_id': str(bucket_id), 'team_scope': team_scope,
+           'month_limit_usd': month_limit_usd, 'mode': mode, 'warn_at': warn_at,
+           'label': label, 'updated_by': updated_by,
+           'updated_at': datetime.now(timezone.utc).isoformat()}
+    res = (get_supabase().table('ai_budgets').upsert(row, on_conflict='bucket_type,bucket_id')
+           .execute().data or [row])
+    return res[0]
 
 
 def delete_budget(team_id: str) -> bool:
-    return bool(get_supabase().table('ai_budgets').delete().eq('team_id', team_id).execute().data)
+    """Backward-compat: delete the team-bucket row only."""
+    return delete_bucket('team', team_id)
+
+
+def delete_bucket(bucket_type: str, bucket_id: str) -> bool:
+    return bool(get_supabase().table('ai_budgets').delete()
+                .eq('bucket_type', bucket_type).eq('bucket_id', str(bucket_id)).execute().data)
 
 
 def get_month_spend(team_id: str, since: datetime) -> float:
@@ -306,6 +374,60 @@ def get_month_spend(team_id: str, since: datetime) -> float:
     while True:
         rows = (get_supabase().table('ai_usage_stats').select('cost').eq('team_id', team_id)
                 .gte('bucket', since.isoformat()).range(offset, offset + page - 1).execute().data or [])
+        total += sum(float(r.get('cost') or 0) for r in rows)
+        if len(rows) < page:
+            return total
+        offset += page
+
+
+def get_month_spend_by_endpoint(team_id: str, since: datetime) -> Dict[str, float]:
+    """Priced AI cost (USD) of ``team_id`` since ``since`` per endpoint, from the hourly rollup like
+    ``get_month_spend`` (the per-call log holds every call of the month: hundreds of pages on a busy month)."""
+    out: Dict[str, float] = {}
+    offset, page = 0, 1000
+    while True:
+        rows = (get_supabase().table('ai_usage_stats').select('endpoint,cost').eq('team_id', team_id)
+                .gte('bucket', since.isoformat()).range(offset, offset + page - 1).execute().data or [])
+        for r in rows:
+            if r.get('endpoint'):
+                out[r['endpoint']] = out.get(r['endpoint'], 0.0) + float(r.get('cost') or 0)
+        if len(rows) < page:
+            return out
+        offset += page
+
+
+# Per-bucket spend from the per-call log (90-day). Participle: each call costs the union of
+# its applicable buckets — for blocking we use the most-specific row's spend; for monitoring
+# we report each bucket's spend individually.
+_BUCKET_FIELD = {
+    'team': None,               # use ai_usage_stats
+    'user': 'user_id',
+    'model': 'model',
+    'endpoint': 'endpoint',
+    'usage': 'usage_key',
+    'project': 'project_id',
+}
+
+
+def get_bucket_spend(team_scope: str, bucket_type: str, bucket_id: str, since: datetime) -> float:
+    """Priced AI cost (USD) of one bucket since ``since``. The team-bucket path keeps the
+    fast hourly rollup; finer buckets sum the 90-day per-call log.
+
+    Unpriced calls add nothing (a row with cost NULL contributes 0)."""
+    if not team_scope or not bucket_type or not bucket_id:
+        return 0.0
+    if bucket_type == 'team':
+        return get_month_spend(team_scope, since)
+    field = _BUCKET_FIELD.get(bucket_type)
+    if not field:
+        return 0.0
+    total, offset, page = 0.0, 0, 1000
+    while True:
+        q = (get_supabase().table('ai_calls').select('cost')
+             .eq('team_id', team_scope).eq(field, str(bucket_id))
+             .gte('ts', since.isoformat())
+             .range(offset, offset + page - 1))
+        rows = q.execute().data or []
         total += sum(float(r.get('cost') or 0) for r in rows)
         if len(rows) < page:
             return total

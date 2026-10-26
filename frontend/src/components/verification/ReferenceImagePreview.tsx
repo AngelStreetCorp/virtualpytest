@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 
 import { useR2Url } from '../../hooks/storage/useR2Url';
 import { getZIndex } from '../../utils/zIndexUtils';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface ReferenceImagePreviewProps {
   referenceUrl: string;
@@ -84,7 +85,7 @@ export const ReferenceImagePreview: React.FC<ReferenceImagePreviewProps> = ({
       onClick={handleOpen}
       sx={{ p: 0.5, width: 28, height: 28 }}
     >
-      <ImageIcon sx={{ fontSize: '1rem' }} />
+      <ImageIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
     </IconButton>
   );
 

@@ -45,11 +45,11 @@ describe('formatScreenDiagnosis', () => {
   });
 
   it('renders an unrecognised door as the generic unknown phrase, still calm grey', () => {
-    const d = formatScreenDiagnosis({ node: null, door: '7', reason: 'brand new door' });
+    const d = formatScreenDiagnosis({ node: null, door: '99', reason: 'brand new door' });
 
     expect(d!.door).toBe('no recognizable screen');
     // An abstain must never read as an error: grey, same family as 'unknown screen'.
-    expect(d!.color).toBe(formatScreenVerdict({ node: null }).color);
+    expect(d!.color).toBe('#9e9e9e');
     expect(d!.reason).toBe('brand new door');
   });
 
@@ -80,18 +80,18 @@ describe('formatScreenDiagnosis', () => {
 
 describe('formatScreenVerdict (unchanged behaviour)', () => {
   it('still colours a confident single match green and a weak match amber', () => {
-    expect(formatScreenVerdict(matched()).text).toBe('apps_netflix (90%)');
-    expect(formatScreenVerdict(matched()).color).toBe(formatScreenVerdict({
+    expect(formatScreenVerdict(matched())!.text).toBe('apps_netflix (90%)');
+    expect(formatScreenVerdict(matched())!.color).toBe(formatScreenVerdict({
       ...matched(),
       confidence: SCREEN_CONF_GREEN,
-    }).color);
+    })!.color);
   });
 
-  it('still shows a named capture state and a plain unknown screen', () => {
-    expect(formatScreenVerdict({ state: 'blackscreen', state_label: 'Black Screen' }).text).toBe(
+  it('still shows a named capture state; an unnamed screen shows nothing', () => {
+    expect(formatScreenVerdict({ state: 'blackscreen', state_label: 'Black Screen' })!.text).toBe(
       'Black Screen',
     );
-    expect(formatScreenVerdict({ node: null, door: '1' }).text).toBe('unknown screen');
+    expect(formatScreenVerdict({ node: null, door: '1' })).toBeNull();
   });
 });
 
@@ -155,12 +155,42 @@ describe('formatScreenVerdict Tier-2 priority (2026-10-11 fix)', () => {
   });
 
   it("does not let 'playback: not_applicable' or 'stopped' claim the primary", () => {
-    expect(formatScreenVerdict(healthy({ playback: 'not_applicable' })).text).toBe('home (95%)');
-    expect(formatScreenVerdict(healthy({ playback: 'stopped' })).text).toBe('home (95%)');
+    expect(formatScreenVerdict(healthy({ playback: 'not_applicable' }))!.text).toBe('home (95%)');
+    expect(formatScreenVerdict(healthy({ playback: 'stopped' }))!.text).toBe('home (95%)');
   });
 
   it("state still wins over a node (capture-side state is the highest-priority signal)", () => {
     const r = formatScreenVerdict(healthy({ state: 'blackscreen', state_label: 'Black Screen' }));
     expect(r.text).toBe('Black Screen');
+  });
+});
+describe('formatScreenVerdict — Localize v3 kinds (TASK-104)', () => {
+  it('live, overlay and known_screen read as the verdict label', () => {
+    expect(formatScreenVerdict({ node: null, kind: 'live', verdict: { kind: 'live', label: 'live' } })!.text).toBe('live');
+    expect(
+      formatScreenVerdict({ node: null, kind: 'overlay', overlay: 'popup', verdict: { kind: 'overlay', label: 'Popup over home' } })!.text,
+    ).toBe('Popup over home');
+    expect(
+      formatScreenVerdict({ node: null, kind: 'known_screen', verdict: { kind: 'known_screen', label: 'Known screen (expected, seen 3x)' } })!.text,
+    ).toBe('Known screen (expected, seen 3x)');
+  });
+  it('an unnamed known_screen shows nothing', () => {
+    expect(
+      formatScreenVerdict({ node: null, kind: 'known_screen', verdict: { kind: 'known_screen', label: '', evidence: { named: false } } }),
+    ).toBeNull();
+    expect(formatScreenVerdict({ node: null, kind: 'unknown' })).toBeNull();
+  });
+  it('hides the generic text from a host that predates evidence.named', () => {
+    expect(
+      formatScreenVerdict({ node: null, kind: 'known_screen', verdict: { kind: 'known_screen', label: 'Known screen (unknown, seen 1x)' } }),
+    ).toBeNull();
+  });
+  it('a node verdict keeps the node label and confidence', () => {
+    expect(formatScreenVerdict({ node: 'home', confidence: 0.9, total: 2, excluded: 1, kind: 'node' })!.text).toBe('home (90%)');
+  });
+  it('a registry placeholder reads "Unnamed screen N"', () => {
+    expect(
+      formatScreenVerdict({ node: null, kind: 'known_screen', verdict: { kind: 'known_screen', label: 'unknown_49' } })!.text,
+    ).toBe('Unnamed screen 49');
   });
 });

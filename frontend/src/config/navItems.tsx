@@ -6,40 +6,48 @@
  * key across all three layers — env-level (`VITE_NAV_*`), admin settings,
  * and per-workspace `hidden_pages`. No aliasing, no segment stripping.
  */
+import { isValidElement, type ReactElement } from 'react';
 import {
   AccountTree as TreeIcon,
-  Api as ApiIcon,
   Apps as AllIntegrationsIcon,
   Assessment as ReportsIcon,
   Assignment as RequirementIcon,
+  Bolt as BoltIcon,
   Build as BuildIcon,
-  BugReport as TestingIcon,
   Speed as QualityIcon,
   Bookmarks as RunManagementIcon,
   BarChart as AnalyticsIcon,
   Campaign as CampaignIcon,
   CloudUpload as CodeDeployIcon,
   Dashboard as DashboardIcon,
-  Extension as IntegrationIcon,
   GridView as HeatmapIcon,
-  HelpOutline as FaqIcon,
-  Insights as LangfuseIcon,
   Link as LinkIcon,
-  LocalPostOffice as PostmanIcon,
   Memory as ModelIcon,
-  NewReleases as ReleaseNoteIcon,
-  PhotoLibrary as ScreenshotsIcon,
   PlayArrow as RunIcon,
-  ReportProblem as BugIcon,
   RocketLaunch as AgentIcon,
   Science as TestIcon,
-  Security as SecurityIcon,
   TrendingUp as CoverageIcon,
   Terminal as TerminalIcon,
-  VideoLibrary as VideosIcon,
+  TouchApp as TouchAppIcon,
   Visibility as MonitorIcon,
   Warning as IncidentIcon,
+  // Docs menu: outlined set. The docs left rail (DocsNav) reads these same icon elements from DOCS_ITEMS.
+
+  ApiOutlined,
+  AutoAwesomeOutlined,
+  BugReportOutlined,
+  BuildOutlined,
+  ExtensionOutlined,
+  HelpOutlineOutlined,
+  HomeOutlined,
+  MenuBookOutlined,
+  MovieOutlined,
+  NewReleasesOutlined,
+  PhotoLibraryOutlined,
+  RocketLaunchOutlined,
+  SecurityOutlined,
 } from '@mui/icons-material';
+
 
 import type {
   NavigationGroupedItem,
@@ -189,6 +197,11 @@ export const MONITORING_ITEMS: NavItem[] = [
     icon: <HeatmapIcon fontSize="small" />,
   },
   {
+    label: 'Timeline',
+    path: '/monitoring/timeline',
+    icon: <HeatmapIcon fontSize="small" />,
+  },
+  {
     label: 'AI Queue',
     path: '/monitoring/ai-queue',
     icon: <DashboardIcon fontSize="small" />,
@@ -198,120 +211,159 @@ export const MONITORING_ITEMS: NavItem[] = [
     path: '/monitoring/ai-usage',
     icon: <AnalyticsIcon fontSize="small" />,
   },
+  {
+    // One page, two tabs: Matches (was Matcher history, /match-runs) and Coverage.
+    label: 'Localize monitoring',
+    path: '/monitoring/localize',
+    icon: <TouchAppIcon fontSize="small" />,
+  },
   ...featureNavItems('monitoring'),
 ];
 
 // ─── Docs ─────────────────────────────────────────────────────────────────────
 
 export const DOCS_ITEMS: NavItem[] = [
+  // The Docs menu is the single source of truth for the docs section order, labels and icons:
+  // the docs left rail (components/docs/DocsNav.tsx) and the manifest titles follow it.
+  {
+    label: 'Home',
+    path: '/docs',
+    icon: <HomeOutlined fontSize="small" />,
+  },
   {
     label: 'Get Started',
     path: '/docs/get-started',
-    icon: <RunIcon fontSize="small" />,
+    icon: <RocketLaunchOutlined fontSize="small" />,
   },
   {
     label: 'Release Note',
     path: '/docs/release_note',
-    icon: <ReleaseNoteIcon fontSize="small" />,
-  },
-  {
-    label: 'FAQ',
-    path: '/docs/faq',
-    icon: <FaqIcon fontSize="small" />,
-  },
-  {
-    label: 'Features',
-    path: '/docs/features',
-    icon: <TestingIcon fontSize="small" />,
+    icon: <NewReleasesOutlined fontSize="small" />,
   },
   {
     label: 'Bugs',
     path: '/docs/bugs',
-    icon: <BugIcon fontSize="small" />,
+    icon: <BugReportOutlined fontSize="small" />,
+  },
+  {
+    label: 'FAQ',
+    path: '/docs/faq',
+    icon: <HelpOutlineOutlined fontSize="small" />,
+  },
+  {
+    label: 'Features',
+    path: '/docs/features',
+    icon: <AutoAwesomeOutlined fontSize="small" />,
   },
   {
     label: 'Integrations',
     path: '/docs/integrations',
-    icon: <IntegrationIcon fontSize="small" />,
+    icon: <ExtensionOutlined fontSize="small" />,
   },
   {
     label: 'User Guide',
     path: '/docs/user-guide',
-    icon: <RequirementIcon fontSize="small" />,
+    icon: <MenuBookOutlined fontSize="small" />,
   },
   {
     label: 'Technical Docs',
     path: '/docs/technical',
-    icon: <BuildIcon fontSize="small" />,
+    icon: <BuildOutlined fontSize="small" />,
   },
   {
     label: 'Security Reports',
     path: '/docs/security',
-    icon: <SecurityIcon fontSize="small" />,
+    icon: <SecurityOutlined fontSize="small" />,
   },
   {
     label: 'API Reference',
     path: '/docs/api',
-    icon: <ApiIcon fontSize="small" />,
+    icon: <ApiOutlined fontSize="small" />,
   },
   {
     label: 'Screenshots',
     path: '/docs/screenshots',
-    icon: <ScreenshotsIcon fontSize="small" />,
+    icon: <PhotoLibraryOutlined fontSize="small" />,
   },
   {
     label: 'Videos',
     path: '/docs/videos',
-    icon: <VideosIcon fontSize="small" />,
+    icon: <MovieOutlined fontSize="small" />,
   },
   ...featureNavItems('docs'),
 ];
+
+/** Menu icon of a top-level docs section (`/docs/<section>`; `root` is Home), or null. Shared with the docs rail and page header. */
+export const docsSectionIcon = (section: string): ReactElement | null => {
+  const icon = DOCS_ITEMS.find((i) => i.path === (section === 'root' ? '/docs' : `/docs/${section}`))?.icon;
+  return isValidElement(icon) ? icon : null;
+};
 
 // ─── Integrations (Plugins) ───────────────────────────────────────────────────
 // Items here are static (label/path/icon). Runtime values such as the Slack
 // URL or the conditional Langfuse external URL are applied in Navigation_Bar
 // via `buildIntegrationsItems()`.
 
+// Vendor marks live in public/vendor/integrations (the same files /docs/integrations draws).
+const vendorMark = (slug: string, name: string) => (
+  <img
+    src={`/vendor/integrations/${slug}-mark.svg`}
+    alt=""
+    aria-label={name}
+    width={20}
+    height={20}
+    style={{ display: 'block', objectFit: 'contain' }}
+  />
+);
+
 export const INTEGRATIONS_ITEMS: NavItem[] = [
+  {
+    label: 'Integrations',
+    path: '/integrations',
+    icon: <AllIntegrationsIcon fontSize="small" />,
+  },
   {
     label: 'Grafana',
     path: '/grafana-dashboard',
-    icon: <DashboardIcon fontSize="small" />,
+    icon: vendorMark('grafana', 'Grafana'),
   },
   {
     label: 'Langfuse',
     path: '/langfuse-dashboard',
-    icon: <LangfuseIcon fontSize="small" />,
+    icon: vendorMark('langfuse', 'Langfuse'),
   },
   {
     label: 'Postman',
     path: '/api/workspaces',
-    icon: <PostmanIcon fontSize="small" />,
+    icon: vendorMark('postman', 'Postman'),
     externalHref: 'https://martian-zodiac-279215.postman.co/workspace/virtualpytest~4e7a465c-a542-4440-8903-48787f03942a',
   },
   {
     label: 'Jira',
     path: '/integrations/jira',
-    icon: <IntegrationIcon fontSize="small" />,
+    icon: vendorMark('jira', 'Jira'),
   },
   {
     label: 'TestRail',
     path: '/integrations/testrail',
-    icon: <IntegrationIcon fontSize="small" />,
+    icon: vendorMark('testrail', 'TestRail'),
   },
   {
     label: 'Slack',
     path: '/integrations/slack',
-    icon: <IntegrationIcon fontSize="small" />,
+    icon: vendorMark('slack', 'Slack'),
     external: true,
   },
+  // Plugins a feature ships (GitLab's own page) belong with the integrations they sit next to,
+  // not under Monitoring — Monitoring is for the platform's own telemetry.
+  ...featureNavItems('plugins'),
   // The map of everything VirtualPyTest connects to, live and planned. The entries
   // above deep-link into one tool each; this one is the way in for a tool that has no
   // page of its own (the device farms, Appium, Playwright, the storage backends).
   {
-    label: 'All integrations',
+    label: 'Integrations documentation',
     path: '/docs/integrations',
-    icon: <AllIntegrationsIcon fontSize="small" />,
+    icon: <MenuBookOutlined fontSize="small" />,
   },
 ];
 
@@ -326,28 +378,52 @@ export const INTEGRATIONS_ITEMS: NavItem[] = [
  *   to the configured instance URL.
  * - Grafana keeps its embedded dashboard page link and shows an external
  *   shortcut to the Grafana dashboards list when `VITE_GRAFANA_URL` is set.
+ * - Zammad keeps its page link and shows a shortcut to its web UI (the feature's public_url).
+ * - GitLab keeps its page link and shows a shortcut to the connected instance.
+ *   The URL is per server (each VPT server stores its own instance), so it is
+ *   refetched on `vpt:server-changed` rather than read once at mount.
  */
-export function buildIntegrationsItems(params: {
+export interface IntegrationLinkParams {
   slackUrl: string;
   langfuseUrl?: string;
   testrailInstanceUrl?: string;
   grafanaUrl?: string;
-}): NavItem[] {
-  return INTEGRATIONS_ITEMS.map((item) => {
-    if (item.label === 'Slack') {
-      return { ...item, href: params.slackUrl };
-    }
-    if (item.label === 'Langfuse' && params.langfuseUrl) {
-      return { ...item, external: true, href: params.langfuseUrl };
-    }
-    if (item.label === 'Grafana' && params.grafanaUrl) {
-      return { ...item, externalHref: `${params.grafanaUrl}/dashboards` };
-    }
-    if (item.label === 'TestRail' && params.testrailInstanceUrl) {
-      return { ...item, externalHref: params.testrailInstanceUrl };
-    }
-    return item;
-  });
+  gitlabUrl?: string;
+  zammadUrl?: string;
+}
+
+/**
+ * The runtime value for ONE item, split out from buildIntegrationsItems so it can be tested
+ * directly: under vitest `virtual:vpt-features` is stubbed to `features = []` (component tests
+ * exercise core pages only), so a feature-contributed item like GitLab never exists in
+ * INTEGRATIONS_ITEMS during a test run and mapping over the list would prove nothing.
+ *
+ * Unknown items come back unchanged, so a feature can add a nav entry without touching this.
+ */
+export function applyIntegrationLink(item: NavItem, params: IntegrationLinkParams): NavItem {
+  if (item.label === 'Slack') {
+    return { ...item, href: params.slackUrl };
+  }
+  if (item.label === 'Langfuse' && params.langfuseUrl) {
+    return { ...item, external: true, href: params.langfuseUrl };
+  }
+  if (item.label === 'Grafana' && params.grafanaUrl) {
+    return { ...item, externalHref: `${params.grafanaUrl}/dashboards` };
+  }
+  if (item.label === 'TestRail' && params.testrailInstanceUrl) {
+    return { ...item, externalHref: params.testrailInstanceUrl };
+  }
+  if (item.label === 'GitLab' && params.gitlabUrl) {
+    return { ...item, externalHref: params.gitlabUrl };
+  }
+  if (item.label === 'Zammad' && params.zammadUrl) {
+    return { ...item, externalHref: params.zammadUrl };
+  }
+  return item;
+}
+
+export function buildIntegrationsItems(params: IntegrationLinkParams): NavItem[] {
+  return INTEGRATIONS_ITEMS.map((item) => applyIntegrationLink(item, params));
 }
 
 // ─── Configuration (Settings dropdown) ────────────────────────────────────────
@@ -369,8 +445,8 @@ export const CONFIGURATION_ITEMS: NavItem[] = [
     icon: <BuildIcon fontSize="small" />,
   },
   {
-    label: 'Code Deployment',
-    path: '/configuration/code-deployment',
+    label: 'Platform update',
+    path: '/configuration/platform-update',
     icon: <CodeDeployIcon fontSize="small" />,
   },
   {
@@ -381,8 +457,15 @@ export const CONFIGURATION_ITEMS: NavItem[] = [
   {
     label: 'Status',
     path: '/status',
-    icon: <TestingIcon fontSize="small" />,
+    icon: <BoltIcon fontSize="small" />,
   },
+  // BUG-0569 / BUG-0571: matcher history moved to Monitoring (see
+  // MONITORING_ITEMS above).  Settings no longer hosts it, and the
+  // empty-object stub that used to live here is the reason the Settings
+  // nav crashed (`requiredPermissionForPath({})` -> path.startsWith
+  // threw and took the whole top bar down).  The defensive guards in
+  // Navigation_Dropdown and auth.requiredPermissionForPath also tolerate
+  // malformed rows, so the page survives, but the stub itself is gone.
   ...featureNavItems('settings'),
 ];
 

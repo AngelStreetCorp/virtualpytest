@@ -1,0 +1,44 @@
+# fixnet: voice lines, no picture. A USB voice modem (`fx_dongle`, TASK-71) is a telephone, not a set-top box:
+# it has no screen, no picture to detect on and nothing to OCR, so the whole TV-app side of the platform is
+# dead weight on a modem rack. This profile asks for none of it and keeps only the two services that measure
+# a call rather than look at a screen:
+#
+#   services: img, audio, subtitle, archiver -> false   (no black screen, no freeze, no zap, no levels, no OCR,
+#                                                        no 24 h review buffer)
+#   services: kpi, avq                       -> true    (the KPI scan and the per-minute A/V quality score)
+#
+# `stream` stays `full`, unlike tv_lite / pc: those two are `lean` precisely because no KPI and no AVQ read
+# their ffmpeg outputs (see run_ffmpeg.sh stream_mode_for), and a lean device drops the 5 fps thumbnails and
+# slows the captures to 2 fps. This profile runs both of the services that DO read those outputs, so it must
+# not starve them.
+#
+# A host whose every modem runs `fixnet` gets vpt-monitor-img, vpt-monitor-audio, vpt-monitor-subtitle and
+# vpt-archiver stopped by apply_monitor_profiles() (MONITOR_PROFILES.md §2, TASK-144), and keeps vpt-kpi and
+# vpt-avq. A stopped unit is not a failure: host status reads it as "not needed" (BUG-0729), so the host stays
+# green instead of showing up as error.
+#
+# `img.analyzers` is required by the manifest format but never runs: vpt-monitor-img skips a device whose
+# profile has `services.img: false`.
+#
+# Wired automatically by MODEL_PROFILES ('fx_dongle' -> 'fixnet', shared/src/lib/utils/monitor_profile.py),
+# so a modem needs no .env line. Override per device with DEVICE<n>_MONITOR_PROFILE.
+#
+# Use fixnet on:
+#   - any voice-line rack: USB voice modems, FXS gateway ports, a VoIP or SIP line under test;
+#   - any audio-only device: a radio tuner, a conference bridge, a line-monitoring tap.
+#
+# Do NOT use fixnet on a device that HAS a screen and needs it checked (blackscreen / freeze / zap / audio_loss),
+# or on a TV-app target whose build pipeline asserts those incidents - use tv_app there.
+#
+# Note on AVQ: the score is computed from the device's capture folder (JPEGs + audio chunks). A modem device
+# declares `av: []` in shared/src/lib/config/device_capabilities.py, so until an audio capture source is wired
+# on the rack the capture folder stays empty and vpt-avq idles with "no active capture devices". The profile is
+# still right: it stops every service that has nothing to do, and AVQ starts scoring the day a source exists.
+#
+# See docs/agent/devices/MONITOR_PROFILES.md §12b and docs/agent/devices/FIXNET_FX_MODEMS.md.
+name: fixnet
+services: { img: false, audio: false, subtitle: false, archiver: false, kpi: true, avq: true }
+img:
+  runtime: edge
+  analyzers:
+    - type: tv_app

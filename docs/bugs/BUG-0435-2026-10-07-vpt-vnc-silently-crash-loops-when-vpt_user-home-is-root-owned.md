@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High                                                         |
 | Area      | backend / setup / host                                       |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---
@@ -93,7 +93,7 @@ After deploying the new unit (`sudo install_service.sh vnc --force` on each host
    `journalctl -u vpt-vnc -n 30` includes the `✅ VPT-VNC:` or `🔧 VPT-VNC AUTO-FIX`
    marker.
 2. `ss -tlnp | grep 5901` shows `Xtigervnc` bound.
-3. Through the `rpitest.angelstreet.io/host/<host>/vnc_lite.html` URL, noVNC connects
+3. Through the `<pi-server-host>/host/<host>/vnc_lite.html` URL, noVNC connects
    and the desktop renders. The web UI panel for that host flips from `degraded` /
    gray box to `online` / live desktop.
 4. To exercise the loud path: `sudo chown -R root:root /var/lib/vpt_user` and

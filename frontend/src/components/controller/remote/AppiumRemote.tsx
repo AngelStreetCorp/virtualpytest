@@ -19,6 +19,7 @@ import { PanelInfo } from '../../../types/controller/Panel_Types';
 import { AppiumElement } from '../../../types/controller/Remote_Types';
 
 import { AppiumOverlay } from './AppiumOverlay';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface AppiumRemoteProps {
   host: Host;
@@ -321,7 +322,7 @@ export const AppiumRemote = React.memo(
                         key={app.identifier}
                         value={app.identifier}
                         sx={{
-                          fontSize: '0.875rem',
+                          fontSize: TYPOGRAPHY.body.size,
                           py: 1,
                           px: 2,
                           gap: 1,
@@ -349,7 +350,7 @@ export const AppiumRemote = React.memo(
                             sx={{
                               flex: '0 1 auto',
                               minWidth: 0,
-                              fontSize: '0.65rem',
+                              fontSize: TYPOGRAPHY.microMeta.size,
                               opacity: 0.6,
                               overflow: 'hidden',
                               textOverflow: 'ellipsis',
@@ -422,10 +423,10 @@ export const AppiumRemote = React.memo(
                 size="small"
                 sx={{
                   '& .MuiOutlinedInput-root': {
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                   '& .MuiInputLabel-root': {
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                     transform: 'translate(14px, 9px) scale(1)',
                     '&.MuiInputLabel-shrink': {
                       transform: 'translate(14px, -6px) scale(0.75)',
@@ -484,7 +485,7 @@ export const AppiumRemote = React.memo(
                         key={element.id}
                         value={element.id}
                         sx={{
-                          fontSize: '0.75rem',
+                          fontSize: TYPOGRAPHY.caption.size,
                           py: 0.5,
                           px: 1,
                           minHeight: 'auto',
@@ -599,7 +600,7 @@ export const AppiumRemote = React.memo(
               padding: '10px',
               borderRadius: '4px',
               zIndex: 999999,
-              fontSize: '12px',
+              fontSize: TYPOGRAPHY.caption.size,
               maxWidth: '300px',
             }}
           >

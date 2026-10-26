@@ -20,6 +20,15 @@ def _text(text: str, is_error: bool = False, **extra) -> Dict[str, Any]:
     return {"content": [{"type": "text", "text": text}], "isError": is_error, **extra}
 
 
+# The agent a script is credited to (created_by). The chat agent's id, from the trusted session context.
+_CREATORS = {"scripter": "forge", "assistant": "atlas", "analyzer": "sherlock", "monitor": "nightwatch",
+             "masterchief": "masterchief"}
+
+
+def _creator(agent_id: Optional[str]) -> str:
+    return _CREATORS.get(str(agent_id or ""), "atlas")
+
+
 class VirtualScriptTools:
     """Create, update and read virtual scripts (DB-stored Python test scripts)"""
 
@@ -115,7 +124,7 @@ class VirtualScriptTools:
             'description': params.get('description'),
             'doc': params.get('doc'),
             'folder': params.get('folder'),
-            'created_by': 'atlas',
+            'created_by': _creator(params.get('_context_agent_id')),
         }
         if existing:
             data['id'] = existing['id']
@@ -131,6 +140,24 @@ class VirtualScriptTools:
                     "Fix the source and call save_virtual_script again.", True)
             return _text(f"Save failed: {result.get('error') or result}", True)
 
+        # TASK-65 G5: when the caller passed a `project_id` (or one is in the
+        # `X-Project-Id` header on the request), auto-tag the new/updated
+        # script with the project's tag. Tagging failures are warnings, not
+        # hard errors — the script is already saved.
+        project_hint = params.get('project_id') or self._project_id_from_header()
+        project = None
+        auto_tag_ok = False
+        if project_hint:
+            try:
+                from shared.src.lib.database import projects_db
+                project = projects_db.current_project_from_id(project_hint)
+                if project:
+                    auto_tag_ok = projects_db.auto_tag_with_project(
+                        'virtual_script', str(result.get('id')), project,
+                    )
+            except Exception as e:  # noqa: BLE001 — auto-tag must never break the save
+                project = None
+
         action = 'updated' if existing else 'created'
         warnings = (result.get('validation') or {}).get('warnings') or []
         parameters = result.get('parameters') or []
@@ -141,6 +168,15 @@ class VirtualScriptTools:
         ]
         if warnings:
             lines.append("Warnings: " + '; '.join(str(w) for w in warnings))
+        if project:
+            if auto_tag_ok:
+                lines.append(
+                    f"Auto-tagged with project '{project['name']}' (id {project['id']}). "
+                    f"It will appear in the project's tag list and the project-scoped list_scripts view.")
+            else:
+                lines.append(
+                    f"Note: project '{project['name']}' was given but the auto-tag step could not link the script to the project's tag. "
+                    f"The script is still saved and you can tag it manually from the editor.")
         lines.append(
             f"Run it with execute_script(script_name='{name}', virtual_script_id='{result.get('id')}', host_name, device_id).")
         return _text(
@@ -149,4 +185,22 @@ class VirtualScriptTools:
             action=action,
             parameters=parameters,
             warnings=warnings,
+            project_id=(project['id'] if project else None),
         )
+
+    def _project_id_from_header(self) -> Optional[str]:
+        """Pull the current project from the `X-Project-Id` header the
+        frontend sets when the user picked a project from ProjectSelector.
+
+        The MCP `api_client` keeps the active headers; we ask it directly
+        rather than depending on Flask's `request` (the MCP server may be
+        running as a stdio process or inside a worker, not necessarily
+        under a Flask app context).
+        """
+        try:
+            headers = getattr(self.api, 'headers', None) or {}
+            if isinstance(headers, dict):
+                return headers.get('X-Project-Id') or headers.get('x-project-id')
+        except Exception:
+            return None
+        return None

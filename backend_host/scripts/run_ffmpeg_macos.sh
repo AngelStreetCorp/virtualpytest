@@ -80,7 +80,7 @@ fi
 
 # Device grabbers (macOS cameras)
 echo "DEBUG: Checking device grabbers..."
-for i in {1..30}; do
+for i in $(seq 1 "${MAX_DEVICES:-99}"); do  # DEVICE1..DEVICE99 by default (MAX_DEVICES overrides)
     video_var="DEVICE${i}_VIDEO"
     audio_var="DEVICE${i}_VIDEO_AUDIO"
     capture_var="DEVICE${i}_VIDEO_CAPTURE_PATH"

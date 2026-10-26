@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — the reviewer of a freeze strip has no frame times or phases to judge it by |
 | Area      | `features/ai-dataset/frontend/reviewText.ts` (AI → AI Dataset review page) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

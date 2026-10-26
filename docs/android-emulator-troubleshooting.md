@@ -26,14 +26,14 @@ Each android host VM runs these `vpt-*` services:
 |---------|------|----------|------|
 | `vpt-host` | Host API — registers with server, serves device info | Yes | vpt_user |
 | `vpt-stream` | FFmpeg capture — HLS stream + JPG captures + thumbnails | Yes | vpt_user |
-| `vpt-monitor` | Capture monitor — watches for new frames | Yes | vpt_user |
+| `vpt-monitor-img` | Capture monitor — watches for new frames | Yes | vpt_user |
 | `vpt-emulator` | Android emulator process | Yes (android) | vpt_user |
 | `vpt-emulator-fifo` | ADB screencap loop → latest.png for FFmpeg | Yes (android) | vpt_user |
 | `vpt-archiver` | Hot/cold frame archiver | Yes |
 | `vpt-kpi` | KPI measurement executor | Yes |
 | `vpt-vnc` | TigerVNC server | Optional |
 | `vpt-websockify` | noVNC websockify bridge | Yes |
-| `vpt-transcript` | Audio detection & transcription | Depends on device |
+| `vpt-monitor-audio` | Audio detection & transcription | Depends on device |
 
 **Check all services:**
 ```bash
@@ -308,7 +308,7 @@ sleep 60 && adb devices
 - Dashboard shows Emulator=stopped, Screencap=stopped, Stream=stuck
 - But `systemctl list-units 'vpt-*'` shows all services active
 
-**Root cause (fixed 2026-03-27):** `check_ffmpeg_status()` and `check_monitor_status()` in `system_info_utils.py` queried systemd service names `stream` and `monitor` instead of `vpt-stream` and `vpt-monitor`. This caused uptime to always be 0 → health check reported stuck.
+**Root cause (fixed 2026-03-27):** `check_ffmpeg_status()` and `check_monitor_status()` in `system_info_utils.py` queried systemd service names `stream` and `monitor` instead of `vpt-stream` and `vpt-monitor-img`. This caused uptime to always be 0 → health check reported stuck.
 
 **Additional cause:** Gunicorn worker crash (exit code 255) on android hosts — the second worker process dies after startup, disrupting the health ping cycle. This is a pre-existing VPT bug in the gunicorn startup code.
 
@@ -338,7 +338,7 @@ ls -la /var/www/html/stream/capture1/hot/
 # Shows: metadata/ but NO captures/
 
 # 3. Confirm monitor watches hot path
-sudo journalctl -u vpt-monitor --no-pager -n 10 | grep -E 'Monitoring|Directory|Watching'
+sudo journalctl -u vpt-monitor-img --no-pager -n 10 | grep -E 'Monitoring|Directory|Watching'
 # Shows: Monitoring [HOT (RAM)]: .../hot/captures
 ```
 
@@ -351,10 +351,10 @@ sudo rmdir /var/www/html/stream/capture1/hot/captures 2>/dev/null
 sudo -u vpt_user ln -s /var/www/html/stream/capture1/captures /var/www/html/stream/capture1/hot/captures
 
 # Restart monitor to pick up the symlinked directory
-sudo systemctl restart vpt-monitor
+sudo systemctl restart vpt-monitor-img
 
 # Verify — should see FILE ARRIVED events within seconds
-sudo journalctl -u vpt-monitor --no-pager -n 10 | grep 'FILE ARRIVED'
+sudo journalctl -u vpt-monitor-img --no-pager -n 10 | grep 'FILE ARRIVED'
 
 # Also restart vpt-host to refresh health reporting
 sudo systemctl restart vpt-host
@@ -590,7 +590,7 @@ which is exactly the case where the unit must be off. `labox-web` is that case
 Compare any host's deployed unit against `backend_host/config/services/linux/emulator-fifo.service`
 before blaming hardware.
 
-Note: on `labox-web`, `vpt-host` binds `192.168.0.136:6109` (not `0.0.0.0`), so
+Note: on `labox-web`, `vpt-host` binds `192.168.x.136:6109` (not `0.0.0.0`), so
 `curl localhost:6109/host/health` returns `000` even when healthy — check `ss -tlnp` or hit the
 LAN IP.
 
@@ -662,12 +662,12 @@ sudo qm start <vmid>
 # === STEP 4: Post-boot (~2 min, wait 60s for emulator boot) ===
 
 sleep 60
-ssh <user>@192.168.0.<VMID> "ip route | head -1"  # verify gateway is .3
+ssh <user>@192.168.x.<VMID> "ip route | head -1"  # verify gateway is .3
 
 # Update VPT code (VMs have no GitHub deploy key)
 rsync -az --delete --exclude='.git' --exclude='venv' --exclude='node_modules' \
-  --exclude='__pycache__' /opt/virtualpytest/ <user>@192.168.0.<VMID>:/tmp/vpt_update/
-ssh <user>@192.168.0.<VMID> "sudo rsync -a /tmp/vpt_update/ /opt/virtualpytest/ \
+  --exclude='__pycache__' /opt/virtualpytest/ <user>@192.168.x.<VMID>:/tmp/vpt_update/
+ssh <user>@192.168.x.<VMID> "sudo rsync -a /tmp/vpt_update/ /opt/virtualpytest/ \
   --exclude='.env' --exclude='backend_host/src/.env' && rm -rf /tmp/vpt_update \
   && sudo systemctl restart vpt-host"
 ```

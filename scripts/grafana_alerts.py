@@ -24,6 +24,7 @@ environment or the repo .env, like the server does.
 Usage:
     python3 scripts/grafana_alerts.py list
     python3 scripts/grafana_alerts.py status
+    python3 scripts/grafana_alerts.py report [--email ops@example.com]
     python3 scripts/grafana_alerts.py test-email --email ops@example.com
     python3 scripts/grafana_alerts.py apply --email ops@example.com,qa@example.com --team-id <uuid>
     python3 scripts/grafana_alerts.py apply --email ops@example.com --rules vpt-host-disk-high,vpt-host-offline
@@ -37,6 +38,7 @@ import json
 import os
 import sys
 import time
+from datetime import datetime, timezone
 
 import requests
 import urllib3
@@ -54,14 +56,15 @@ ROUTE_MATCHER = ['source', '=', 'virtualpytest']
 GROUP_BY = {'all': ['grafana_folder'], 'rule': ['grafana_folder', 'alertname'],
             'host': ['grafana_folder', 'host_name']}
 
-# Go template (Grafana notification template). Summaries already carry the measured value.
+# Go template (Grafana notification template). The line format mirrors `format_alert_line`
+# in Python so the email body matches the `report` subcommand output. Keep both in sync.
 TEMPLATE = '''{{ define "vpt.subject" }}[VirtualPyTest] {{ if .Alerts.Firing }}{{ len .Alerts.Firing }} firing{{ end }}{{ if and .Alerts.Firing .Alerts.Resolved }}, {{ end }}{{ if .Alerts.Resolved }}{{ len .Alerts.Resolved }} resolved{{ end }}{{ end }}
 
 {{ define "vpt.message" }}{{ if .Alerts.Firing }}FIRING ({{ len .Alerts.Firing }})
-{{ range .Alerts.Firing }}- [{{ .Labels.severity }}] {{ .Labels.alertname }}: {{ .Annotations.summary }}
+{{ range .Alerts.Firing }}- [{{ .Labels.severity }}] {{ .Labels.alertname }}: {{ .Annotations.summary }}  start={{ .StartsAt.Format "2006-01-02 15:04" | default "unknown" }}
 {{ end }}{{ end }}{{ if .Alerts.Resolved }}
 RESOLVED ({{ len .Alerts.Resolved }})
-{{ range .Alerts.Resolved }}- {{ .Labels.alertname }}: {{ .Annotations.summary }}
+{{ range .Alerts.Resolved }}- [was {{ .Labels.severity }}] {{ .Labels.alertname }}: {{ .Annotations.summary }}  start={{ .StartsAt.Format "2006-01-02 15:04" | default "unknown" }}  end={{ .EndsAt.Format "2006-01-02 15:04" | default "unknown" }}
 {{ end }}{{ end }}
 All VirtualPyTest alerts: {{ .ExternalURL }}alerting/list?search=label:source%3Dvirtualpytest
 {{ end }}'''
@@ -237,6 +240,122 @@ def split_emails(value):
     return emails
 
 
+# --- Digest helpers ---------------------------------------------------------
+#
+# The alert digest (either rendered by `report` or sent by Grafana's email template)
+# carries three pieces of state per firing / resolved instance:
+#   * start = the time the alert left `pending` and became Alerting
+#   * end   = the time it returned to OK (only on resolved lines)
+#   * NEW   = the alert's identity (uid + label set) was not in the previous digest's firing set
+#
+# The Go template (TEMPLATE above) renders `start` / `end` directly from .StartsAt /
+# .EndsAt; the `NEW` flag is computed in Python because the previous-digest state
+# lives in a file the Python side can read. The line format is `format_alert_line`
+# below — keep it in sync with TEMPLATE.
+
+DIGEST_STATE_PATH = os.path.join(PROJECT_ROOT, '.grafana_alert_digest_state.json')
+DIGEST_RESOLVED_TTL = 7 * 24 * 3600  # seven days sliding window for "still resolved" detection
+
+# Labels that identify an alert instance across digests (uid + the labels Grafana
+# usually names the instance by). Anything not in this set is shown in the body but
+# does not participate in the `NEW` computation.
+INSTANCE_LABELS = ('alertname', 'server_name', 'host_name', 'device_name', 'capture_folder',
+                   'incident_type', 'verdict', 'vm', 'component', 'script_name', 'scripts',
+                   'userinterface_name', 'state', 'scope')
+
+
+def _alert_identity(alert):
+    """Stable identity string used to detect NEW vs already-firing alerts."""
+    labels = alert.get('labels') or {}
+    parts = [labels.get('alertname') or alert.get('labels', {}).get('uid') or '<unknown>']
+    for key in INSTANCE_LABELS[1:]:
+        if key in labels:
+            parts.append(f'{key}={labels[key]}')
+    return '|'.join(parts)
+
+
+def _format_ts(ts):
+    """Grafana returns ISO-8601 with 'Z' or with offset. Return a 16-char `YYYY-MM-DD HH:MM`."""
+    if not ts:
+        return 'unknown'
+    try:
+        dt = datetime.fromisoformat(ts.replace('Z', '+00:00'))
+    except (ValueError, AttributeError):
+        return ts[:16] if len(ts) >= 16 else 'unknown'
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.astimezone(timezone.utc).strftime('%Y-%m-%d %H:%M')
+
+
+def format_alert_line(alert, *, new=False, was=None):
+    """One digest line for a Grafana alert object.
+
+    `alert` may be either a real Grafana alert object (with `labels`, `annotations`,
+    `startsAt`, `endsAt`) or a stub with the same shape produced by `report`.
+    `new=True` adds the `NEW` marker; `was` (a severity string) labels a resolved line
+    with the band it carried while firing.
+    """
+    labels = alert.get('labels') or {}
+    annotations = alert.get('annotations') or {}
+    severity = labels.get('severity', '?')
+    name = labels.get('alertname', '<no name>')
+    summary = annotations.get('summary') or alert.get('summary') or ''
+    start = _format_ts(alert.get('startsAt'))
+    head = f'[{severity}'
+    if new:
+        head += ' · NEW'
+    head += ']'
+    if was:
+        head = f'[was {was}]'
+    line = f'- {head} {name}: {summary}  start={start}'
+    ends_at = alert.get('endsAt')
+    if ends_at and ends_at not in (None, '0001-01-01T00:00:00Z'):
+        line += f'  end={_format_ts(ends_at)}'
+    return line
+
+
+def load_digest_state():
+    if not os.path.exists(DIGEST_STATE_PATH):
+        return {'firing': {}, 'resolved': {}}
+    try:
+        with open(DIGEST_STATE_PATH, encoding='utf-8') as f:
+            data = json.load(f)
+        # Expire old resolved entries
+        now = time.time()
+        data['resolved'] = {k: v for k, v in (data.get('resolved') or {}).items()
+                            if now - v.get('last_seen', 0) < DIGEST_RESOLVED_TTL}
+        return data
+    except (OSError, ValueError):
+        return {'firing': {}, 'resolved': {}}
+
+
+def save_digest_state(state):
+    with open(DIGEST_STATE_PATH, 'w', encoding='utf-8') as f:
+        json.dump(state, f, indent=2, sort_keys=True)
+
+
+def fetch_firing_alerts(gf):
+    """Return [{labels, annotations, startsAt, endsAt, state}, ...] for every VPT alert."""
+    states = gf.call('GET', '/api/prometheus/grafana/api/v1/rules') or {}
+    out = []
+    for grp in states.get('data', {}).get('groups', []):
+        if grp.get('folderUid') not in (None, FOLDER_UID) and grp.get('file') != FOLDER_TITLE:
+            continue
+        for r in grp.get('rules', []):
+            for a in r.get('alerts', []):
+                st = (a.get('state') or '').lower()
+                if not (st.startswith('alerting') or st.startswith('pending')):
+                    continue
+                out.append({
+                    'labels': a.get('labels') or {},
+                    'annotations': a.get('annotations') or {},
+                    'startsAt': a.get('activeAt') or a.get('startsAt'),
+                    'endsAt': a.get('endsAt'),
+                    'state': a.get('state'),
+                })
+    return out
+
+
 def cmd_list(_args):
     for g in load_catalog():
         print(f'\n{g["name"]}  (evaluated every {g["interval"]})')
@@ -318,6 +437,84 @@ def cmd_status(args):
                 print(f'           - {a.get("annotations", {}).get("summary", a.get("labels"))}')
 
 
+def cmd_report(args):
+    """Render the digest and (optionally) send it to one or more recipients.
+
+    Mirrors the email body that the Grafana `vpt-email` notification template
+    renders. Persists the firing identity set so the next run can mark `NEW`.
+    """
+    gf = connect(args)
+    health = gf.call('GET', '/api/health')
+    firing = fetch_firing_alerts(gf)
+    state = load_digest_state()
+    prev_firing = state.get('firing', {}) or {}
+    new_firing, same_firing = {}, {}
+    for a in firing:
+        ident = _alert_identity(a)
+        if ident in prev_firing:
+            same_firing[ident] = a
+        else:
+            new_firing[ident] = a
+
+    # Lines — keep the same order as Grafana returns them (one per rule, then per instance)
+    firing_lines = [format_alert_line(a, new=True) for a in new_firing.values()]
+    firing_lines += [format_alert_line(a, new=False) for a in same_firing.values()]
+
+    # Resolved in the window: alerts whose identity was firing in the previous
+    # digest and isn't firing now. The "was" severity is taken from the last known
+    # firing entry.
+    resolved_lines = []
+    cur_idents = set(new_firing) | set(same_firing)
+    for ident, prev in prev_firing.items():
+        if ident in cur_idents:
+            continue
+        was_sev = (prev.get('labels') or {}).get('severity', '?')
+        synthetic = {
+            'labels': prev.get('labels') or {},
+            'annotations': prev.get('annotations') or {},
+            'startsAt': prev.get('startsAt'),
+            'endsAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()),
+        }
+        resolved_lines.append(format_alert_line(synthetic, was=was_sev))
+
+    subject = f'[VirtualPyTest] {len(firing_lines)} firing, {len(resolved_lines)} resolved'
+    body = ''
+    body += f'Subject: {subject}\n\n'
+    body += f'FIRING ({len(firing_lines)})\n'
+    body += '\n'.join(firing_lines) + ('\n' if firing_lines else '\n')
+    if resolved_lines:
+        body += f'\nRESOLVED ({len(resolved_lines)})\n'
+        body += '\n'.join(resolved_lines) + '\n'
+    base = (args.grafana_url or os.environ.get('GRAFANA_URL') or '').rstrip('/')
+    body += f'\nAll VirtualPyTest alerts: {base}/alerting/list?search=label:source%3Dvirtualpytest\n'
+    body = body.rstrip() + '\n'
+
+    if args.email:
+        emails = split_emails(args.email)
+        body += f'\nGenerated for: {", ".join(emails)}\n'
+        body += f'Sent at: {time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}\n'
+        body += f'Grafana: {health.get("version")}\n'
+
+    print(body)
+
+    # Persist for next run's NEW computation
+    state['firing'] = {ident: {
+        'labels': a.get('labels') or {},
+        'annotations': a.get('annotations') or {},
+        'startsAt': a.get('startsAt'),
+    } for ident, a in (list(new_firing.items()) + list(same_firing.items()))}
+    if resolved_lines:
+        now = time.time()
+        for ident, prev in prev_firing.items():
+            if ident in cur_idents:
+                continue
+            state.setdefault('resolved', {})[ident] = {
+                'labels': prev.get('labels') or {},
+                'last_seen': now,
+            }
+    save_digest_state(state)
+
+
 def cmd_test_email(args):
     gf = connect(args)
     emails = split_emails(args.email)
@@ -364,12 +561,17 @@ def main():
     s = sub.add_parser('status', help='Show contact points and rule states')
     s.add_argument('--max-alerts', type=int, default=5)
 
+    r = sub.add_parser('report',
+                       help='Print the digest (start time / NEW since previous digest / resolved in window)')
+    r.add_argument('--email', help='Add a "Generated for" footer (no SMTP is sent)')
+
     t = sub.add_parser('test-email', help='Send a test notification through Grafana SMTP')
     t.add_argument('--email', required=True)
 
     args = p.parse_args()
     {'list': cmd_list, 'apply': cmd_apply, 'remove': cmd_remove,
-     'status': cmd_status, 'test-email': cmd_test_email}[args.cmd](args)
+     'status': cmd_status, 'test-email': cmd_test_email,
+     'report': cmd_report}[args.cmd](args)
 
 
 if __name__ == '__main__':

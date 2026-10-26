@@ -67,6 +67,7 @@ def record_start(lock_data: Dict[str, Any]) -> None:
     session_id = str(uuid.uuid4())
     lock_data['db_session_id'] = session_id
     lock_data['db_last_touch'] = float(lock_data.get('locked_at') or time.time())
+    _audit('control.take', lock_data)
     _enqueue(('start', {
         'id': session_id,
         'host_name': lock_data.get('host_name'),
@@ -82,10 +83,26 @@ def record_start(lock_data: Dict[str, Any]) -> None:
     }))
 
 
+def _audit(action: str, lock_data: Dict[str, Any], reason: Optional[str] = None) -> None:
+    """TASK-154: control.take / control.release rows. Never raises."""
+    try:
+        from shared.src.lib.database import audit_events_db
+        user_id = lock_data.get('owner_user_id')
+        audit_events_db.record(
+            category='control', action=action,
+            actor_kind=audit_events_db.actor_for(user_id) if user_id else 'agent',
+            actor_id=user_id or lock_data.get('owner_job_id') or lock_data.get('owner_type'),
+            target=f"{lock_data.get('host_name')}/{lock_data.get('device_id')}",
+            meta={'owner_type': lock_data.get('owner_type'), 'reason': reason or lock_data.get('lock_reason')})
+    except Exception:
+        pass
+
+
 def record_end(lock_data: Dict[str, Any], end_reason: str) -> None:
     session_id = lock_data.get('db_session_id')
     if not session_id:
         return
+    _audit('control.release', lock_data, end_reason)
     _enqueue(('end', {'id': session_id, 'end_reason': end_reason, 'ended_at': _iso()}))
 
 

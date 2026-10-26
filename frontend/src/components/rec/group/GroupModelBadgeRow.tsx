@@ -3,6 +3,7 @@ import React from 'react';
 
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { useI18n } from '../../../i18n/useI18n';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 export interface GroupModelBadge {
   /** The exact model name (e.g. `fire_tv_fireos`). Drives the chip key
@@ -110,7 +111,7 @@ export const GroupModelBadgeRow: React.FC<GroupModelBadgeRowProps> = ({ badges, 
                 onClick={enabled ? () => onToggle(model) : undefined}
                 sx={{
                   height: 24,
-                  fontSize: '0.72rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   fontFamily: 'monospace',
                   fontWeight: 600,
                   cursor: enabled ? 'pointer' : 'not-allowed',
@@ -118,41 +119,13 @@ export const GroupModelBadgeRow: React.FC<GroupModelBadgeRowProps> = ({ badges, 
                   // overflows it scrolls, the chip stays full-size so
                   // the model name never truncates.
                   flexShrink: 0,
-                  borderColor: enabled ? P.accent : P.borderColor,
-                  // Filled when at least one of this model's devices
-                  // is in the group, outlined when empty. Replaces the
-                  // "(N)" suffix as the selection-state signal so the
-                  // chip stays readable without an inline count.
-                  bgcolor: !enabled
-                    ? `${P.hoverBg}80`
-                    : count > 0
-                      ? P.accent
-                      : `${P.accent}22`,
-                  // Selected chip is filled with P.accent (gold #d4a574);
-                  // using P.accentText (also #d4a574 in dark mode) makes
-                  // the label invisible on its own background. Switch to
-                  // a fixed dark colour in that state — same convention
-                  // the rest of the app uses for gold-on-gold accents
-                  // (PageChrome goldButtonSx, primary action buttons…).
-                  //
-                  // Unselected chip is a 13% gold tint over the dark bar
-                  // surface; P.accentText on that tint lands at ~4.5:1 in
-                  // dark mode — passes WCAG AA barely and reads as dim.
-                  // BUG-0461 only fixed the selected branch; the operator
-                  // asked for the unselected branch too. P.textPrimary
-                  // (#f0f0f0 in dark, #141414 in light) gives ~9.5:1 in
-                  // dark and ~7:1 in light, and keeps the gold tint so
-                  // the chip still reads as a gold-accented filter.
-                  color: !enabled
-                    ? P.textMuted
-                    : count > 0
-                      ? '#1a1a1a'
-                      : P.textPrimary,
+                  // Mockup: active = gold outline + gold text, inactive = dark grey fill, light text, no outline.
+                  border: count > 0 && enabled ? `1px solid ${P.accent}` : '1px solid transparent',
+                  bgcolor: P.hoverBg,
+                  color: !enabled ? P.textMuted : count > 0 ? P.accentText : P.textPrimary,
                   opacity: enabled ? 1 : 0.6,
                   '&:hover': enabled
-                    ? count > 0
-                      ? { filter: 'brightness(1.1)' }
-                      : { borderColor: P.accent, bgcolor: `${P.accent}40` }
+                    ? { bgcolor: P.hoverBg, filter: 'brightness(1.15)' }
                     : undefined,
                 }}
               />

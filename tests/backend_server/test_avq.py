@@ -125,9 +125,25 @@ class TestAvqSeriesOrdering:
 
         newest = datetime.fromisoformat(rows[-1]["timestamp"])
         age = datetime.now(timezone.utc) - newest
+
+        # A quiet collector cannot prove anything here: "the cap kept the wrong end" and "the
+        # device stopped reporting" produce the same symptom — a capped window whose newest row
+        # is old. Ask the UNCAPPED recent window whether there is anything recent at all; only
+        # then does a stale capped window mean the cap picked the wrong rows. (host-clone-1 went
+        # quiet for hours and failed this for a day: hours=6 returned 0 rows while hours=720 was
+        # capped at 1000 whose newest row matched the uncapped 24 h window's newest, i.e. the cap
+        # was doing exactly the right thing.)
+        recent = _avq(get, api_headers, device_id=device_id, host_name=host_name, hours=6)
+        recent_rows = (recent.json().get("metrics") or []) if recent.status_code == 200 else []
+        if not recent_rows:
+            pytest.skip(
+                f"{host_name} reported nothing in the last 6 h (newest overall is {age} old) — "
+                "a stale capped window proves nothing on a device that is not reporting")
+
         assert age < timedelta(hours=6), (
-            f"capped window ends at {rows[-1]['timestamp']} ({age} old) — the cap appears to "
-            f"be keeping the OLDEST rows, so the page would show a stale window"
+            f"capped window ends at {rows[-1]['timestamp']} ({age} old) while the device HAS "
+            "reported since — the cap appears to be keeping the OLDEST rows, so the page would "
+            "show a stale window"
         )
 
 

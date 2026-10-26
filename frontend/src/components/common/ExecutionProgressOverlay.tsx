@@ -12,8 +12,9 @@
  */
 
 import React, { useEffect, useState, useRef } from 'react';
-import { Box, Typography, LinearProgress, IconButton, Tooltip, Collapse, Accordion, AccordionSummary, AccordionDetails } from '@mui/material';
+import { Box, Typography, LinearProgress, IconButton, Tooltip, Collapse, Accordion, AccordionSummary, AccordionDetails, alpha } from '@mui/material';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { AppIcon } from '../../constants/icons';
 import StopIcon from '@mui/icons-material/Stop';
 import CloseIcon from '@mui/icons-material/Close';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
@@ -22,7 +23,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import ExpandLessIcon from '@mui/icons-material/ExpandLess';
 import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import ContentCopyIcon from '@mui/icons-material/ContentCopy';
-import { useTheme } from '../../contexts/ThemeContext';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 // Block execution state - same structure used by both TestCase and Campaign
 export interface BlockExecutionState {
@@ -98,7 +99,6 @@ export const ExecutionProgressOverlay: React.FC<ExecutionProgressOverlayProps> =
   aiReasoning,
   getNodeLabel,
 }) => {
-  const { actualMode } = useTheme();
   const P = useAgentChatPalette();
 const [elapsedTime, setElapsedTime] = useState(0);
   // The overlay stays mounted between runs, so a mount-time seed would count from
@@ -419,7 +419,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
           zIndex: 1300,
           minWidth: 450,
           maxWidth: 650,
-          backgroundColor: P.surface,
+          backgroundColor: P.surfaceSolid,
           borderRadius: 2,
           boxShadow: isDragging ? '0 12px 24px rgba(0, 0, 0, 0.4)' : '0 8px 16px rgba(0, 0, 0, 0.3)',
           borderWidth: '2px',
@@ -476,30 +476,30 @@ const [elapsedTime, setElapsedTime] = useState(0);
                   }}
                 />
                 <Typography variant="subtitle2" fontWeight="bold" color={P.accentText}>
-                  ⚡ {labels.executing}
+                  <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="fast" />{labels.executing}</Box>
                 </Typography>
               </>
             ) : (
               <>
                 {executionResult?.success ? (
                   <>
-                    <CheckCircleIcon sx={{ color: P.success, fontSize: 20 }} />
+                    <CheckCircleIcon sx={{ color: P.success, fontSize: TYPOGRAPHY.pageSubtitle.size }} />
                     <Typography variant="subtitle2" fontWeight="bold" color={P.success}>
-                      ✓ {labels.passed}
+                      <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="success" />{labels.passed}</Box>
                     </Typography>
                   </>
                 ) : executionResult?.result_type === 'failure' ? (
                   <>
-                    <ErrorIcon sx={{ color: P.error, fontSize: 20 }} />
+                    <ErrorIcon sx={{ color: P.error, fontSize: TYPOGRAPHY.pageSubtitle.size }} />
                     <Typography variant="subtitle2" fontWeight="bold" color={P.error}>
-                      ✗ {labels.failed}
+                      <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="error" />{labels.failed}</Box>
                     </Typography>
                   </>
                 ) : (
                   <>
-                    <ErrorIcon sx={{ color: P.warning, fontSize: 20 }} />
+                    <ErrorIcon sx={{ color: P.warning, fontSize: TYPOGRAPHY.pageSubtitle.size }} />
                     <Typography variant="subtitle2" fontWeight="bold" color={P.warning}>
-                      ⚠ {labels.error}
+                      <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="warning" />{labels.error}</Box>
                     </Typography>
                   </>
                 )}
@@ -521,7 +521,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                           '&:hover': { textDecoration: 'underline' },
                         }}
                       >
-                        📊 Report
+                        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="report" />Report</Box>
                       </Typography>
                     )}
                     {executionResult.logs_url && (
@@ -538,7 +538,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                           '&:hover': { textDecoration: 'underline' },
                         }}
                       >
-                        📝 Logs
+                        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="edit" />Logs</Box>
                       </Typography>
                     )}
                   </Box>
@@ -552,17 +552,17 @@ const [elapsedTime, setElapsedTime] = useState(0);
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               {successCount > 0 && (
                 <Typography variant="caption" sx={{ color: P.success, fontWeight: 'bold' }}>
-                  ✓ {successCount}
+                  <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="success" />{successCount}</Box>
                 </Typography>
               )}
               {failureCount > 0 && (
                 <Typography variant="caption" sx={{ color: P.error, fontWeight: 'bold' }}>
-                  ✗ {failureCount}
+                  <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="error" />{failureCount}</Box>
                 </Typography>
               )}
               {errorCount > 0 && (
                 <Typography variant="caption" sx={{ color: P.warning, fontWeight: 'bold' }}>
-                  ⚠ {errorCount}
+                  <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="warning" />{errorCount}</Box>
                 </Typography>
               )}
             </Box>
@@ -576,7 +576,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                 fontWeight: 'bold',
               }}
             >
-              ⏱ {(finalTime ?? elapsedTime).toFixed(2)}s
+              <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="time" />{(finalTime ?? elapsedTime).toFixed(2)}s</Box>
             </Typography>
 
             {/* Stop/Close Button */}
@@ -586,7 +586,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                   size="small"
                   onClick={onStop}
                   sx={{
-                    color: P.error,
+                    color: P.dangerText,
                     '&:hover': { backgroundColor: 'rgba(239, 68, 68, 0.1)' },
                   }}
                 >
@@ -600,7 +600,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                   onClick={onClose}
                   sx={{
                     color: 'text.secondary',
-                    '&:hover': { backgroundColor: 'rgba(0, 0, 0, 0.1)' },
+                    '&:hover': { backgroundColor: P.hoverBg },
                   }}
                 >
                   <CloseIcon fontSize="small" />
@@ -659,13 +659,13 @@ const [elapsedTime, setElapsedTime] = useState(0);
                 py: 1,
                 cursor: 'pointer',
                 '&:hover': {
-                  backgroundColor: actualMode === 'dark' ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)',
+                  backgroundColor: P.hoverBg,
                 },
               }}
               onClick={() => setIsAIReasoningExpanded(!isAIReasoningExpanded)}
             >
               <Typography variant="caption" fontWeight="bold" color="text.secondary">
-                🤖 AI REASONING
+                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="ai" />AI REASONING</Box>
               </Typography>
               <IconButton size="small">
                 {isAIReasoningExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
@@ -679,7 +679,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                   pb: 2,
                   maxHeight: 200,
                   overflowY: 'auto',
-                  fontSize: '0.8125rem',
+                  fontSize: TYPOGRAPHY.body.size,
                 }}
               >
                 {aiReasoning.plan && (
@@ -693,7 +693,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                 {aiReasoning.analysis && !isExecuting && (
                   <Box sx={{ mb: 1.5 }}>
                     <Typography variant="caption" fontWeight="bold" sx={{ color: P.warning, display: 'block', mb: 0.5 }}>
-                      💡 AI ANALYSIS
+                      <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="ai" />AI ANALYSIS</Box>
                     </Typography>
                     <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.6 }}>
                       {aiReasoning.analysis}
@@ -704,7 +704,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                 {aiReasoning.suggestions && aiReasoning.suggestions.length > 0 && (
                   <Box sx={{ mb: 1.5 }}>
                     <Typography variant="caption" fontWeight="bold" sx={{ color: P.success, display: 'block', mb: 0.5 }}>
-                      🔧 SUGGESTED FIXES
+                      <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="settings" />SUGGESTED FIXES</Box>
                     </Typography>
                     {aiReasoning.suggestions.map((suggestion, idx) => (
                       <Typography key={idx} variant="caption" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.6, ml: 1 }}>
@@ -717,7 +717,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                 {aiReasoning.insights && aiReasoning.insights.length > 0 && (
                   <Box sx={{ mb: 1.5 }}>
                     <Typography variant="caption" fontWeight="bold" sx={{ color: P.accent, display: 'block', mb: 0.5 }}>
-                      📊 INSIGHTS
+                      <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="report" />INSIGHTS</Box>
                     </Typography>
                     {aiReasoning.insights.map((insight, idx) => (
                       <Typography key={idx} variant="caption" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.6, ml: 1 }}>
@@ -730,7 +730,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                 {aiReasoning.troubleshooting && aiReasoning.troubleshooting.length > 0 && (
                   <Box>
                     <Typography variant="caption" fontWeight="bold" sx={{ color: P.error, display: 'block', mb: 0.5 }}>
-                      🔍 TROUBLESHOOTING
+                      <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="search" />TROUBLESHOOTING</Box>
                     </Typography>
                     {aiReasoning.troubleshooting.map((step, idx) => (
                       <Typography key={idx} variant="caption" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.6, ml: 1 }}>
@@ -762,7 +762,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                   background: P.textMuted,
                   borderRadius: '3px',
                   '&:hover': {
-                    background: actualMode === 'dark' ? '#9ca3af' : '#6b7280',
+                    background: P.textMuted,
                   },
                 },
               }}
@@ -777,7 +777,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                       mb: completedSteps.length > 0 ? 1.5 : 0,
                       p: 1.5,
                       borderRadius: 1,
-                      backgroundColor: actualMode === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                      backgroundColor: P.hoverBg,
                       borderWidth: '1px',
                       borderStyle: 'solid',
                       borderColor: P.accent,
@@ -785,20 +785,18 @@ const [elapsedTime, setElapsedTime] = useState(0);
                       '@keyframes stepPulse': {
                         '0%, 100%': {
                           borderColor: P.accent,
-                          boxShadow: '0 0 0 rgba(59, 130, 246, 0)',
+                          boxShadow: `0 0 0 ${alpha(P.accent, 0)}`,
                         },
                         '50%': {
                           borderColor: P.accent,
-                          boxShadow: '0 0 8px rgba(59, 130, 246, 0.4)',
+                          boxShadow: `0 0 8px ${alpha(P.accent, 0.4)}`,
                         },
                       },
                     }}
                   >
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="caption" sx={{ fontSize: '0.875rem' }}>
-                          🔵
-                        </Typography>
+                        <AppIcon name="running" />
                         <Typography variant="caption" fontWeight="bold" sx={{ color: P.accent }}>
                           {labels.step.toUpperCase()} {executingStepNumber}: {currentExecutingStep.label} EXECUTING...
                         </Typography>
@@ -812,8 +810,8 @@ const [elapsedTime, setElapsedTime] = useState(0);
               {completedSteps.map((step, index) => {
                 const stepNumber = completedSteps.length - index;
                 
-                const statusIcon = step.state.status === 'success' ? '✅' :
-                                  step.state.status === 'failure' ? '❌' : '⚠️';
+                const statusIcon = <AppIcon name={step.state.status === 'success' ? 'success' :
+                                  step.state.status === 'failure' ? 'error' : 'warning'} />;
                 const statusColor = step.state.status === 'success' ? P.success :
                                    step.state.status === 'failure' ? P.error : P.warning;
                 const statusText = step.state.status === 'success' ? 'SUCCESS' :
@@ -826,16 +824,16 @@ const [elapsedTime, setElapsedTime] = useState(0);
                       mb: index < completedSteps.length - 1 ? 1.5 : 0,
                       p: 1.5,
                       borderRadius: 1,
-                      backgroundColor: actualMode === 'dark' ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                      backgroundColor: P.hoverBg,
                       borderWidth: '1px',
                       borderStyle: 'solid',
-                      borderColor: actualMode === 'dark' ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                      borderColor: P.borderColor,
                     }}
                   >
                     {/* Step Header */}
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: (step.state.error || step.state.result?.logs || step.reportUrl) ? 1 : 0 }}>
                       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <Typography variant="caption" sx={{ fontSize: '0.875rem' }}>
+                        <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.body.size }}>
                           {statusIcon}
                         </Typography>
                         <Typography variant="caption" fontWeight="bold" sx={{ color: statusColor }}>
@@ -855,11 +853,11 @@ const [elapsedTime, setElapsedTime] = useState(0);
                                 sx={{
                                   color: P.accent,
                                   textDecoration: 'none',
-                                  fontSize: '0.7rem',
+                                  fontSize: TYPOGRAPHY.caption.size,
                                   '&:hover': { textDecoration: 'underline' },
                                 }}
                               >
-                                📊 Report
+                                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="report" />Report</Box>
                               </Typography>
                             )}
                             {step.logsUrl && (
@@ -873,18 +871,18 @@ const [elapsedTime, setElapsedTime] = useState(0);
                                 sx={{
                                   color: P.success,
                                   textDecoration: 'none',
-                                  fontSize: '0.7rem',
+                                  fontSize: TYPOGRAPHY.caption.size,
                                   '&:hover': { textDecoration: 'underline' },
                                 }}
                               >
-                                📝 Logs
+                                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="edit" />Logs</Box>
                               </Typography>
                             )}
                           </Box>
                         )}
                       </Box>
                       <Typography variant="caption" sx={{ fontFamily: 'monospace', color: 'text.secondary' }}>
-                        ⏱ {((step.state.duration || 0) / 1000).toFixed(2)}s
+                        <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="time" />{((step.state.duration || 0) / 1000).toFixed(2)}s</Box>
                       </Typography>
                     </Box>
 
@@ -901,7 +899,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                           }}
                         >
                           <AccordionSummary
-                            expandIcon={<ExpandMoreIcon sx={{ color: P.error, fontSize: 16 }} />}
+                            expandIcon={<ExpandMoreIcon sx={{ color: P.error, fontSize: TYPOGRAPHY.navbarItem.size }} />}
                             sx={{
                               minHeight: '30px !important',
                               padding: '2px 12px !important',
@@ -910,9 +908,9 @@ const [elapsedTime, setElapsedTime] = useState(0);
                           >
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
                               <Typography variant="caption" sx={{ color: P.error, fontWeight: 'bold', whiteSpace: 'nowrap' }}>
-                                ⚠️ Error
+                                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="warning" />Error</Box>
                               </Typography>
-                              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: TYPOGRAPHY.caption.size, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
                                 {step.state.error.length > 120 ? `${step.state.error.substring(0, 120)}...` : step.state.error}
                               </Typography>
                               {step.state.result?.logs && (
@@ -926,7 +924,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                                       '&:hover': { backgroundColor: 'rgba(239, 68, 68, 0.1)' },
                                     }}
                                   >
-                                    <ContentCopyIcon sx={{ fontSize: 14 }} />
+                                    <ContentCopyIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                                   </IconButton>
                                 </Tooltip>
                               )}
@@ -938,7 +936,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                               sx={{
                                 display: 'block',
                                 color: 'text.secondary',
-                                fontSize: '0.75rem',
+                                fontSize: TYPOGRAPHY.caption.size,
                                 mb: step.state.result?.logs ? 1 : 0,
                                 whiteSpace: 'pre-wrap',
                               }}
@@ -948,12 +946,12 @@ const [elapsedTime, setElapsedTime] = useState(0);
                             {step.state.result?.logs && (
                               <Box
                                 sx={{
-                                  backgroundColor: actualMode === 'dark' ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.05)',
+                                  backgroundColor: P.background,
                                   borderRadius: 0.5,
                                   maxHeight: 200,
                                   overflowY: 'auto',
                                   fontFamily: 'monospace',
-                                  fontSize: '0.7rem',
+                                  fontSize: TYPOGRAPHY.caption.size,
                                   '&::-webkit-scrollbar': { width: '4px' },
                                   '&::-webkit-scrollbar-track': {
                                     background: P.hoverBg,
@@ -989,7 +987,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                           }}
                         >
                           <AccordionSummary
-                            expandIcon={<ExpandMoreIcon sx={{ color: P.success, fontSize: 16 }} />}
+                            expandIcon={<ExpandMoreIcon sx={{ color: P.success, fontSize: TYPOGRAPHY.navbarItem.size }} />}
                             sx={{
                               minHeight: '30px !important',
                               padding: '2px 12px !important',
@@ -998,9 +996,9 @@ const [elapsedTime, setElapsedTime] = useState(0);
                           >
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flex: 1 }}>
                               <Typography variant="caption" sx={{ color: P.success, fontWeight: 'bold', whiteSpace: 'nowrap' }}>
-                                📋 Execution Logs
+                                <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}><AppIcon name="edit" />Execution Logs</Box>
                               </Typography>
-                              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.75rem', flex: 1 }}>
+                              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: TYPOGRAPHY.caption.size, flex: 1 }}>
                                 Click to view execution logs
                               </Typography>
                               <Tooltip title={copiedLogId === `success-${step.blockId}` ? "Copied!" : "Copy logs"}>
@@ -1013,7 +1011,7 @@ const [elapsedTime, setElapsedTime] = useState(0);
                                     '&:hover': { backgroundColor: 'rgba(16, 185, 129, 0.1)' },
                                   }}
                                 >
-                                  <ContentCopyIcon sx={{ fontSize: 14 }} />
+                                  <ContentCopyIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                                 </IconButton>
                               </Tooltip>
                             </Box>
@@ -1022,12 +1020,12 @@ const [elapsedTime, setElapsedTime] = useState(0);
                             {step.state.result?.logs && (
                               <Box
                                 sx={{
-                                  backgroundColor: actualMode === 'dark' ? 'rgba(0,0,0,0.3)' : 'rgba(0,0,0,0.05)',
+                                  backgroundColor: P.background,
                                   borderRadius: 0.5,
                                   maxHeight: 200,
                                   overflowY: 'auto',
                                   fontFamily: 'monospace',
-                                  fontSize: '0.7rem',
+                                  fontSize: TYPOGRAPHY.caption.size,
                                   '&::-webkit-scrollbar': { width: '4px' },
                                   '&::-webkit-scrollbar-track': {
                                     background: P.hoverBg,

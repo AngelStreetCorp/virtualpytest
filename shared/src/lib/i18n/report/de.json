@@ -6,6 +6,7 @@
   "header.start": "Start:",
   "header.end": "Ende:",
   "header.open_testcase_builder": "Im TestCase Builder öffnen",
+  "header.project_label": "Projekt",
   "header.save_pdf": "Als PDF speichern",
   "header.share_snapshot": "Snapshot-Link teilen",
   "summary.status": "Status:",
@@ -165,5 +166,12 @@
   "msg.loop_stopped_pass": "Schleife vorzeitig beendet (bestanden) bei Durchlauf {i}",
   "msg.loop_failed": "Schleife bei Durchlauf {i} fehlgeschlagen",
   "msg.loop_exhausted": "Schleife: {n} Durchläufe ohne Erfolg",
-  "msg.loop_completed": "Schleife abgeschlossen: {n} Durchläufe"
+  "msg.loop_completed": "Schleife abgeschlossen: {n} Durchläufe",
+  "timeline.title": "Video-Zeitleiste",
+  "timeline.hint": "Klicken Sie auf eine Kachel oder einen Schritt, um das Video ab dort abzuspielen.",
+  "timeline.ok": "OK",
+  "timeline.fail": "FEHLER",
+  "link.timeline": "Zeitleiste:",
+  "timeline.show_player": "Player anzeigen",
+  "timeline.hide_player": "Player ausblenden"
 }

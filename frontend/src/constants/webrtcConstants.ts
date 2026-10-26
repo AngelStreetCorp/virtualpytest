@@ -7,6 +7,15 @@ export const WHEP_CONNECT_TIMEOUT_MS = 6000;
  *  candidates so far (normally one arrives in ~50 ms). Counts against WHEP_CONNECT_TIMEOUT_MS. */
 export const WHEP_ICE_GATHER_MAX_MS = 1000;
 
+/** Jitter buffer the receiver switches to once the link loses packets or freezes. On a
+ *  WiFi host (vpt-mf1) a resent packet often came back after the default ~80 ms buffer
+ *  had given up on it: 12.8 s frozen in 39 s at the default, 3.5 s at 600 ms, 5.3 s at
+ *  300 ms. A clean link never trips it and keeps the low delay. */
+export const WHEP_LOSSY_JITTER_BUFFER_MS = 500;
+
+/** How often a WHEP session checks its own receive stats for loss. */
+export const WHEP_LOSS_CHECK_MS = 2000;
+
 /** How often the latency_debug overlay samples getStats(). */
 export const WEBRTC_STATS_INTERVAL_MS = 2000;
 

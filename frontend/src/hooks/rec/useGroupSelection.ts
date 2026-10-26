@@ -8,6 +8,11 @@ const hasProfile = (c: GroupCandidate, profile: string) => deviceRemoteProfiles(
 
 const modelOf = (c: GroupCandidate) => c.device.device_model || 'unknown';
 
+// Stream-only models have no controller to drive, so they can never join a group.
+const STREAM_ONLY_MODELS = new Set(['rtsp_video', 'local_video']);
+const isGroupable = (c: GroupCandidate) =>
+  !STREAM_ONLY_MODELS.has(c.device.device_model) && deviceRemoteProfiles(c.device).length > 0;
+
 /**
  * Device-page selection for group control (TASK-76, TASK-80).
  *
@@ -51,7 +56,7 @@ export const useGroupSelection = (selectablePool: GroupCandidate[] = []) => {
     const seen = new Set<string>();
     const map = new Map<string, GroupCandidate[]>();
     for (const c of selectablePool) {
-      if (seen.has(c.key)) continue;
+      if (seen.has(c.key) || !isGroupable(c)) continue;
       seen.add(c.key);
       const m = modelOf(c);
       const list = map.get(m);
@@ -201,6 +206,27 @@ export const useGroupSelection = (selectablePool: GroupCandidate[] = []) => {
     [autoPickProfileForModel, poolByModel, remoteProfile, selected.length, selectedKeys],
   );
 
+  /** Model "Select all" acts on: the current selection's model, else the first model badge (pool >= 2). */
+  const selectAllModel = useMemo(() => {
+    if (selected.length > 0) return modelOf(selected[0]);
+    const models = Array.from(poolByModel.entries())
+      .filter(([, list]) => list.length >= 2)
+      .map(([m]) => m)
+      .sort((a, b) => a.localeCompare(b));
+    return models[0] ?? null;
+  }, [poolByModel, selected]);
+
+  const selectAllTotal = selectAllModel ? (poolByModel.get(selectAllModel)?.length ?? 0) : 0;
+
+  const selectAll = useCallback(() => {
+    if (!selectAllModel) return;
+    const profile = remoteProfile ?? autoPickProfileForModel(selectAllModel);
+    if (!profile) return;
+    const candidates = (poolByModel.get(selectAllModel) ?? []).filter((c) => hasProfile(c, profile));
+    if (candidates.every((c) => selectedKeys.has(c.key))) return;
+    toggleByModel(selectAllModel);
+  }, [autoPickProfileForModel, poolByModel, remoteProfile, selectAllModel, selectedKeys, toggleByModel]);
+
   const toggleGroupMode = useCallback(() => {
     setIsGroupMode((prev) => !prev);
     setSelected([]);
@@ -223,6 +249,8 @@ export const useGroupSelection = (selectablePool: GroupCandidate[] = []) => {
     isSelectable: selectable,
     toggle,
     toggleByModel,
+    selectAll,
+    selectAllTotal,
     clear,
     selection,
     canStart: selected.length >= GROUP_MIN_SIZE && !!remoteProfile,

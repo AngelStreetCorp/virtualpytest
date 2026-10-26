@@ -30,7 +30,7 @@ export const vncStreamConfig = {
     showControlsInExpanded: true,
     header: {
       height: HDMI_STREAM_HEADER_HEIGHT,
-      fontSize: '0.875rem',
+      fontSize: '0.875rem', // ui-ok: no-literal-font-size - layout data, read by the remote/AV panel renderer
       fontWeight: 'bold',
       iconSize: 'small',
       padding: '8px',

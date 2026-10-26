@@ -75,7 +75,7 @@
     {
       "id": 100,
       "type": "row",
-      "title": "\ud83c\udfe5 Health (selected range)",
+      "title": "🏥 Health (selected range)",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -472,7 +472,7 @@
     {
       "id": 101,
       "type": "row",
-      "title": "\ud83d\udcc8 Over time",
+      "title": "📈 Over time",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -615,7 +615,7 @@
     {
       "id": 102,
       "type": "row",
-      "title": "\ud83e\uddea Jobs",
+      "title": "🧪 Jobs",
       "collapsed": false,
       "gridPos": {
         "x": 0,
@@ -628,7 +628,7 @@
     {
       "id": 9,
       "type": "table",
-      "title": "Jobs \u2014 last result, pass % and runs in range (per project)",
+      "title": "Jobs — last result, pass % and runs in range (per project)",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "cicd-postgres"
@@ -690,12 +690,12 @@
                       "PASS": {
                         "color": "green",
                         "index": 0,
-                        "text": "\u2705 PASS"
+                        "text": "✅ PASS"
                       },
                       "FAIL": {
                         "color": "red",
                         "index": 1,
-                        "text": "\u274c FAIL"
+                        "text": "❌ FAIL"
                       }
                     }
                   }
@@ -853,139 +853,141 @@
     {
       "id": 103,
       "type": "row",
-      "title": "\ud83d\udcdc Runs",
-      "collapsed": false,
+      "title": "Details",
+      "collapsed": true,
       "gridPos": {
-        "x": 0,
-        "y": 32,
+        "h": 1,
         "w": 24,
-        "h": 1
-      },
-      "panels": []
-    },
-    {
-      "id": 11,
-      "type": "table",
-      "title": "Runs (range)",
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "cicd-postgres"
-      },
-      "gridPos": {
         "x": 0,
-        "y": 33,
-        "w": 24,
-        "h": 12
+        "y": 32
       },
-      "targets": [
+      "panels": [
         {
+          "id": 11,
+          "type": "table",
+          "title": "Runs (range)",
           "datasource": {
             "type": "grafana-postgresql-datasource",
             "uid": "cicd-postgres"
           },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT started_at AS \"Started\", project AS \"Project\", run AS \"Run\", branch AS \"Branch\", left(sha,7) AS \"Commit\", runner AS \"Runner\",\n  upper(overall) AS \"Result\", jobs_passed || ' / ' || jobs AS \"Jobs passed\",\n  CASE WHEN report_url IS NOT NULL THEN '<a href=\"' || report_url || '\" target=\"_blank\">open</a>' END AS \"Report\"\nFROM ci_run_summary WHERE $__timeFilter(started_at) AND project IN ($project) ORDER BY started_at DESC LIMIT 500",
-          "refId": "A"
-        }
-      ],
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            }
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Started"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "dateTimeAsIso"
-              }
-            ]
+          "gridPos": {
+            "x": 0,
+            "y": 33,
+            "w": 24,
+            "h": 12
           },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Result"
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "cicd-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT started_at AS \"Started\", project AS \"Project\", run AS \"Run\", branch AS \"Branch\", left(sha,7) AS \"Commit\", runner AS \"Runner\",\n  upper(overall) AS \"Result\", jobs_passed || ' / ' || jobs AS \"Jobs passed\",\n  CASE WHEN report_url IS NOT NULL THEN '<a href=\"' || report_url || '\" target=\"_blank\">open</a>' END AS \"Report\"\nFROM ci_run_summary WHERE $__timeFilter(started_at) AND project IN ($project) ORDER BY started_at DESC LIMIT 500",
+              "refId": "A"
+            }
+          ],
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                }
+              }
             },
-            "properties": [
+            "overrides": [
               {
-                "id": "mappings",
-                "value": [
+                "matcher": {
+                  "id": "byName",
+                  "options": "Started"
+                },
+                "properties": [
                   {
-                    "type": "value",
-                    "options": {
-                      "PASSED": {
-                        "color": "green",
-                        "index": 0,
-                        "text": "\u2705 PASS"
-                      },
-                      "FAILED": {
-                        "color": "red",
-                        "index": 1,
-                        "text": "\u274c FAIL"
-                      },
-                      "PARTIAL": {
-                        "color": "orange",
-                        "index": 2,
-                        "text": "\u26a0\ufe0f PARTIAL"
-                      },
-                      "UNKNOWN": {
-                        "color": "text",
-                        "index": 3,
-                        "text": "\u2014"
+                    "id": "unit",
+                    "value": "dateTimeAsIso"
+                  }
+                ]
+              },
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Result"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "PASSED": {
+                            "color": "green",
+                            "index": 0,
+                            "text": "✅ PASS"
+                          },
+                          "FAILED": {
+                            "color": "red",
+                            "index": 1,
+                            "text": "❌ FAIL"
+                          },
+                          "PARTIAL": {
+                            "color": "orange",
+                            "index": 2,
+                            "text": "⚠️ PARTIAL"
+                          },
+                          "UNKNOWN": {
+                            "color": "text",
+                            "index": 3,
+                            "text": "—"
+                          }
+                        }
                       }
+                    ]
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-text"
                     }
                   }
                 ]
               },
               {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-text"
-                }
+                "matcher": {
+                  "id": "byName",
+                  "options": "Report"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "markdown"
+                    }
+                  },
+                  {
+                    "id": "custom.align",
+                    "value": "center"
+                  }
+                ]
               }
             ]
           },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Report"
-            },
-            "properties": [
+          "options": {
+            "cellHeight": "sm",
+            "showHeader": true,
+            "sortBy": [
               {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "markdown"
-                }
-              },
-              {
-                "id": "custom.align",
-                "value": "center"
+                "desc": true,
+                "displayName": "Started"
               }
             ]
           }
-        ]
-      },
-      "options": {
-        "cellHeight": "sm",
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Started"
-          }
-        ]
-      }
+        }
+      ],
+      "description": "📜 Runs"
     }
   ]
 }

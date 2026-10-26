@@ -1,0 +1,1682 @@
+[
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H1",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_pull.py"
+  ],
+  "kb": 10.806,
+  "tools": 5,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H1",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_pull.py"
+  ],
+  "kb": 13.957,
+  "tools": 5,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H1",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_pull.py"
+  ],
+  "kb": 11.309,
+  "tools": 5,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H1",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_pull.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_bundle.py"
+  ],
+  "kb": 8.191,
+  "tools": 5,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H1",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_pull.py",
+   "tests/backend_server/test_platform_update.py"
+  ],
+  "kb": 15.525,
+  "tools": 4,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H2",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py",
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py"
+  ],
+  "kb": 10.963,
+  "tools": 3,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H2",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py",
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py"
+  ],
+  "kb": 8.12,
+  "tools": 2,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H2",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py",
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py"
+  ],
+  "kb": 14.017,
+  "tools": 4,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H2",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py",
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py"
+  ],
+  "kb": 8.577,
+  "tools": 4,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H2",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py",
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py"
+  ],
+  "kb": 7.383,
+  "tools": 5,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H3",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 16.477,
+  "tools": 3,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H3",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 2.665,
+  "tools": 4,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H3",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 1.331,
+  "tools": 2,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H3",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 16.273,
+  "tools": 3,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H3",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 2.273,
+  "tools": 4,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H4",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py",
+   "scripts/measure_cache_warmup.py"
+  ],
+  "kb": 3.304,
+  "tools": 2,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H4",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py",
+   "scripts/measure_cache_warmup.py"
+  ],
+  "kb": 3.304,
+  "tools": 2,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H4",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py",
+   "scripts/measure_cache_warmup.py"
+  ],
+  "kb": 3.304,
+  "tools": 2,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H4",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py",
+   "scripts/measure_cache_warmup.py"
+  ],
+  "kb": 3.304,
+  "tools": 2,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H4",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py",
+   "scripts/measure_cache_warmup.py"
+  ],
+  "kb": 3.304,
+  "tools": 2,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H5",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 6.351,
+  "tools": 5,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H5",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 5.279,
+  "tools": 4,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H5",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 6.597,
+  "tools": 5,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H5",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 5.279,
+  "tools": 4,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "A",
+  "q": "H5",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 6.098,
+  "tools": 5,
+  "used": false
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H1",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_pull.py"
+  ],
+  "kb": 12.245,
+  "tools": 5,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H1",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_pull.py"
+  ],
+  "kb": 10.007,
+  "tools": 5,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H1",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_pull.py"
+  ],
+  "kb": 14.87,
+  "tools": 5,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H1",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_pull.py"
+  ],
+  "kb": 13.489,
+  "tools": 6,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H1",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_pull.py"
+  ],
+  "kb": 10.825,
+  "tools": 4,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H2",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py",
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py"
+  ],
+  "kb": 3.651,
+  "tools": 3,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H2",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py",
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py"
+  ],
+  "kb": 6.163,
+  "tools": 3,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H2",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py",
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py"
+  ],
+  "kb": 3.977,
+  "tools": 4,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H2",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py",
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py"
+  ],
+  "kb": 4.616,
+  "tools": 3,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H2",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py",
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py"
+  ],
+  "kb": 6.381,
+  "tools": 3,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H3",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 1.878,
+  "tools": 3,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H3",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 0.544,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H3",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 0.544,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H3",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 1.878,
+  "tools": 3,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H3",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 1.878,
+  "tools": 3,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H4",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "scripts/measure_cache_warmup.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py"
+  ],
+  "kb": 1.229,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H4",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "scripts/measure_cache_warmup.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py"
+  ],
+  "kb": 1.229,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H4",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "scripts/measure_cache_warmup.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py"
+  ],
+  "kb": 1.229,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H4",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "scripts/measure_cache_warmup.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py"
+  ],
+  "kb": 1.229,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H4",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "scripts/measure_cache_warmup.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py"
+  ],
+  "kb": 1.229,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H5",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 1.361,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H5",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 1.361,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H5",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 1.361,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H5",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 1.361,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "sonnet",
+  "arm": "B",
+  "q": "H5",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 2.407,
+  "tools": 3,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H1",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_pull.py"
+  ],
+  "kb": 35.5,
+  "tools": 7,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H1",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_pull.py"
+  ],
+  "kb": 22.406,
+  "tools": 5,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H1",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_pull.py"
+  ],
+  "kb": 52.542,
+  "tools": 4,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H1",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_pull.py",
+   "tests/backend_server/test_platform_update_backup.py"
+  ],
+  "kb": 39.272,
+  "tools": 3,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H1",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_pull.py"
+  ],
+  "kb": 23.164,
+  "tools": 2,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H2",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py",
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py"
+  ],
+  "kb": 14.657,
+  "tools": 5,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H2",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py",
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py"
+  ],
+  "kb": 18.618,
+  "tools": 3,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H2",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py",
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py"
+  ],
+  "kb": 18.856,
+  "tools": 5,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H2",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py",
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py"
+  ],
+  "kb": 17.498,
+  "tools": 4,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H2",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py",
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py"
+  ],
+  "kb": 24.55,
+  "tools": 6,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H3",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 7.255,
+  "tools": 4,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H3",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/pages/RunTests.tsx",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 28.956,
+  "tools": 3,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H3",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 10.309,
+  "tools": 6,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H3",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/pages/RunTests.tsx",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 7.614,
+  "tools": 3,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H3",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/pages/RunTests.tsx",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/hooks/useRun.ts",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 5.947,
+  "tools": 3,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H4",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "scripts/measure_cache_warmup.py",
+   "tests/shared/test_variant_map_memo.py"
+  ],
+  "kb": 3.262,
+  "tools": 1,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H4",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py",
+   "scripts/measure_cache_warmup.py"
+  ],
+  "kb": 3.668,
+  "tools": 2,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H4",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_host/src/app.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "scripts/measure_cache_warmup.py",
+   "tests/shared/test_variant_map_memo.py"
+  ],
+  "kb": 5.243,
+  "tools": 2,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H4",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_host/src/app.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "scripts/measure_cache_warmup.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py"
+  ],
+  "kb": 4.979,
+  "tools": 1,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H4",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "scripts/measure_cache_warmup.py",
+   "tests/shared/test_variant_map_memo.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "backend_host/src/app.py"
+  ],
+  "kb": 9.708,
+  "tools": 3,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H5",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 14.582,
+  "tools": 4,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H5",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/controllers/base_controller.py",
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 10.262,
+  "tools": 5,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H5",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/controllers/base_controller.py",
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 13.57,
+  "tools": 6,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H5",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/src/controllers/base_controller.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 10.123,
+  "tools": 4,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "A",
+  "q": "H5",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 9.319,
+  "tools": 5,
+  "used": false
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H1",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_pull.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_bundle.py"
+  ],
+  "kb": 39.208,
+  "tools": 4,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H1",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_pull.py"
+  ],
+  "kb": 16.853,
+  "tools": 5,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H1",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_pull.py"
+  ],
+  "kb": 42.023,
+  "tools": 7,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H1",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_pull.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_backup.py"
+  ],
+  "kb": 43.622,
+  "tools": 5,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H1",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "backend_server/src/routes/server_platform_update_routes.py",
+   "tests/backend_server/test_platform_update.py",
+   "tests/backend_server/test_platform_update_backup.py",
+   "tests/backend_server/test_platform_update_bundle.py",
+   "tests/backend_server/test_platform_update_pull.py"
+  ],
+  "kb": 22.642,
+  "tools": 6,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H2",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py",
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py"
+  ],
+  "kb": 11.275,
+  "tools": 5,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H2",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py",
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py"
+  ],
+  "kb": 9.216,
+  "tools": 4,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H2",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py",
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py"
+  ],
+  "kb": 8.087,
+  "tools": 4,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H2",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py",
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py"
+  ],
+  "kb": 27.592,
+  "tools": 8,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H2",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "shared/src/lib/game/leagueoflegends/walkthrough_smoke.py",
+   "tests/shared/test_leagueoflegends_runner.py",
+   "tests/shared/test_leagueoflegends_runner_walkthrough_loop.py"
+  ],
+  "kb": 16.192,
+  "tools": 5,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H3",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 1.192,
+  "tools": 2,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H3",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 1.647,
+  "tools": 2,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H3",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 2.673,
+  "tools": 2,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H3",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 4.012,
+  "tools": 3,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H3",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "frontend/src/hooks/pages/useCampaign.ts",
+   "frontend/src/hooks/useRun.ts",
+   "frontend/src/pages/MonitorTests.tsx",
+   "frontend/src/pages/RunTests.tsx",
+   "backend_server/src/mcp/tools/script_tools.py"
+  ],
+  "kb": 3.319,
+  "tools": 2,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H4",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "scripts/measure_cache_warmup.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py"
+  ],
+  "kb": 1.229,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H4",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "scripts/measure_cache_warmup.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py"
+  ],
+  "kb": 1.229,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H4",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "scripts/measure_cache_warmup.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py"
+  ],
+  "kb": 1.229,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H4",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "scripts/measure_cache_warmup.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py"
+  ],
+  "kb": 1.229,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H4",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/app.py",
+   "backend_host/src/routes/host_navigation_routes.py",
+   "backend_server/src/routes/server_navigation_routes.py",
+   "backend_server/src/routes/server_pathfinding_routes.py",
+   "scripts/measure_cache_warmup.py",
+   "shared/src/lib/database/navigation_trees_db.py",
+   "tests/shared/test_variant_map_memo.py"
+  ],
+  "kb": 1.229,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H5",
+  "run": 1,
+  "f1": 1.0,
+  "files": [
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 1.361,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H5",
+  "run": 2,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py",
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py"
+  ],
+  "kb": 1.361,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H5",
+  "run": 3,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py",
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py"
+  ],
+  "kb": 1.361,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H5",
+  "run": 4,
+  "f1": 1.0,
+  "files": [
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py",
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py"
+  ],
+  "kb": 1.361,
+  "tools": 1,
+  "used": true
+ },
+ {
+  "model": "haiku",
+  "arm": "B",
+  "q": "H5",
+  "run": 5,
+  "f1": 1.0,
+  "files": [
+   "backend_host/src/controllers/base_controller.py",
+   "tests/backend_host/test_report_video_hot_pin.py",
+   "backend_host/scripts/hot_cold_archiver.py",
+   "backend_host/scripts/monitor/analyzers/tv_app.py"
+  ],
+  "kb": 1.361,
+  "tools": 1,
+  "used": true
+ }
+]

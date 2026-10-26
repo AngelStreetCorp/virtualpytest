@@ -18,7 +18,8 @@ from shared.src.lib.utils.file_lock_utils import lock_file, unlock_file
 logger = logging.getLogger('capture_monitor')
 
 
-def write_action_to_frame_json(device, action: Dict[str, Any], action_completion_timestamp: float):
+def write_action_to_frame_json(device, action: Dict[str, Any], action_completion_timestamp: float,
+                               source: Optional[str] = None):
     """
     Write action metadata to last_action.json for zapping detection (CRITICAL).
     Optionally enriches frame JSON files if they exist (NICE-TO-HAVE).
@@ -32,6 +33,8 @@ def write_action_to_frame_json(device, action: Dict[str, Any], action_completion
         device: Device instance with get_capture_dir() method
         action: Action dictionary with 'command' and 'params' keys
         action_completion_timestamp: Unix timestamp when action completed
+        source: Which host path sent it ('remote' = executeCommand route, 'executor' = action executor,
+            'probe' = the triage wake probe). TASK-158 reads it back as the incident's last key.
     """
     try:
         # Get capture_folder from device
@@ -62,7 +65,8 @@ def write_action_to_frame_json(device, action: Dict[str, Any], action_completion
                 'command': action.get('command'),
                 'timestamp': action_completion_timestamp,
                 'params': action.get('params', {}),
-                'written_at': datetime.utcnow().isoformat() + 'Z'
+                'written_at': datetime.utcnow().isoformat() + 'Z',
+                'source': source,
             }
             
             # Write to temp file first

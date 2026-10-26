@@ -27,8 +27,26 @@
 # hidden — the guest keeps rendering but the display composes nothing, so screencap
 # returns an all-zero frame and the stream is black until someone power-cycles the
 # display. Sampling the frame and sending SLEEP+WAKEUP forces SF to re-evaluate.
+#
+# The frame is published only when it is WHOLE. `adb exec-out screencap -p` can
+# exit 0 on a transfer that died half way (the phone dropped off USB in the
+# middle of the screencap), and publishing that partial file replaced the last
+# good frame with one no decoder can read: the capture agent then had no source
+# at all, wrote no thumbnail and no playlist, and the platform reported a 404 for
+# a device it still lists — with nothing on the host saying why. A frame that
+# did not arrive whole is dropped and the last good frame stays in place.
 
 umask 0000
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ ! -f "$SCRIPT_DIR/frame_source.sh" ]; then
+  # Without the helper there is no way to tell a whole frame from a cut one, and
+  # publishing a cut frame is what killed a device's capture in the first place.
+  # Stop loudly instead of publishing frames we cannot vouch for.
+  echo "emulator_screencap.sh: $SCRIPT_DIR/frame_source.sh is missing — refusing to publish frames that may be truncated" >&2
+  exit 1
+fi
+source "$SCRIPT_DIR/frame_source.sh"
 
 SERIAL="${1:-}"
 OUT_FILE="${2:-}"
@@ -90,9 +108,24 @@ recover_display() {
 strikes=0
 last_check=0
 last_recovery=$((-RECOVERY_COOLDOWN))
+frame_ok=1
 
 while true; do
-  adb -s "$SERIAL" exec-out screencap -p > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"
+  if adb -s "$SERIAL" exec-out screencap -p > "$OUT.tmp" && frame_is_complete "$OUT.tmp"; then
+    if [ "$frame_ok" -eq 0 ]; then
+      echo "[screencap] $SERIAL: a whole frame is available again — the capture source is healthy"
+      frame_ok=1
+    fi
+    mv "$OUT.tmp" "$OUT"
+  else
+    # The transfer did not deliver a whole frame (the device is offline, or the
+    # transfer died half way). Keep the last good frame: publishing a partial
+    # one would leave the capture agent with a source no decoder can read.
+    if [ "$frame_ok" -eq 1 ]; then
+      frame_ok=0
+      echo "[screencap] $SERIAL: no whole frame from adb (device offline, or the transfer died half way) — keeping the last whole frame at $OUT; a truncated frame would leave the capture with no source at all" >&2
+    fi
+  fi
 
   now=$SECONDS
   if [ $((now - last_check)) -ge "$CHECK_INTERVAL" ]; then

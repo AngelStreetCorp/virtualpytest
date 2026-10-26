@@ -1,39 +1,37 @@
-# 📚 Navigation Tree History & Version Control
+# Navigation Tree History & Version Control
 
-**Never lose your work. Restore any version instantly.**
+**Never lose your work. Restore any version.**
 
-Complete version control for navigation trees with Grafana-style restoration - create, save, and restore complete tree hierarchies including all subtrees, nodes, and edges.
+Every save of a navigation tree is kept as a version. If a change breaks the tree, you can go back to an older version. The whole tree comes back, including its subtrees, nodes and edges.
 
 ---
 
 ## The Problem
 
-Working with complex navigation trees is risky:
-- ❌ "I accidentally deleted that subtree"
-- ❌ "The tree got corrupted during editing"
-- ❌ "I need to undo changes from 3 days ago"
-- ❌ "The tree worked before, but now it's broken"
-- ❌ "No way to compare different versions"
+Editing a complex tree is risky. A change can break it, and there was no easy way back.
 
 ---
 
 ## The VirtualPyTest Solution
 
-✅ **Complete snapshots** - Every save captures the entire tree hierarchy  
-✅ **Grafana-style restoration** - Restore creates new versions (non-destructive)  
-✅ **Full subtree support** - All nested trees, nodes, and edges preserved  
-✅ **Visual version browser** - See all changes with timestamps  
-✅ **One-click restoration** - Restore any version instantly  
+- **Complete snapshots:** every save keeps the whole tree
+- **Restore never erases:** a restore adds a new version
+- **Restore in one step:** pick a version and restore it
 
 ---
 
 ## Features
 
-### 🗂️ Complete Tree Snapshots
+### Complete Tree Snapshots
 
-**Every save automatically captures your entire navigation tree hierarchy.**
+**Every save keeps the whole navigation tree, including its subtrees.**
 
 #### What Gets Saved
+
+<div data-technical>
+
+Each version stores the whole hierarchy as one document:
+
 ```json
 {
   "hierarchy": [
@@ -71,18 +69,25 @@ Working with complex navigation trees is risky:
 ```
 
 #### Automatic Versioning
-- **Version 1**: Initial tree creation
-- **Version 2**: Added settings submenu
-- **Version 3**: Modified node positions
-- **Version N**: Every save creates a new version
+- **Version 1**: the first tree
+- **Version 2**: a settings submenu was added
+- **Version 3**: node positions were changed
+- **Version N**: every save creates a new version
+
+</div>
 
 ---
 
-### 🔄 Grafana-Style Version Restoration
+### Grafana-Style Version Restoration
 
-**Restore creates a new version (non-destructive approach).**
+**A restore creates a new version. It does not erase the newer ones.**
 
 #### How It Works
+
+If you are on version 53 and restore version 34, the platform makes a copy of version 34 and calls it version 54. Versions 34 and 53 are still there.
+
+<div data-technical>
+
 ```
 Current State: Version 53
          ↓
@@ -93,7 +98,12 @@ Creates Version 54 (duplicate of Version 34)
 Version 54 becomes current
 ```
 
+</div>
+
 #### Example Workflow
+
+<div data-technical>
+
 ```bash
 # You're on Version 53 with complex changes
 # But you want to go back to Version 34
@@ -115,39 +125,52 @@ POST /server/navigationTrees/tree-123/restore/34
 }
 ```
 
+</div>
+
 ---
 
-### 🎯 Visual Version Browser
+### Visual Version Browser
 
-**Browse, compare, and restore tree versions through an intuitive interface.**
+**Browse, compare and restore versions in the tree editor.**
+
+Each version is listed with its time and what changed.
+
+<div data-technical>
 
 #### Version History Dialog
-- **Current version indicator** - See which version you're on
-- **Complete version list** - All versions with timestamps
-- **Version details** - Tree/node/edge counts per version
-- **Change descriptions** - What changed in each version
-- **One-click restore** - Restore any version instantly
+- **Current version:** shows which version you are on
+- **Full list:** every version with its time
+- **Version details:** how many trees, nodes and edges each version has
+- **Change descriptions:** what changed in each version
+- **Restore:** restore any version with one click
 
 #### Version Types
-- 🟢 **CREATE** - Initial tree creation
-- 🔵 **UPDATE** - Normal saves and modifications
-- 🟠 **RESTORE** - Versions created from restoration
+- **CREATE:** the first version of a tree
+- **UPDATE:** a normal save or change
+- **RESTORE:** a version made by restoring an older one
+
+</div>
 
 ---
 
-### 🏗️ Complete Hierarchy Preservation
+### Complete Hierarchy Preservation
 
-**Subtrees, nodes, edges, and relationships are perfectly preserved.**
+**Subtrees, nodes, edges and the links between them are kept intact.**
 
 #### What Gets Restored
-- ✅ **Root tree** - Main navigation structure
-- ✅ **All subtrees** - Nested navigation trees
-- ✅ **Node properties** - Labels, positions, styles, verifications
-- ✅ **Edge connections** - Action sets, navigation logic
-- ✅ **Parent-child relationships** - Tree hierarchy maintained
-- ✅ **Fresh IDs** - New UUIDs prevent conflicts
+Subtrees, nodes and edges come back exactly as they were.
+
+<div data-technical>
+
+- **Root tree:** the main navigation structure
+- **All subtrees:** the nested navigation trees
+- **Node details:** labels, positions, styles and checks
+- **Edge connections:** action sets and navigation logic
+- **Parent-child links:** the tree hierarchy stays the same
+- **New IDs:** a restore gives everything fresh IDs, so nothing clashes
 
 #### Restoration Process
+
 ```sql
 -- 1. Load version snapshot from history
 -- 2. Create NEW trees with fresh IDs
@@ -166,24 +189,36 @@ DELETE FROM navigation_trees WHERE userinterface_id = ? AND team_id = ?
 INSERT INTO navigation_trees_history (version_number, modification_type, ...) VALUES (54, 'restore', ...)
 ```
 
+</div>
+
 ---
 
 ## User Interface
 
 ### History Button
+
+Click **History**, next to **Save**, to see the versions.
+
+<div data-technical>
+
 ```
 ┌─────────────────────────────────────────────────┐
 │ Tree Name * [Save] [Discard] [Undo] [Redo] History │
 └─────────────────────────────────────────────────┘
 ```
 
-**Smart Button States:**
-- 🟢 **Enabled** - History available (2+ versions exist)
-- 🔘 **Disabled** - No history (only 1 or 0 versions)
-- 🚫 **Disabled** - Tree is locked
-- 💡 **Tooltip** - Explains why button is disabled
+**Button states:**
+- **Enabled:** there is a history (two or more versions)
+- **Disabled:** there is no history yet (only one or no versions)
+- **Disabled:** the tree is locked
+- **Tooltip:** explains why the button is disabled
+
+</div>
 
 ### Version History Dialog
+
+<div data-technical>
+
 ```
 ┌─ Tree Version History ──────────────────────────┐
 │ Current: v53                                    │
@@ -207,7 +242,7 @@ INSERT INTO navigation_trees_history (version_number, modification_type, ...) VA
 └─────────────────────────────────────────────────┘
 ```
 
-**Empty State (No History):**
+**Empty state (no history):**
 ```
 ┌─ Tree Version History ──────────────────────────┐
 │                                                │
@@ -220,11 +255,18 @@ INSERT INTO navigation_trees_history (version_number, modification_type, ...) VA
 └─────────────────────────────────────────────────┘
 ```
 
+</div>
+
 ---
 
 ## Technical Implementation
 
 ### Database Schema
+
+<div data-technical>
+
+The whole tree is stored as one JSON document per version.
+
 ```sql
 -- Complete hierarchy stored as JSONB
 CREATE TABLE navigation_trees_history (
@@ -240,9 +282,16 @@ CREATE TABLE navigation_trees_history (
 );
 ```
 
+</div>
+
 ### API Endpoints
 
+The history can be read and restored through the API.
+
 #### Get Version History
+
+<div data-technical>
+
 ```http
 GET /server/navigationTrees/{tree_id}/history?team_id={team_id}
 ```
@@ -267,7 +316,12 @@ GET /server/navigationTrees/{tree_id}/history?team_id={team_id}
 }
 ```
 
+</div>
+
 #### Restore Version
+
+<div data-technical>
+
 ```http
 POST /server/navigationTrees/{tree_id}/restore/{version_number}
 Content-Type: application/json
@@ -290,27 +344,35 @@ Content-Type: application/json
 }
 ```
 
+</div>
+
 ---
 
 ## Use Cases
 
-### 🔧 Development & Testing
-- **Safe experimentation** - Try changes, easily revert
-- **A/B testing** - Compare different navigation approaches
-- **Bug recovery** - Restore when trees get corrupted
-- **Collaboration** - See what team members changed
+Try a change safely, and go back if it breaks. Useful for experiments, bug recovery and audits.
 
-### 📊 Quality Assurance
-- **Regression testing** - Verify navigation still works after changes
-- **Version comparison** - See what changed between releases
-- **Audit trail** - Track who made what changes when
-- **Compliance** - Maintain history for regulatory requirements
+<div data-technical>
 
-### 🚀 Production Support
-- **Hot fixes** - Quickly restore working configurations
-- **Incident response** - Roll back problematic changes
-- **A/B deployments** - Switch between navigation versions
-- **Performance optimization** - Compare different tree structures
+### Development & Testing
+- **Safe experiments:** try a change, and undo it if it goes wrong
+- **Comparing approaches:** try two navigation designs side by side
+- **Bug recovery:** go back when a tree gets corrupted
+- **Teamwork:** see what other people changed
+
+### Quality Assurance
+- **Regression checks:** confirm navigation still works after a change
+- **Version comparison:** see what changed between releases
+- **Audit trail:** see who changed what, and when
+- **Compliance:** keep a history for rules that require one
+
+### Production Support
+- **Quick fixes:** bring back a configuration that worked
+- **Incidents:** roll back a change that caused a problem
+- **Switching:** move between two navigation versions
+- **Speed:** compare different tree structures
+
+</div>
 
 ---
 
@@ -330,32 +392,60 @@ Content-Type: application/json
 
 ## Limitations
 
-### ⚠️ Storage Considerations
-- **JSONB storage** - Large trees = larger snapshots
-- **Version accumulation** - Consider cleanup policies
-- **Backup impact** - Include in database backups
+Big trees take more space and longer to restore. Only one person can edit a tree at a time.
 
-### ⚠️ Performance Notes
-- **Large hierarchies** - Restoration time scales with size
-- **Frequent saves** - More versions = larger history table
-- **Concurrent edits** - Only one user can edit at a time
+<div data-technical>
 
-### ⚠️ Current Constraints
-- **Single tree focus** - Versions per tree, not per userinterface
-- **No branching** - Linear version history (no Git-style branches)
-- **No diffs** - Can't see exact changes between versions
+### Storage Considerations
+- **Large trees make large snapshots.** Each version is stored in full.
+- **Old versions pile up.** Plan to clear them out from time to time.
+- **Backups grow.** The history is part of the database backup.
+
+**JSONB storage** - Large trees = larger snapshots
+**Version accumulation** - Consider cleanup policies
+**Backup impact** - Include in database backups
+
+### Performance Notes
+- **Big trees take longer to restore.**
+- **Many saves mean a bigger history.**
+- **Only one person can edit at a time.**
+
+**Large hierarchies** - Restoration time scales with size
+**Frequent saves** - More versions = larger history table
+**Concurrent edits** - Only one user can edit at a time
+
+### Current Constraints
+- The history is kept per tree, not for the whole interface.
+- There are no branches. The history is one straight line.
+- You cannot see the exact differences between two versions.
+
+**Single tree focus** - Versions per tree, not per userinterface
+**No branching** - Linear version history (no Git-style branches)
+**No diffs** - Can't see exact changes between versions
+
+</div>
 
 ---
 
 ## Configuration
 
+Nothing needs to be set. The history works as soon as you save.
+
+<div data-technical>
+
 ### Environment Variables
+
+None are needed.
+
 ```bash
 # No special configuration needed
 # Uses existing database and API setup
 ```
 
 ### Database Cleanup (Optional)
+
+You can delete the oldest versions to save space. Keep the last 50 per tree.
+
 ```sql
 -- Remove old versions (keep last 50 per tree)
 DELETE FROM navigation_trees_history
@@ -369,28 +459,30 @@ WHERE id IN (
 );
 ```
 
+</div>
+
 ---
 
 ## Getting Started
 
 ### 1. Enable Version History
+The history is already on. It starts working as soon as you save.
+
+<div data-technical>
+
 ```bash
 # Already enabled - works automatically on save
 ```
 
-### 2. View Version History
-1. Open navigation tree editor
-2. Click **"History"** button
-3. Browse available versions
-4. Click **restore icon** to restore
+</div>
 
-### 3. Restore a Version
-1. Select target version
-2. Click restore (🔄 icon)
-3. Confirm restoration
-4. Tree reloads with restored version
+### 2. View and Restore a Version
+Click **History** in the tree editor, pick a version and click restore. Confirm, and the tree reloads.
 
-### 4. Monitor Usage
+### 3. Monitor Usage
+
+<div data-technical>
+
 ```sql
 -- Check version history usage
 SELECT
@@ -403,29 +495,35 @@ GROUP BY tree_id
 ORDER BY versions DESC;
 ```
 
+</div>
+
 ---
 
 ## Troubleshooting
 
-### Version Not Appearing
-- **Check saves** - Only completed saves create versions
-- **Verify permissions** - Ensure write access to database
-- **Check errors** - Look for save failures in logs
+A version is only made by a save that completes. If a restore fails, check that nobody else has the tree locked.
 
-### Restoration Failed
-- **Check database** - Ensure target version exists
-- **Verify permissions** - Confirm write access
-- **Check conflicts** - Ensure tree not locked by others
+<div data-technical>
+
+### Version Not Appearing
+- **Check the save:** only a completed save creates a version.
+- **Check your access:** you need permission to write to the database.
+- **Check the logs:** look for save errors.
+
+### Restore Failed
+- **Check the version:** make sure the target version still exists.
+- **Check your access:** confirm you can write to the database.
+- **Check for locks:** make sure nobody else has the tree locked.
 
 ### Performance Issues
-- **Large trees** - Consider breaking into smaller hierarchies
-- **Many versions** - Implement cleanup policies
-- **Concurrent access** - Avoid simultaneous edits
+- **Large trees:** split them into smaller hierarchies.
+- **Many versions:** set up a cleanup.
+- **Several editors:** avoid editing at the same time.
+
+</div>
 
 ---
 
-**Navigation trees are now fully version controlled with complete restoration capabilities!** 🎯📚
+**Navigation trees are now fully version controlled, with complete restoration.**
 
-**Perfect for:** Complex navigation testing, team collaboration, change management, and never losing work again.</content>
-
-<parameter name="file_path">docs/features/README.md
+**Good for:** complex navigation testing, teamwork, change control, and never losing work.

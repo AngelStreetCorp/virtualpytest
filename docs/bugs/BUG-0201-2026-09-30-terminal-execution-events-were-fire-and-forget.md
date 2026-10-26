@@ -9,7 +9,7 @@
 | Severity  | Low — reliability/observability hardening, no known live failure   |
 | Status    | Fixed (pending deploy)                                            |
 | Area      | `backend_host/src/lib/utils/execution_event_utils.py`             |
-| Fixed in  | Unreleased                                                        |
+| Fixed in  | build 90145 |
 | Related   | [BUG-0151](BUG-0151-2026-09-21-host-execution-events-rejected-401-since-server-lockdown.md), [BUG-0199](BUG-0199-2026-09-30-three-more-host-callbacks-swallow-401.md) |
 | Commit    | this commit                                                       |
 

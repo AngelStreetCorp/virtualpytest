@@ -19,6 +19,7 @@ import { InfraredRemote } from './InfraredRemote';
 import { NintendoSwitchRemote } from './NintendoSwitchRemote';
 import { StreamSourceRemote } from './StreamSourceRemote';
 import { TelloRemote } from './TelloRemote';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 // Header titles for panels that have no remote config (a config's
 // remote_info.name wins). Without one the header falls back to "<model> Remote".
@@ -198,8 +199,15 @@ export const RemotePanel = React.memo(
     // "no BLE remote active" — we render nothing. This is slightly coupled
     // to one specific child but it avoids duplicating useBluetoothRemote's
     // D-Bus polling in two places.
+    //
+    // `bleDotBlink` is true while the link is being woken or recovered.
+    // We use it to play a soft opacity pulse on the dot (see the header
+    // dot sx below) so the operator sees motion, not just a static amber
+    // colour. The previous "Waking STB…" inline badge used to do this
+    // job — it's gone now (BUG-0420 history).
     const [bleDotColor, setBleDotColor] = useState<string | null>(null);
     const [bleDotTooltip, setBleDotTooltip] = useState<string>('');
+    const [bleDotBlink, setBleDotBlink] = useState<boolean>(false);
 
     // Calculate dimensions inline - no state, no useEffects
     const collapsedWidth = panelLayout.collapsed.width;
@@ -454,6 +462,31 @@ export const RemotePanel = React.memo(
               }}
             />
           );
+        // Samsung Tizen TV over the network websocket remote (samsung_tizen controller).
+        // Reuses the Samsung remote picture; keys go to the host's 'samsung_tizen' remote
+        // (samsungtvws over ws/8002) instead of an IR transmitter. Camera provides the pixels.
+        case 'samsung_tizen':
+          return (
+            <InfraredRemote
+              host={host}
+              deviceId={deviceId}
+              isConnected={isConnected}
+              isCollapsed={isCollapsed}
+              streamContainerDimensions={stableStreamContainerDimensions}
+              remoteType="samsung_tizen"
+              irType="samsung"
+              onStatusChange={(color, tooltip) => {
+                setBleDotColor(color);
+                setBleDotTooltip(tooltip);
+              }}
+              sx={{
+                height: '100%',
+                '& .MuiButton-root': {
+                  fontSize: isCollapsed ? '0.6rem' : '0.7rem',
+                },
+              }}
+            />
+          );
         // Fire TV on Vega OS (TASK-57): the Fire TV remote picture, keys sent to the
         // host's 'vega' remote (inputd-cli over adb) instead of an IR transmitter.
         case 'vega':
@@ -486,9 +519,10 @@ export const RemotePanel = React.memo(
               isConnected={isConnected}
               isCollapsed={isCollapsed}
               streamContainerDimensions={stableStreamContainerDimensions}
-              onStatusChange={(color, tooltip) => {
+              onStatusChange={(color, tooltip, blink) => {
                 setBleDotColor(color);
                 setBleDotTooltip(tooltip);
+                setBleDotBlink(blink);
               }}
               sx={{
                 height: '100%',
@@ -667,9 +701,23 @@ export const RemotePanel = React.memo(
                       height: 10,
                       borderRadius: '50%',
                       bgcolor: bleDotColor,
+                      // Glow softens with the opacity pulse so the dot
+                      // really feels "alive" while waking / re-linking,
+                      // not just a static amber circle.
                       boxShadow: `0 0 4px ${bleDotColor}`,
                       border: '1px solid rgba(0,0,0,0.4)',
                       flexShrink: 0,
+                      // 1.1s is slow enough to read as a heartbeat, not
+                      // a flicker. opacity-floor 0.35 keeps the dot
+                      // recognisable at the bottom of the pulse — if it
+                      // dropped to 0 you'd lose the colour cue.
+                      '@keyframes bleDotBlink': {
+                        '0%, 100%': { opacity: 1 },
+                        '50%': { opacity: 0.35 },
+                      },
+                      animation: bleDotBlink
+                        ? 'bleDotBlink 1.1s ease-in-out infinite'
+                        : 'none',
                     }}
                   />
                 </Tooltip>
@@ -710,9 +758,9 @@ export const RemotePanel = React.memo(
                     sx={{ color: 'inherit', p: 0.25 }}
                   >
                     {isCollapsed ? (
-                      <FullscreenIcon sx={{ fontSize: 14 }} />
+                      <FullscreenIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                     ) : (
-                      <CloseFullscreen sx={{ fontSize: 14 }} />
+                      <CloseFullscreen sx={{ fontSize: TYPOGRAPHY.body.size }} />
                     )}
                   </IconButton>
                 </Tooltip>

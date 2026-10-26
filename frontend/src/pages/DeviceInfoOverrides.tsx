@@ -1,5 +1,7 @@
+import { DeviceFavoriteGroupHeader } from '../components/common/DeviceFavoriteGroupHeader';
+import { DeviceFavoriteStar } from '../components/common/DeviceFavoriteStar';
+import { DeviceMaintenanceBadge } from '../components/common/DeviceMaintenanceBadge';
 import {
-  Save as SaveIcon,
   OpenInNew as OpenInNewIcon,
 } from '@mui/icons-material';
 import {
@@ -31,10 +33,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom';
 
 import { useWorkspaceContext } from '../contexts/workspace/WorkspaceContext';
+import { useDeviceFavorites } from '../hooks/useDeviceFavorites';
 import { useHostData } from '../hooks/useHostManager';
 import { useToast } from '../hooks/useToast';
 import { api } from '../utils/apiClient';
 import { buildServerUrl } from '../utils/buildUrlUtils';
+import { TYPOGRAPHY } from '../constants/typography';
 
 // 'device' = OCR device info (metadata->'info'); 'gateway' = gw_info network
 // environment (flat metadata). Same override table/routes, distinguished by source.
@@ -61,6 +65,7 @@ interface DeviceReport {
 }
 
 interface DeviceOption {
+  device_id?: string;
   device_name: string;
   host_name: string;
   device_info: Record<string, string>;
@@ -84,6 +89,7 @@ const DeviceInfoOverrides: React.FC = () => {
   // Both sources re-run this memo on change: a server switch swaps the host list,
   // a workspace switch swaps the `isDeviceAllowed` identity.
   const allDevices = useMemo(() => getAllDevices(), [getAllDevices]);
+  const favorites = useDeviceFavorites();
   const scopedDevices = useMemo(
     () => allDevices.filter((d) => isDeviceAllowed(d.hostName || '', d.device_id)),
     [allDevices, isDeviceAllowed],
@@ -97,6 +103,7 @@ const DeviceInfoOverrides: React.FC = () => {
       scopedDevices
         .filter((d) => hasKeys(d.device_info) || hasKeys(d.gateway_info))
         .map((d) => ({
+          device_id: d.device_id,
           device_name: d.device_name,
           host_name: d.hostName || '',
           device_info: (d.device_info as Record<string, string>) || {},
@@ -116,6 +123,13 @@ const DeviceInfoOverrides: React.FC = () => {
     const hn = searchParams.get('host_name');
     return dn && hn ? keyOf(dn, hn) : '';
   });
+  // Remember the cold-load deep link so the auto-select effect below does not
+  // re-fill the empty state after the drop-scope effect clears a now-stale link.
+  const hasInitialDeepLink = useMemo(() => {
+    const dn = searchParams.get('device_name');
+    const hn = searchParams.get('host_name');
+    return !!(dn && hn);
+  }, [searchParams]);
   const [source, setSource] = useState<InfoSource>(
     () => (searchParams.get('tab') === 'gateway' ? 'gateway' : 'device'),
   );
@@ -156,6 +170,19 @@ const DeviceInfoOverrides: React.FC = () => {
     if (scopedDevices.some((d) => keyOf(d.device_name, d.hostName || '') === selected)) return;
     setSelected('');
   }, [allDevices, scopedDevices, selected]);
+
+  // Auto-select the first device once the host list has loaded and no deep link
+  // pre-selected one. The drop-scope effect above clears `selected` for stale
+  // deep links — this one fills the empty state on a cold load so the page
+  // never lands on an empty dropdown. Uses the same alphabetical/favorites order
+  // the Select renders, so the highlighted row matches what's visible.
+  useEffect(() => {
+    if (selected || hasInitialDeepLink || allDevices.length === 0 || devices.length === 0) return;
+    const first =
+      devices.find((d) => !!d.device_id && favorites.isFavorite(d.host_name, d.device_id)) ||
+      devices[0];
+    setSelected(keyOf(first.device_name, first.host_name));
+  }, [selected, hasInitialDeepLink, allDevices, devices, favorites]);
 
   // Dropdown options: provider devices, plus a synthetic entry for a deep-linked
   // device not yet in the host list (keeps the Select value valid while /keys loads).
@@ -320,25 +347,47 @@ const DeviceInfoOverrides: React.FC = () => {
               onChange={handleSelect}
               displayEmpty
               input={<OutlinedInput notched label="Device" />}
+              sx={{ '& .MuiSelect-select .MuiIconButton-root': { display: 'none' } }}
             >
               {options.length === 0 && (
                 <MenuItem value="" disabled>
                   No devices with info
                 </MenuItem>
               )}
-              {options.map((d) => {
-                // Host names of the form `<device>_Host` (auto-derived from the
-                // device) just duplicate the device name — show device alone.
-                const redundantHost = d.host_name === `${d.device_name}_Host`;
-                return (
-                  <MenuItem
-                    key={keyOf(d.device_name, d.host_name)}
-                    value={keyOf(d.device_name, d.host_name)}
-                  >
-                    {redundantHost ? d.device_name : `${d.device_name} — ${d.host_name}`}
-                  </MenuItem>
-                );
-              })}
+              {(() => {
+                const isFav = (d: DeviceOption) => !!d.device_id && favorites.isFavorite(d.host_name, d.device_id);
+                const renderOption = (d: DeviceOption) => {
+                  // Host names of the form `<device>_Host` (auto-derived from the
+                  // device) just duplicate the device name — show device alone.
+                  const redundantHost = d.host_name === `${d.device_name}_Host`;
+                  return (
+                    <MenuItem
+                      key={keyOf(d.device_name, d.host_name)}
+                      value={keyOf(d.device_name, d.host_name)}
+                    >
+                      {redundantHost ? d.device_name : `${d.device_name} — ${d.host_name}`}
+                      <DeviceMaintenanceBadge hostName={d.host_name} deviceName={d.device_name} size={14} />
+                      {d.device_id && (
+                        <span style={{ marginLeft: 'auto', paddingLeft: 8, display: 'flex' }}>
+                          <DeviceFavoriteStar hostName={d.host_name} deviceId={d.device_id} />
+                        </span>
+                      )}
+                    </MenuItem>
+                  );
+                };
+                const favoriteOptions = options.filter(isFav);
+                const otherOptions = options.filter((d) => !isFav(d));
+                return [
+                  ...(favoriteOptions.length > 0
+                    ? [
+                        <DeviceFavoriteGroupHeader key="__favorites" kind="favorites" />,
+                        ...favoriteOptions.map(renderOption),
+                        ...(otherOptions.length > 0 ? [<DeviceFavoriteGroupHeader key="__all" kind="all" />] : []),
+                      ]
+                    : []),
+                  ...otherOptions.map(renderOption),
+                ];
+              })()}
             </Select>
           </FormControl>
 
@@ -348,7 +397,7 @@ const DeviceInfoOverrides: React.FC = () => {
               href={selectedReport.report_url}
               target="_blank"
               rel="noopener noreferrer"
-              sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, fontSize: '0.875rem' }}
+              sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5, fontSize: TYPOGRAPHY.body.size }}
             >
               <OpenInNewIcon fontSize="small" />
               View source report
@@ -392,11 +441,11 @@ const DeviceInfoOverrides: React.FC = () => {
             >
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ fontWeight: 'bold', width: '20%' }}>Field</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold', width: '28%' }}>{rawHeader}</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold', width: '26%' }}>Corrected value</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold', width: '12%' }}>Flags</TableCell>
-                  <TableCell sx={{ fontWeight: 'bold', width: '14%' }} align="right">
+                  <TableCell sx={{ fontWeight: 'bold', width: '20%', fontSize: TYPOGRAPHY.caption.size }}>Field</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', width: '28%', fontSize: TYPOGRAPHY.caption.size }}>{rawHeader}</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', width: '26%', fontSize: TYPOGRAPHY.caption.size }}>Corrected value</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', width: '12%', fontSize: TYPOGRAPHY.caption.size }}>Flags</TableCell>
+                  <TableCell sx={{ fontWeight: 'bold', width: '14%', fontSize: TYPOGRAPHY.caption.size }} align="right">
                     Actions
                   </TableCell>
                 </TableRow>
@@ -408,19 +457,19 @@ const DeviceInfoOverrides: React.FC = () => {
                   const dirty = draft !== (row.effective_value ?? '');
                   return (
                     <TableRow key={row.info_key}>
-                      <TableCell sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{row.info_key}</TableCell>
+                      <TableCell sx={{ fontFamily: 'monospace', wordBreak: 'break-all', fontSize: TYPOGRAPHY.caption.size, py: 0.75 }}>{row.info_key}</TableCell>
                       <TableCell
-                        sx={{ fontFamily: 'monospace', color: 'text.secondary', wordBreak: 'break-all' }}
+                        sx={{ fontFamily: 'monospace', color: 'text.secondary', wordBreak: 'break-all', fontSize: TYPOGRAPHY.caption.size, py: 0.75 }}
                       >
                         {row.raw_value}
                       </TableCell>
-                      <TableCell>
+                      <TableCell sx={{ py: 0.5 }}>
                         <TextField
                           size="small"
                           fullWidth
                           value={draft}
                           onChange={(e) => setDraft(row.info_key, e.target.value)}
-                          InputProps={{ sx: { fontFamily: 'monospace' } }}
+                          InputProps={{ sx: { fontFamily: 'monospace', fontSize: TYPOGRAPHY.caption.size } }}
                         />
                       </TableCell>
                       <TableCell>
@@ -430,7 +479,7 @@ const DeviceInfoOverrides: React.FC = () => {
                               size="small"
                               color="primary"
                               label="overridden"
-                              sx={{ height: 18, fontSize: '0.65rem', '& .MuiChip-label': { px: 0.75 } }}
+                              sx={{ height: 18, fontSize: TYPOGRAPHY.microMeta.size, '& .MuiChip-label': { px: 0.75 } }}
                             />
                           )}
                           {row.override_stale && (
@@ -439,20 +488,20 @@ const DeviceInfoOverrides: React.FC = () => {
                                 size="small"
                                 color="error"
                                 label="stale"
-                                sx={{ height: 18, fontSize: '0.65rem', '& .MuiChip-label': { px: 0.75 } }}
+                                sx={{ height: 18, fontSize: TYPOGRAPHY.microMeta.size, '& .MuiChip-label': { px: 0.75 } }}
                               />
                             </Tooltip>
                           )}
                         </Stack>
                       </TableCell>
                       <TableCell align="right">
-                        <Stack direction="row" spacing={1} justifyContent="flex-end">
+                        <Stack direction="row" spacing={0.5} justifyContent="flex-end">
                           <Button
                             size="small"
                             variant="contained"
-                            startIcon={<SaveIcon fontSize="small" />}
                             disabled={busy || !dirty}
                             onClick={() => save(row)}
+                            sx={{ minWidth: 0, px: 1, fontSize: TYPOGRAPHY.caption.size }}
                           >
                             Save
                           </Button>
@@ -461,6 +510,7 @@ const DeviceInfoOverrides: React.FC = () => {
                             color="inherit"
                             disabled={busy || !row.is_overridden}
                             onClick={() => clear(row)}
+                            sx={{ minWidth: 0, px: 1, fontSize: TYPOGRAPHY.caption.size }}
                           >
                             Clear
                           </Button>
@@ -483,33 +533,42 @@ const DeviceInfoOverrides: React.FC = () => {
           </TableContainer>
 
           {/* Final-state screenshot from the source scan, so the operator can see
-              the screen these values came from. */}
-          {selectedReport?.final_screenshot_url && (
-            <Paper sx={{ p: 2, mt: 2 }}>
-              <Typography variant="subtitle2" gutterBottom>
-                Final state (source screenshot)
-              </Typography>
-              <Link
-                href={selectedReport.final_screenshot_url}
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                <Box
-                  component="img"
-                  src={selectedReport.final_screenshot_url}
-                  alt="Final state screenshot from the scan"
-                  sx={{
-                    maxWidth: '100%',
-                    maxHeight: 480,
-                    borderRadius: 1,
-                    border: '1px solid',
-                    borderColor: 'divider',
-                    display: 'block',
-                  }}
-                />
-              </Link>
-            </Paper>
-          )}
+              the screen these values came from. Prefer `final_screenshot_url` and
+              fall back to `initial_screenshot_url`; if neither is set, or the
+              image fails to load (broken/missing asset on the host), hide the
+              panel entirely instead of leaving a broken-image icon on the page. */}
+          {(() => {
+            const url =
+              selectedReport?.final_screenshot_url || selectedReport?.initial_screenshot_url;
+            if (!url) return null;
+            return (
+              <Paper sx={{ p: 2, mt: 2 }}>
+                <Typography variant="subtitle2" gutterBottom>
+                  Final state (source screenshot)
+                </Typography>
+                <Link href={url} target="_blank" rel="noopener noreferrer">
+                  <Box
+                    component="img"
+                    src={url}
+                    alt="Final state screenshot from the scan"
+                    onError={(e) => {
+                      // Asset missing on the host — drop the whole panel so we
+                      // don't leave a broken-image icon next to a working link.
+                      (e.currentTarget as HTMLImageElement).closest('a')?.remove();
+                    }}
+                    sx={{
+                      maxWidth: '100%',
+                      maxHeight: 480,
+                      borderRadius: 1,
+                      border: '1px solid',
+                      borderColor: 'divider',
+                      display: 'block',
+                    }}
+                  />
+                </Link>
+              </Paper>
+            );
+          })()}
         </>
       )}
     </Box>

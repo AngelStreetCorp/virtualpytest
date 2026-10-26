@@ -17,6 +17,32 @@ from agent.registry import (
 from shared.src.lib.ai import router as ai_router, usages as ai_usages
 
 
+def _resolve_agent_chain(agent_id: str) -> list[dict]:
+    """The full model chain (primary first, then fallbacks) serving this agent.
+
+    Powers the Atlas UI model picker: the dropdown lists every hop so a user can
+    pin Atlas to one model and skip the fallback chain for the rest of the session.
+    Empty list when the agent has no route yet (e.g. before AI settings are saved).
+    """
+    try:
+        resolution = ai_router.resolve(ai_usages.agent_usage(agent_id))
+    except Exception:
+        return []
+    chain: list[dict] = []
+    for index, hop in enumerate(resolution.hops):
+        chain.append({
+            "profile_id": str(hop.profile.get("id")),
+            "profile_name": hop.profile_name,
+            "endpoint_name": hop.endpoint_name,
+            "preset": hop.preset,
+            "model": hop.model,
+            "reach": hop.reach,
+            "role": "primary" if index == 0 else "fallback",
+            "fallback_index": 0 if index == 0 else index,
+        })
+    return chain
+
+
 def _resolve_agent_model(agent_id: str) -> Optional[str]:
     """The model serving this agent's usage (server default routing, TASK-30)."""
     try:
@@ -27,7 +53,11 @@ def _resolve_agent_model(agent_id: str) -> Optional[str]:
 
 def _agent_to_dict_with_model(agent: AgentDefinition) -> dict:
     data = agent.to_dict()
-    data['model'] = _resolve_agent_model(agent.metadata.id)
+    chain = _resolve_agent_chain(agent.metadata.id)
+    data['model'] = chain[0]['model'] if chain else None
+    # `model_chain` is the full hop list (primary + fallbacks) so the UI can let the
+    # user pick one. Empty list = no route yet; the page degrades to the static label.
+    data['model_chain'] = chain
     return data
 
 # Create blueprint

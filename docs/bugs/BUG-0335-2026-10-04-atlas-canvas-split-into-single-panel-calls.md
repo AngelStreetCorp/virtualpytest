@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                     |
 | Severity  | Medium — two of three requested charts were lost |
 | Area      | frontend/src/pages/AgentChat.tsx, backend_server/src/mcp/tools/analytics_tools.py, backend_server/src/agent/core/manager.py |
-| Fixed in  | Unreleased                                 |
+| Fixed in  | build 90145 |
 | Commit    | see branch task43-w10-canvas-merge         |
 
 ---

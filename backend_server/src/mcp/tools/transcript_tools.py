@@ -1,7 +1,7 @@
 """
 Transcript Tools - Audio transcript retrieval
 
-Reads the Whisper transcript a host's vpt-transcript service wrote for a device, and says
+Reads the Whisper transcript a host's vpt-monitor-audio service wrote for a device, and says
 why it is empty when it is (service off, transcription disabled, no audio, silence, no
 speech, or a real failure). Server -> host goes through the auto proxy
 (/server/transcript/status -> /host/transcript/status, call_host()).

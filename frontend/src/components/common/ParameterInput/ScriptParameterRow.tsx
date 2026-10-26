@@ -17,6 +17,7 @@ import { UserinterfaceSelector } from '../UserinterfaceSelector';
 import { VariantSelector } from '../VariantSelector';
 import { EdgeKpiSelector } from '../EdgeKpiSelector';
 import { NavigationNodeSelector } from '../NavigationNodeSelector';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 export interface ScriptParameterRowParam {
   name: string;
@@ -293,12 +294,12 @@ export const ScriptParameterRow: React.FC<ScriptParameterRowProps> = ({
     return (
       <Box key={param.name} sx={{ flexShrink: 0, width: fieldWidth, minWidth: fieldWidth }}>
         <FormControl size="small" fullWidth>
-          <InputLabel sx={{ fontSize: '0.75rem' }}>{param.name}</InputLabel>
+          <InputLabel sx={{ fontSize: TYPOGRAPHY.caption.size }}>{param.name}</InputLabel>
           <Select
             value={value || param.default || ''}
             label={param.name}
             onChange={(e) => onChange(e.target.value as string)}
-            sx={{ fontSize: '0.75rem' }}
+            sx={{ fontSize: TYPOGRAPHY.caption.size }}
           >
             {param.choices!.map((choice) => (
               <MenuItem key={choice} value={choice}>{choice}</MenuItem>
@@ -321,7 +322,7 @@ export const ScriptParameterRow: React.FC<ScriptParameterRowProps> = ({
             />
           }
           label={param.name}
-          slotProps={{ typography: { variant: 'caption', sx: { fontSize: '0.7rem' } } }}
+          slotProps={{ typography: { variant: 'caption', sx: { fontSize: TYPOGRAPHY.caption.size } } }}
           sx={{ mx: 0, gap: 0.25 }}
         />
       </Box>
@@ -340,8 +341,8 @@ export const ScriptParameterRow: React.FC<ScriptParameterRowProps> = ({
         onChange={(e) => onChange(e.target.value)}
         error={!!param.required && !value.trim()}
         fullWidth
-        inputProps={{ style: { fontSize: '0.75rem' }, ...(param.dataType === 'int' ? { step: 1 } : param.dataType === 'float' ? { step: 0.1 } : {}) }}
-        InputLabelProps={{ style: { fontSize: '0.75rem' } }}
+        inputProps={{ style: { fontSize: TYPOGRAPHY.caption.size }, ...(param.dataType === 'int' ? { step: 1 } : param.dataType === 'float' ? { step: 0.1 } : {}) }}
+        InputLabelProps={{ style: { fontSize: TYPOGRAPHY.caption.size } }}
         InputProps={isPasswordField ? {
           endAdornment: (
             <InputAdornment position="end">
@@ -351,7 +352,7 @@ export const ScriptParameterRow: React.FC<ScriptParameterRowProps> = ({
                 edge="end"
                 sx={{ p: 0.25 }}
               >
-                {showPassword ? <VisibilityOff sx={{ fontSize: '0.9rem' }} /> : <Visibility sx={{ fontSize: '0.9rem' }} />}
+                {showPassword ? <VisibilityOff sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} /> : <Visibility sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />}
               </IconButton>
             </InputAdornment>
           ),

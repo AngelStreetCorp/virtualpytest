@@ -7,36 +7,58 @@ the ordinary RTSP/stream AV controller (DEVICE{i}_VIDEO=udp://0.0.0.0:<video_por
 controller is the command side.
 
 Every command that moves the drone goes through `SafetyGuard` (shared/src/lib/drone/safety.py)
-before it is sent: height ceiling, geofence, battery floor, temperature, separation from the
+before it is sent: height ceiling, geofence, battery floor, separation from the
 other drone. A guard refusal returns `success: False` and sends nothing. The guard may also
 clip a move; the clipped command is what is sent and what dead reckoning records.
 
 Link behaviour:
-  - the UDP link (command socket + state listener) is opened on the first command, not at
-    construction. vpt-host builds this controller at startup and a script subprocess builds its
-    own; only the process that actually flies binds the state port.
+  - the UDP link (command socket + state listener) is opened by pairing (`link`) or the first
+    command, not at construction, and then stays open while the drone is landed, so the state
+    datagrams (battery, temperature, speed) keep flowing to the device tile.
+  - every command leaves from ONE fixed local port (8889): a Tello only answers the address:port
+    that sent its first `command` after power-on (see shared/src/lib/drone/tello.py). Both sockets
+    use SO_REUSEADDR, so a script process can bind the same ports while vpt-host holds them.
+  - a landed drone whose state went silent (powered off and on again) gets `command` again
+    before the next command is sent.
   - a flying Tello lands by itself after 15 s without a command, so a keepalive runs while
     airborne (TelloClient.start_keepalive).
   - a command that times out is retried once; if it still fails the drone is landed.
   - battery at or below the land floor while airborne lands the drone.
+  - every wait on the drone runs off the gevent hub (`_off_hub`, BUG-0511): vpt-host is not
+    monkey-patched, so a blocking recv on the request greenlet would freeze the whole host.
+    get_telemetry reads without the lock; an rc frame behind a command in flight is dropped as busy.
 
 execute_command surface (route /host/remote/executeCommand and action executor):
   takeoff | land | emergency
   move      {direction: forward|back|left|right|up|down, cm: 20..500}
   rotate    {direction: cw|ccw, deg: 1..360}
+  rc        {lr, fb, ud, yaw: -100..100}  joystick; no reply, sent ~10 Hz while a stick is held,
+                                          {0,0,0,0} on release (guard caps it, see _check_rc)
   sdk       {cmd: '<raw SDK text>'}      still guarded
   configure {room_w, room_d, max_h, x, y, yaw, ...}   geofence + start spot for this run
   get_telemetry
+  link                                  (re)enter SDK mode + streamon; used by pairing
   press_key {key: UP|DOWN|LEFT|RIGHT|OK|BACK}
 `emergency` cuts the motors (the drone drops); it is never sent automatically.
+
+Paired drone: the pairing flow remembers the SSID it joined per device in
+``~/.config/virtualpytest/tello_paired.json`` (reported as ``ssid`` by get_status), so the
+device preview's automatic scan keeps re-joining that drone after a restart. The device name
+is always DEVICE{i}_NAME.
 """
 
+import json
+import os
 import threading
 import time
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from ..base_controller import RemoteControllerInterface
 from shared.src.lib.drone.telemetry_log import TelemetryLogger
+from shared.src.lib.drone import telemetry_status
+from shared.src.lib.drone.command_log import CommandLog
+from backend_host.src.lib.utils.gevent_utils import off_hub as _off_hub
 
 MOVE_DIRECTIONS = ('forward', 'back', 'left', 'right', 'up', 'down')
 ROTATE_DIRECTIONS = ('cw', 'ccw')
@@ -50,6 +72,40 @@ KEY_MAP: Dict[str, Dict[str, Any]] = {
     'OK': {'command': 'takeoff', 'params': {}},
     'BACK': {'command': 'land', 'params': {}},
 }
+
+def _paired_store_path() -> Path:
+    # Outside the project tree: deploys rsync --delete it (same rule as ai_secrets.json).
+    base = os.getenv("VPT_CONFIG_DIR", "").strip() or "~/.config/virtualpytest"
+    return Path(base).expanduser() / "tello_paired.json"
+
+
+def _read_paired() -> Dict[str, str]:
+    try:
+        data = json.loads(_paired_store_path().read_text())
+    except (FileNotFoundError, ValueError):
+        return {}
+    return {str(k): str(v) for k, v in data.items()} if isinstance(data, dict) else {}
+
+
+# A landed drone whose state datagrams stopped this long ago is re-sent `command` first.
+STATE_STALE_S = 5.0
+# A landed drone silent this long (no state datagram) is gone for the tile: not connected.
+LINK_DEAD_S = 10.0
+
+# vpt-host serves Flask-SocketIO on gevent WITHOUT monkey patching, so a blocking UDP recv on a
+# request thread stops every other request (stream playlists included). Reads (get_telemetry,
+# status) therefore never link on the request path: they start a background link instead, at most
+# once per LINK_RETRY_S, and the handshake waits LINK_TIMEOUT_S, not the 10 s command timeout.
+LINK_RETRY_S = 10.0
+# State `h` (cm) at or below which the drone counts as on the floor (the Tello reads -10..0 landed).
+GROUND_H_CM = 10.0
+LINK_TIMEOUT_S = 4.0
+# An rc frame waits this long for the link before it is dropped as busy.
+RC_LOCK_WAIT_S = 0.5
+
+
+# State fields the device tile shows (battery, temperature, height, speed in dm/s).
+STATUS_TELEMETRY_KEYS = ('bat', 'templ', 'temph', 'h', 'tof', 'vgx', 'vgy', 'vgz')
 
 # SDK verbs that put the drone in the air or move it; everything else is a read or a setting.
 _FLIGHT_VERBS = ('takeoff', 'land', 'emergency', 'stop', 'rc') + MOVE_DIRECTIONS + ROTATE_DIRECTIONS
@@ -83,6 +139,7 @@ class TelloRemoteController(RemoteControllerInterface):
                  state_port: int = 8890,
                  video_port: int = 11111,
                  local_ip: str = '0.0.0.0',
+                 local_cmd_port: int = 8889,
                  name: str = 'tello',
                  room_w: float = 600,
                  room_d: float = 500,
@@ -93,6 +150,9 @@ class TelloRemoteController(RemoteControllerInterface):
                  keepalive_s: float = 5.0,
                  telemetry_log_interval_s: float = 0.2,
                  mission_pads: Optional[Dict[int, Tuple[float, float, float]]] = None,
+                 device_id: str = '',
+                 telemetry_status_dir: Optional[str] = None,
+                 command_log_dir: Optional[str] = None,
                  **kwargs):
         super().__init__(f"Tello {name}", "tello")
         self.tello_ip = tello_ip
@@ -100,7 +160,11 @@ class TelloRemoteController(RemoteControllerInterface):
         self.state_port = int(state_port)
         self.video_port = int(video_port)
         self.local_ip = local_ip
+        self.local_cmd_port = int(local_cmd_port)
         self.name = name
+        self.device_id = device_id
+        # SSID of the Tello last paired into this slot, if any (see module docstring).
+        self.paired_ssid: Optional[str] = _read_paired().get(device_id) if device_id else None
         self.keepalive_s = keepalive_s
         self.client = None
         self.guard = None
@@ -116,6 +180,11 @@ class TelloRemoteController(RemoteControllerInterface):
         self._telemetry_log_interval_s = float(telemetry_log_interval_s)
         self._telemetry_logger = None
         self.last_log_path: Optional[str] = None
+        # Bridge to the monitor (drone profile): telemetry_status.json in the device's metadata folder while the link is up.
+        self._status_dir_override = telemetry_status_dir
+        self._status_writer = None
+        # Driving history: every command sent (takeoff, land, move, rotate, rc changes, refused ones too), in memory and on disk.
+        self.command_log = CommandLog(name, device_id or name, log_dir=command_log_dir)
         # Optional Mission Pad layout (Tello Talent). Empty / None means the
         # pose is always dead-reckoned. The controller can also be reconfigured
         # at runtime via set_mission_pads().
@@ -125,6 +194,8 @@ class TelloRemoteController(RemoteControllerInterface):
             self._mission_pad_config = MissionPadConfig(pads=dict(mission_pads))
         self._peers: Callable[[], List[Any]] = lambda: []
         self._lock = threading.RLock()
+        self._linking = False
+        self._link_failed_at = 0.0
         self._configure(room_w=room_w, room_d=room_d, max_h=max_h,
                         x=start_x, y=start_y, yaw=start_yaw)
 
@@ -177,6 +248,19 @@ class TelloRemoteController(RemoteControllerInterface):
         if endpoint_changed and self.client is not None:
             self._release_link()
 
+    def set_paired_ssid(self, ssid: str) -> None:
+        """Remember which drone is in this slot (the device preview's scan sticks to it)."""
+        self.paired_ssid = ssid
+        if not self.device_id:
+            return
+        path = _paired_store_path()
+        paired = _read_paired()
+        paired[self.device_id] = ssid
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix('.tmp')
+        tmp.write_text(json.dumps(paired, indent=2))
+        tmp.replace(path)
+
     def set_peers(self, peers: Callable[[], List[Any]]) -> None:
         """Callable returning the other drones' dead-reckoned poses (separation guard)."""
         self._peers = peers  # the guard reads it through a late-bound lambda
@@ -193,10 +277,14 @@ class TelloRemoteController(RemoteControllerInterface):
 
     def disconnect(self) -> bool:
         """Land if airborne, then close the UDP link."""
+        return _off_hub(self._disconnect)
+
+    def _disconnect(self) -> bool:
         with self._lock:
             if self.client is not None and self.airborne:
                 self._land_quietly()
             if self.client is not None:
+                self._stop_status_bridge()
                 try:
                     self.client.stop_keepalive()
                     self.client.close()
@@ -208,21 +296,38 @@ class TelloRemoteController(RemoteControllerInterface):
 
     def _ensure_client(self) -> bool:
         if self.client is not None:
-            return True
+            if self.airborne or self.client.state_age_s() < STATE_STALE_S:
+                return True
+            # Landed and silent: the drone was switched off (and maybe on again). A Tello
+            # that rebooted ignores everything until it gets `command` again.
+            from shared.src.lib.drone.tello import TelloError
+            try:
+                self.client.enter_sdk(LINK_TIMEOUT_S)
+                self.client.send('streamon', 3.0)
+                self.last_error = None
+                self._start_status_bridge()
+                return True
+            except TelloError as e:
+                self.last_error = f"{self.tello_ip}:{self.cmd_port} not answering: {e}"
+                print(f"Remote[TELLO]: {self.last_error}")
+                self._release_link()
+                return False
         try:
             from shared.src.lib.drone.tello import TelloClient
             client = TelloClient(self.tello_ip, cmd_port=self.cmd_port, state_port=self.state_port,
-                                 local_ip=self.local_ip, name=self.name)
-            client.connect()
+                                 local_ip=self.local_ip, name=self.name,
+                                 local_cmd_port=self.local_cmd_port)
+            client.connect(LINK_TIMEOUT_S)
             # Video goes to the host port the vpt-stream ffmpeg listens on (DEVICE{i}_VIDEO).
             client.send_ok('streamon')
-            # First state datagram (~100 ms): the battery and temperature gates need it.
+            # First state datagram (~100 ms): the battery gate needs it.
             deadline = time.time() + 1.5
             while not client.state() and time.time() < deadline:
                 time.sleep(0.05)
             self.client = client
             self.is_connected = True
             self.last_error = None
+            self._start_status_bridge()
             print(f"Remote[TELLO]: {self.name} linked at {self.tello_ip}:{self.cmd_port} "
                   f"(state {self.state_port}, video {self.video_port})")
             return True
@@ -237,29 +342,53 @@ class TelloRemoteController(RemoteControllerInterface):
     def execute_command(self, command: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
         """Dispatcher for /host/remote/executeCommand and the action executor."""
         params = params or {}
-        if not command.startswith('get_'):
-            print(f"Remote[TELLO]: Executing command '{command}' with params: {params}")
+        if command == 'get_telemetry':
+            # A read: lock-free, so it never waits behind a command in flight.
+            return self._telemetry_result()
+        return _off_hub(self._execute, command, params)
+
+    def _execute(self, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        started = time.time()
+        result = self._execute_inner(command, params)
         try:
-            with self._lock:
+            self.command_log.record(command, params, result if isinstance(result, dict) else {}, started, self.airborne,
+                                    self._state(), self._pose_dict())
+        except Exception as e:   # the history must never break a flight command
+            print(f"Remote[TELLO]: command log failed: {e}")
+        return result
+
+    def _execute_inner(self, command: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        if not command.startswith('get_') and command != 'rc':
+            print(f"Remote[TELLO]: Executing command '{command}' with params: {params}")
+        # rc is sent ~10 Hz while a stick is held: wait briefly (another rc frame, so the release
+        # {0,0,0,0} is never lost), but drop it behind a takeoff/move rather than queue stale sticks.
+        if not self._lock.acquire(timeout=RC_LOCK_WAIT_S if command == 'rc' else -1):
+            return {'success': False, 'busy': True, 'error': 'busy: another command is in flight'}
+        try:
+            try:
                 if command == 'configure':
                     if self.airborne:
                         return {'success': False, 'error': 'cannot reconfigure while airborne'}
                     self._configure(**params)
                     return {'success': True}
-                if command == 'get_telemetry':
-                    return self._telemetry_result()
+                if command == 'link':
+                    if not self._ensure_client():
+                        return {'success': False, 'error': self.last_error or 'drone not reachable'}
+                    return {'success': True, 'telemetry': self._status_telemetry()}
                 if command == 'press_key':
                     return self._press_key(params.get('key'))
                 sdk = self._to_sdk(command, params)
                 if isinstance(sdk, dict):
                     return sdk
                 return self._send_guarded(sdk, emergency=sdk.split()[0].lower() == 'emergency')
-        except Exception as e:
-            # Anything unexpected: never leave the drone flying on an exception.
-            self.last_error = str(e)
-            print(f"Remote[TELLO]: ERROR in '{command}': {e}")
-            self._land_quietly()
-            return {'success': False, 'error': str(e)}
+            except Exception as e:
+                # Anything unexpected: never leave the drone flying on an exception.
+                self.last_error = str(e)
+                print(f"Remote[TELLO]: ERROR in '{command}': {e}")
+                self._land_quietly()
+                return {'success': False, 'error': str(e)}
+        finally:
+            self._lock.release()
 
     def press_key(self, key: str) -> bool:
         return bool(self.execute_command('press_key', {'key': key}).get('success'))
@@ -299,6 +428,12 @@ class TelloRemoteController(RemoteControllerInterface):
             if not 1 <= deg <= 360:
                 return {'success': False, 'error': f'deg {deg} out of range 1..360'}
             return f'{direction} {deg}'
+        if command == 'rc':
+            try:
+                values = [int(float(params.get(k, 0))) for k in ('lr', 'fb', 'ud', 'yaw')]
+            except (TypeError, ValueError):
+                return {'success': False, 'error': 'rc needs numbers lr, fb, ud, yaw'}
+            return 'rc ' + ' '.join(str(max(-100, min(100, v))) for v in values)
         if command == 'sdk':
             cmd = str(params.get('cmd', '')).strip()
             if not cmd:
@@ -322,7 +457,6 @@ class TelloRemoteController(RemoteControllerInterface):
             out: Dict[str, Any] = {'success': reply == 'ok', 'reply': reply}
             if log_path is not None:
                 out['log_path'] = log_path
-            self._release_link()
             return out
 
         # 'land' is always allowed; the guard must never be able to keep a drone in the air.
@@ -342,6 +476,15 @@ class TelloRemoteController(RemoteControllerInterface):
         else:
             cmd_to_send = cmd
 
+        if verb == 'rc':
+            # The Tello never answers `rc`; it holds the stick values until the next one.
+            self.client.send_no_reply(cmd_to_send)
+            self.commands_sent += 1
+            out_rc: Dict[str, Any] = {'success': True, 'sent': cmd_to_send}
+            if cmd_to_send != cmd:
+                out_rc['clipped_from'] = cmd
+            return out_rc
+
         timeout = self._timeout_for(verb)
         reply = None
         for attempt in (1, 2):
@@ -360,6 +503,14 @@ class TelloRemoteController(RemoteControllerInterface):
         out: Dict[str, Any] = {'success': ok, 'reply': reply, 'sent': cmd_to_send}
         if cmd_to_send != cmd:
             out['clipped_from'] = cmd
+        if not ok and verb == 'land' and self._grounded():
+            # The Tello answers `error` to `land` on the ground. The drone is down, which is what was
+            # asked: succeed, and drop the stale airborne/guard state so a new takeoff is accepted.
+            self._mark_grounded()
+            return {'success': True, 'reply': reply, 'sent': cmd_to_send, 'already_grounded': True,
+                    'message': 'Already on the ground', 'telemetry': self._state(), 'pose': self._pose_dict(),
+                    'output_data': {'reply': reply, 'sent': cmd_to_send, 'already_grounded': True,
+                                    'telemetry': self._state()}}
         if not ok:
             self.last_error = f"'{cmd_to_send}' -> {reply}"
             out['error'] = reply
@@ -379,15 +530,14 @@ class TelloRemoteController(RemoteControllerInterface):
             log_path = self._stop_telemetry_log()
             if log_path is not None:
                 out['log_path'] = str(log_path)
-            self._release_link()
         return out
 
     def _release_link(self) -> None:
-        """Close the UDP link of a landed drone. The state port is a single bind on the host, so the
-        process that flies next (vpt-host's remote panel, or a script) can only open it once this one
-        lets go; the next command re-links (and re-sends `command` + `streamon`)."""
+        """Close the UDP link (endpoint change, a drone that stopped answering, disconnect).
+        The next command re-links and re-sends `command` + `streamon`."""
         if self.client is None:
             return
+        self._stop_status_bridge()
         try:
             self.client.stop_keepalive()
             self.client.close()
@@ -591,6 +741,23 @@ class TelloRemoteController(RemoteControllerInterface):
             out['error'] = f'battery {bat}% at the land floor {self.limits.bat_land}%, landed'
             out['landed'] = True
 
+    def _grounded(self) -> bool:
+        """True when the state stream says the drone is on the floor (height at most GROUND_H_CM)."""
+        h = self._state().get('h')
+        try:
+            return h is not None and float(h) <= GROUND_H_CM
+        except (TypeError, ValueError):
+            return False
+
+    def _mark_grounded(self) -> None:
+        self.guard.apply('land')
+        self.airborne = False
+        try:
+            self.client.stop_keepalive()
+        except Exception as e:
+            print(f"Remote[TELLO]: stop_keepalive failed: {e}")
+        self._stop_telemetry_log()
+
     def _land_quietly(self) -> None:
         """Best effort land; used on any error. Never raises."""
         try:
@@ -609,6 +776,46 @@ class TelloRemoteController(RemoteControllerInterface):
         except Exception as e:
             print(f"Remote[TELLO]: land on error failed: {e}")
 
+    # ---------- bridge to the monitor ---------------------------------------
+
+    def _status_dir(self) -> Optional[str]:
+        if self._status_dir_override:
+            return self._status_dir_override
+        try:
+            from shared.src.lib.utils.storage_path_utils import get_capture_folder_from_device_id, get_metadata_path
+            return get_metadata_path(get_capture_folder_from_device_id(self.device_id))
+        except Exception:
+            return None   # no capture folder configured for this device: nothing for a monitor to read
+
+    def _status_sample(self) -> Optional[Dict[str, Any]]:
+        """telemetry_status.json content, or None when the drone has said nothing lately (the file then ages into "no telemetry")."""
+        client = self.client
+        if client is None or client.state_age_s() > telemetry_status.TELEMETRY_MAX_AGE_S:
+            return None
+        state = self._state()
+        return telemetry_status.build_status(state, self._pose_dict(), flying=self.airborne, source='tello') if state else None
+
+    def _start_status_bridge(self) -> None:
+        if self._status_writer is not None and self._status_writer.is_running:
+            return
+        folder = self._status_dir()
+        if not folder:
+            return
+        try:
+            from shared.src.lib.utils.monitor_profile import device_index_from_id
+            burn_in = telemetry_status.telemetry_burn_in(device_index_from_id(self.device_id))
+            self._status_writer = telemetry_status.TelemetryStatusWriter(folder, self._status_sample, burn_in=burn_in)
+            self._status_writer.start()
+        except Exception as e:
+            print(f"Remote[TELLO]: telemetry status bridge not started: {e}")
+            self._status_writer = None
+
+    def _stop_status_bridge(self) -> None:
+        writer, self._status_writer = self._status_writer, None
+        if writer is not None:
+            # one last record: a drone that landed and was released says flying false and is not a lost one
+            writer.stop(final=lambda st: dict(st, flying=bool(self.airborne)))
+
     # ---------- telemetry -------------------------------------------------
 
     def _state(self) -> Dict[str, Any]:
@@ -623,18 +830,71 @@ class TelloRemoteController(RemoteControllerInterface):
             return None
         return {'x': pose.x, 'y': pose.y, 'z': pose.z, 'yaw': pose.yaw_deg}
 
+    def _link_fresh(self) -> bool:
+        return self.client is not None and (self.airborne or self.client.state_age_s() < STATE_STALE_S)
+
     def _telemetry_result(self) -> Dict[str, Any]:
-        if not self._ensure_client():
-            return {'success': False, 'error': self.last_error or 'drone not reachable'}
+        # A read: never block the request thread on the drone (see LINK_RETRY_S).
+        if not self._link_fresh():
+            self.link_in_background()
+        if self.client is None:
+            return {'success': False, 'error': self.last_error or 'linking'}
         telemetry = self._state()
         data = {'telemetry': telemetry, 'pose': self._pose_dict(), 'airborne': self.airborne,
                 'guard_blocks': self.guard_blocks, 'commands_sent': self.commands_sent}
         return {'success': bool(telemetry), 'telemetry': telemetry, 'pose': data['pose'],
                 'airborne': self.airborne, 'output_data': data}
 
+    def _status_telemetry(self) -> Dict[str, Any]:
+        state = self._state()
+        return {k: state[k] for k in STATUS_TELEMETRY_KEYS if k in state}
+
+    def link_in_background(self) -> None:
+        """Open (or re-enter) the link on an OS thread, never on the request thread. At most one at a
+        time, and not again within LINK_RETRY_S of a failed one."""
+        if self._link_fresh() or self._linking or time.time() - self._link_failed_at < LINK_RETRY_S:
+            return
+        self._linking = True
+
+        def run():
+            try:
+                if not self.execute_command('link').get('success'):
+                    self._link_failed_at = time.time()
+            finally:
+                self._linking = False
+        self._link_failed_at = 0.0
+
+        threading.Thread(target=run, daemon=True, name=f"tello-link-{self.name}").start()
+
+    def link_alive(self) -> bool:
+        """The drone is really talking to us: airborne (the safety path owns that case) or state
+        datagrams fresher than LINK_DEAD_S. `linked` only says a UDP socket exists, and it stays
+        true after the drone is switched off."""
+        return self.client is not None and (self.airborne or self.client.state_age_s() < LINK_DEAD_S)
+
+    def drop_dead_link(self) -> bool:
+        """Release the UDP link of a landed drone that went silent (switched off, or the host's
+        Wi-Fi left its AP). Never while airborne, never while a command holds the lock."""
+        if self.client is None or self.airborne or self.link_alive():
+            return False
+        if not self._lock.acquire(blocking=False):
+            return False
+        try:
+            if self.client is None or self.airborne or self.link_alive():
+                return False
+            self.last_error = f"{self.tello_ip}:{self.cmd_port} not answering"
+            self._release_link()
+            return True
+        finally:
+            self._lock.release()
+
     def get_status(self) -> Dict[str, Any]:
+        age = self.client.state_age_s() if self.client is not None else None
         return {'success': True, 'linked': self.client is not None, 'airborne': self.airborne,
-                'ip': self.tello_ip, 'state_port': self.state_port, 'video_port': self.video_port,
+                'link_alive': self.link_alive(),
+                'telemetry': self._status_telemetry(),
+                'state_age_s': round(age, 1) if age is not None and age != float('inf') else None,
+                'ssid': self.paired_ssid, 'ip': self.tello_ip, 'state_port': self.state_port, 'video_port': self.video_port,
                 'last_error': self.last_error, 'pose': self._pose_dict(),
                 'last_log_path': self.last_log_path,
                 'telemetry_log_running': (self._telemetry_logger is not None

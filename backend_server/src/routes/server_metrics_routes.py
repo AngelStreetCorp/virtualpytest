@@ -96,7 +96,8 @@ def get_tree_metrics_api(tree_id):
     for tree_info in hierarchy_trees:
         print(f"[@route:metrics:get_tree_metrics] - Tree: {tree_info['name']} (depth: {tree_info['depth']}, root: {tree_info['is_root']})")
     
-    payload = build_tree_metrics_payload(team_id, node_ids, edge_ids, variant)
+    payload = build_tree_metrics_payload(team_id, node_ids, edge_ids, variant,
+                                       [t['tree_id'] for t in hierarchy_trees])
 
     return jsonify({
         'success': True,
@@ -127,7 +128,7 @@ def get_node_metrics_api(node_id, tree_id):
     print(f"[@route:metrics:get_node_metrics] Fetching metrics for node: {node_id}, tree: {tree_id}")
 
     # Get metrics for single node
-    metrics = get_tree_metrics(team_id, [node_id], [], variant)
+    metrics = get_tree_metrics(team_id, [node_id], [], variant, [tree_id])
     node_metric = metrics['nodes'].get(node_id)
     
     return jsonify({

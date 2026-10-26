@@ -103,6 +103,16 @@ if grep -q "listen.*443.*ssl" "$CONFIG_FILE"; then
     echo "   ⚠️  Browser will show security warning - click 'Advanced' → 'Proceed'"
 fi
 
+# Uplink monitoring: vnstat logs the NIC totals, nginx logs bytes per request.
+# Read with: vnstat -5 / vnstat -h / vnstat -d, and /var/log/nginx/vpt-bytes.log
+echo "📈 Setting up uplink monitoring (vnstat + nginx bytes log)..."
+sudo apt install -y vnstat
+sudo systemctl enable --now vnstat || true
+sudo tee /etc/nginx/conf.d/vpt-uplink.conf > /dev/null << 'NGINX_EOF'
+log_format vpt_bytes '$time_iso8601 $remote_addr "$request_method $uri" $status $body_bytes_sent $request_time';
+access_log /var/log/nginx/vpt-bytes.log vpt_bytes buffer=32k flush=5s;
+NGINX_EOF
+
 # Test nginx configuration
 echo "🧪 Testing Nginx configuration..."
 if sudo nginx -t; then

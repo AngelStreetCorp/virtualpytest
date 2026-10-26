@@ -28,7 +28,7 @@ class Device:
         verification_controllers = device.get_controllers('verification')
     """
     
-    def __init__(self, device_id: str, device_name: str, device_model: str, host_name: str = None, device_ip: str = None, device_port: str = None, video_stream_path: str = None, video_capture_path: str = None, video: str = None, ir_type: str = None, device_platform: str = None, preferred_userinterface: str = None, preferred_variant: str = None):
+    def __init__(self, device_id: str, device_name: str, device_model: str, host_name: str = None, device_ip: str = None, device_port: str = None, video_stream_path: str = None, video_capture_path: str = None, video: str = None, ir_type: str = None, device_platform: str = None, preferred_userinterface: str = None, preferred_variant: str = None, audio_stream_path: str = None):
         """
         Initialize a device.
 
@@ -71,6 +71,12 @@ class Device:
         self.video_stream_path = video_stream_path
         self.video_capture_path = video_capture_path
         self.video = video
+
+        # Optional companion audio HLS path -- only meaningful for host_vnc
+        # devices where the video path is the noVNC iframe (no built-in audio).
+        # When set, the dashboard `<VNCStream>` plays a hidden `<audio>` bound
+        # to the audio m3u8 in parallel with the iframe. See BUG-0596.
+        self.audio_stream_path = audio_stream_path
         
         # Controllers organized by type
         self._controllers: Dict[str, List[BaseController]] = {
@@ -443,6 +449,10 @@ class Device:
             device_dict['video_capture_path'] = self.video_capture_path
         if self.video:
             device_dict['video'] = self.video
+
+        # Optional companion audio HLS path, host_vnc-only (BUG-0596).
+        if self.audio_stream_path:
+            device_dict['audio_stream_path'] = self.audio_stream_path
 
         # Per-device default userinterface/variant (only when configured).
         if self.preferred_userinterface:

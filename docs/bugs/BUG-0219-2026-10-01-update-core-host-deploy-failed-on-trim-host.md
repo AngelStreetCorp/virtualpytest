@@ -9,7 +9,7 @@
 | Status    | Fixed — node1's live `~/update_core.sh` patched 2026-10-01; node3's copy still has the bug |
 | Severity  | High — a full, `--host` or `--restart` deploy did nothing; `--frontend` and `--server` alone still worked |
 | Area      | `setup/proxmox/node/update_core.sh` (and the live copies on proxmox / proxmox3) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---
@@ -41,4 +41,4 @@ has the same ordering (use at line 464, definition at 539) and was not changed.
 
 - `bash -n` passes on both node1 copies.
 - The same full deploy (`update_core.sh main`, `89602040d`) then ran: 12 targets OK. labox-tablet
-  failed on `No route to host` (192.168.0.173 unreachable), which is unrelated.
+  failed on `No route to host` (192.168.x.173 unreachable), which is unrelated.

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | shared (redis_queue) / backend_server (health route)         |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---
@@ -23,7 +23,7 @@ origin down while the app was up.
 ## Root cause
 
 The slowness was not in the route. From ~01:00 to 07:27 on 2026-10-12 the Redis/MinIO VM
-(192.168.0.101) answered `Error 113 … No route to host` (vpt-server journal: 132 failed Redis
+(192.168.x.101) answered `Error 113 … No route to host` (vpt-server journal: 132 failed Redis
 commands an hour). `health()` pings Redis through `RedisQueueProcessor.health_check()`, whose
 client uses `socket_connect_timeout=5` and redis-py's default retry: since redis-py 6 a failed
 connect is retried 3 times with backoff (server runs 7.4.0). Each attempt waited for ARP to give

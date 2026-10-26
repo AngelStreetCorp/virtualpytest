@@ -27,6 +27,8 @@ from backend_server.src.mcp.tool_definitions import (
     get_screen_analysis_tools,
     get_exploration_tools,
     get_analysis_tools,
+    TOOL_REGISTRY,
+    get_builder,
 )
 
 # Import UI interaction tools (browser control)
@@ -68,26 +70,12 @@ def _build_skill_registry() -> Dict[str, SkillInfo]:
     """Build registry of all available skills from MCP tools + UI interaction tools"""
     all_skills = {}
     
-    # Categorize by tool definition file
-    tool_categories = [
-        ('control', get_control_tools()),
-        ('action', get_action_tools()),
-        ('navigation', get_navigation_tools()),
-        ('verification', get_verification_tools()),
-        ('testcase', get_testcase_tools()),
-        ('script', get_script_tools()),
-        ('ai', get_ai_tools()),
-        ('screenshot', get_screenshot_tools()),
-        ('transcript', get_transcript_tools()),
-        ('device', get_device_tools()),
-        ('logs', get_logs_tools()),
-        ('tree', get_tree_tools()),
-        ('userinterface', get_userinterface_tools()),
-        ('requirements', get_requirements_tools()),
-        ('screen_analysis', get_screen_analysis_tools()),
-        ('exploration', get_exploration_tools()),
-        ('analysis', get_analysis_tools()),
-    ]
+    # Use the same auto-discovered builder as the MCP server.  The previous
+    # hand-maintained list omitted campaign, docs, video, group, system and
+    # feature-provided tools, making valid SKILL.md routes look invalid.
+    builder = get_builder()
+    tool_categories = [(category, builder.get_tools(category))
+                       for category in sorted(TOOL_REGISTRY)]
     
     # Add MCP tools
     for category, tools in tool_categories:
@@ -110,6 +98,7 @@ def _build_skill_registry() -> Dict[str, SkillInfo]:
             'get_available_pages': 'List all navigable pages in the application',
             'get_page_schema': 'Get interactive elements available on a specific page',
             'navigate_to_page': 'Navigate user browser to a specific page',
+            'show_page': 'Show a filtered app page in the companion beside the chat',
             'interact_with_element': 'Interact with a UI element (click, select, filter, etc)',
             'highlight_element': 'Highlight an element to draw user attention',
             'show_toast': 'Show a toast notification to the user',

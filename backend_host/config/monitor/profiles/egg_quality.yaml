@@ -1,0 +1,51 @@
+# egg_quality: inspect eggs on a belt, one verdict per egg by voting (TASK-90 goal 9).
+# Models and data are NOT in git. The classifier is trained locally from a CC-BY dataset with scripts/train_egg_classifier.py
+# and found through MONITOR_EGG_MODEL (see docs/agent/devices/MONITOR_PROFILES.md). The classes are the ones the model was trained
+# with: good / bad today (the only login-free labelled set found); clean / dirty / cracked go here when a model for them exists
+# (change `classes`, the counters below and the incident test; nothing else).
+name: egg_quality
+services: { img: true, audio: false, subtitle: false }
+img:
+  runtime: edge
+  analyzers:
+    - type: egg_detect               # one box per egg: `blob` finds each egg by its own local contrast, which is what
+      sample_hz: 8                    # real footage needs (brown eggs on a roller, white eggs on a belt). `brightness`
+      method: blob                    # is the candling-lamp detector (bright egg, dark belt) and is kept for that.
+      blob_min_threshold: 10
+      blob_min_circularity: 0.45
+      detect_width: 800               # find the eggs on an 800px copy and scale the boxes back: same 71 boxes per
+                                      # frame for 32 ms instead of 54 (BUG-0836). That is what pays for 8 Hz: the
+                                      # overlay is drawn on a live video, so every 100 ms of lag is 100 ms of the
+                                      # boxes sitting next to the eggs instead of on them.
+    - type: egg_classify
+      attr: condition
+      classes: [good, bad]
+      model_env: MONITOR_EGG_MODEL
+      # px_per_mm: 3.2               # on the detector above, to get size_mm (S/M/L) from the ellipse
+  track: { algo: ocsort, max_gap_s: 1.0, min_iou: 0.1, cold_gate: 1.5, votes: 3, min_votes: 2 }
+  # both egg devices play one clip in a loop: count one pass, not the whole day
+  reset_counters: { every_s: 30 }
+events:
+  egg_seen: { attr: label, in: [egg] }                       # one verdict per egg, verified or not
+incidents:
+  broken_rate: { kpi: bad_pct, above: 5, window_s: 300, min_watch_s: 120, min_samples: 10 }   # raised as an alert by the incident manager, only after 2 min watched and 10 eggs judged
+kpis:
+  - { name: count_total, of: egg_seen, window_s: 86400 }
+  - { name: count_by_condition, of: egg_seen, group_by: condition, window_s: 86400 }   # includes `unverified`
+  - { name: bad_pct, of: egg_seen, window_s: 300, pct_where: { attr: condition, in: [bad] } }
+ui:
+  title: Egg quality control
+  # "Eggs 253 / Detections 82" (BUG-0837). The headline this replaces showed the same number on its
+  # own; the pair is the useful thing, because a big Eggs next to a small Detections says eggs are on
+  # the belt that the detector never boxed, which is the one thing a single total cannot say.
+  stats:
+    - { label: Eggs, kpi: count_total }
+    - { label: Detections, observations: true }
+  counters:
+    kpi: count_by_condition
+    items:
+      - { key: good, colour: green }
+      - { key: bad, colour: red }
+      - { key: unverified, colour: grey }
+  box: { shape: ellipse, badge: votes, colour_by: verdict }
+  focus_panel: { crop: true, probs: true, title: Last checked }

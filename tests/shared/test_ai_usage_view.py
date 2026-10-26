@@ -49,10 +49,30 @@ def test_provider_view_status_series_and_labels():
     rows = [row(1, endpoint="openrouter", calls=6, errors=6, error_type="no_credit"), row(1, endpoint="pc", calls=20)]
     chart = usage_report.aggregate(rows, "endpoint", hours=24, now=NOW)
     cause = {"endpoint": "openrouter", "reason": "no_credit", "severity": "error", "since": "s", "last": "l", "skipped": 3}
-    out = usage_view.provider_view(eps, rows, chart, [cause], {})
+    profiles = [{"endpoint_id": "2", "model": "qwen", "capabilities": ["vision"], "enabled": True},
+                {"endpoint_id": "2", "model": "qwen", "capabilities": ["text"], "enabled": True},
+                {"endpoint_id": "3", "model": "off", "enabled": False}]
+    out = usage_view.provider_view(eps, rows, chart, [cause], {}, profiles)
     by = {p["endpoint"]: p for p in out}
     assert by["openrouter"]["name"] == "OpenRouter" and by["openrouter"]["type"] == "cloud"
     assert by["openrouter"]["status"] == "down" and by["openrouter"]["skipped"] == 3
     assert by["pc"]["type"] == "local" and by["pc"]["status"] == "ok" and by["Idle"]["status"] == "unused"
     assert sum(by["openrouter"]["failed_series"]) == 6 and sum(by["openrouter"]["answered_series"]) == 0
+    assert by["pc"]["models"] == [{"model": "qwen", "capabilities": ["text", "vision"]}] and by["Idle"]["models"] == []
+    assert by["pc"]["tokens_unreported"] is False
+    silent = usage_view.provider_view(eps, [row(1, endpoint="pc", tokens_in=0, tokens_out=0)], chart, [], {})
+    assert {p["endpoint"]: p["tokens_unreported"] for p in silent}["pc"] is True
     assert [p["status"] for p in out] == ["down", "ok", "unused"]
+
+
+def test_provider_status_is_a_now_signal_whatever_the_period():
+    eps = [{"id": "1", "name": "or", "preset": "openrouter", "reach": "server"}]
+    # 30 d: a no-credit storm 20 days ago; the last 24 h are clean
+    old = [row(480, calls=50, errors=50, error_type="no_credit"), row(2, calls=10)]
+    chart = usage_report.aggregate([row(2, calls=10)], "endpoint", hours=24, now=NOW)
+    out = usage_view.provider_view(eps, old, chart, [], {}, now_rows=[row(2, calls=10)])[0]
+    assert out["status"] == "ok" and out["reason"] is None and out["calls"] == 60 and out["errors"] == 50
+    # the other way round: failing now, healthy over the period
+    now_bad = [row(1, calls=10, errors=6, error_type="timeout")]
+    out = usage_view.provider_view(eps, [row(100, calls=500)] + now_bad, chart, [], {}, now_rows=now_bad)[0]
+    assert out["status"] == "degraded" and out["reason"] == "timeout" and out["calls"] == 510

@@ -20,6 +20,8 @@ import {
 import { getZIndex } from '../../utils/zIndexUtils';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import type { Ambiguity, AutoCorrection } from '../../types/aiagent/AIDisambiguation_Types';
+import { AppIcon } from '../../constants/icons';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface Props {
   ambiguities: Ambiguity[];
@@ -101,8 +103,8 @@ export const PromptDisambiguation: React.FC<Props> = ({
       >
         {/* Header */}
         <Box sx={{ px: 2, py: 1.5, borderBottom: '1px solid', borderColor: P.borderColor }}>
-          <Typography variant="subtitle1" sx={{ fontWeight: 600, color: P.textPrimary, fontSize: '0.95rem' }}>
-            🤔 Clarify Navigation Nodes
+          <Typography variant="subtitle1" sx={{ fontWeight: 600, color: P.textPrimary, fontSize: TYPOGRAPHY.navbarItem.size }}>
+            <AppIcon name="thinking" /> Clarify Navigation Nodes
           </Typography>
         </Box>
 
@@ -114,9 +116,9 @@ export const PromptDisambiguation: React.FC<Props> = ({
               const defaultChoice = amb.suggestions[0]; // First is always default
               return (
                 <Box key={idx} sx={{ px: 1.5, py: 1, bgcolor: P.background, border: '1px solid', borderColor: P.borderColor, borderRadius: 1 }}>
-                  <Typography variant="caption" sx={{ mb: 1, fontWeight: 500, color: P.textSecondary, display: 'block', fontSize: '0.8rem' }}>
+                  <Typography variant="caption" sx={{ mb: 1, fontWeight: 500, color: P.textSecondary, display: 'block', fontSize: TYPOGRAPHY.body.size }}>
                     We found:{' '}
-                    <Typography component="span" sx={{ color: P.accentText, fontFamily: 'monospace', fontWeight: 'bold', fontSize: '0.8rem' }}>
+                    <Typography component="span" sx={{ color: P.accentText, fontFamily: 'monospace', fontWeight: 'bold', fontSize: TYPOGRAPHY.body.size }}>
                       "{amb.original}"
                     </Typography>
                   </Typography>
@@ -136,7 +138,7 @@ export const PromptDisambiguation: React.FC<Props> = ({
                             textTransform: 'none',
                             fontFamily: 'monospace',
                             py: 0.75,
-                            fontSize: '0.85rem',
+                            fontSize: TYPOGRAPHY.body.size,
                             bgcolor: isSelected ? P.accent : 'transparent',
                             borderColor: isSelected ? P.accent : P.borderColor,
                             color: isSelected ? 'primary.contrastText' : P.textSecondary,
@@ -148,8 +150,8 @@ export const PromptDisambiguation: React.FC<Props> = ({
                         >
                           <span>{sugg}</span>
                           {isDefault && (
-                            <Typography component="span" sx={{ fontSize: '0.7rem', color: isSelected ? 'primary.contrastText' : P.success, ml: 1 }}>
-                              ⭐ default
+                            <Typography component="span" sx={{ fontSize: TYPOGRAPHY.caption.size, color: isSelected ? 'primary.contrastText' : P.success, ml: 1 }}>
+                              <AppIcon name="star" /> default
                             </Typography>
                           )}
                         </Button>
@@ -182,7 +184,7 @@ export const PromptDisambiguation: React.FC<Props> = ({
             size="small"
             sx={{
               textTransform: 'none',
-              fontSize: '0.85rem',
+              fontSize: TYPOGRAPHY.body.size,
               color: P.textMuted,
               '&:hover': {
                 color: P.accentText,
@@ -190,7 +192,7 @@ export const PromptDisambiguation: React.FC<Props> = ({
               }
             }}
           >
-            ✏️ Edit Prompt
+            <AppIcon name="edit" /> Edit Prompt
           </Button>
 
           {/* Right side - Cancel & Confirm */}
@@ -201,14 +203,10 @@ export const PromptDisambiguation: React.FC<Props> = ({
               size="small"
               sx={{
                 textTransform: 'none',
-                fontSize: '0.85rem',
+                fontSize: TYPOGRAPHY.body.size,
                 borderColor: P.borderColor,
                 color: P.textSecondary,
-                '&:hover': {
-                  borderColor: P.error,
-                  color: P.error,
-                  bgcolor: `${P.error}1a`,
-                }
+                '&:hover': { borderColor: P.textSecondary, color: P.textPrimary, bgcolor: P.hoverBg, }
               }}
             >
               Cancel
@@ -219,7 +217,7 @@ export const PromptDisambiguation: React.FC<Props> = ({
               size="small"
               sx={{
                 textTransform: 'none',
-                fontSize: '0.85rem',
+                fontSize: TYPOGRAPHY.body.size,
                 minWidth: 100,
                 bgcolor: P.accent,
                 color: 'primary.contrastText',

@@ -9,7 +9,7 @@
 | Status    | Fixed — not yet deployed                                     |
 | Severity  | Low — the video plays, but a web-host recording is a small box in the middle of an empty modal |
 | Area      | `shared/src/lib/utils/report_template_js.py` (`openVideoModal`) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

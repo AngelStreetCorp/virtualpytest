@@ -6,12 +6,14 @@
  */
 
 import { useState, useCallback } from 'react';
-import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { apiClient } from '../../utils/apiClient';
 import { waitForExecutionSocketEvent, ExecutionSocketEvent } from '../../utils/executionSocketWait';
 import { getScriptIdentity } from '../../utils/executionUtils';
 import { useUserSession } from '../useUserSession';
 import { useAuthContext } from '../../contexts/auth';
+import { useHostScopedUrl } from '../allServer/useRowServerUrl';
+import { notify } from '../../contexts/notificationStore';
+import { useI18n } from '../../i18n/useI18n';
 
 interface ScriptExecutionResult {
   // Set when the server queued the run instead of starting it (device was locked)
@@ -77,10 +79,12 @@ interface UseScriptReturn {
 // Build script API URLs properly - don't append paths to URLs with query params
 
 export const useScript = (): UseScriptReturn => {
+  const hostScopedUrl = useHostScopedUrl();
   const { userId, sessionId } = useUserSession();
   // Display name forwarded with the run so viewers see WHO launched the script
   // next to the script name (server stores it on the device lock).
   const { profile } = useAuthContext();
+  const { t } = useI18n();
   const userName = profile?.full_name || null;
   const [isExecuting, setIsExecuting] = useState(false);
   const [executingIds, setExecutingIds] = useState<string[]>([]);
@@ -142,7 +146,7 @@ export const useScript = (): UseScriptReturn => {
         }
 
         try {
-          const response = await apiClient(buildServerUrl(`/server/script/status/${taskId}`), {
+          const response = await apiClient(hostScopedUrl(hostName, `/server/script/status/${taskId}`), {
             method: 'GET',
           });
 
@@ -217,9 +221,22 @@ export const useScript = (): UseScriptReturn => {
       );
     }
 
+    if (!result.success || result.script_success === false) {
+      // A failed run is a `script` notification (bell by default, toast only if the viewer asked for it).
+      notify({
+        id: `script-${taskId}`,
+        category: 'script',
+        severity: 'error',
+        message: t('Script run failed on {host}', { host: hostName }),
+        to: '/run/monitor',
+        scope: { host_name: hostName },
+        action: { label: t('Show'), to: '/run/monitor' },
+      });
+    }
+
     onComplete(result);
     return result;
-  }, [extractReportAndLogsUrls]);
+  }, [extractReportAndLogsUrls, hostScopedUrl, t]);
 
   const executeScript = useCallback(
     async (
@@ -279,7 +296,7 @@ export const useScript = (): UseScriptReturn => {
         }
 
         // Start async script execution
-        const response = await apiClient(buildServerUrl('/server/script/execute'), {
+        const response = await apiClient(hostScopedUrl(hostName, '/server/script/execute'), {
           method: 'POST',
           body: JSON.stringify(requestBody),
         });
@@ -331,7 +348,7 @@ export const useScript = (): UseScriptReturn => {
         setIsExecuting(false);
       }
     },
-    [waitForTaskCompletion],
+    [waitForTaskCompletion, hostScopedUrl],
   );
 
   const executeMultipleScripts = useCallback(async (
@@ -403,7 +420,7 @@ export const useScript = (): UseScriptReturn => {
           requestBody.versions = { frontend: frontendVersion };
         }
 
-        const response = await apiClient(buildServerUrl('/server/script/execute'), {
+        const response = await apiClient(hostScopedUrl(execution.hostName, '/server/script/execute'), {
           method: 'POST',
           body: JSON.stringify(requestBody),
         });
@@ -503,7 +520,7 @@ export const useScript = (): UseScriptReturn => {
     
     console.log(`[@hook:useScript:executeMultipleScripts] All ${executions.length} executions completed`);
     return results;
-  }, [waitForTaskCompletion]);
+  }, [waitForTaskCompletion, hostScopedUrl]);
 
   const waitForTask = useCallback(
     async (

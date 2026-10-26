@@ -1,5 +1,6 @@
 'use client';
 
+import { AppIcon } from '../../constants/icons';
 import {
   DialogTitle,
   DialogContent,
@@ -73,7 +74,7 @@ export const ValidationResultsClient: React.FC<ValidationResultsClientProps> = (
                 fullWidth
                 onClick={handleOpenReport}
               >
-                View Detailed Report ↗
+                View Detailed Report <AppIcon name="link" />
               </Button>
             </Box>
           )}

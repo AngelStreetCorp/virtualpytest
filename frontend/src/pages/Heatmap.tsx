@@ -6,12 +6,15 @@ import {
   Card,
   CardContent,
   Alert as MuiAlert,
+  MenuItem,
+  Select,
   ToggleButton,
   ToggleButtonGroup,
 } from '@mui/material';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
 import { PageTitle, StatTiles, goldButtonSx, pageSurfaceSx, segmentedSx } from '../components/common/PageChrome';
 import React, { useState, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 
 import { HeatMapAnalysisSection } from '../components/heatmap/HeatMapAnalysisSection';
 import { HeatMapHistory, HeatMapHistoryRef } from '../components/heatmap/HeatMapHistory';
@@ -22,9 +25,16 @@ import { DeviceDataProvider } from '../contexts/device/DeviceDataContext';
 import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import { useHeatmap } from '../hooks/useHeatmap';
 import { useHostData } from '../hooks/useHostManager';
+import { useServerManager } from '../hooks/useServerManager';
+import { isAllServersSentinel } from '../lib/allServer/scope';
 import { Host, Device } from '../types/common/Host_Types';
 
-const HeatmapContent: React.FC = () => {
+interface HeatmapContentProps {
+  serverUrl?: string; // defaults to the picked server
+  serverPicker?: React.ReactNode; // the server dropdown, in "All servers" mode
+}
+
+const HeatmapContent: React.FC<HeatmapContentProps> = ({ serverUrl, serverPicker }) => {
   const P = useAgentChatPalette();
   const { isMobile, isTablet } = useResponsiveMode();
   const historyRef = useRef<HeatMapHistoryRef>(null);
@@ -35,13 +45,14 @@ const HeatmapContent: React.FC = () => {
     analysisData,
     loadedItem,
     hasIncidents,
+    hasDiscards,
     goToLatest,
     hasDataError,
     generateReport,
     getMosaicUrl,
     getFilteredDevices,
     isWorkspaceMode
-  } = useHeatmap();
+  } = useHeatmap({ serverUrl });
 
   // Access to real host/device data
   const { getHostByName, getDevicesFromHost } = useHostData();
@@ -60,7 +71,12 @@ const HeatmapContent: React.FC = () => {
   const [streamModalDevice, setStreamModalDevice] = useState<Device | null>(null);
   // The loader can fall back a few minutes, so the header names the frame on screen.
   const displayedItem = loadedItem || (hasDataError ? null : timeline[currentIndex]);
-  const filteredDevices = getFilteredDevices(analysisData?.devices || [], filter);
+  const [searchParams] = useSearchParams();
+  const hostParam = searchParams.get('host');
+  const deviceParam = searchParams.get('device');
+  const filteredDevices = getFilteredDevices(analysisData?.devices || [], filter).filter(
+    (d: any) => (!hostParam || d.host_name === hostParam) && (!deviceParam || d.device_id === deviceParam),
+  );
   const allDevices: any[] = analysisData?.devices || [];
   const activeDevices = allDevices.filter((d: any) => d.image_url).length;
   const missingDevices = allDevices.length - activeDevices;
@@ -151,6 +167,7 @@ const HeatmapContent: React.FC = () => {
         }
         right={
           <>
+            {serverPicker}
             {!isWorkspaceMode && (
               <ToggleButtonGroup
                 size="small"
@@ -204,6 +221,7 @@ const HeatmapContent: React.FC = () => {
           onIndexChange={setCurrentIndex}
           onCellClick={handleOverlayClick}
           hasIncidents={hasIncidents()}
+          hasDiscards={hasDiscards}
           hasDataError={hasDataError}
           displayItem={loadedItem}
           analysisData={analysisData}
@@ -237,7 +255,7 @@ const HeatmapContent: React.FC = () => {
           )}
 
           {/* History Section */}
-          <HeatMapHistory ref={historyRef} />
+          <HeatMapHistory ref={historyRef} serverUrl={serverUrl} />
         </>
       )}
 
@@ -262,11 +280,85 @@ const HeatmapContent: React.FC = () => {
   );
 };
 
+const HEATMAP_SERVER_KEY = 'virtualpytest:heatmap-all-servers-pick';
+
+const readPickedServer = (): string | null => {
+  try {
+    return localStorage.getItem(HEATMAP_SERVER_KEY);
+  } catch {
+    return null;
+  }
+};
+
+const writePickedServer = (serverUrl: string) => {
+  try {
+    localStorage.setItem(HEATMAP_SERVER_KEY, serverUrl);
+  } catch {
+    /* storage unavailable */
+  }
+};
+
+// "All servers" mode: every server writes its own mosaic, so the page shows one server's heatmap
+// at a time and a dropdown in the header picks which.
+const AllServersHeatmapContent: React.FC = () => {
+  const P = useAgentChatPalette();
+  const { availableServers, serverHostsData } = useServerManager();
+  const [picked, setPicked] = useState<string>(() => readPickedServer() || '');
+  const serverUrl = availableServers.includes(picked) ? picked : availableServers[0] || '';
+
+  const serverLabel = (url: string) => {
+    const name = serverHostsData.find(sd => sd.server_info.server_url === url)?.server_info.server_name;
+    if (name) return name;
+    try {
+      return new URL(url).host;
+    } catch {
+      return url;
+    }
+  };
+
+  if (!serverUrl) {
+    return (
+      <Box sx={pageSurfaceSx(P)}>
+        <Typography variant="body2" color="text.secondary">
+          No servers configured.
+        </Typography>
+      </Box>
+    );
+  }
+
+  const picker = (
+    <Select
+      size="small"
+      value={serverUrl}
+      onChange={e => {
+        setPicked(e.target.value);
+        writePickedServer(e.target.value);
+      }}
+      inputProps={{ 'aria-label': 'Server' }}
+      sx={{ minWidth: 180, flexShrink: 0 }}
+    >
+      {availableServers.map(url => (
+        <MenuItem key={url} value={url}>
+          {serverLabel(url)}
+        </MenuItem>
+      ))}
+    </Select>
+  );
+
+  // key: a new server is a new timeline, never the previous server's frame
+  return <HeatmapContent key={serverUrl} serverUrl={serverUrl} serverPicker={picker} />;
+};
+
+const HeatmapScope: React.FC = () => {
+  const { selectedServer } = useHostData();
+  return isAllServersSentinel(selectedServer || '') ? <AllServersHeatmapContent /> : <HeatmapContent />;
+};
+
 const Heatmap: React.FC = () => {
   return (
     <HostManagerProvider>
       <DeviceDataProvider>
-        <HeatmapContent />
+        <HeatmapScope />
       </DeviceDataProvider>
     </HostManagerProvider>
   );

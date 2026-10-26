@@ -9,7 +9,7 @@
 | Status    | Fixed                                                        |
 | Severity  | Low                                                          |
 | Area      | backend_host / stream / archive                              |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `this commit`                                                |
 
 ---

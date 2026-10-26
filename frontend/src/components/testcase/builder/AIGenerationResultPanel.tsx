@@ -5,6 +5,7 @@
  * Order: Prompt → AI Analysis → Stats → Block Breakdown
  */
 
+import { AppIcon } from '../../../constants/icons';
 import React, { useState, useRef, useEffect } from 'react';
 import { Box, Typography, IconButton, Tooltip, Collapse, Chip } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
@@ -16,6 +17,8 @@ import DragIndicatorIcon from '@mui/icons-material/DragIndicator';
 import { useTheme } from '../../../contexts/ThemeContext';
 import { AGENT_CHAT_PALETTE, AGENT_CHAT_PALETTE_LIGHT } from '../../../constants/agentChatTheme';
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { neutralButtonSx } from '../../common/PageChrome';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface AIGenerationResult {
   success: boolean;
@@ -97,7 +100,7 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
     if (!analysis) return { goal: '', thinking: '', isDirectMatch: false };
     
     // Check if this is a direct match (no AI)
-    const isDirectMatch = analysis.includes('Direct Match Found') || analysis.includes('🎯');
+    const isDirectMatch = analysis.includes('Direct Match Found');
     
     const lines = analysis.split('\n');
     let goal = '';
@@ -246,7 +249,7 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
           >
             <DragIndicatorIcon fontSize="small" />
           </Box>
-          <CheckCircleIcon sx={{ color: P.success, fontSize: 18 }} />
+          <CheckCircleIcon sx={{ color: P.success, fontSize: TYPOGRAPHY.cardTitle.size }} />
           <Typography variant="caption" fontWeight="bold" color="#10b981">
             AI GENERATION COMPLETE
           </Typography>
@@ -258,7 +261,7 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
             size="small"
             sx={{ 
               height: 20,
-              fontSize: '0.7rem',
+              fontSize: TYPOGRAPHY.caption.size,
               fontWeight: 'bold',
               backgroundColor: `${P.series[1]}26`,
               color: P.series[1],
@@ -276,7 +279,7 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
       {/* 1. ORIGINAL PROMPT - COMPACT */}
       <Box sx={{ px: 1.5, py: 0.75, borderBottom: 1, borderColor: 'divider', backgroundColor: `${P.series[1]}0d` }}>
         <Typography variant="caption" fontWeight="bold" sx={{ color: P.series[1], display: 'block', mb: 0.25 }}>
-          📝 Original Prompt
+          <AppIcon name="edit" /> Original Prompt
         </Typography>
         <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.4 }}>
           {originalPrompt}
@@ -300,7 +303,7 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
             onClick={() => setIsAnalysisExpanded(!isAnalysisExpanded)}
           >
             <Typography variant="caption" fontWeight="bold" color="text.secondary">
-              {isDirectMatch ? '🎯 DIRECT MATCH' : '🤖 AI REASONING'}
+              {isDirectMatch ? 'DIRECT MATCH' : 'AI REASONING'}
             </Typography>
             <IconButton size="small" sx={{ p: 0.25 }}>
               {isAnalysisExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
@@ -312,7 +315,7 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
               {goal && (
                 <Box sx={{ mb: 0.5 }}>
                   <Typography variant="caption" fontWeight="bold" sx={{ color: P.series[1], display: 'inline', mr: 0.5 }}>
-                    🎯
+                    <AppIcon name="target" />
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.4 }}>
                     {goal}
@@ -322,7 +325,7 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
               {thinking && (
                 <Box>
                   <Typography variant="caption" fontWeight="bold" sx={{ color: P.success, display: 'inline', mr: 0.5 }}>
-                    💭
+                    <AppIcon name="thinking" />
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.4 }}>
                     {thinking}
@@ -349,11 +352,11 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
           onClick={() => setIsStatsExpanded(!isStatsExpanded)}
         >
           <Typography variant="caption" fontWeight="bold" color="text.secondary">
-            📊 STATS
+            <AppIcon name="report" /> STATS
           </Typography>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }}>
-              🧭 {blockCounts.navigation} • ⚡ {blockCounts.action} • ✓ {blockCounts.verification} • 🔤 {result.generation_stats?.prompt_tokens || 0}/{result.generation_stats?.completion_tokens || 0}
+            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: TYPOGRAPHY.caption.size }}>
+              <AppIcon name="navigation" /> {blockCounts.navigation} • <AppIcon name="fast" /> {blockCounts.action} • <AppIcon name="success" /> {blockCounts.verification} • <AppIcon name="tokens" /> {result.generation_stats?.prompt_tokens || 0}/{result.generation_stats?.completion_tokens || 0}
             </Typography>
             <IconButton size="small" sx={{ p: 0.25 }}>
               {isStatsExpanded ? <ExpandLessIcon fontSize="small" /> : <ExpandMoreIcon fontSize="small" />}
@@ -365,19 +368,19 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
           <Box sx={{ px: 1.5, py: 0.75 }}>
             <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 0.5 }}>
               <Box sx={{ p: 0.5, borderRadius: 0.5, backgroundColor: `${P.series[1]}1a` }}>
-                <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>🧭 Navigation</Typography>
+                <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.caption.size }}><AppIcon name="navigation" /> Navigation</Typography>
                 <Typography variant="caption" fontWeight="bold" sx={{ color: P.series[1], display: 'block' }}>{blockCounts.navigation}</Typography>
               </Box>
               <Box sx={{ p: 0.5, borderRadius: 0.5, backgroundColor: `${P.series[2]}1a` }}>
-                <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>⚡ Action</Typography>
+                <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.caption.size }}><AppIcon name="fast" /> Action</Typography>
                 <Typography variant="caption" fontWeight="bold" sx={{ color: P.series[2], display: 'block' }}>{blockCounts.action}</Typography>
               </Box>
               <Box sx={{ p: 0.5, borderRadius: 0.5, backgroundColor: actualMode === 'dark' ? 'rgba(16, 185, 129, 0.1)' : 'rgba(16, 185, 129, 0.05)' }}>
-                <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>✓ Verification</Typography>
+                <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.caption.size }}><AppIcon name="success" /> Verification</Typography>
                 <Typography variant="caption" fontWeight="bold" sx={{ color: P.success, display: 'block' }}>{blockCounts.verification}</Typography>
               </Box>
               <Box sx={{ p: 0.5, borderRadius: 0.5, backgroundColor: `${P.warning}1a` }}>
-                <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>🔤 Tokens</Typography>
+                <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.caption.size }}><AppIcon name="tokens" /> Tokens</Typography>
                 <Typography variant="caption" fontWeight="bold" sx={{ color: P.warning, display: 'block' }}>{result.generation_stats?.prompt_tokens}/{result.generation_stats?.completion_tokens}</Typography>
               </Box>
             </Box>
@@ -410,13 +413,7 @@ export const AIGenerationResultPanel: React.FC<AIGenerationResultPanelProps> = (
             size="small"
             onClick={onClose}
             sx={{
-              color: P.success,
-              border: `1px solid ${P.success}`,
-              borderRadius: 0.5,
-              px: 1,
-              py: 0.25,
-              backgroundColor: `${P.success}1a`,
-              '&:hover': { backgroundColor: 'rgba(16, 185, 129, 0.2)' },
+              ...neutralButtonSx(P), border: `1px solid ${P.neutralBorder}`, borderRadius: 0.5, px: 1, py: 0.25,
             }}
           >
             <Typography variant="caption" fontWeight="bold">Close & Keep</Typography>

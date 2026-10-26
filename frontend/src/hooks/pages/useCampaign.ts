@@ -11,6 +11,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
+import { useHostScopedUrl } from '../allServer/useRowServerUrl';
 import { waitForExecutionSocketEvent } from '../../utils/executionSocketWait';
 import {
   CampaignConfig,
@@ -73,6 +74,7 @@ interface UseCampaignReturn {
 // Build campaign API URLs properly - don't append paths to URLs with query params
 
 export const useCampaign = (): UseCampaignReturn => {
+  const hostScopedUrl = useHostScopedUrl();
   // Execution State
   const [isExecuting, setIsExecuting] = useState(false);
   const [currentExecution, setCurrentExecution] = useState<CampaignExecution | null>(null);
@@ -221,7 +223,7 @@ export const useCampaign = (): UseCampaignReturn => {
     });
 
     try {
-      const result = await api.post(buildServerUrl('/server/campaigns/execute'), config, {
+      const result = await api.post(hostScopedUrl(config.host, '/server/campaigns/execute'), config, {
         headers: { 'X-User-ID': 'default-user' }, // TODO: Get from auth context
       }) as CampaignExecutionResult;
 
@@ -321,7 +323,7 @@ export const useCampaign = (): UseCampaignReturn => {
     } finally {
       setIsExecuting(false);
     }
-  }, []);
+  }, [hostScopedUrl]);
 
   // Wait campaign execution completion from socket updates
   const pollCampaignExecution = useCallback(async (executionId: string, hostName: string, onProgress?: (status: any) => void) => {

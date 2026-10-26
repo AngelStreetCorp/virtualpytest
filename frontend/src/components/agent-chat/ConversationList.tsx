@@ -26,7 +26,9 @@ import {
 } from '@mui/icons-material';
 import { APP_CONFIG } from '../../config/constants';
 import { AGENT_CHAT_LAYOUT, useAgentChatPalette } from '../../constants/agentChatTheme';
+import { AppIcon } from '../../constants/icons';
 import { BackgroundTask, BackgroundAgentInfo } from '../../hooks/aiagent/useAgentChat';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 const { sidebarWidth: SIDEBAR_WIDTH, maxRecentBackgroundTasks: MAX_RECENT_TASKS } = AGENT_CHAT_LAYOUT;
 
@@ -77,8 +79,8 @@ const renderBackgroundAgentSection = (
   const totalActive = allTasks.length;
   const isExpanded = backgroundExpanded[agent.id] || false;
 
-  // Get status icon - simplified to tick or cross
-  const getTaskIcon = (task: BackgroundTask & { isInProgress?: boolean }) => {
+  // Failed flag for a finished task (null while in progress: a pulsing dot is shown instead)
+  const getTaskFailed = (task: BackgroundTask & { isInProgress?: boolean }) => {
     if (task.isInProgress) return null; // Will show pulsing dot
 
     // Check for failure indicators
@@ -86,7 +88,7 @@ const renderBackgroundAgentSection = (
       'VALID_FAIL', 'BUG', 'SCRIPT_ISSUE', 'SYSTEM_ISSUE'
     ].includes(task.classification);
 
-    return isFailed ? '✗' : '✓';
+    return !!isFailed;
   };
 
   return (
@@ -105,7 +107,7 @@ const renderBackgroundAgentSection = (
         <ExpandIcon
           onClick={() => setBackgroundExpanded(prev => ({ ...prev, [agent.id]: !isExpanded }))}
           sx={{
-            fontSize: 16,
+            fontSize: TYPOGRAPHY.navbarItem.size,
             color: P.textSecondary,
             transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)',
             transition: 'transform 0.2s',
@@ -119,7 +121,7 @@ const renderBackgroundAgentSection = (
           variant="body2"
           sx={{
             flex: 1,
-            fontSize: '0.85rem',
+            fontSize: TYPOGRAPHY.body.size,
             fontWeight: 500,
             cursor: 'pointer',
             '&:hover': { color: P.textPrimary },
@@ -135,14 +137,14 @@ const renderBackgroundAgentSection = (
             sx={{
               height: 18,
               minWidth: 18,
-              fontSize: '0.7rem',
+              fontSize: TYPOGRAPHY.caption.size,
               bgcolor: agent.color || P.accent,
               color: 'primary.contrastText',
               '& .MuiChip-label': { px: 0.75 },
             }}
           />
         ) : (
-          <Typography variant="caption" sx={{ color: P.textMuted, fontSize: '0.75rem' }}>
+          <Typography variant="caption" sx={{ color: P.textMuted, fontSize: TYPOGRAPHY.caption.size }}>
             (0)
           </Typography>
         )}
@@ -159,10 +161,10 @@ const renderBackgroundAgentSection = (
               sx={{
                 p: 0.25,
                 opacity: 0.4,
-                '&:hover': { opacity: 1, color: P.error },
+                '&:hover': { opacity: 1, color: P.dangerText },
               }}
             >
-              <ClearIcon sx={{ fontSize: 14 }} />
+              <ClearIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
             </IconButton>
           </Tooltip>
         )}
@@ -173,7 +175,7 @@ const renderBackgroundAgentSection = (
         <Fade in={isExpanded}>
           <Box sx={{ pl: 2, pr: 1, mt: 0.5 }}>
             {allTasks.map(task => {
-              const icon = getTaskIcon(task);
+              const failed = getTaskFailed(task);
 
               return (
                 <Box
@@ -215,18 +217,8 @@ const renderBackgroundAgentSection = (
                       },
                     }} />
                   ) : (
-                    <Box sx={{
-                      fontSize: 14,
-                      minWidth: 14,
-                      height: 14,
-                      mt: 0.3,
-                      textAlign: 'center',
-                      flexShrink: 0,
-                      fontWeight: 700,
-                      lineHeight: 1,
-                      color: icon === '✗' ? P.error : P.success
-                    }}>
-                      {icon}
+                    <Box sx={{ minWidth: 14, mt: 0.3, flexShrink: 0, display: 'flex' }}>
+                      <AppIcon name={failed ? 'error' : 'success'} />
                     </Box>
                   )}
 
@@ -239,7 +231,9 @@ const renderBackgroundAgentSection = (
                         textOverflow: 'ellipsis',
                         whiteSpace: 'nowrap',
                         color: task.conversationId === activeConversationId ? P.textPrimary : P.textSecondary,
-                        fontSize: '0.85rem',
+                        fontWeight: 400,
+                        fontSize: TYPOGRAPHY.body.size,
+                        lineHeight: 1.3,
                       }}
                     >
                       {task.subtitle ? `${task.title}-${task.subtitle}` : task.title}
@@ -250,7 +244,7 @@ const renderBackgroundAgentSection = (
                       sx={{
                         display: 'block',
                         color: P.textMuted,
-                        fontSize: '0.65rem',
+                        fontSize: TYPOGRAPHY.microMeta.size,
                         opacity: 0.7,
                         mt: -0.25,
                       }}
@@ -428,7 +422,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                 value="chats"
                 label={
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                    <ChatIcon sx={{ fontSize: 14 }} />
+                    <ChatIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                     <span>Chats</span>
                     {regularConversations.length > 0 && (
                       <Chip
@@ -437,7 +431,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                         sx={{
                           height: 16,
                           minWidth: 16,
-                          fontSize: '0.65rem',
+                          fontSize: TYPOGRAPHY.microMeta.size,
                           bgcolor: sidebarTab === 'chats' ? P.accent : P.hoverBg,
                           color: sidebarTab === 'chats' ? 'primary.contrastText' : P.textSecondary,
                           '& .MuiChip-label': { px: 0.5 },
@@ -451,7 +445,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                   py: 0.5,
                   px: 1.5,
                   textTransform: 'none',
-                  fontSize: '0.8rem',
+                  fontSize: TYPOGRAPHY.body.size,
                   fontWeight: sidebarTab === 'chats' ? 600 : 400,
                   color: sidebarTab === 'chats' ? P.textPrimary : P.textSecondary,
                   minWidth: 0,
@@ -462,7 +456,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                 value="system"
                 label={
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                    <DevicesIcon sx={{ fontSize: 14 }} />
+                    <DevicesIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                     <span>System</span>
                     {totalSystemTasks > 0 && (
                       <Chip
@@ -471,7 +465,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                         sx={{
                           height: 16,
                           minWidth: 16,
-                          fontSize: '0.65rem',
+                          fontSize: TYPOGRAPHY.microMeta.size,
                           bgcolor: sidebarTab === 'system' ? P.accent : P.hoverBg,
                           color: sidebarTab === 'system' ? 'primary.contrastText' : P.textSecondary,
                           '& .MuiChip-label': { px: 0.5 },
@@ -485,7 +479,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                   py: 0.5,
                   px: 1.5,
                   textTransform: 'none',
-                  fontSize: '0.8rem',
+                  fontSize: TYPOGRAPHY.body.size,
                   fontWeight: sidebarTab === 'system' ? 600 : 400,
                   color: sidebarTab === 'system' ? P.textPrimary : P.textSecondary,
                   minWidth: 0,
@@ -543,10 +537,10 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                         pt: 0.5,
                         pb: 0,
                         color: P.textMuted,
-                        fontWeight: 600,
-                        fontSize: '0.7rem',
+                        fontWeight: 500,
+                        fontSize: TYPOGRAPHY.caption.size,
                         textTransform: 'uppercase',
-                        letterSpacing: '0.5px',
+                        letterSpacing: '0.3px',
                       }}
                     >
                       {label}
@@ -575,7 +569,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                           transition: 'background-color 0.15s',
                         }}
                       >
-                        <ChatIcon sx={{ fontSize: 14, color: P.textSecondary, flexShrink: 0, mt: 0.3 }} />
+                        <ChatIcon sx={{ fontSize: TYPOGRAPHY.body.size, color: P.textSecondary, flexShrink: 0, mt: 0.3 }} />
                         <Box sx={{ flex: 1, minWidth: 0 }}>
                           <Typography
                             variant="body2"
@@ -584,7 +578,9 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                               textOverflow: 'ellipsis',
                               whiteSpace: 'nowrap',
                               color: conv.id === activeConversationId ? P.textPrimary : P.textSecondary,
-                              fontSize: '0.85rem',
+                              fontWeight: 400,
+                              fontSize: TYPOGRAPHY.body.size,
+                              lineHeight: 1.3,
                             }}
                           >
                             {conv.title}
@@ -594,7 +590,7 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                             sx={{
                               display: 'block',
                               color: P.textMuted,
-                              fontSize: '0.65rem',
+                              fontSize: TYPOGRAPHY.microMeta.size,
                               opacity: 0.7,
                               mt: -0.25,
                             }}
@@ -617,10 +613,10 @@ export const ConversationList: React.FC<ConversationListProps> = ({
                             sx={{
                               p: 0.25,
                               opacity: 0.5,
-                              '&:hover': { opacity: 1, color: P.error },
+                              '&:hover': { opacity: 1, color: P.dangerText },
                             }}
                           >
-                            <ClearIcon sx={{ fontSize: 14 }} />
+                            <ClearIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                           </IconButton>
                         </Tooltip>
                       </Box>

@@ -773,6 +773,7 @@ class VerificationExecutor:
             # controller); the report shows these in chips instead of the stale params.area.
             verification_config_with_path = {
                 **verification_config,
+                'node_screenshot': getattr(self, '_report_node_shot', None),
                 'source_image_path': source_path,
                 'original_image_path': original_path,
                 'crop_area': crop_area,
@@ -938,20 +939,21 @@ class VerificationExecutor:
                 except (json.JSONDecodeError, TypeError):
                     verifications = []
 
+            # "Use fingerprint" toggle (Edit node dialog): when a node opts in via
+            # use_fingerprint_for_verification and has a fingerprint, the fingerprint IS the
+            # verification — authored verifications are kept but skipped (the dialog greys them
+            # out). OFF (default) = the authored verifications run, unchanged. Reuses the
+            # match_fingerprint image verification.
+            if node_data.get('use_fingerprint_for_verification'):
+                _fp = node_data.get('__fingerprint') or {}
+                if _fp.get('dhash'):
+                    verifications = [{'verification_type': 'image', 'command': 'match_fingerprint',
+                                      'params': {'fingerprint': _fp, 'threshold': 14,
+                                                 'node_label': node_data.get('label')}}]
+
             if not verifications:
-                # Fingerprint-verification toggle (mirror of the KPI fingerprint fallback): when a node
-                # opts in via use_fingerprint_for_verification, verify it by its stored fingerprint
-                # instead of refusing for lack of a hand-authored reference. OFF (default) = unchanged —
-                # no verification runs (e.g. live nodes). Reuses the match_fingerprint image verification.
-                if node_data.get('use_fingerprint_for_verification'):
-                    _fp = node_data.get('__fingerprint') or {}
-                    if _fp.get('dhash'):
-                        verifications = [{'verification_type': 'image', 'command': 'match_fingerprint',
-                                          'params': {'fingerprint': _fp, 'threshold': 14,
-                                                     'node_label': node_data.get('label')}}]
-                if not verifications:
-                    print(f"[@lib:verification_executor:verify_node] No verifications for node {node_id} (fingerprint-verify off or no fingerprint)")
-                    return {'success': False, 'has_verifications': False, 'message': 'No verifications defined - cannot verify position', 'results': []}
+                print(f"[@lib:verification_executor:verify_node] No verifications for node {node_id} (fingerprint-verify off or no fingerprint)")
+                return {'success': False, 'has_verifications': False, 'message': 'No verifications defined - cannot verify position', 'results': []}
             
             # Extract verification_pass_condition from node (defaults to 'all')
             # Priority: 1) first verification's pass_condition, 2) node's pass_condition, 3) default 'all'
@@ -976,6 +978,16 @@ class VerificationExecutor:
             # Use actual node's tree_id for database recording (nested tree)
             actual_tree_id = node_data.get('tree_id')
             
+            # Node screenshot (variant-resolved by the graph) for the failure report's tabs.
+            _nd = node_data.get('data') if isinstance(node_data.get('data'), dict) else {}
+            _shot = node_data.get('screenshot') or _nd.get('screenshot')
+            self._report_node_shot = {
+                'url': _shot,
+                'timestamp': node_data.get('screenshot_timestamp') or _nd.get('screenshot_timestamp'),
+                'label': node_data.get('label') or node_id,
+                'userinterface': userinterface_name,
+            } if isinstance(_shot, str) and _shot else None
+
             # Execute verifications with proper tree_id and node_id for database recording
             _t = _phase_t0()
             node_result = await self.execute_verifications(
@@ -987,6 +999,7 @@ class VerificationExecutor:
                 node_id=node_id,
                 verification_pass_condition=verification_pass_condition  # NEW: Pass condition from node
             )
+            self._report_node_shot = None
             _log_phase('verify.node', _t,
                        f"node={node_data.get('label') or node_id} legs={len(verifications)} "
                        f"condition={verification_pass_condition} probe_cap_ms={probe_timeout_ms or 'none'} "
@@ -1021,6 +1034,12 @@ class VerificationExecutor:
                         continue
                     if not verification.get('params', {}).get('area'):
                         print(f"[@lib:verification_executor:_filter_valid_verifications] Removing verification {i}: icon verification needs an area")
+                        continue
+                elif command == 'waitForNavTabIndex':
+                    # The nav-tab check reads the focus underline off the live frame:
+                    # no reference image and no area, only the tab index.
+                    if verification.get('params', {}).get('tab_index') is None:
+                        print(f"[@lib:verification_executor:_filter_valid_verifications] Removing verification {i}: No tab_index specified")
                         continue
                 elif not verification.get('params', {}).get('image_path'):
                     print(f"[@lib:verification_executor:_filter_valid_verifications] Removing verification {i}: No image reference specified")

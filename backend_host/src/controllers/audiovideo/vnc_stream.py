@@ -34,53 +34,6 @@ class VNCStreamController(FFmpegCaptureController):
         self.web_browser_path = kwargs.get('web_browser_path', '/usr/bin/chromium')
 
         
-    def set_quality(self, quality: str = 'sd') -> bool:
-        """Soft per-device quality change: rewrite this device's line in
-        active_captures.conf. The (already running) vpt-stream service loop
-        detects the change and recycles just this device's ffmpeg. Does NOT
-        restart the service — use the restart endpoint for that."""
-        try:
-            import os
-            from shared.src.lib.utils.storage_path_utils import get_active_captures_conf_path
-            
-            device_id = self.device_id
-            capture_dir = self.video_capture_path
-            config_file = get_active_captures_conf_path()
-            
-            print(f"VNC[{device_id}]: Updating quality to {quality}")
-            
-            # Read existing entries
-            entries = []
-            if os.path.exists(config_file):
-                with open(config_file, 'r') as f:
-                    entries = [line.strip() for line in f if line.strip()]
-            
-            # Update quality for this device. Match on a normalized path so
-            # Windows separator/trailing-slash/case differences still hit.
-            target = os.path.normcase(os.path.normpath(capture_dir))
-            found = False
-            for i, entry in enumerate(entries):
-                parts = entry.split(',')
-                if len(parts) == 3 and os.path.normcase(os.path.normpath(parts[0])) == target:
-                    entries[i] = f"{parts[0]},{parts[1]},{quality}"
-                    found = True
-                    break
-            
-            if not found:
-                print(f"VNC[{device_id}]: Device not running yet")
-                return False
-            
-            # Simple direct write (file is 666, already exists, world-writable)
-            with open(config_file, 'w') as f:
-                f.write('\n'.join(entries) + '\n')
-            
-            print(f"VNC[{device_id}]: Quality updated → {quality}")
-            return True
-            
-        except Exception as e:
-            print(f"VNC[{device_id}]: Error updating quality: {e}")
-            return False
-
 
             
     def get_vnc_viewer_url(self) -> Optional[str]:

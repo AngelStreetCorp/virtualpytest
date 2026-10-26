@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | ai-agent                                                     |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 
 ## What happened
 Asked through `scripts/atlas_chat.py` to "create a Grafana dashboard with pass rate by device, failing test cases and incidents over time", Atlas built the draft correctly but answered with `https://analitics.ai/grafana/d/atlas-draft-4ea3e0f4cce0dbd3b76e` — a host that does not exist.

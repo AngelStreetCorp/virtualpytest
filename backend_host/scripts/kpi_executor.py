@@ -2091,7 +2091,11 @@ class KPIExecutorService:
 
 def main():
     """Main entry point"""
-    
+
+    # TASK-95: idle while no device on this host has a profile that keeps the KPI scan (tv_lite does not)
+    from shared.src.lib.utils.monitor_service import wait_until_needed
+    wait_until_needed('kpi', 'vpt-kpi')
+
     # Kill any existing kpi_executor instances
     from shared.src.lib.utils.system_utils import kill_existing_script_instances
     killed = kill_existing_script_instances('kpi_executor.py')

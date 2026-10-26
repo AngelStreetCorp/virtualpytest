@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | ai-agent                                                     |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 
 ## What happened
 On a draft built from "pass rate by device, failing test cases and incidents over time": the "Pass Rate by Device" barchart plotted `pass_rate` (%) and `run_count` on one axis whose unit was percent, so 730 runs read "730%" and flattened every pass rate; with 13 devices the x labels overlapped; stat tiles painted counts red (Grafana's default threshold at 80).

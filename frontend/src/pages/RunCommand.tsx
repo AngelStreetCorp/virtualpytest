@@ -25,7 +25,7 @@ import {
   SelectChangeEvent,
 } from '@mui/material';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
-import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
+import { PAGE_TITLE_SX, pageSurfaceSx, primaryButtonSx } from '../components/common/PageChrome';
 import React, { useCallback, useMemo, useState } from 'react';
 
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
@@ -36,6 +36,7 @@ import { usePersistedState } from '../hooks/usePersistedState';
 import { useToast } from '../hooks/useToast';
 import { api } from '../utils/apiClient';
 import { buildServerUrl, buildServerUrlForServer } from '../utils/buildUrlUtils';
+import { TYPOGRAPHY } from '../constants/typography';
 
 type HostRunStatus = 'pending' | 'running' | 'ok' | 'error';
 
@@ -79,7 +80,7 @@ const OutputBlock: React.FC<{ label: string; text: string; truncated?: boolean }
           color: P.textPrimary,
           borderRadius: 1,
           fontFamily: 'monospace',
-          fontSize: '0.75rem',
+          fontSize: TYPOGRAPHY.caption.size,
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-all',
           maxHeight: 320,
@@ -309,16 +310,15 @@ const RunCommand: React.FC = () => {
           value={command}
           disabled={isRunning}
           onChange={(e) => setCommand(e.target.value)}
-          InputProps={{ sx: { fontFamily: 'monospace', fontSize: '0.85rem' } }}
+          InputProps={{ sx: { fontFamily: 'monospace', fontSize: TYPOGRAPHY.body.size } }}
           sx={{ mb: 2 }}
         />
 
         <Button
           variant="contained"
-          color="warning"
           startIcon={isRunning ? <CircularProgress size={16} color="inherit" /> : <RunIcon />}
           onClick={handleRunClick}
-          disabled={isRunning}
+          disabled={isRunning} sx={primaryButtonSx(P)}
         >
           {isRunning ? 'Running…' : `Run on ${hostsToRun.length} host(s)`}
         </Button>

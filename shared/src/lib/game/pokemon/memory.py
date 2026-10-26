@@ -37,6 +37,7 @@ ADDR = {
 # Battle struct (wBattleMon / wEnemyMon) offsets.
 B_SPECIES, B_HP, B_STATUS, B_TYPES, B_CATCH, B_MOVES, B_LEVEL, B_STATS, B_PP = 0, 1, 4, 5, 7, 8, 14, 15, 25
 TEXT_BOX_TOP_LEFT, TEXT_BOX_BOTTOM_LEFT = 0x79, 0x7D
+DEX_TOP_LEFT, DEX_DIVIDER_LEFT, DEX_DIVIDER_RIGHT = 0x63, 0x68, 0x6A   # the Pokédex data page frame
 PUNCT = {0x7F: " ", 0x9A: "(", 0x9B: ")", 0x9C: ":", 0x9D: ";", 0xE0: "'", 0xE3: "-", 0xE6: "?", 0xE7: "!",
          0xE8: ".", 0xF4: ","}
 
@@ -74,6 +75,13 @@ def screen_rows(read: Read) -> List[str]:
 def text_box_open(read: Read) -> bool:
     tiles = read(ADDR["tilemap"], 360)
     return tiles[12 * 20] == TEXT_BOX_TOP_LEFT and tiles[17 * 20] == TEXT_BOX_BOTTOM_LEFT
+
+
+def dex_page_open(read: Read) -> bool:
+    """BUG-0643: a Pokédex data page (a gift or prize Pokémon just shown: the dojo's Hitmonlee): the frame's corner and
+    the divider on row 9. No text box is drawn, so only A closes it; walking keys do nothing."""
+    tiles = read(ADDR["tilemap"], 360)
+    return tiles[0] == DEX_TOP_LEFT and tiles[9 * 20] == DEX_DIVIDER_LEFT and tiles[9 * 20 + 19] == DEX_DIVIDER_RIGHT
 
 
 def text_box(read: Read) -> str:

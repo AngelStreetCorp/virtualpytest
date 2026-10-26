@@ -32,6 +32,13 @@ AGENT_SOURCES: Dict[str, Dict[str, Any]] = {
         'parts': [{'key': 'chat', 'label': 'Chat'}],
         'links': [{'label': 'Virtual scripts', 'to': '/builder/virtual-scripts'}],
     },
+    'masterchief': {
+        'name': 'Masterchief', 'role': 'Fleet Ops', 'registry_id': 'masterchief',
+        'usage_prefixes': ['agent.masterchief'],
+        'sources': ['agent_turns', 'agent_execution_history'],
+        'parts': [{'key': 'chat', 'label': 'Chat'}],
+        'links': [{'label': 'Status', 'to': '/status'}],
+    },
     'sherlock': {
         'name': 'Sherlock', 'role': 'Result Analyzer', 'registry_id': 'analyzer',
         'usage_prefixes': ['agent.sherlock', 'analyzer.sherlock', 'text.decision.sherlock'],

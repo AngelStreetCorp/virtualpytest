@@ -29,7 +29,7 @@ if [ -n "$HOST_VIDEO_SOURCE" ]; then
     HOST_VIDEO_COUNT=1
 fi
 
-for i in {1..30}; do
+for i in $(seq 1 "${MAX_DEVICES:-99}"); do  # DEVICE1..DEVICE99 by default (MAX_DEVICES overrides)
     var_name="DEVICE${i}_VIDEO"
     serial_name="DEVICE${i}_ADB_SERIAL"
     if [ -n "${!var_name}" ] || [ -n "${!serial_name}" ]; then

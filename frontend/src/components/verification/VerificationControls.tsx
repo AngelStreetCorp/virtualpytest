@@ -3,6 +3,7 @@ import { Box, Chip, TextField, Tooltip } from '@mui/material';
 import LinkIcon from '@mui/icons-material/Link';
 
 import { Verification } from '../../types/verification/Verification_Types';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 // Output→input data link for one param, as stored in a block's data.paramLinks.
 export interface ParamLink {
@@ -37,7 +38,7 @@ interface VerificationControlsProps {
 }
 
 interface TextParamField {
-  key: 'search_term' | 'title';
+  key: 'search_term' | 'title' | 'url_pattern';
   label: string;
   placeholder: string;
 }
@@ -48,6 +49,9 @@ const getTextParam = (verification: Verification): TextParamField | null => {
   if (verification.command === 'getMenuInfo') return null;
   if (verification.command === 'waitForTitleToAppear') {
     return { key: 'title', label: 'Title', placeholder: 'Expected text in page title' };
+  }
+  if (verification.command === 'waitForUrlToMatch') {
+    return { key: 'url_pattern', label: 'URL path', placeholder: '/epg/initial' };
   }
   return { key: 'search_term', label: 'Element Criteria', placeholder: 'text=Button' };
 };
@@ -71,10 +75,10 @@ export const VerificationControls: React.FC<VerificationControlsProps> = ({
         <Chip
           key={paramKey}
           size="small"
-          icon={<LinkIcon sx={{ fontSize: 14 }} />}
+          icon={<LinkIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />}
           label={`${paramKey} ← ${link.sourceOutputName}`}
           onDelete={disabled ? undefined : () => linkProps.onUnlink?.(paramKey)}
-          sx={{ fontSize: '0.75rem', height: 26, borderColor: '#10b981', color: '#10b981' }}
+          sx={{ fontSize: TYPOGRAPHY.caption.size, height: 26, borderColor: '#10b981', color: '#10b981' }}
           variant="outlined"
         />
       );
@@ -146,7 +150,7 @@ export const VerificationControls: React.FC<VerificationControlsProps> = ({
             width: 110,
             '& .MuiInputBase-input': {
               padding: '4px 8px',
-              fontSize: '0.8rem',
+              fontSize: TYPOGRAPHY.body.size,
             },
           }}
           inputProps={{ min: 0, max: 30000, step: 500 }}
@@ -170,7 +174,7 @@ export const VerificationControls: React.FC<VerificationControlsProps> = ({
             flex: 1,
             '& .MuiInputBase-input': {
               padding: '4px 8px',
-              fontSize: '0.8rem',
+              fontSize: TYPOGRAPHY.body.size,
             },
           }}
         />
@@ -203,7 +207,7 @@ export const VerificationControls: React.FC<VerificationControlsProps> = ({
               width: 80,
               '& .MuiInputBase-input': {
                 padding: '4px 8px',
-                fontSize: '0.8rem',
+                fontSize: TYPOGRAPHY.body.size,
               },
             }}
             inputProps={{
@@ -241,7 +245,7 @@ export const VerificationControls: React.FC<VerificationControlsProps> = ({
                 width: 70,
                 '& .MuiInputBase-input': {
                   padding: '4px 8px',
-                  fontSize: '0.8rem',
+                  fontSize: TYPOGRAPHY.body.size,
                 },
               }}
               inputProps={{ min: 0, step: 1, readOnly: referenceReadOnly }}
@@ -269,7 +273,7 @@ export const VerificationControls: React.FC<VerificationControlsProps> = ({
                 width: 70,
                 '& .MuiInputBase-input': {
                   padding: '4px 8px',
-                  fontSize: '0.8rem',
+                  fontSize: TYPOGRAPHY.body.size,
                 },
               }}
               inputProps={{ min: 0, step: 1, readOnly: referenceReadOnly }}
@@ -297,7 +301,7 @@ export const VerificationControls: React.FC<VerificationControlsProps> = ({
                 width: 80,
                 '& .MuiInputBase-input': {
                   padding: '4px 8px',
-                  fontSize: '0.8rem',
+                  fontSize: TYPOGRAPHY.body.size,
                 },
               }}
               inputProps={{ min: 1, step: 1, readOnly: referenceReadOnly }}
@@ -325,7 +329,7 @@ export const VerificationControls: React.FC<VerificationControlsProps> = ({
                 width: 80,
                 '& .MuiInputBase-input': {
                   padding: '4px 8px',
-                  fontSize: '0.8rem',
+                  fontSize: TYPOGRAPHY.body.size,
                 },
               }}
               inputProps={{ min: 1, step: 1, readOnly: referenceReadOnly }}

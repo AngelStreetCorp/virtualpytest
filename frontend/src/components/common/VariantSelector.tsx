@@ -27,6 +27,7 @@ import {
 import { useUserInterface } from '../../hooks/pages/useUserInterface';
 import { useUserInterfaceVariants } from '../../hooks/userinterface/useUserInterfaceVariants';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface VariantSelectorProps {
   userinterfaceName?: string;
@@ -128,7 +129,7 @@ export const VariantSelector: React.FC<VariantSelectorProps> = ({
 
   return (
     <FormControl size={size} fullWidth={fullWidth} disabled={disabled}>
-      <InputLabel shrink sx={{ fontSize: '0.75rem' }}>{label}</InputLabel>
+      <InputLabel shrink sx={{ fontSize: TYPOGRAPHY.caption.size }}>{label}</InputLabel>
       <Select
         multiple
         value={selectedComponents}

@@ -57,7 +57,7 @@ def test_a_partial_failure_is_a_warning_and_feature_causes_need_the_error_rate()
     out = {(c["endpoint"], c["reason"]): c for c in health.evaluate(rows, HOUR, limits=LIMITS)["causes"]}
     assert set(out) == {("lab", "parse"), ("or", "timeout")}
     assert out[("or", "timeout")]["severity"] == "warning"  # it still answered 30 min ago, then failed again
-    assert out[("lab", "parse")]["features"] == [{"usage": "vision.quality", "errors": 20}]
+    assert out[("lab", "parse")]["features"] == [{"usage": "vision.quality", "errors": 20, "last": "2026-10-16T11:59:00+00:00"}]
 
 
 def test_backup_share_needs_volume_in_the_last_hour_and_thresholds_read_the_environment(monkeypatch):

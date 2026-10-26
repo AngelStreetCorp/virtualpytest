@@ -19,11 +19,14 @@ import { useHostSession } from '../../../hooks/useHostSession';
 import { Host } from '../../../types/common/Host_Types';
 import { getZIndex } from '../../../utils/zIndexUtils';
 import { calculateVncScaling } from '../../../utils/vncUtils';
+import { panelAnchorEdges } from './panelAnchor';
 import { VerificationEditor } from '../verification';
 
 import { RecordingOverlay, LoadingOverlay, ModeIndicatorDot } from './ScreenEditorOverlay';
+import VncAudioTrack from './VncAudioTrack';
 import { ScreenshotCapture } from './ScreenshotCapture';
 import { VideoCapture } from './VideoCapture';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface VNCStreamProps {
   host: Host;
@@ -138,6 +141,21 @@ const VNCViewer = ({
   );
 };
 
+/**
+ * Hidden `<audio>` element bound to the host_vnc companion audio HLS playlist.
+ *
+ * Drives the Mixage st\u00e9r\u00e9o / Stereo Mix capture on vpt-windows (Linux mirrors the
+ * same shape with pulseaudio monitor sources). It lives next to the VNC iframe
+ * and stays in sync via the wall-clock timestamps ffmpeg stamps on every
+ * segment -- both the iframe (which is just the noVNC websocket) and HLS.js
+ * consume the same time origin.
+ *
+ * We can't use the native <audio src="m3u8"> because Chrome ships without HLS
+ * support; HLS.js is already pulled in by the rest of the dashboard (hls-BYjZtfPA.js),
+ * so we lazy-require it. The element is muted by default -- browsers block
+ * autoplay with sound; a click on the volume icon un-mutes it (the VNC control
+ * bar already gives users a click target to enable the panel).
+ */
 export const VNCStream = React.memo(
   function VNCStream({
     host,
@@ -171,7 +189,7 @@ export const VNCStream = React.memo(
     const [avConfig, setAvConfig] = useState<any>(null);
 
     // Use stream hook for VNC stream URL (for iframe)
-    const { streamUrl, urlError } = useStream({ host, device_id: deviceId });
+    const { streamUrl, audioStreamUrl, urlError } = useStream({ host, device_id: deviceId });
     const isStreamActive = !!streamUrl && !urlError; // VNC is active if we have a valid stream URL
 
     // BUG-0107 step 2: the proxy's auth_request gate 401s /host/<name>/vnc_lite.html without
@@ -371,6 +389,11 @@ export const VNCStream = React.memo(
     const expandedHeight = panelLayout.expanded.height;
 
     // Position styles
+    // The outer box is the anchor point and has no size of its own; the panel inside it
+    // grows from that anchor. A right-anchored stream therefore has to grow to the LEFT of
+    // its anchor (its right edge sits on the anchor), otherwise it hangs past the right
+    // edge of the page — which is what the picture-in-picture overlay did (BUG-0777).
+    const anchoredRight = Boolean(positionRight);
     const positionStyles: any = {
       position: useAbsolutePositioning ? 'absolute' : 'fixed',
       zIndex: getZIndex('VNC_STREAM'),
@@ -415,7 +438,8 @@ export const VNCStream = React.memo(
               position: isVerificationEditorMaximized ? 'fixed' : 'absolute',
               bottom: isVerificationEditorMaximized ? '16px' : 0,
               top: isVerificationEditorMaximized ? '16px' : 'auto',
-              left: isVerificationEditorMaximized ? '16px' : 0,
+              left: isVerificationEditorMaximized ? '16px' : panelAnchorEdges(anchoredRight).left,
+              right: isVerificationEditorMaximized ? 'auto' : panelAnchorEdges(anchoredRight).right,
               backgroundColor: '#2A2A2A', // Slightly different from HDMI
               // Default discreet white border for all VNC panels (consistent with HDMI)
               border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -453,7 +477,7 @@ export const VNCStream = React.memo(
                       }}
                       disabled={!isStreamActive || isCaptureActive || isScreenshotLoading}
                     >
-                      <PhotoCamera sx={{ fontSize: 20 }} />
+                      <PhotoCamera sx={{ fontSize: TYPOGRAPHY.pageSubtitle.size }} />
                     </IconButton>
                   </Tooltip>
 
@@ -467,7 +491,7 @@ export const VNCStream = React.memo(
                           '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' },
                         }}
                       >
-                        <StopCircle sx={{ fontSize: 20 }} />
+                        <StopCircle sx={{ fontSize: TYPOGRAPHY.pageSubtitle.size }} />
                       </IconButton>
                     </Tooltip>
                   ) : (
@@ -481,7 +505,7 @@ export const VNCStream = React.memo(
                         }}
                         disabled={!isStreamActive}
                       >
-                        <VideoCall sx={{ fontSize: 20 }} />
+                        <VideoCall sx={{ fontSize: TYPOGRAPHY.pageSubtitle.size }} />
                       </IconButton>
                     </Tooltip>
                   )}
@@ -496,7 +520,7 @@ export const VNCStream = React.memo(
                       }}
                       disabled={!isStreamActive || isCaptureActive}
                     >
-                      <Refresh sx={{ fontSize: 20 }} />
+                      <Refresh sx={{ fontSize: TYPOGRAPHY.pageSubtitle.size }} />
                     </IconButton>
                   </Tooltip>
                 </Box>
@@ -512,11 +536,11 @@ export const VNCStream = React.memo(
                   justifyContent: 'center',
                 }}
               >
-                <Monitor sx={{ fontSize: 16 }} />
+                <Monitor sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
                 <Typography
                   variant="subtitle2"
                   sx={{
-                    fontSize: '0.875rem',
+                    fontSize: TYPOGRAPHY.body.size,
                     fontWeight: 'bold',
                   }}
                 >
@@ -581,6 +605,15 @@ export const VNCStream = React.memo(
                     zIndex: 1,
                   }}
                 />
+                {/* Audio track: HLS playlist for desktop loopback (Mixage st\u00e9r\u00e9o on
+                    vpt-windows, pulse monitor on Linux). Plays in lockstep with the
+                    VNC iframe via wall-clock timestamps, sits in a small chip overlay
+                    in the bottom-right corner. See BUG-0596. */}
+                {audioStreamUrl && streamUrl && (
+                  <Box sx={{ position: 'absolute', top: 0, left: 0, width: '100%', height: '100%', zIndex: 2, pointerEvents: 'none' }}>
+                    <VncAudioTrack audioStreamUrl={audioStreamUrl} />
+                  </Box>
+                )}
 
                 {/* Screenshot capture overlay */}
                 {captureMode === 'screenshot' && (

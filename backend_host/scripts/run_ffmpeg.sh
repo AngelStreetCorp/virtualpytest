@@ -81,6 +81,30 @@ _load_env_file() {
 _load_env_file
 echo "✅ .env loaded successfully"
 
+# A host-level limit for every FFmpeg input, complex filter graph and video output.
+# Leave it unset for FFmpeg's defaults; HOST_PROFILE=lite still defaults to one.
+if [ -n "${FFMPEG_THREADS:-}" ] && ! [[ "$FFMPEG_THREADS" =~ ^[1-9][0-9]*$ ]]; then
+  echo "ERROR: FFMPEG_THREADS must be a positive integer (got '$FFMPEG_THREADS')" >&2
+  exit 1
+fi
+
+# TASK-102: STREAM_PROFILE — bundle source + cap + VAAPI / SW / MONITOR config.
+# The full implementation is in stream_profile.sh (sourced below) so the test
+# suite can exercise it without booting the rest of run_ffmpeg.sh. The
+# `apply_stream_profile` function sets VAAPI_MODE / VAAPI_MIN_QUALITY / SW_THREADS /
+# MONITOR_PROFILE / STREAM_TYPE_DEFAULT / HOST_TIER_CAP from the named profile.
+# Per-device DEVICE<N>_* overrides still win at the per-device loop.
+source "$SCRIPT_DIR/stream_profile.sh"
+apply_stream_profile
+
+# The `imagefile` source is a frame file another process keeps rewriting
+# (emulator_screencap.sh). frame_source.sh tells a frame that is not there yet
+# from one that is there but no decoder can read (a truncated frame, published
+# when the phone dropped off USB mid-screencap) — the reader below needs the
+# difference: the first is a boot race, the second is a device that will write
+# no thumbnail and no playlist until a whole frame replaces it.
+source "$SCRIPT_DIR/frame_source.sh"
+
 # TASK-31: helpers the GRABBERS loop calls at parse time. They MUST stay above that
 # loop: bash resolves a call when it runs, so a definition further down is
 # "command not found" at startup and every override / YouTube slot is skipped.
@@ -143,6 +167,7 @@ declare -A YT_IDS=()       # device -> playlist video ids, space-separated; empt
 declare -A YT_POS=()       # device -> index in YT_IDS of the entry playing
 declare -A YT_VIDEO=()     # device -> watch URL of the video playing
 declare -A YT_EXPIRE=()    # device -> unix-ts the resolved URL expires (0 = unknown)
+declare -A YT_AUDIO=()     # device -> resolved audio-only URL; unset = the video URL has the audio
 declare -A YT_DURATION=()  # device -> duration of the video playing in s (0 = unknown/live)
 declare -A YT_SEEK=()      # device -> offset (s) the next start_grabber seeks to, used once;
                            # unset = resume at the current position (e.g. an SD/HD switch)
@@ -167,12 +192,17 @@ youtube_resolve() {
     # 480p30 decodes at ~2.4x on a Pi 4; 720p30 would be ~1.1x, no headroom next to the
     # other grabbers. The capture is scaled down anyway. --no-playlist: a watch?v=X&list=Y
     # link resolves video X only (the playlist itself is walked by YT_IDS).
+    # That video stream is video-only, so `+ba[acodec^=mp4a]` adds the AAC audio stream:
+    # yt-dlp then prints two URLs, video first, audio second (BUG-0637). `/b` (one stream
+    # with both) stays the fallback.
     out=$(timeout 60 yt-dlp --no-warnings --no-progress --no-playlist \
-          -f 'bv*[vcodec^=avc1][height<=480][fps<=30]/b' --print duration --print urls "$video" 2>/dev/null)
+          -f 'bv*[vcodec^=avc1][height<=480][fps<=30]+ba[acodec^=mp4a]/b' --print duration --print urls "$video" 2>/dev/null)
     duration=$(sed -n 1p <<< "$out")
-    url=$(sed -n '2,$p' <<< "$out" | grep -m1 '^http')
+    url=$(sed -n '2,$p' <<< "$out" | grep '^http' | sed -n 1p)
+    local audio_url; audio_url=$(sed -n '2,$p' <<< "$out" | grep '^http' | sed -n 2p)
     if [ -n "$url" ]; then
       YT_VIDEO[$index]="$video"
+      if [ -n "$audio_url" ]; then YT_AUDIO[$index]="$audio_url"; else unset "YT_AUDIO[$index]"; fi
       [[ "$duration" =~ ^[0-9]+ ]] && YT_DURATION[$index]=${BASH_REMATCH[0]} || YT_DURATION[$index]=0
       if [[ "$url" =~ [?\&/]expire[=/]([0-9]+) ]]; then YT_EXPIRE[$index]=${BASH_REMATCH[1]}; else YT_EXPIRE[$index]=0; fi
       local where="" ; [ "$n" -gt 0 ] && where=" $(( YT_POS[$index] + 1 ))/$n"
@@ -219,7 +249,7 @@ youtube_clear() {
   local index="$1"
   [ -n "${YT_DIR[$index]:-}" ] && rm -f "${YT_DIR[$index]}/youtube_now_playing.txt"
   unset "YT_SRC[$index]" "YT_DIR[$index]" "YT_IDS[$index]" "YT_POS[$index]" "YT_VIDEO[$index]" \
-        "YT_EXPIRE[$index]" "YT_DURATION[$index]" "YT_SEEK[$index]" "YT_STARTED[$index]"
+        "YT_EXPIRE[$index]" "YT_AUDIO[$index]" "YT_DURATION[$index]" "YT_SEEK[$index]" "YT_STARTED[$index]"
 }
 
 declare -A GRABBERS=()
@@ -243,9 +273,14 @@ declare -A STREAM_TYPE=()
 # otherwise keep playing the old file or URL.
 declare -A OVERRIDE_KIND=()
 override_kind_for_model() {
-  case "$1" in
-    rtsp_video|tello) echo url ;;
-    local_video) echo path ;;
+  # Folded the same way a host folds DEVICE{i}_MODEL in Python
+  # (shared/src/lib/config/device_capabilities.py): lowercased, separators dropped. So
+  # `rtspvideo`, `RTSP_Video` and `rtsp-video` all take the URL override, instead of only
+  # the exact spelling — a host whose .env is spelled differently would otherwise build a
+  # correct device in Python and silently ignore its runtime source switch here (BUG-0749).
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -d ' _-.')" in
+    rtspvideo|tello) echo url ;;
+    localvideo) echo path ;;
   esac
 }
 if [ -n "$HOST_VIDEO_SOURCE" ] && { [ "$SINGLE_DEVICE_MODE" = false ] || [ "$TARGET_DEVICE" = "host" ]; }; then
@@ -259,7 +294,16 @@ if [ -n "$HOST_VIDEO_SOURCE" ] && { [ "$SINGLE_DEVICE_MODE" = false ] || [ "$TAR
     [ -n "$HOST_STREAM_TYPE" ] && STREAM_TYPE["host"]="$HOST_STREAM_TYPE"
 fi
 
-for i in {1..30}; do
+# TASK-102: clamp the device loop to min(MAX_DEVICES, HOST_TIER_CAP). The profile's
+# HOST_TIER_CAP is the cap that matters; the legacy MAX_DEVICES is an upper bound
+# (kept for backward compat with hosts that haven't set STREAM_PROFILE).
+_max_devices="${MAX_DEVICES:-99}"
+if [ -n "${HOST_TIER_CAP:-}" ] && [ "${_max_devices}" -gt "${HOST_TIER_CAP}" ] 2>/dev/null; then
+  _max_devices="${HOST_TIER_CAP}"
+fi
+echo "INFO: device loop max = ${_max_devices} (MAX_DEVICES=${MAX_DEVICES:-99}, HOST_TIER_CAP=${HOST_TIER_CAP:-unset}, STREAM_PROFILE=${STREAM_PROFILE:-legacy})"
+
+for i in $(seq 1 "${_max_devices}"); do  # DEVICE1..DEVICE<N>, capped by MAX_DEVICES and HOST_TIER_CAP
     video_var="DEVICE${i}_VIDEO"
     audio_var="DEVICE${i}_VIDEO_AUDIO"
     capture_var="DEVICE${i}_VIDEO_CAPTURE_PATH"
@@ -314,14 +358,22 @@ for i in {1..30}; do
         }
         video_source="$REPLY"
         # The resolved URL is HLS or a direct media URL — force the stream type so the
-        # autodetect does not mis-classify a .m3u8 returned by YouTube.
-        [ -z "$stream_type" ] && stream_type="hls"
+        # autodetect does not mis-classify a .m3u8 returned by YouTube. TASK-102: the
+        # default comes from the active STREAM_PROFILE (or "hls" for the legacy default).
+        [ -z "$stream_type" ] && stream_type="${STREAM_TYPE_DEFAULT:-hls}"
     fi
 
     # VIDEO wins over ADB_SERIAL: an Android TV behind an HDMI grabber sets ADB_SERIAL only
     # for remote control, and must keep its HDMI capture (BUG-0344). scrcpy is the video
     # source only for a device with no VIDEO (emulator, phone on USB).
     adb_var="DEVICE${i}_ADB_SERIAL"
+    # A slot with a source but no capture path is half-disabled (e.g. only DEVICE7_ADB_SERIAL
+    # left live). Its grabber's kill pattern would be "/captures", which kills EVERY device's
+    # ffmpeg on each watchdog retry (BUG-0821).
+    if { [ -n "$video_source" ] || [ -n "${!adb_var}" ]; } && [ -z "$(echo "${capture_path}" | tr -d '\r')" ]; then
+        echo "WARNING: DEVICE${i}: source set but no DEVICE${i}_VIDEO_CAPTURE_PATH — slot skipped"
+        continue
+    fi
     if [ -n "$video_source" ] && { [ "$SINGLE_DEVICE_MODE" = false ] || [ "$TARGET_DEVICE" = "device$i" ]; }; then
         # Strip carriage returns from Windows line endings
         clean_capture_path=$(echo "${capture_path}" | tr -d '\r')
@@ -375,6 +427,49 @@ reset_log_if_large() {
   fi
 }
 
+# TASK-95: tv_lite. A device whose monitor profile says `stream: lean` is stream-and-control only: no monitor, no
+# archiver, no KPI/AVQ read its ffmpeg outputs, so ffmpeg stops writing the ones only they used (the 5 fps
+# thumbnails) and slows the screenshot captures to LEAN_CAPTURE_FPS. latest.jpg is written at the same rate: a branch
+# sparser than the capture branch (fps=1) made ffmpeg 8 run the whole graph at 0.65x realtime (measured). The profile is resolved like
+# shared/src/lib/utils/monitor_profile.py does: DEVICE<N>_MONITOR_PROFILE, then MONITOR_PROFILE, then tv_app;
+# a name with no manifest is tv_app. Prints `lean` or `full`.
+MONITOR_PROFILES_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/config/monitor/profiles"
+LEAN_CAPTURE_FPS="${TV_LITE_CAPTURE_FPS:-2}"
+stream_mode_for() {
+  local index="$1" n="" prof="" var
+  [[ "$index" =~ ^device([0-9]+)$ ]] && n="${BASH_REMATCH[1]}"
+  if [ -n "$n" ]; then var="DEVICE${n}_MONITOR_PROFILE"; prof="${!var:-}"; fi
+  [ -n "$prof" ] || prof="${MONITOR_PROFILE:-}"
+  # The model default, as monitor_profile.MODEL_PROFILES: without it a host_vnc capture streamed `full` (no pruning)
+  # while the archiver idled for its `pc` profile, and the hot tmpfs filled in ~30 min (BUG-0695).
+  if [ -z "${prof//[[:space:]]/}" ]; then
+    local model=""
+    if [ -n "$n" ]; then var="DEVICE${n}_MODEL"; model="${!var:-}";
+    elif [ -n "${HOST_VNC_STREAM_PATH//[[:space:]]/}" ]; then model="host_vnc"; fi
+    case "${model//[[:space:]]/}" in
+      host_vnc) prof="pc" ;;
+      android_mobile|phone_agent|cloud_android_mobile) prof="mobile" ;;
+    esac
+  fi
+  prof="${prof//[[:space:]]/}"
+  if [[ "$prof" =~ ^[a-z][a-z0-9_]*$ ]] && grep -qE '^stream:[[:space:]]*lean[[:space:]]*(#.*)?$' "$MONITOR_PROFILES_DIR/$prof.yaml" 2>/dev/null; then
+    echo lean
+  else
+    echo full
+  fi
+}
+
+# Nothing else bounds a lean device's folders (the archiver is off for it): keep the newest 150 captures
+# (75 s at 2 fps, enough for report screenshots), no thumbnails, no stale metadata. Called from the main loop.
+prune_lean_device() {
+  local base="$1/hot"
+  [ -d "$base" ] || base="$1"
+  ls -t "$base"/captures/capture_*.jpg 2>/dev/null | tail -n +151 | xargs -r rm -f
+  find "$base/thumbnails" -maxdepth 1 -name 'capture_*_thumbnail.jpg' -delete 2>/dev/null
+  find "$base/metadata" -maxdepth 1 -type f -mmin +60 -delete 2>/dev/null
+  return 0
+}
+
 get_device_info() {
   local capture_dir="$1"
   local field="$2"  # 'pid' or 'quality'
@@ -403,11 +498,56 @@ get_device_quality() {
   else
     local quality=$(get_device_info "$capture_dir" "quality")
     if [ -z "$quality" ]; then
-      echo "low"  # Default to LOW quality (320:180) for preview/monitoring
+      # STREAM_QUALITY (.env) > the active STREAM_PROFILE's DEFAULT_STREAM_QUALITY > low (320:180).
+      echo "${STREAM_QUALITY:-${DEFAULT_STREAM_QUALITY:-low}}"
     else
       echo "$quality"
     fi
   fi
+}
+
+# TASK-90 goal 12: burn the vehicle telemetry (battery, temperature, altitude, speed, GPS) into the picture, top right, BEFORE the split, so the
+# stream, recordings, captures, thumbnails and report videos all carry it. Opt-in per device: DEVICE<N>_TELEMETRY_BURN_IN=1 (0 forces it off),
+# else the device's monitor profile has `burn_in: true` (same resolution as shared/src/lib/drone/telemetry_status.py telemetry_burn_in).
+# Burned pixels are seen by every detector and cannot be removed afterwards; the default (JSON + web overlay) draws nothing into the video.
+telemetry_burn_in_enabled() {
+  local n="${1#device}" v prof
+  [[ "$n" =~ ^[0-9]+$ ]] || return 1
+  eval "v=\${DEVICE${n}_TELEMETRY_BURN_IN:-}"
+  v=$(printf '%s' "$v" | tr '[:upper:]' '[:lower:]')
+  case "$v" in 1|true|yes|on) return 0 ;; 0|false|no|off) return 1 ;; esac
+  eval "prof=\${DEVICE${n}_MONITOR_PROFILE:-\${MONITOR_PROFILE:-}}"
+  [[ "$prof" =~ ^[a-z][a-z0-9_]*$ ]] || return 1
+  grep -qE '^burn_in:[[:space:]]*true([[:space:]]|$)' "$BACKEND_HOST_DIR/config/monitor/profiles/$prof.yaml" 2>/dev/null
+}
+
+# Prints "drawtext=...," (with its trailing comma, to sit in front of `split=3`) or nothing. The text file is the bridge's telemetry_hud.txt in
+# the device's metadata folder, re-read every frame (reload=1); it is created here with a placeholder so a grabber that starts before the first
+# telemetry does not fail on a missing file. expansion=none: the text holds a % (BAT 87%) that drawtext would read as the start of a macro. Never breaks the stream: no font or no drawtext filter = a log line and no overlay.
+telemetry_hud_filter() {
+  local device="$1" metadata_dir="$2" font f txt
+  telemetry_burn_in_enabled "$device" || return 0
+  font="${TELEMETRY_HUD_FONT:-}"
+  if [ -z "$font" ]; then
+    for f in /usr/share/fonts/truetype/dejavu/DejaVuSansMono-Bold.ttf /usr/share/fonts/dejavu/DejaVuSansMono-Bold.ttf \
+             /usr/share/fonts/TTF/DejaVuSansMono-Bold.ttf /System/Library/Fonts/Menlo.ttc; do
+      [ -f "$f" ] && { font="$f"; break; }
+    done
+  fi
+  if [ -z "$font" ] || [ ! -f "$font" ]; then
+    echo "Telemetry burn-in for $device: no font found (apt install fonts-dejavu-core, or set TELEMETRY_HUD_FONT); video stays clean" >&2
+    return 0
+  fi
+  if ! "${FFMPEG_BIN:-/usr/bin/ffmpeg}" -hide_banner -filters 2>/dev/null | grep -q ' drawtext '; then
+    echo "Telemetry burn-in for $device: this ffmpeg has no drawtext filter; video stays clean" >&2
+    return 0
+  fi
+  mkdir -p "$metadata_dir" 2>/dev/null
+  txt="$metadata_dir/telemetry_hud.txt"
+  [ -s "$txt" ] || printf 'NO TELEMETRY' > "$txt" 2>/dev/null
+  font=${font//:/\\:}; txt=${txt//:/\\:}
+  echo "Telemetry burn-in: $device draws $txt top right" >&2
+  printf "%s" "drawtext=fontfile='${font}':textfile='${txt}':reload=1:expansion=none:fontcolor=white:fontsize=h/30:x=w-tw-h/36:y=h/36:box=1:boxcolor=black@0.55:boxborderw=10,"
 }
 
 # Function to detect source type (hardware video device, VNC display, network stream, or video file)
@@ -485,6 +625,7 @@ get_loop_state() {
 # leaving it unset keeps this portable across both vendors.
 VAAPI_RENDER_NODE=""
 VAAPI_CACHE="/tmp/vpt_vaapi_render_node"
+declare -A VAAPI_SW_RETRY=()   # devices whose source the GPU could not decode in VAAPI_MODE=full
 detect_vaapi() {
   if [ -f "$VAAPI_CACHE" ]; then
     VAAPI_RENDER_NODE="$(cat "$VAAPI_CACHE" 2>/dev/null)"
@@ -501,6 +642,35 @@ detect_vaapi() {
     echo "ℹ️  No VAAPI H.264 encode entrypoint — using software libx264"
   fi
   echo "$VAAPI_RENDER_NODE" > "$VAAPI_CACHE" 2>/dev/null || true
+}
+
+# VAAPI modes (TASK-95), all host .env keys, all defaults = today's behaviour:
+#   VAAPI_MODE        auto | off | decode_only | encode_only | full
+#   VAAPI_MIN_QUALITY low | sd | hd | hd_plus   (qualities below it use software)
+#   SW_THREADS        0 | N   (software network branch only; overridden by FFMPEG_THREADS)
+#   FFMPEG_THREADS    unset | N (all FFmpeg inputs, complex graphs and video outputs)
+# auto = VAAPI decode + encode when a render node exists. off = software everywhere (same as an
+# empty /tmp/vpt_vaapi_render_node). decode_only = GPU decode, software scale + libx264.
+# encode_only = software decode, hwupload + h264_vaapi. full = frames stay on the GPU
+# (network branch only; the v4l2 branch has no GPU decode and treats full as auto).
+vaapi_quality_rank() {
+  case "$1" in sd) echo 1 ;; hd) echo 2 ;; hd_plus) echo 3 ;; *) echo 0 ;; esac
+}
+# True when this quality may use VAAPI at all: a render node exists, the mode is not off, and the
+# quality is at or above VAAPI_MIN_QUALITY.
+use_vaapi_for() {
+  [ -n "$VAAPI_RENDER_NODE" ] || return 1
+  [ "${VAAPI_MODE:-auto}" = "off" ] && return 1
+  [ "$(vaapi_quality_rank "$1")" -ge "$(vaapi_quality_rank "${VAAPI_MIN_QUALITY:-low}")" ]
+}
+# Prints the plan for a quality: software | gpu | decode_only | encode_only | full.
+# An unknown VAAPI_MODE value is treated as auto.
+vaapi_plan() {
+  if ! use_vaapi_for "$1"; then echo software; return; fi
+  case "${VAAPI_MODE:-auto}" in
+    decode_only|encode_only|full) echo "${VAAPI_MODE}" ;;
+    *) echo gpu ;;
+  esac
 }
 
 # Map spec for a network source's embedded audio. `0:a?` maps an audio stream even
@@ -566,6 +736,167 @@ setup_x11_auth() {
     fi
 }
 
+# ---------------------------------------------------------------------------
+# X11 auth fault signature + self-repair
+# ---------------------------------------------------------------------------
+# The dashboard's auto-fix button only knows how to `systemctl restart <unit>`. For an x11grab
+# device whose root cause is the X cookie that restart cannot succeed: ffmpeg dies on startup
+# with the same "Authorization required…" / "Cannot open display :1", and the staleness watchdog
+# restarts it every RESTART_SPACING_SEC forever — so the host card reads "restarted" while nothing
+# is captured (BUG-0464). A restart is only half the fix; the other half is repairing the cookie
+# that restart will read.
+#
+# These two helpers let the stall watchdog recognise that signature and REPAIR it in place:
+#
+#   x11_auth_fault  <logfile>   — does this device's ffmpeg log show an X11 AUTH fault?
+#   repair_x11_auth <display>   — make <display> reachable for this user, then prove it.
+#
+# Both are deliberately conservative: neither touches a display whose auth already works, and
+# repair_x11_auth verifies with a real one-frame x11grab probe before declaring success, so a
+# still-broken display falls back to the normal restart/dormant policy instead of a repair loop.
+
+# 0 when the log holds an X11 AUTHORISATION failure for a display, 1 otherwise.
+# ffmpeg's wording differs slightly across versions and "Cannot open display" also fires for a
+# dead display with a perfectly valid cookie, so the cookie-specific first line (emitted by Xlib
+# itself when no usable authority/protocol was found) is what we key on.
+x11_auth_fault() {
+    local log="$1"
+    [ -s "$log" ] || return 1
+    tail -40 "$log" 2>/dev/null | grep -qE \
+        'Authorization required, but no authorization protocol specified|No protocol specified|Xlib:.*missing' || return 1
+    # A running capture keeps appending progress lines, so a fault line buried under fresh output
+    # is history, not the current state. Only judge the fault when the log has gone quiet.
+    local now mtime age
+    now=$(date +%s)
+    mtime=$(stat -c %Y "$log" 2>/dev/null || echo "$now")
+    age=$(( now - mtime ))
+    [ "$age" -gt 5 ]
+}
+
+# Make display $1 usable by the current user, then PROVE it. Returns 0 only when a probe that
+# mirrors what ffmpeg does actually succeeds. Escalation is cheapest-first and every step is
+# idempotent, so calling this on a healthy display costs one xdpyinfo and changes nothing:
+#
+#   1. re-resolve the cookie (setup_x11_auth) — fixes a wrong/absent XAUTHORITY (BUG-0464).
+#   2. `xhost +local:` — grants same-host connections without a matching cookie. Belt to
+#      setup_x11_auth's braces: a cookie the server rotated and never rewrote is unfixable from
+#      this side, and the grant survives until the X server restarts. xstartup is supposed to run
+#      this line; a host whose xstartup lacks it has never had the grant at all.
+#   3. re-resolve the cookie once more, in case step 2 changed what the server accepts.
+#
+# Deliberately never escalates past that: restarting vpt-vnc (which regenerates the cookie from
+# scratch) is the dashboard's or the operator's call, not a 30 s watchdog's — it drops any live
+# VNC session and any operator connected to the desktop.
+repair_x11_auth() {
+    local display="$1"
+    [ -n "$display" ] || return 1
+    export DISPLAY="$display"
+
+    # Cheap pre-check: a display that already answers is not ours to touch.
+    if xdpyinfo -display "$display" >/dev/null 2>&1; then
+        return 0
+    fi
+
+    local step
+    for step in resolve grant regrant; do
+        case "$step" in
+            resolve) setup_x11_auth "$display" ;;
+            grant)   xhost -display "$display" "+local:" >/dev/null 2>&1 || true ;;
+            regrant) setup_x11_auth "$display" ;;
+        esac
+        if xdpyinfo -display "$display" >/dev/null 2>&1; then
+            echo "🔧 X11 auth repaired on $display (step: $step) — display is reachable again"
+            return 0
+        fi
+    done
+
+    # Last check before giving up: prove it the way ffmpeg actually asks. xdpyinfo can succeed
+    # where a fresh x11grab open is still refused, so the only trustworthy verification is a
+    # one-frame grab that lands a real file on disk.
+    #
+    # The probe lives in its own mktemp DIRECTORY rather than `mktemp ...XXXXXX.jpg`: BSD mktemp
+    # (macOS, where this is developed) only substitutes trailing X's, so a `.jpg` suffix makes it
+    # echo the template back VERBATIM — every run would then write the same predictable /tmp path,
+    # which collides between devices and is a symlink-attack surface. ffmpeg needs the extension to
+    # pick an encoder, so the file goes inside the dir rather than carrying the suffix itself.
+    local probe_dir probe
+    probe_dir=$(mktemp -d 2>/dev/null) || probe_dir=""
+    if [ -n "$probe_dir" ] && [ -d "$probe_dir" ]; then
+        probe="$probe_dir/probe.jpg"
+        if "${FFMPEG_BIN:-/usr/bin/ffmpeg}" -hide_banner -loglevel error -y \
+                -f x11grab -video_size 64x64 -i "$display" -frames:v 1 "$probe" >/dev/null 2>&1 \
+           && [ -s "$probe" ]; then
+            rm -rf "$probe_dir"
+            echo "🔧 X11 auth repaired on $display (frame probe OK)"
+            return 0
+        fi
+        rm -rf "$probe_dir"
+    fi
+
+    echo "⚠️  X11 auth on $display could not be repaired (no usable cookie, xhost grant refused, grab still denied) — falling back to the normal restart policy" >&2
+    return 1
+}
+
+# Disk-full fault signature + guard
+# ---------------------------------------------------------------------------
+# A full filesystem is the other fault a restart cannot fix, and it is invisible
+# from the grabber's own signals: ffmpeg's log stays fresh, the process stays up,
+# and the device looks alive while every output write fails with ENOSPC. On
+# labox-backend the archiver (which trims the 24 h capture archive) had been left
+# stopped by an earlier deploy for 1.5 days; the archive grew to 12 G, / hit 100%,
+# and then EVERY capture/segment/latest.jpg write failed — an empty heatmap with a
+# "running" service. The watchdog restart-looped ffmpeg, which wrote more, which
+# kept it full. A restart cannot create free space, so the only useful responses
+# are (a) say so plainly and stop the write loop, and (b) trim what is safe to trim.
+#
+#   disk_full_fault <dir>           — 0 (fault) when the filesystem holding <dir> is
+#                                     >= DISK_FULL_PCT% USED; 1 otherwise (unknown
+#                                     counts as healthy so a host is never blocked)
+#   disk_emergency_reclaim <dir>    — delete only the disposable capture tail and
+#                                     echo how many files it removed
+DISK_FULL_PCT="${DISK_FULL_PCT:-98}"   # percent USED that counts as "full" (matches df's Use% column)
+
+# Returns 0 (fault) when the filesystem holding <dir> is >= DISK_FULL_PCT% USED.
+# Unknown (no df / exotic mount) returns 1 so a host is never blocked from capturing
+# just because its disk could not be measured.
+disk_full_fault() {
+  local dir="$1" used
+  used=$(df -P "$dir" 2>/dev/null | awk 'NR==2 {gsub(/%/,"",$5); print $5}')
+  [ -n "$used" ] || return 1        # unknown -> do not block
+  [ "$used" -ge "$DISK_FULL_PCT" ]
+}
+
+# Best-effort reclamation when the capture filesystem is full. Only removes things
+# that are, by design, disposable: hot captures/segments older than an hour and the
+# cold archive entries past the 24 h retention window. Never touches hot/ recent
+# files, the current latest.jpg, or anything outside the capture tree. Returns the
+# number of files removed. Used only when the disk is already full — a safety valve,
+# not the retention mechanism (that is the archiver's job, which is why a stopped
+# archiver is the real bug).
+disk_emergency_reclaim() {
+  local base="$1" removed=0 n
+  # hot tree: anything older than 1 h is outside the live window.
+  # latest.jpg is EXCLUDED from the thumbnails sweep: it is the single file the
+  # heatmap / monitor-img reads for a live frame, so deleting it while the disk is
+  # full would blank exactly the cell this guard is trying to save. ffmpeg rewrites
+  # it with `-update 1`, so it is a live pointer, not an archive entry.
+  for d in "$base/hot/captures" "$base/hot/segments"; do
+    [ -d "$d" ] || continue
+    n=$(find "$d" -type f -mmin +60 2>/dev/null | wc -l)
+    find "$d" -type f -mmin +60 -delete 2>/dev/null && removed=$((removed + n))
+  done
+  if [ -d "$base/hot/thumbnails" ]; then
+    n=$(find "$base/hot/thumbnails" -type f -name 'capture_*_thumbnail.jpg' -mmin +60 2>/dev/null | wc -l)
+    find "$base/hot/thumbnails" -type f -name 'capture_*_thumbnail.jpg' -mmin +60 -delete 2>/dev/null && removed=$((removed + n))
+  fi
+  # cold archive: hour folders / files older than the 24 h retention window
+  if [ -d "$base/captures" ]; then
+    n=$(find "$base/captures" -type f -name 'capture_*.jpg' -mmin +1440 2>/dev/null | wc -l)
+    find "$base/captures" -type f -name 'capture_*.jpg' -mmin +1440 -delete 2>/dev/null && removed=$((removed + n))
+  fi
+  echo "$removed"
+}
+
 # Function to get VNC display resolution
 get_vnc_resolution() {
   local display="$1"
@@ -590,6 +921,12 @@ kill_all_ffmpeg_for_device() {
   local capture_pattern="$capture_dir/captures"
   local hot_capture_pattern="$capture_dir/hot/captures"
   unset "HLS_LOOP_PID[$index]"  # an intentional kill: restart_ended_hls must not undo it
+
+  # An empty capture_dir makes the pattern "/captures", which matches every device (BUG-0821).
+  if [ -z "$capture_dir" ]; then
+    echo "❌ $index: empty capture_dir — refusing to kill (pattern would match every device)"
+    return 1
+  fi
 
   echo "🔪 Killing FFmpeg for $index..."
   
@@ -781,7 +1118,12 @@ device_present() {
     # -c follows symlinks, so /dev/stb1 → /dev/video0 still resolves correctly
     [ -c "$source" ]
   elif [[ "$source" =~ \.(png|jpg|jpeg)$ ]]; then
-    [ -r "$source" ]
+    # A frame file is only "present" when it is WHOLE. A truncated frame (the
+    # frame loop published one when the phone dropped off USB mid-screencap) is
+    # readable but no decoder can read it, so treating it as present would keep
+    # a dead device awake and restarting it forever, and would keep it out of
+    # the dormant state that waits for a whole frame to come back.
+    [ "$(frame_source_state "$source")" = "ok" ]
   elif [[ "$source" =~ \.(mp4|mkv|mov|ts|webm|avi|flv|m4v)$ ]]; then
     # Local video file (TASK-31) — readable? otherwise no point trying.
     [ -r "$source" ]
@@ -848,6 +1190,36 @@ restart_unhealthy_grabber() {
   fi
 
   local quality=$(get_device_quality "$capture_dir")
+
+  # Disk-full guard. When the capture filesystem is full, restarting ffmpeg cannot
+  # help — it only writes more failing output — and the device can never recover on
+  # its own. Reclaim the disposable tail once, say so plainly, and let the normal
+  # restart policy continue; if the disk is still full afterwards the next health
+  # tick says the same thing rather than the log filling with ENOSPC noise.
+  if disk_full_fault "$capture_dir"; then
+    local reclaimed
+    reclaimed=$(disk_emergency_reclaim "$capture_dir")
+    echo "🔴 $index: capture filesystem for $capture_dir is FULL ($(df -P "$capture_dir" 2>/dev/null | awk 'NR==2 {print $5}') used) — reclaimed ${reclaimed} stale capture file(s). A restart alone cannot fix this: free space on the filesystem (check vpt-archiver is running to trim the 24h archive, and the journal) or the capture write stays dead." >&2
+    if disk_full_fault "$capture_dir"; then
+      echo "🔴 $index: capture filesystem is STILL full after reclaim — this device cannot write until an operator frees space" >&2
+    fi
+  fi
+
+  # X11 auth self-repair. An x11grab device whose log shows the authorisation fault gets its
+  # cookie repaired BEFORE the restart, because restarting into the same broken auth just
+  # reproduces the same dead ffmpeg (and burns a restart attempt + a minute of wall clock doing
+  # so). This is the piece the dashboard's restart-only auto-fix cannot do. Only the display
+  # the device actually captures is touched, and only when the log carries the fault signature.
+  if [ "$(detect_source_type "$source")" = "x11grab" ] && x11_auth_fault "/tmp/ffmpeg_output_${index}.log"; then
+    echo "🔧 $index: X11 auth fault on $source detected — repairing the cookie before restarting"
+    if repair_x11_auth "$source"; then
+      # The repair reset what the previous restart attempts were failing on, so give this
+      # device a clean budget instead of letting it walk into dormant on a stale counter.
+      FAIL_COUNT[$index]=0
+      fails=0
+    fi
+  fi
+
   echo "⚠️  $index: $reason — restarting attempt=$((fails + 1))/$MAX_RESTART_ATTEMPTS (quality=$quality)"
   # YouTube: a stall is usually the signed URL refused (403), so restart with a fresh one.
   if [ -n "${YT_SRC[$index]:-}" ]; then
@@ -923,13 +1295,26 @@ check_grabber_health() {
     # perfectly healthy-looking grabber (frame=2441384 frozen, no manifest) until a
     # human restarted the service. A capture that produces nothing IS down, however
     # healthy the process looks, so measure the OUTPUT and not the process.
+    #
+    # A FULL FILESYSTEM is checked first and separately: on ENOSPC ffmpeg keeps
+    # printing that same live-looking progress line while every write fails, so the
+    # segment-age test below would eventually fire but with a misleading "input
+    # stalled" reason and a pointless restart. Naming the real cause (disk full) and
+    # reclaiming the disposable tail is what actually unblocks the device.
+    if disk_full_fault "$capture_dir"; then
+      restart_unhealthy_grabber "$index" "$source" "$audio_device" "$capture_dir" "$fps" "$now" \
+        "capture filesystem FULL — every output write is failing with ENOSPC"
+      continue
+    fi
+
     local seg_dir="$capture_dir/hot/segments"
     [ -d "$seg_dir" ] || seg_dir="$capture_dir/segments"
     local newest_seg
+    local seg_age=999999
     newest_seg=$(ls -t "$seg_dir"/*.ts 2>/dev/null | head -1)
     if [ -n "$newest_seg" ]; then
       local seg_mtime=$(stat -c %Y "$newest_seg" 2>/dev/null || echo "$now")
-      local seg_age=$(( now - seg_mtime ))
+      seg_age=$(( now - seg_mtime ))
       if [ "$seg_age" -gt "$OUTPUT_STALL_SEC" ]; then
         restart_unhealthy_grabber "$index" "$source" "$audio_device" "$capture_dir" "$fps" "$now" \
           "no segment written for ${seg_age}s (input stalled; log looks alive)"
@@ -938,9 +1323,21 @@ check_grabber_health() {
     fi
 
     # Healthy again: reset counter if we had failures and the log is now fresh.
+    # A fresh log alone is NOT a recovery. ffmpeg writes its progress line for
+    # the first seconds of its life and then goes quiet when the source cannot
+    # be decoded, so a grabber that never wrote a single segment still looks
+    # alive for half a minute. Resetting on that is what let a device with a
+    # dead source restart forever: every retry reset the counter, so the retry
+    # cap above was never reached, the device never went dormant, and nothing
+    # on the host said the device was dead. A recovery is a grabber that is
+    # writing output again.
     if [ "$age" -le "$STALE_SEC" ] && [ "$fails" -gt 0 ]; then
-      echo "✅ $index recovered (log_age=${age}s) — resetting failure counter (was $fails)"
-      FAIL_COUNT[$index]=0
+      if [ -n "$newest_seg" ] && [ "$seg_age" -le "$OUTPUT_STALL_SEC" ]; then
+        echo "✅ $index recovered (log_age=${age}s) — resetting failure counter (was $fails)"
+        FAIL_COUNT[$index]=0
+      else
+        echo "⚠️  $index: ffmpeg log is alive (log_age=${age}s) but no segment is being written — not a recovery, keeping the failure counter at $fails"
+      fi
       continue
     fi
 
@@ -1203,9 +1600,27 @@ ensure_pulse_server() {
 start_grabber() {
   local source=$1 audio_device=$2 capture_dir=$3 index=$4 input_fps=$5
   local target_quality=$6  # Optional: if provided, use this quality instead of get_device_quality
-  
+
   # Use target_quality if provided, otherwise fallback to get_device_quality
   local quality=${target_quality:-$(get_device_quality "$capture_dir")}
+  # Per-device HTTP User-Agent override. The BFM-family streams (BFM TV, BFM
+  # Business, the 11 regional BFM channels) reject ffmpeg's default
+  # "Lavf/<ver>" UA with a 403; the iptv-org m3u carries the working UA as
+  # `#EXTVLCOPT:http-user-agent=Mozilla/5.0 (X11; Linux x86_64)
+  # AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36`.
+  # Operators set DEVICE<N>_USER_AGENT in /opt/virtualpytest/backend_host/src/.env
+  # to that string; this reads it and lets the HLS demuxer send the right UA.
+  # Empty / unset = default UA (unchanged behaviour).
+  local user_agent_flag=""
+  local ua_var="DEVICE${index}_USER_AGENT"
+  if [ -n "${!ua_var:-}" ]; then
+    local ua_esc="${!ua_var//\\/\\\\}"
+    ua_esc="${ua_esc//\"/\\\"}"
+    ua_esc="${ua_esc//\$/\\\$}"
+    ua_esc="${ua_esc//\`/\\\`}"
+    user_agent_flag="-user_agent \"$ua_esc\""
+    echo "user_agent: $index uses custom UA (${#ua_esc} chars)"
+  fi
   local source_type
   if [ -n "${STREAM_TYPE[$index]:-}" ]; then
     source_type="${STREAM_TYPE[$index]}"
@@ -1223,7 +1638,7 @@ start_grabber() {
   # a VAAPI-only tier: on software-only hosts (Pi 5, no H.264 encoder) fall back to
   # HD so libx264 is never asked to do a high-bitrate 720p encode in realtime, and so
   # the capture-counter math doesn't size for 2s segments that won't be produced.
-  if [ "$quality" = "hd_plus" ] && [ -z "$VAAPI_RENDER_NODE" ]; then
+  if [ "$quality" = "hd_plus" ] && ! use_vaapi_for hd_plus; then
     echo "ℹ️  hd_plus requested but no VAAPI encoder — falling back to hd"
     quality="hd"
   fi
@@ -1237,6 +1652,8 @@ start_grabber() {
   local output_segments="$storage_base/segments"
   local output_captures="$storage_base/captures"
   local output_thumbnails="$storage_base/thumbnails"
+  local hud_filter
+  hud_filter=$(telemetry_hud_filter "$index" "$storage_base/metadata")
   # TASK-79 Phase D: the RTSP publish path used by MediaMTX for the WebRTC/WHEP
   # bridge. storage_base is /var/www/html/stream/capture1/hot; the parent
   # /var/www/html/stream/capture1 is the device folder, so we take dirname
@@ -1274,6 +1691,20 @@ start_grabber() {
   # segment duration. The only constraint is captures_per_segment must be an integer,
   # so segment_seconds must be a multiple of 0.2 (5 * 0.4 = 2 ✓; 5 * 0.5 = 2.5 ✗).
   local seg_start cap_start thumb_start captures_per_segment
+  local ffmpeg_in_threads="" ffmpeg_out_threads="" ffmpeg_graph_threads=""
+  if [ -n "${FFMPEG_THREADS:-}" ]; then
+    ffmpeg_in_threads="-threads $FFMPEG_THREADS"
+    ffmpeg_out_threads="-threads $FFMPEG_THREADS"
+    ffmpeg_graph_threads="-filter_complex_threads $FFMPEG_THREADS"
+  fi
+  # TASK-95: lean = tv_lite device (see stream_mode_for). cap_fps_v/thm_graph/thumb_out are the only pieces of the
+  # filter graph and output list that differ; for a full device they expand to exactly the text that was here before.
+  local lean=false cap_fps_v=5
+  [ "$(stream_mode_for "$index")" = "lean" ] && lean=true
+  if [ "$lean" = true ]; then
+    cap_fps_v="$LEAN_CAPTURE_FPS"
+    echo "ℹ️  $index: stream: lean (tv_lite) — captures and latest.jpg at ${cap_fps_v} fps, no thumbnails"
+  fi
   # TASK-79: live tier is 0.4 s segments on every source type. Captures stay at 5 fps
   # (independent of segment duration, required by freeze detection), so the ratio
   # is 5 fps × 0.4 s = 2 captures per segment for every non-v4l2 branch. The v4l2
@@ -1293,6 +1724,8 @@ start_grabber() {
   if [ "$source_type" = "v4l2" ] && [ "$quality" = "hd_plus" ]; then
     captures_per_segment=10
   fi
+  # lean: captures are below one per segment, so seg_start is above any earlier capture number: still monotonic
+  [ "$lean" = true ] && captures_per_segment=1
   seg_start=$(next_start_number "$output_segments" "segment_" ".ts")
   cap_start=$(( seg_start * captures_per_segment ))
   thumb_start=$cap_start
@@ -1318,14 +1751,20 @@ start_grabber() {
     local serial="$source"
     echo "📱 Starting scrcpy→FFmpeg for ADB device: $serial"
     adb connect "$serial" 2>/dev/null || true
+    local adb_thm="[thm]scale=320:180:flags=neighbor,split=2[thumbout][latestout]"
+    local adb_thumb_out=(-map "[thumbout]" -fps_mode passthrough -c:v mjpeg $ffmpeg_out_threads -q:v 8 -f image2 -atomic_writing 1 -start_number $thumb_start "$output_thumbnails/capture_%09d_thumbnail.jpg")
+    if [ "$lean" = true ]; then   # tv_lite: only latest.jpg is read; no thumbnail files
+      adb_thm="[thm]scale=320:180:flags=neighbor[latestout]"
+      adb_thumb_out=()
+    fi
     scrcpy --serial "$serial" --no-audio --video-bit-rate 2M --record - --record-format mkv 2>/dev/null \
-    | /usr/bin/ffmpeg -y -i pipe:0 \
-        -filter_complex "[0:v]fps=$input_fps,split=3[str][cap][thm];[str]scale=320:180:flags=fast_bilinear[streamout];[cap]scale=1280:720:flags=fast_bilinear,setpts=PTS-STARTPTS[captureout];[thm]scale=320:180:flags=neighbor,split=2[thumbout][latestout]" \
-        -map "[captureout]" -fps_mode passthrough -c:v mjpeg -q:v 8 -f image2 -atomic_writing 1 -start_number $cap_start "$output_captures/capture_%09d.jpg" \
-        -map "[thumbout]" -fps_mode passthrough -c:v mjpeg -q:v 8 -f image2 -atomic_writing 1 -start_number $thumb_start "$output_thumbnails/capture_%09d_thumbnail.jpg" \
-        -map "[latestout]" -fps_mode passthrough -c:v mjpeg -q:v 8 -f image2 -update 1 -atomic_writing 1 "$latest_jpg" \
-        -map "[streamout]" -c:v libx264 -preset ultrafast -tune zerolatency -b:v 150k -maxrate 200k -bufsize 400k -pix_fmt yuv420p \
-        -x264opts "keyint=$((input_fps*2/5)):min-keyint=$((input_fps*2/5)):no-scenecut:bframes=0" \
+    | /usr/bin/ffmpeg -y $ffmpeg_graph_threads $ffmpeg_in_threads -i pipe:0 \
+        -filter_complex "[0:v]fps=$input_fps,split=3[str][cap][thm];[str]scale=320:180:flags=fast_bilinear[streamout];[cap]scale=1280:720:flags=fast_bilinear,setpts=PTS-STARTPTS[captureout];$adb_thm" \
+        -map "[captureout]" -fps_mode passthrough -c:v mjpeg $ffmpeg_out_threads -q:v 8 -f image2 -atomic_writing 1 -start_number $cap_start "$output_captures/capture_%09d.jpg" \
+        "${adb_thumb_out[@]}" \
+        -map "[latestout]" -fps_mode passthrough -c:v mjpeg $ffmpeg_out_threads -q:v 8 -f image2 -update 1 -atomic_writing 1 "$latest_jpg" \
+        -map "[streamout]" -c:v libx264 $ffmpeg_out_threads -preset ultrafast -tune zerolatency -b:v 150k -maxrate 200k -bufsize 400k -pix_fmt yuv420p \
+        -x264opts "keyint=$(( (input_fps*2+2)/5 > 0 ? (input_fps*2+2)/5 : 1 )):min-keyint=$(( (input_fps*2+2)/5 > 0 ? (input_fps*2+2)/5 : 1 )):no-scenecut:bframes=0" \
         -f hls -hls_time 0.4 -hls_list_size 375 -hls_delete_threshold 375 -hls_flags delete_segments+omit_endlist+split_by_time+program_date_time -lhls 1 \
         -start_number $seg_start -hls_segment_filename "$output_segments/segment_%09d.ts" "$output_segments/output.m3u8" &
     local ffmpeg_pid=$!
@@ -1380,8 +1819,11 @@ start_grabber() {
     # [cap]/[thm] detection branches stay pinned to fps=5, so freeze/zap detection
     # is unchanged; idle CPU/GPU headroom on VAAPI hosts makes the extra fps ~free.
     local stream_fps="$input_fps"
-    # 0.4s GOP above 10 fps (24 at 60, 8 at 20); 4 at <=10 fps keeps Pis and VNC unchanged.
-    local stream_gop=$(( stream_fps > 10 ? (stream_fps * 2 + 4) / 5 : 4 ))
+    # GOP = fps * 0.4 so every 0.4s segment starts on a keyframe: 2 at 5 fps, 4 at 10,
+    # 8 at 20, 24 at 60. A fixed 4 at 5 fps put a keyframe in every OTHER segment, and a
+    # player joining on the keyless one failed to decode and restarted (BUG-0660).
+    local stream_gop=$(( (stream_fps * 2 + 2) / 5 ))
+    if [ "$stream_gop" -lt 1 ]; then stream_gop=1; fi
     local stream_tqs=512        # v4l2 input thread queue
     local stream_hls_time=0.4   # live tiers: 0.4s segments for low latency
     local stream_hls_list=300   # 300 * 0.4s = 120s DVR window (the live slider caps at 150s)
@@ -1433,12 +1875,14 @@ start_grabber() {
     # HOST_PROFILE=lite (one device on a 1 GB board, TASK-83): HLS only (no MediaMTX there), and
     # one thread for the MJPEG decoder, the filter graph and every encoder. Measured on vpt-pi1:
     # 31 threads / 78 MB private -> 1 thread / 51 MB at the same CPU; 10 fps keeps up easily.
-    local lite_in_threads="" lite_out_threads="" lite_graph_threads=""
+    local lite_in_threads="$ffmpeg_in_threads" lite_out_threads="$ffmpeg_out_threads" lite_graph_threads="$ffmpeg_graph_threads"
     if [ "${HOST_PROFILE:-}" = "lite" ]; then
       webrtc_enabled=false
-      lite_in_threads="-threads 1"
-      lite_out_threads="-threads 1"
-      lite_graph_threads="-filter_complex_threads 1"
+      if [ -z "${FFMPEG_THREADS:-}" ]; then
+        lite_in_threads="-threads 1"
+        lite_out_threads="-threads 1"
+        lite_graph_threads="-filter_complex_threads 1"
+      fi
     fi
     if [ "$audio_device" != "null" ] && [ -n "$audio_device" ]; then
       local audio_try
@@ -1471,7 +1915,11 @@ start_grabber() {
     # already-scaled small frame to the GPU (format=nv12,hwupload) and encodes
     # there; -pix_fmt/-preset/-tune/-x264opts are x264-only and must be omitted.
     local vaapi_dev_flag="" stream_filter stream_codec
-    if [ -n "$VAAPI_RENDER_NODE" ]; then
+    local v4l2_plan; v4l2_plan=$(vaapi_plan "$quality")
+    # The v4l2 input is MJPEG (nothing to decode on the GPU): decode_only is software here, full is auto.
+    case "$v4l2_plan" in decode_only) v4l2_plan=software ;; full) v4l2_plan=gpu ;; esac
+    echo "vaapi: mode=${VAAPI_MODE:-auto} quality=$quality -> $v4l2_plan"
+    if [ "$v4l2_plan" != "software" ]; then
       vaapi_dev_flag="-vaapi_device $VAAPI_RENDER_NODE"
       # fps=${stream_fps} FIRST forces constant frame rate: the v4l2 input uses
       # -use_wallclock_as_timestamps, so frames arrive at jittery wall-clock times
@@ -1516,6 +1964,9 @@ start_grabber() {
     # -loglevel error: drop the per-frame info/decoder chatter (a corrupt-input
     # grabber floods it). -stats: keep the ~1/s progress line so the log mtime
     # still advances — check_grabber_health uses that as the liveness signal.
+    local thm_graph="[thm]fps=5,scale=320:180:flags=neighbor,split=2[thumbout][latestout]"
+    local thumb_out="-map \"[thumbout]\" -fps_mode passthrough -c:v mjpeg $lite_out_threads -q:v 8 -f image2 -atomic_writing 1 -start_number $thumb_start $output_thumbnails/capture_%09d_thumbnail.jpg"
+    if [ "$lean" = true ]; then thm_graph="[thm]fps=${cap_fps_v},scale=320:180:flags=neighbor[latestout]"; thumb_out=""; fi
     FFMPEG_CMD="/usr/bin/ffmpeg -loglevel error -stats -y \
       $vaapi_dev_flag \
       -fflags +nobuffer+genpts+flush_packets \
@@ -1523,17 +1974,16 @@ start_grabber() {
       -thread_queue_size $stream_tqs \
       $lite_in_threads -f v4l2 -input_format mjpeg -video_size 1280x720 -framerate $stream_fps -i $source \
       $audio_input_flags \
-      $lite_graph_threads -filter_complex \"[0:v]split=3[str][cap][thm]; \
+      $lite_graph_threads -filter_complex \"[0:v]${hud_filter}split=3[str][cap][thm]; \
         $stream_filter; \
-        [cap]fps=5,scale=${capture_scale}:flags=fast_bilinear,setpts=PTS-STARTPTS[captureout];[thm]fps=5,scale=320:180:flags=neighbor,split=2[thumbout][latestout]\" \
+        [cap]fps=${cap_fps_v},scale=${capture_scale}:flags=fast_bilinear,setpts=PTS-STARTPTS[captureout];$thm_graph\" \
       -map \"[streamout]\" $audio_map_flags \
       $stream_codec $lite_out_threads \
       $audio_codec_flags \
       $stream_outputs \
       -map \"[captureout]\" -fps_mode passthrough -c:v mjpeg $lite_out_threads -q:v 8 -f image2 -atomic_writing 1 \
       -start_number $cap_start $output_captures/capture_%09d.jpg \
-      -map \"[thumbout]\" -fps_mode passthrough -c:v mjpeg $lite_out_threads -q:v 8 -f image2 -atomic_writing 1 \
-      -start_number $thumb_start $output_thumbnails/capture_%09d_thumbnail.jpg \
+      $thumb_out \
       -map \"[latestout]\" -fps_mode passthrough -c:v mjpeg $lite_out_threads -q:v 8 -f image2 -update 1 -atomic_writing 1 $latest_jpg"
 
   # NOTE: hls_list_size on the imagefile branch below is 150, matching every other source
@@ -1554,15 +2004,32 @@ start_grabber() {
     # Detect orientation from source image (wait for valid source to avoid boot race)
     local img_dims=""
     local wait_count=0
+    local src_state="missing"
     while [ -z "$img_dims" ] || [ "$img_dims" = " " ] || [ "$img_dims" = "0 0" ]; do
       img_dims=$(identify -format "%w %h" "$source" 2>/dev/null || echo "")
       if [ -z "$img_dims" ] || [ "$img_dims" = " " ] || [ "$img_dims" = "0 0" ]; then
         wait_count=$((wait_count + 1))
+        # A source file that is there but no decoder can read is a DIFFERENT fault
+        # from a source that has not been written yet. The first is a boot race
+        # and clears itself; the second is a truncated frame the frame loop
+        # published when the phone dropped off USB mid-screencap, and it stays
+        # broken until a whole frame replaces it. The old message said "not
+        # available" for both, which reads like a missing device and sends the
+        # reader looking in the wrong place.
+        src_state=$(frame_source_state "$source")
         if [ $wait_count -le 60 ]; then
-          echo "Waiting for valid source image ($source)... attempt $wait_count/60"
+          if [ "$src_state" = "corrupt" ]; then
+            echo "Waiting for a whole source image ($source)... attempt $wait_count/60 — the file is there but truncated/corrupt: the frame loop (emulator_screencap.sh) published an incomplete frame and no decoder can read it until a whole frame replaces it"
+          else
+            echo "Waiting for valid source image ($source)... attempt $wait_count/60"
+          fi
           sleep 2
         else
-          echo "WARNING: Source image not available after 120s, defaulting to landscape"
+          if [ "$src_state" = "corrupt" ]; then
+            echo "WARNING: source image $source is still a truncated/corrupt frame after 120s — ffmpeg cannot decode it, so this device writes no thumbnail and no playlist until the frame loop publishes a whole frame" >&2
+          else
+            echo "WARNING: Source image not available after 120s, defaulting to landscape"
+          fi
           img_dims="1920 1080"
           break
         fi
@@ -1649,21 +2116,24 @@ start_grabber() {
     # player goes black. The JPEG encoders get a 1 ms time base, or two wall-clock frames in
     # one 1/$input_fps tick share a pts and mjpeg stalls ffmpeg (BUG-0165).
     local video_clock="settb=AVTB,setpts=RTCTIME-RTCSTART,"
+    local img_thm="[thm]scale=${thumb_scale},split=2[thumbout][latestout]"
+    local img_thumb_out="-map \"[thumbout]\" -fps_mode passthrough -enc_time_base 1:1000 -c:v mjpeg $ffmpeg_out_threads -q:v 8 -f image2 -atomic_writing 1 -start_number $thumb_start $output_thumbnails/capture_%09d_thumbnail.jpg"
+    if [ "$lean" = true ]; then img_thm="[thm]scale=${thumb_scale}[latestout]"; img_thumb_out=""; fi
 
-    # The PNG decoder runs single-threaded (`-threads 1` before `-i -`). Left at the default,
+    # The PNG decoder defaults to one thread (`-threads 1` before `-i -`). Left at FFmpeg's default,
     # ffmpeg frame-threads it across every core, and each decoder thread holds a frame: on a
     # 20-core host that is ~20 frames in flight, ~4 s of lag at ~5 fps and 1 GB of RAM
     # (BUG-0491). One full-HD PNG decodes in a few tens of ms, far under the frame interval.
     # Use piped cat loop — re-reads source file each frame
     # The outer while-true loop in run_one_grabber will restart on quality change
     FFMPEG_CMD="(while true; do cat \"$source\" 2>/dev/null || break; sleep 0.2; done) | \
-      /usr/bin/ffmpeg -loglevel error -stats -y -fflags +flush_packets -threads 1 -f image2pipe -framerate $input_fps -i - \
+      /usr/bin/ffmpeg -loglevel error -stats -y -fflags +flush_packets ${ffmpeg_in_threads:--threads 1} -f image2pipe -framerate $input_fps -i - \
       $audio_input \
-      -filter_complex \"[0:v]${video_clock}split=3[str][cap][thm]; \
+      $ffmpeg_graph_threads -filter_complex \"[0:v]${video_clock}split=3[str][cap][thm]; \
         [str]scale=${stream_scale}[streamout]; \
         [cap]setpts=PTS-STARTPTS[captureout]; \
-        [thm]scale=${thumb_scale},split=2[thumbout][latestout]\" \
-      -map \"[streamout]\" $audio_map -c:v libx264 -preset ultrafast -tune zerolatency \
+        $img_thm\" \
+      -map \"[streamout]\" $audio_map -c:v libx264 $ffmpeg_out_threads -preset ultrafast -tune zerolatency \
         -r $input_fps -g $stream_gop -keyint_min $stream_gop -x264opts no-scenecut:bframes=0 \
         -b:v ${stream_bitrate} -maxrate ${stream_bitrate} -bufsize $((${stream_bitrate%k} * 2))k \
         -pix_fmt yuv420p \
@@ -1672,11 +2142,10 @@ start_grabber() {
         -start_number $seg_start \
         -hls_segment_filename $output_segments/segment_%09d.ts \
         $output_segments/output.m3u8 \
-      -map \"[captureout]\" -fps_mode passthrough -enc_time_base 1:1000 -c:v mjpeg -q:v 8 -f image2 -atomic_writing 1 \
+      -map \"[captureout]\" -fps_mode passthrough -enc_time_base 1:1000 -c:v mjpeg $ffmpeg_out_threads -q:v 8 -f image2 -atomic_writing 1 \
         -start_number $cap_start $output_captures/capture_%09d.jpg \
-      -map \"[thumbout]\" -fps_mode passthrough -enc_time_base 1:1000 -c:v mjpeg -q:v 8 -f image2 -atomic_writing 1 \
-        -start_number $thumb_start $output_thumbnails/capture_%09d_thumbnail.jpg \
-        -map \"[latestout]\" -fps_mode passthrough -enc_time_base 1:1000 -c:v mjpeg -q:v 8 -f image2 -update 1 -atomic_writing 1 $latest_jpg"
+      $img_thumb_out \
+        -map \"[latestout]\" -fps_mode passthrough -enc_time_base 1:1000 -c:v mjpeg $ffmpeg_out_threads -q:v 8 -f image2 -update 1 -atomic_writing 1 $latest_jpg"
 
   elif [ "$source_type" = "x11grab" ]; then
     # 3-tier quality system: LOW (preview) → SD (modal opened) → HD (user clicks HD)
@@ -1709,6 +2178,21 @@ start_grabber() {
     setup_x11_auth "$source"
     export DISPLAY="$source"
 
+    # ...and if resolution alone was not enough, REPAIR the auth before building the command.
+    # setup_x11_auth only finds a cookie that is already on disk; it cannot fix a display whose
+    # cookie the server rotated, or one where xstartup never ran `xhost +local:` and there is no
+    # cookie to find at all (the exact host in BUG-0464). Left unchecked, that produces an ffmpeg
+    # that dies instantly on every start and a host that looks live while archiving nothing — and
+    # the dashboard's auto-fix, which only knows `systemctl restart vpt-stream`, cannot break that
+    # loop. Verifying here means EVERY entry into this branch self-heals: dashboard auto-fix, a
+    # systemd restart, the staleness watchdog, a source switch. Cheap when healthy: one xdpyinfo
+    # that returns early, no grant issued, nothing changed.
+    if ! xdpyinfo -display "$source" >/dev/null 2>&1; then
+      echo "🔧 $index: $source is not readable with the resolved cookie — attempting in-place X11 auth repair"
+      repair_x11_auth "$source" || echo "⚠️  $index: X11 auth repair did not succeed; ffmpeg may fail to open $source" >&2
+      setup_x11_auth "$source"   # re-resolve: the repair may have changed which cookie is valid
+    fi
+
     ensure_pulse_server "$audio_device"
 
     local resolution=$(get_vnc_resolution "$source")
@@ -1732,30 +2216,32 @@ start_grabber() {
       audio_map="-map 1:a?"
     fi
 
+    local thm_graph="[thm]fps=5,scale=320:180:flags=neighbor,split=2[thumbout][latestout]"
+    local thumb_out="-map \"[thumbout]\" -fps_mode passthrough -c:v mjpeg $ffmpeg_out_threads -q:v 10 -f image2 -atomic_writing 1 -start_number $thumb_start $output_thumbnails/capture_%09d_thumbnail.jpg"
+    if [ "$lean" = true ]; then thm_graph="[thm]fps=${cap_fps_v},scale=320:180:flags=neighbor[latestout]"; thumb_out=""; fi
     FFMPEG_CMD="DISPLAY=\"$source\" /usr/bin/ffmpeg -loglevel error -stats -y \
       -fflags +nobuffer+flush_packets \
       -probesize 32M -analyzeduration 0 \
       -draw_mouse 0 -show_region 0 \
-      -f x11grab -video_size $resolution -framerate $input_fps -i $source \
+      $ffmpeg_in_threads -f x11grab -video_size $resolution -framerate $input_fps -i $source \
       $audio_input \
-      -filter_complex \"[0:v]split=3[str][cap][thm]; \
+      $ffmpeg_graph_threads -filter_complex \"[0:v]split=3[str][cap][thm]; \
         [str]scale=${stream_scale}:flags=neighbor[streamout]; \
-        [cap]fps=5,scale=${capture_scale}:flags=neighbor,setpts=PTS-STARTPTS[captureout];[thm]fps=5,scale=320:180:flags=neighbor,split=2[thumbout][latestout]\" \
+        [cap]fps=${cap_fps_v},scale=${capture_scale}:flags=neighbor,setpts=PTS-STARTPTS[captureout];$thm_graph\" \
       -map \"[streamout]\" $audio_map \
-      -c:v libx264 -preset ultrafast -tune zerolatency \
+      -c:v libx264 $ffmpeg_out_threads -preset ultrafast -tune zerolatency \
       -b:v $stream_bitrate -maxrate $stream_maxrate -bufsize $stream_bufsize \
       $audio_codec \
       -pix_fmt yuv420p -profile:v baseline -level 3.0 \
-      -x264opts keyint=$((input_fps*2/5)):min-keyint=$((input_fps*2/5)):no-scenecut:bframes=0:ref=1:me=dia:subme=0 \
+      -x264opts keyint=$(( (input_fps*2+2)/5 > 0 ? (input_fps*2+2)/5 : 1 )):min-keyint=$(( (input_fps*2+2)/5 > 0 ? (input_fps*2+2)/5 : 1 )):no-scenecut:bframes=0:ref=1:me=dia:subme=0 \
       -f hls -hls_time 0.4 -hls_list_size 375 -hls_delete_threshold 375 -hls_flags delete_segments+omit_endlist+split_by_time+program_date_time -lhls 1 \
       -start_number $seg_start \
       -hls_segment_filename $output_segments/segment_%09d.ts \
       $output_segments/output.m3u8 \
-      -map \"[captureout]\" -fps_mode passthrough -c:v mjpeg -q:v 10 -f image2 -atomic_writing 1 \
+      -map \"[captureout]\" -fps_mode passthrough -c:v mjpeg $ffmpeg_out_threads -q:v 10 -f image2 -atomic_writing 1 \
       -start_number $cap_start $output_captures/capture_%09d.jpg \
-      -map \"[thumbout]\" -fps_mode passthrough -c:v mjpeg -q:v 10 -f image2 -atomic_writing 1 \
-      -start_number $thumb_start $output_thumbnails/capture_%09d_thumbnail.jpg \
-      -map \"[latestout]\" -fps_mode passthrough -c:v mjpeg -q:v 8 -f image2 -update 1 -atomic_writing 1 $latest_jpg"
+      $thumb_out \
+      -map \"[latestout]\" -fps_mode passthrough -c:v mjpeg $ffmpeg_out_threads -q:v 8 -f image2 -update 1 -atomic_writing 1 $latest_jpg"
   elif [ "$source_type" = "rtsp" ] || [ "$source_type" = "hls" ] || [ "$source_type" = "videofile" ]; then
     # TASK-31: network streams (RTSP / HLS / public IPTV) and local / HTTP(S) video files.
     # The branch reuses the v4l2 / imagefile output pipeline (mjpeg captures + HLS stream)
@@ -1837,6 +2323,11 @@ start_grabber() {
       audio_input="$audio_input_flags"
       audio_map="$audio_map_flags"
       audio_codec="$audio_codec_flags"
+    elif [ -n "${YT_SRC[$index]:-}" ] && [ -n "${YT_AUDIO[$index]:-}" ]; then
+      # YouTube video and audio are separate streams (BUG-0637): a second input with the
+      # same reconnect / seek flags as the video, paced by -re like it.
+      audio_input="-re $yt_input_flags -thread_queue_size 2048 -i \"${YT_AUDIO[$index]}\""
+      audio_map="-map 1:a:0"
     fi
 
     # Reuse the proven v4l2 / x11grab output pipeline: split into [str]/[cap]/[thm],
@@ -1856,6 +2347,12 @@ start_grabber() {
     # NEXT keyframe: 25 s on smoke.mp4 (keyint 250 @ 10 fps), 8.3 s on smoke.mkv,
     # 4-5 s on HLS bipbop, with no capture and no segment written meanwhile. A file
     # or HLS source gains no latency from it (it is read whole, paced by -re).
+    # A UDP push feed bound to one host address (two Tellos, one source IP each) must bind THAT
+    # address: ffmpeg's udp input otherwise binds 0.0.0.0, and the second drone's ffmpeg dies with
+    # "Address already in use" on the shared video port.
+    if [[ "$source" =~ ^udp://([0-9]+\.[0-9]+\.[0-9]+\.[0-9]+):[0-9]+$ ]] && [ "${BASH_REMATCH[1]}" != "0.0.0.0" ]; then
+      source="${source}?localaddr=${BASH_REMATCH[1]}"
+    fi
     local re_flag="-re" input_fflags="+genpts+flush_packets"
     if [ "$source_type" = "rtsp" ]; then
       re_flag=""
@@ -1882,36 +2379,94 @@ start_grabber() {
     fi
 
     local hw_input_flags="" stream_filter stream_codec
-    if [ -n "$VAAPI_RENDER_NODE" ]; then
-      hw_input_flags="-hwaccel vaapi -hwaccel_device $VAAPI_RENDER_NODE -vaapi_device $VAAPI_RENDER_NODE"
-      stream_filter="[str]fps=${input_fps},scale=${stream_scale}:flags=fast_bilinear,format=nv12,hwupload[streamout]"
-      # Same profile/rc as the v4l2 VAAPI branch (see the iHD note there); -g = 1 s GOP.
-      stream_codec="-c:v h264_vaapi -b:v $stream_bitrate -maxrate $stream_maxrate -bufsize $stream_bufsize -g $((input_fps*2/5))"
-    else
-      stream_filter="[str]fps=${input_fps},scale=${stream_scale}:flags=fast_bilinear[streamout]"
-      stream_codec="-c:v libx264 -preset ultrafast -tune zerolatency -b:v $stream_bitrate -maxrate $stream_maxrate -bufsize $stream_bufsize \
-      -x264opts keyint=$((input_fps*2/5)):min-keyint=$((input_fps*2/5)):no-scenecut:bframes=0 -pix_fmt yuv420p -profile:v baseline -level 3.0"
+    local net_plan; net_plan=$(vaapi_plan "$quality")
+    if [ "$net_plan" = "full" ] && [ -n "$sub_filter" ]; then
+      echo "ℹ️  vaapi full: subtitle burn-in needs software frames — using auto for $index"
+      net_plan=gpu
     fi
+    if [ "$net_plan" = "full" ] && [ -n "${VAAPI_SW_RETRY[$index]:-}" ]; then
+      echo "ℹ️  vaapi full: $index could not be decoded on the GPU earlier — software"
+      net_plan=software
+    fi
+    echo "vaapi: mode=${VAAPI_MODE:-auto} quality=$quality -> $net_plan"
+    local net_cap_pre="" net_thm_pre="" net_threads="$ffmpeg_in_threads $ffmpeg_graph_threads" net_x264_threads=""
+    local net_out_threads="$ffmpeg_out_threads"
+    [ -n "${FFMPEG_THREADS:-}" ] && net_x264_threads=":threads=$FFMPEG_THREADS"
+    local net_gop=$(( (input_fps*2+2)/5 > 0 ? (input_fps*2+2)/5 : 1 ))
+    case "$net_plan" in
+      gpu)
+        hw_input_flags="-hwaccel vaapi -hwaccel_device $VAAPI_RENDER_NODE -vaapi_device $VAAPI_RENDER_NODE"
+        stream_filter="[str]fps=${input_fps},scale=${stream_scale}:flags=fast_bilinear,format=nv12,hwupload[streamout]" ;;
+      decode_only)
+        hw_input_flags="-hwaccel vaapi -hwaccel_device $VAAPI_RENDER_NODE"
+        stream_filter="[str]fps=${input_fps},scale=${stream_scale}:flags=fast_bilinear[streamout]" ;;
+      encode_only)
+        hw_input_flags="-vaapi_device $VAAPI_RENDER_NODE"
+        stream_filter="[str]fps=${input_fps},scale=${stream_scale}:flags=fast_bilinear,format=nv12,hwupload[streamout]" ;;
+      full)
+        hw_input_flags="-hwaccel vaapi -hwaccel_device $VAAPI_RENDER_NODE -hwaccel_output_format vaapi -vaapi_device $VAAPI_RENDER_NODE"
+        stream_filter="[str]fps=${input_fps},scale_vaapi=${stream_scale}[streamout]"
+        net_cap_pre="hwdownload,format=nv12,"; net_thm_pre="hwdownload,format=nv12," ;;
+      *)
+        if [ -z "${FFMPEG_THREADS:-}" ] && [ "${SW_THREADS:-0}" -gt 0 ] 2>/dev/null; then
+          net_threads="-threads $SW_THREADS -filter_complex_threads $SW_THREADS"
+          net_x264_threads=":threads=$SW_THREADS"
+        fi
+        stream_filter="[str]fps=${input_fps},scale=${stream_scale}:flags=fast_bilinear[streamout]" ;;
+    esac
+    if [ "$net_plan" = "gpu" ] || [ "$net_plan" = "encode_only" ] || [ "$net_plan" = "full" ]; then
+      # Same profile/rc as the v4l2 VAAPI branch (see the iHD note there); -g = 1 s GOP.
+      stream_codec="-c:v h264_vaapi -b:v $stream_bitrate -maxrate $stream_maxrate -bufsize $stream_bufsize -g $net_gop"
+    else
+      stream_codec="-c:v libx264 -preset ultrafast -tune zerolatency -b:v $stream_bitrate -maxrate $stream_maxrate -bufsize $stream_bufsize \
+      -x264opts keyint=$net_gop:min-keyint=$net_gop:no-scenecut:bframes=0$net_x264_threads -pix_fmt yuv420p -profile:v baseline -level 3.0"
+    fi
+    local thm_graph="[thm]fps=5,scale=320:180:flags=neighbor,split=2[thumbout][latestout]"
+    local thumb_out="-map \"[thumbout]\" -fps_mode passthrough -c:v mjpeg $net_out_threads -q:v 8 -f image2 -atomic_writing 1 -start_number $thumb_start $output_thumbnails/capture_%09d_thumbnail.jpg"
+    if [ "$lean" = true ]; then thm_graph="[thm]fps=${cap_fps_v},scale=320:180:flags=neighbor[latestout]"; thumb_out=""; fi
+    [ -n "$net_thm_pre" ] && thm_graph="${thm_graph/\[thm\]/[thm]$net_thm_pre}"
     FFMPEG_CMD="/usr/bin/ffmpeg -loglevel error -stats -y \
       $hw_input_flags \
       -fflags $input_fflags \
-      $re_flag $stream_loop_flag $yt_input_flags -i \"$source\" \
+      $re_flag $stream_loop_flag $yt_input_flags $user_agent_flag $net_threads -i \"$source\" \
       $audio_input \
-      -filter_complex \"[0:v]${sub_filter}split=3[str][cap][thm]; \
+      -filter_complex \"[0:v]${sub_filter}${hud_filter}split=3[str][cap][thm]; \
         $stream_filter; \
-        [cap]fps=5,scale=${capture_scale}:flags=fast_bilinear,setpts=PTS-STARTPTS[captureout];[thm]fps=5,scale=320:180:flags=neighbor,split=2[thumbout][latestout]\" \
+        [cap]fps=${cap_fps_v},scale=${capture_scale}:flags=fast_bilinear,setpts=PTS-STARTPTS[captureout];$thm_graph\" \
       -map \"[streamout]\" $audio_map \
-      $stream_codec \
+      $stream_codec $net_out_threads \
       $audio_codec \
       -f hls -hls_time 0.4 -hls_list_size 375 -hls_delete_threshold 375 -hls_flags delete_segments+omit_endlist+split_by_time+program_date_time -lhls 1 \
       -start_number $seg_start \
       -hls_segment_filename $output_segments/segment_%09d.ts \
       $output_segments/output.m3u8 \
-      -map \"[captureout]\" -fps_mode passthrough -c:v mjpeg -q:v 8 -f image2 -atomic_writing 1 \
+      -map \"[captureout]\" -fps_mode passthrough -c:v mjpeg $net_out_threads -q:v 8 -f image2 -atomic_writing 1 \
       -start_number $cap_start $output_captures/capture_%09d.jpg \
-      -map \"[thumbout]\" -fps_mode passthrough -c:v mjpeg -q:v 8 -f image2 -atomic_writing 1 \
-      -start_number $thumb_start $output_thumbnails/capture_%09d_thumbnail.jpg \
-      -map \"[latestout]\" -fps_mode passthrough -c:v mjpeg -q:v 8 -f image2 -update 1 -atomic_writing 1 $latest_jpg"
+      $thumb_out \
+      -map \"[latestout]\" -fps_mode passthrough -c:v mjpeg $net_out_threads -q:v 8 -f image2 -update 1 -atomic_writing 1 $latest_jpg"
+    [ -n "$net_cap_pre" ] && FFMPEG_CMD="${FFMPEG_CMD/\[cap\]fps=/[cap]${net_cap_pre}fps=}"
+    # VIDEOFILE_COPY=1 (profile stream_local_360p): a local clip that is already small H.264 is not
+    # decoded and re-encoded. The HLS stream is a stream copy (-c copy, ~0.3% of a core) and the
+    # captures / latest.jpg are made from a second, keyframe-only read of the same file
+    # (-skip_frame nokey), so 48 streams run at 1x on a 2-core box (48 transcodes ran at ~0.5x, load 130).
+    # Segments are 0.4 s only if the clip has a keyframe every 0.4 s (scripts/make_low_360p_clips.sh does
+    # that: -g 10 at 25 fps); a longer GOP just gives longer segments. Lean (tv_lite) devices only.
+    if [ "$source_type" = "videofile" ] && [ "${VIDEOFILE_COPY:-0}" = "1" ] && [ "$lean" = true ]; then
+      echo "ℹ️  $index: videofile stream-copy (VIDEOFILE_COPY=1): HLS -c copy, captures from keyframes at ${cap_fps_v} fps"
+      FFMPEG_CMD="/usr/bin/ffmpeg -loglevel error -stats -y \
+        -fflags $input_fflags \
+        -re $stream_loop_flag -i \"$source\" \
+        -re $stream_loop_flag -skip_frame nokey -i \"$source\" \
+        -filter_complex \"[1:v]fps=${cap_fps_v},split=2[captureout][lat];[lat]scale=320:180:flags=fast_bilinear[latestout]\" \
+        -map 0:v -c:v copy -an \
+        -f hls -hls_time 0.4 -hls_list_size 375 -hls_delete_threshold 375 -hls_flags delete_segments+omit_endlist+split_by_time+program_date_time -lhls 1 \
+        -start_number $seg_start \
+        -hls_segment_filename $output_segments/segment_%09d.ts \
+        $output_segments/output.m3u8 \
+        -map \"[captureout]\" -fps_mode passthrough -c:v mjpeg $net_out_threads -q:v 8 -f image2 -atomic_writing 1 \
+        -start_number $cap_start $output_captures/capture_%09d.jpg \
+        -map \"[latestout]\" -fps_mode passthrough -c:v mjpeg $net_out_threads -q:v 8 -f image2 -update 1 -atomic_writing 1 $latest_jpg"
+    fi
   else
     echo "ERROR: Unsupported source type: $source_type"
     return 1
@@ -1958,6 +2513,17 @@ start_grabber() {
     unset "HLS_LOOP_PID[$index]"
   fi
   
+  # VAAPI_MODE=full: a source codec the GPU cannot decode kills ffmpeg at once. Retry that
+  # device ONCE in software (the flag stays set so later restarts do not loop).
+  if [ "${net_plan:-}" = "full" ] && [ "$source_type" != "v4l2" ]; then
+    sleep 3
+    if ! kill -0 "$FFMPEG_PID" 2>/dev/null; then
+      echo "⚠️  vaapi full: ffmpeg for $index exited at start (GPU cannot decode this source?) — retrying once in software"
+      VAAPI_SW_RETRY[$index]=1
+      start_grabber "$@"
+      return
+    fi
+  fi
   echo "✅ Started $index PID:$FFMPEG_PID quality:$quality"
   # NOTE: do NOT install a SIGTERM trap here. start_grabber runs in the main
   # shell (not a subshell) and is re-invoked from the steady-state loop to
@@ -2104,6 +2670,14 @@ while true; do
   tick=$((tick + 1))
   if [ $((tick % HEALTH_INTERVAL)) -eq 0 ]; then
     check_grabber_health
+  fi
+  if [ $((tick % 15)) -eq 0 ]; then
+    for lean_index in "${!GRABBERS[@]}"; do
+      if [ "$(stream_mode_for "$lean_index")" = "lean" ]; then
+        IFS='|' read -r _ _ lean_dir _ <<< "${GRABBERS[$lean_index]}"
+        prune_lean_device "$lean_dir"
+      fi
+    done
   fi
 
   sleep 1  # Check every second

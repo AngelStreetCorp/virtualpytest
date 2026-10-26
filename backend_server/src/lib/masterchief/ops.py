@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, List, Optional, TYPE_CHECKING
 
 from shared.src.lib.utils.build_url_utils import call_host
+from shared.src.lib.utils.service_names import canonical_unit_name
 
 if TYPE_CHECKING:
     # Avoid a runtime import cycle with the routes module.
@@ -117,8 +118,8 @@ class MasterchiefOp:
 ALLOWED_SERVICES = [
     'vpt-server', 'vpt-server-host', 'vpt-host', 'vpt-frontend',
     'vpt-heatmap', 'vpt-discard-scripts', 'vpt-discard-incidents',
-    'vpt-stream', 'vpt-monitor', 'vpt-archiver', 'vpt-kpi',
-    'vpt-transcript', 'vpt-subtitle', 'vpt-vnc', 'vpt-websockify',
+    'vpt-stream', 'vpt-monitor-img', 'vpt-archiver', 'vpt-kpi',
+    'vpt-monitor-audio', 'vpt-monitor-subtitle', 'vpt-vnc', 'vpt-websockify',
     'vpt-emulator', 'vpt-emulator-fifo',
 ]
 
@@ -128,6 +129,7 @@ _LOG_LINES_MAX = 500
 
 def _exec_logs_view(params: Dict[str, Any], ctx: OpContext) -> OpResult:
     service = (params.get('service') or '').strip()
+    service = canonical_unit_name(service)
     if not service:
         return OpResult(summary='service is required')
     if service not in ALLOWED_SERVICES:
@@ -162,6 +164,7 @@ def _exec_logs_services(_params: Dict[str, Any], _ctx: OpContext) -> OpResult:
 def _exec_service_status(params: Dict[str, Any], ctx: OpContext) -> OpResult:
     host = (params.get('host') or ctx.host_name or '').strip()
     service = (params.get('service') or '').strip()
+    service = canonical_unit_name(service)
     if not host or not service:
         return OpResult(summary='host and service are required')
     if service not in ALLOWED_SERVICES:
@@ -191,6 +194,7 @@ def _exec_service_status(params: Dict[str, Any], ctx: OpContext) -> OpResult:
 def _exec_service_restart(params: Dict[str, Any], ctx: OpContext) -> OpResult:
     host = (params.get('host') or ctx.host_name or '').strip()
     service = (params.get('service') or '').strip()
+    service = canonical_unit_name(service)
     if not host or not service:
         return OpResult(summary='host and service are required')
     if service not in ALLOWED_SERVICES:
@@ -263,6 +267,52 @@ def _exec_deploy_status(params: Dict[str, Any], _ctx: OpContext) -> OpResult:
     )
 
 
+def _gb(n: int) -> str:
+    return f'{n / 1e9:.2f} GB'
+
+
+def _disk_cleanup_call(params: Dict[str, Any], ctx: OpContext, dry_run: bool) -> OpResult:
+    """Expired capture files on one host, through the host's own allowlisted cleanup (capture dirs only, retention
+    windows, nothing in use): shared/src/lib/utils/host_disk_cleanup.py. No path or age comes from the caller."""
+    host = (params.get('host') or ctx.host_name or '').strip()
+    if not host:
+        return OpResult(summary='host is required')
+    try:
+        from backend_server.src.lib.utils.server_utils import get_host_manager
+        host_info = get_host_manager().get_host(host)
+    except Exception:
+        host_info = None
+    if not host_info:
+        return OpResult(summary=f'host not found: {host}')
+    if not dry_run:
+        try:
+            from backend_server.src.routes.server_system_routes import _foreign_host_lock
+            lock = _foreign_host_lock(host)
+        except Exception as e:  # fail closed: do not delete when the lock state is unknown
+            return OpResult(summary=f'lock check failed: {type(e).__name__}')
+        if lock:
+            return OpResult(summary=f'{host} is in use by another user; cleanup refused')
+    try:
+        resp, status = call_host(host_info, '/host/system/diskCleanup', method='POST',
+                                 data={'dry_run': dry_run}, timeout=300)
+    except Exception as e:
+        return OpResult(summary=f'cleanup call failed: {type(e).__name__}')
+    if status != 200 or not resp.get('success'):
+        return OpResult(summary=f'cleanup failed on {host} (status={status})')
+    detail = {k: resp.get(k) for k in ('freed_bytes', 'files', 'disk_before', 'disk_after', 'dry_run')}
+    verb = 'would free' if dry_run else 'freed'
+    after = '' if dry_run else f', disk {detail["disk_before"]} % -> {detail["disk_after"]} %'
+    return OpResult(summary=f'{host}: {verb} {_gb(int(detail["freed_bytes"] or 0))} in {detail["files"]} expired capture files{after}', detail=detail)
+
+
+def _exec_disk_preview(params: Dict[str, Any], ctx: OpContext) -> OpResult:
+    return _disk_cleanup_call(params, ctx, dry_run=True)
+
+
+def _exec_disk_cleanup(params: Dict[str, Any], ctx: OpContext) -> OpResult:
+    return _disk_cleanup_call(params, ctx, dry_run=False)
+
+
 # ---------------------------------------------------------------------------
 # Registry
 # ---------------------------------------------------------------------------
@@ -333,6 +383,42 @@ MASTERCHIEF_OPS: List[MasterchiefOp] = [
             'Triggers a SIGTERM to the existing process. Recorded in masterchief_audit.'
         ),
         executor=_exec_service_restart,
+    ),
+    MasterchiefOp(
+        op='host.disk_preview',
+        summary='Preview how much expired capture data one host could free (deletes nothing)',
+        mutates=False,
+        required_permission='settings.status:view',
+        platform_admin_only=False,
+        params_schema={
+            'type': 'object',
+            'required': ['host'],
+            'properties': {'host': {'type': 'string', 'minLength': 1}},
+        },
+        blast_radius='Read-only dry run. One host.',
+        executor=_exec_disk_preview,
+    ),
+    MasterchiefOp(
+        op='host.disk_cleanup',
+        summary='Delete expired capture files on one host (MUTATES; admin-only on prod)',
+        mutates=True,
+        required_permission='system.services:restart',
+        platform_admin_only=True,
+        params_schema={
+            'type': 'object',
+            'required': ['host'],
+            'properties': {
+                'host': {'type': 'string', 'minLength': 1},
+                'reason': {'type': 'string', 'maxLength': 200,
+                           'description': 'Free-text reason recorded in the audit row.'},
+            },
+        },
+        blast_radius=(
+            'MUTATES: deletes only expired capture files (captures, thumbnails, segments, metadata, reports) '
+            'inside the host\'s capture dirs, older than the archiver retention windows; nothing else, no path '
+            'is taken from the request. Refused while another user holds a device of the host. Not undoable.'
+        ),
+        executor=_exec_disk_cleanup,
     ),
     MasterchiefOp(
         op='infra.summary',

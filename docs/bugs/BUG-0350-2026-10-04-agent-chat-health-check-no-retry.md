@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium - page unusable until a manual refresh                |
 | Area      | `frontend/src/hooks/aiagent/useAgentChat.ts`                 |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | 1176421ef                                                          |
 
 ---

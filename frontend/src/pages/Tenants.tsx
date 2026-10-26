@@ -6,7 +6,7 @@ import {
   Tooltip,
 } from '@mui/material';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
-import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
+import { PAGE_TITLE_SX, dangerButtonSx, dangerIconSx, pageSurfaceSx } from '../components/common/PageChrome';
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -16,6 +16,7 @@ import {
 } from '@mui/icons-material';
 import { useTenants, Tenant, CreateTenantInput, UpdateTenantInput } from '../hooks/pages/useTenants';
 import { useProfile } from '../hooks/auth/useProfile';
+import { TYPOGRAPHY } from '../constants/typography';
 
 const SLUG_RE = /^[a-z0-9][a-z0-9-]{0,62}$/;
 
@@ -89,7 +90,7 @@ const Tenants: React.FC = () => {
   return (
     <Container maxWidth="lg" sx={{ ...(pageSurfaceSx(P) as object), py: 4 }}>
       <Box sx={{ display: 'flex', alignItems: 'center', mb: 3, gap: 2 }}>
-        <TenantIcon sx={{ fontSize: 28, color: P.accentText }} />
+        <TenantIcon sx={{ fontSize: TYPOGRAPHY.kpiValue.size, color: P.accentText }} />
         <Box sx={{ flexGrow: 1 }}>
           <Typography component="h1" sx={PAGE_TITLE_SX}>
             Tenants
@@ -191,9 +192,9 @@ const Tenants: React.FC = () => {
                       <span>
                         <IconButton
                           size="small"
-                          color="error"
                           disabled={t.is_default}
                           onClick={() => setConfirmDelete(t)}
+                          sx={dangerIconSx(P)}
                         >
                           <DeleteIcon fontSize="small" />
                         </IconButton>
@@ -246,10 +247,9 @@ const Tenants: React.FC = () => {
             Cancel
           </Button>
           <Button
-            color="error"
             variant="contained"
             disabled={busy}
-            onClick={() => confirmDelete && handleDelete(confirmDelete)}
+            onClick={() => confirmDelete && handleDelete(confirmDelete)} sx={dangerButtonSx(P)}
           >
             Delete
           </Button>

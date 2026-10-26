@@ -19,7 +19,7 @@ STREAM_LINK="/var/www/html/stream"
 DATA_MOUNT="/data"
 DATA_TARGET="$DATA_MOUNT/stream"
 STORAGE_SCRIPT="/opt/virtualpytest/setup/local/linux/backend_host/setup_ram_hot_storage.sh"
-STREAM_SERVICES=(vpt-stream vpt-monitor vpt-archiver vpt-transcript vpt-kpi)
+STREAM_SERVICES=(vpt-stream vpt-monitor-img vpt-archiver vpt-monitor-audio vpt-kpi)
 # Optional feature services that read the stream tree (features/<name>/backend_host/services/*.service)
 for _unit in /opt/virtualpytest/features/*/backend_host/services/*.service; do
     [ -f "$_unit" ] || continue

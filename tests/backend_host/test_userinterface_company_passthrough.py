@@ -41,6 +41,9 @@ class _FakeHelpers:
         self.result = result
         self.calls = []
 
+    def classify_special_state(self, img):
+        return None          # Localize v3 step 1 (TASK-104): never a black / no-signal frame here
+
     def identify_screen(self, img, node_fps):
         self.calls.append((img, node_fps))
         return self.result

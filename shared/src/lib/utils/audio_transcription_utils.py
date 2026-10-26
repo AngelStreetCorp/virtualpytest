@@ -452,7 +452,8 @@ def correct_spelling(text: str, detected_language: str = None) -> str:
     corrected = [spell.correction(word) if len(word) >= 3 and spell.unknown([word]) else word for word in words]
     return ' '.join(corrected).strip()
 
-def transcribe_audio(audio_file_path: str, model_name: str = "tiny", skip_silence_check: bool = False, device_id: str = "", language: Optional[str] = None) -> Dict[str, Any]:
+def transcribe_audio(audio_file_path: str, model_name: str = "tiny", skip_silence_check: bool = False, device_id: str = "", language: Optional[str] = None,
+                     word_timestamps: bool = False) -> Dict[str, Any]:
     """
     Transcribe audio file using Whisper (with model caching)
     
@@ -461,6 +462,7 @@ def transcribe_audio(audio_file_path: str, model_name: str = "tiny", skip_silenc
         model_name: Whisper model name (tiny, base, small, medium, large)
         skip_silence_check: If True, skip audio level check (default False)
         device_id: Device identifier for logging (e.g., "capture1")
+        word_timestamps: also return `words: [{word,start,end}]` per segment (TASK-103 caption playback; +8-15 % CPU)
     
     Returns:
         Dict with 'transcript', 'language', 'confidence', 'success'
@@ -503,7 +505,7 @@ def transcribe_audio(audio_file_path: str, model_name: str = "tiny", skip_silenc
             vad_filter=True,  # Voice Activity Detection - skip silence automatically
             vad_parameters=dict(min_silence_duration_ms=500),
             language=language,
-            word_timestamps=False,  # Sentence-level timestamps (30-40% faster, still perfect for subtitles)
+            word_timestamps=word_timestamps,  # False: sentence-level timestamps (30-40% faster); True only for caption playback
             condition_on_previous_text=False,
             temperature=0
         )
@@ -540,13 +542,17 @@ def transcribe_audio(audio_file_path: str, model_name: str = "tiny", skip_silenc
                 segment_duration = seg.end - seg.start
                 total_duration = max(total_duration, seg.end)  # Track total audio duration
                 
-                timed_segments.append({
+                timed = {
                     'start': seg.start,
                     'end': seg.end,
                     'text': seg.text.strip(),
                     'confidence': segment_confidence,
                     'duration': segment_duration
-                })
+                }
+                if word_timestamps:
+                    timed['words'] = [{'word': w.word.strip(), 'start': round(w.start, 2), 'end': round(w.end, 2)}
+                                      for w in (getattr(seg, 'words', None) or []) if w.word.strip()]
+                timed_segments.append(timed)
         
         # New: Apply shared cleaning (regex + optional spellcheck)
         transcript = clean_transcript_text(transcript)

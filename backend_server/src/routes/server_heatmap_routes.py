@@ -7,7 +7,7 @@ These are server-side endpoints that interact directly with the database.
 
 from flask import Blueprint, request, jsonify
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
-from shared.src.lib.database.heatmap_db import get_recent_heatmaps, save_heatmap_to_db
+from shared.src.lib.database.heatmap_db import get_discarded_incidents_at, get_recent_heatmaps, save_heatmap_to_db
 from shared.src.lib.utils.app_utils import check_supabase, get_team_id
 from shared.src.lib.utils.cloudflare_utils import upload_heatmap_html
 from backend_server.src.lib.utils.heatmap_report_utils import generate_comprehensive_heatmap_html
@@ -143,6 +143,34 @@ def generate_timeline_heatmap_data(selected_time_key: str, selected_mosaic_url: 
     print(f"[@generate_timeline_heatmap_data] Generated timeline with {len(heatmap_data)} frames")
     return heatmap_data
     
+@server_heatmap_bp.route('/discardedIncidents', methods=['GET'])
+@handle_route_exceptions('heatmap:get_discarded_incidents')
+def get_discarded_incidents():
+    """Alerts discarded by AI triage or a human that covered the instant `at` (ISO timestamp).
+
+    The heatmap mosaic is baked when the minute is processed, usually before triage has judged the
+    alert, so the page overlays these on the frame to show the verdict that exists now."""
+    error = check_supabase()
+    if error:
+        return error
+
+    team_id = request.args.get('team_id')
+    at_raw = request.args.get('at')
+    if not team_id:
+        return jsonify({'success': False, 'error': 'team_id parameter is required'}), 400
+    if not at_raw:
+        return jsonify({'success': False, 'error': 'at parameter is required'}), 400
+    try:
+        at = datetime.fromisoformat(at_raw.replace('Z', '+00:00'))
+    except ValueError:
+        return jsonify({'success': False, 'error': 'at must be an ISO timestamp'}), 400
+    if at.tzinfo is None:
+        return jsonify({'success': False, 'error': 'at must carry a timezone'}), 400
+
+    incidents = get_discarded_incidents_at(at)
+    return jsonify({'success': True, 'incidents': incidents, 'count': len(incidents)}), 200
+
+
 @server_heatmap_bp.route('/history', methods=['GET'])
 @handle_route_exceptions('heatmap:get_heatmap_history')
 def get_heatmap_history():

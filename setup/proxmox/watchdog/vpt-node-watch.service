@@ -1,0 +1,5 @@
+[Unit]
+Description=Probe main Proxmox node
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/vpt-node-watch.sh

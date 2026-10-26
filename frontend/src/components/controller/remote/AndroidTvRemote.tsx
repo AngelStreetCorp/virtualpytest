@@ -7,6 +7,7 @@ import { useAndroidTv } from '../../../hooks/controller/useAndroidTv';
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { useDisabledRemoteKeys } from '../../../contexts/RemoteCommandSinkContext';
 import { Host } from '../../../types/common/Host_Types';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface AndroidTvRemoteProps {
   host: Host;
@@ -253,9 +254,9 @@ export const AndroidTvRemote = React.memo(
               }}
             >
               {showOverlays ? (
-                <VisibilityIcon sx={{ fontSize: 18 }} />
+                <VisibilityIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />
               ) : (
-                <VisibilityOffIcon sx={{ fontSize: 18 }} />
+                <VisibilityOffIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />
               )}
             </IconButton>
           )}
@@ -333,7 +334,10 @@ export const AndroidTvRemote = React.memo(
                 <Typography
                     variant="caption"
                     sx={{
-                      fontSize: `${parseInt(layoutConfig.remote_info.text_style.fontSize) * remoteScale}px`,
+                      // ui-ok: no-literal-font-size — per-remote dynamic sizing: the layout
+                      // config gives a base fontSize in px and remoteScale is a per-instance
+                      // zoom factor; the result is a real px value, not a role token.
+                      fontSize: `${parseInt(layoutConfig.remote_info.text_style.fontSize) * remoteScale}px`, // ui-ok: no-literal-font-size - overlay text scales with the remote image
                       fontWeight: layoutConfig.remote_info.text_style.fontWeight,
                       color: keyDisabled ? 'rgba(160, 160, 160, 0.5)' : layoutConfig.remote_info.text_style.color,
                       textShadow: layoutConfig.remote_info.text_style.textShadow,

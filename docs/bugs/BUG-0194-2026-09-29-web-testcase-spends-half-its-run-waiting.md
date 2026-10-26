@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                                         |
 | Severity  | Medium (every web testcase ran ~40 % slower than its steps need; a pipeline of 16 took minutes longer) |
 | Area      | `backend_host/src/services/navigation/navigation_executor.py`, `backend_host/src/controllers/web/playwright.py`, `backend_host/src/lib/utils/playwright_utils.py`, `backend_host/src/services/testcase/testcase_executor.py`, `shared/src/lib/executors/script_executor.py` |
-| Fixed in  | Unreleased                                                                                     |
+| Fixed in  | build 90145 |
 | Commit    | `cebf3c363` `8495faa62` `4dad94e82` `0d25c22f0`                                                |
 
 ---

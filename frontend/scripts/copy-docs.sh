@@ -230,6 +230,17 @@ if [ -f "../docs/videos/index.md" ]; then
     cp "../docs/videos/index.md" "$DOCS_OUT/videos/README.md"
     echo -e "${GREEN}✓${NC} Using styled index.md for videos"
 fi
+# The Videos page (VideoShowcase.tsx) reads this list at runtime; scripts/gen_readme_videos.py feeds the README from it.
+if [ -f "../docs/videos/videos.json" ]; then
+    cp "../docs/videos/videos.json" "$DOCS_OUT/videos/videos.json"
+    echo -e "${GREEN}✓${NC} Copied videos.json for the Videos page"
+fi
+
+# The Screenshots page (ScreenshotGallery.tsx) reads this list at runtime; scripts/gen_readme_screenshots.py feeds the README from it.
+if [ -f "../docs/screenshots/screenshots.json" ]; then
+    cp "../docs/screenshots/screenshots.json" "$DOCS_OUT/screenshots/screenshots.json"
+    echo -e "${GREEN}✓${NC} Copied screenshots.json for the Screenshots page"
+fi
 
 # Count actual copied files
 file_count=$(find "$DOCS_OUT" -name "*.md" | wc -l | tr -d ' ')
@@ -258,8 +269,8 @@ const DOCS_DIR = process.env.DOCS_OUT;
 // Section metadata. Titles are plain text -- the navigator in Documentation.tsx
 // draws the icon, keyed by the section slug, so every row matches the rest of the app.
 const SECTION_META = {
-  'README': { title: 'Documentation Home', order: 0 },
-  'get-started': { title: 'Getting Started', order: 1 },
+  'README': { title: 'Home', order: 0 },
+  'get-started': { title: 'Get Started', order: 1 },
   'release_note': { title: 'Release Note', order: 2.5 },
   'features': { title: 'Features', order: 3 },
   'user-guide': { title: 'User Guide', order: 4 },
@@ -271,11 +282,22 @@ const SECTION_META = {
   'api': { title: 'API Reference', order: 11 },
   'screenshots': { title: 'Screenshots', order: 12 },
   'videos': { title: 'Videos', order: 13 },
-  // No order of their own: 99 keeps them where they already sit, after Videos. These two
-  // exist only so the title is not toTitle()'d into 'Mcp'.
-  'bugs': { title: 'Bugs', order: 99 },
+  // 2.6 puts the tracker directly under Release Note, matching the Docs menu in
+  // frontend/src/config/navItems.tsx: every entry in one cross-links the other, so they read
+  // as one story and the two menus must not disagree about where the tracker sits.
+  'bugs': { title: 'Bugs', order: 2.6 },
+  // No order of its own: 99 keeps it where it already sits, after Videos. Exists so the title is
+  // not toTitle()'d into 'Mcp'.
   'mcp': { title: 'MCP Tools', order: 99 },
 };
+
+// Sections whose own pages are reached from the index on the section page, not from the nav.
+// The bug tracker publishes one file per shipped report, and every one of them became a row in
+// the docs dropdown: 459 rows under \"Bugs\" alone, in a menu capped at 400px, which buried every
+// other section and made the menu unusable on the page that needed it most. Only the Overview is
+// listed. The files are still copied and still linked from the index bullets, so a report is
+// still two clicks away — it just is not 459 rows of a menu.
+const NAV_OVERVIEW_ONLY = new Set(['bugs']);
 
 // Subsection metadata for technical docs
 const TECH_SUBSECTION_META = {
@@ -325,10 +347,17 @@ function getSubdirs(dir) {
 }
 
 // Build section children
-function buildChildren(sectionPath, urlPrefix) {
+function buildChildren(sectionPath, urlPrefix, section) {
   const children = [];
   const files = getMdFiles(sectionPath);
   const subdirs = getSubdirs(sectionPath);
+
+  // Listed by title only — see NAV_OVERVIEW_ONLY.
+  if (NAV_OVERVIEW_ONLY.has(section)) {
+    const readme = files.find(f => f === 'README.md');
+    if (readme) children.push({ title: toTitle(readme), path: urlPrefix });
+    return children;
+  }
   
   // Add files
   files.forEach(file => {
@@ -421,7 +450,7 @@ topLevelDirs.forEach(dir => {
   const meta = SECTION_META[dir] || { title: toTitle(dir), order: 99 };
   const urlPrefix = '/docs/' + dir;
   
-  const children = buildChildren(sectionPath, urlPrefix);
+  const children = buildChildren(sectionPath, urlPrefix, dir);
   
   if (children.length > 0) {
     sections.push({
@@ -448,6 +477,10 @@ console.log('Generated docs-manifest.json with ' + sections.length + ' sections'
 "
 
 echo -e "${GREEN}✓ Docs manifest generated!${NC}"
+
+# 4.1 Full-text search index for the docs search box (TASK-124), written next to the manifest.
+# Non-fatal: without it the search box falls back to titles from the manifest.
+node scripts/gen-docs-search-index.mjs "$DOCS_OUT" || echo -e "${YELLOW}⚠${NC} Search index not generated (search falls back to titles)"
 
 # ==================== SWAP STAGING INTO PLACE ====================
 # Everything above wrote to $DOCS_OUT, so public/docs still holds the previous (working)

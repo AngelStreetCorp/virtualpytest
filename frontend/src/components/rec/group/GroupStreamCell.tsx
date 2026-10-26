@@ -1,4 +1,4 @@
-import { Box, Checkbox, Chip, FormControlLabel, Typography } from '@mui/material';
+import { Box, Checkbox, Chip, FormControlLabel, Typography, alpha } from '@mui/material';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 
 import { isMobileModel } from '../../../config/layoutConfig';
@@ -10,6 +10,8 @@ import { RecHostPreview } from '../RecHostPreview';
 
 import { fetchScreenAspect, screenPointOf } from './groupControl.actions';
 import { GroupStatusLed } from './GroupStatusLed';
+import { DeviceMaintenanceBadge } from '../../common/DeviceMaintenanceBadge';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface GroupStreamCellProps {
   member: GroupMember;
@@ -180,9 +182,10 @@ export const GroupStreamCell: React.FC<GroupStreamCellProps> = ({
         <Box />
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
           <GroupStatusLed controlled={controlled} ack={member.ack} error={member.ackError} />
-          <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.8rem' }} noWrap>
+          <Typography variant="body2" sx={{ fontWeight: 600, fontSize: TYPOGRAPHY.body.size }} noWrap>
             {device.device_name}
           </Typography>
+          <DeviceMaintenanceBadge hostName={host.host_name} deviceId={device.device_id} size={14} />
           <Typography variant="caption" sx={{ color: P.textMuted, fontFamily: 'monospace' }} noWrap>
             {host.host_name}
           </Typography>
@@ -194,10 +197,10 @@ export const GroupStreamCell: React.FC<GroupStreamCellProps> = ({
               label={formatRemoteProfile(member.chosenProfile)}
               sx={{
                 height: 18,
-                fontSize: '0.65rem',
+                fontSize: TYPOGRAPHY.microMeta.size,
                 fontWeight: 600,
-                bgcolor: member.chosenProfile.startsWith('ble:') ? 'rgba(96, 165, 250, 0.85)' : P.accent,
-                color: '#1a1a1a',
+                bgcolor: member.chosenProfile.startsWith('ble:') ? alpha(P.series[1], 0.85) : P.accent,
+                color: P.onAccent,
               }}
             />
           )}
@@ -206,7 +209,7 @@ export const GroupStreamCell: React.FC<GroupStreamCellProps> = ({
           {controlled && (
             <>
               <FormControlLabel
-                sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: '0.75rem' } }}
+                sx={{ m: 0, '& .MuiFormControlLabel-label': { fontSize: TYPOGRAPHY.caption.size } }}
                 control={
                   <Checkbox
                     size="small"
@@ -225,7 +228,7 @@ export const GroupStreamCell: React.FC<GroupStreamCellProps> = ({
                   bgcolor: 'transparent',
                   cursor: 'pointer',
                   color: P.accentText,
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                   p: 0,
                   whiteSpace: 'nowrap',
                 }}

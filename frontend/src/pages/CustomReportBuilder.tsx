@@ -63,6 +63,9 @@ import {
   type ReportColumn,
   type ReportQueryRequest,
 } from '../types/reports';
+import { dangerButtonSx } from '../components/common/PageChrome';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../constants/typography';
 
 const PAGE_SIZE = 100;
 const CHART_EXPORT_ID = 'custom-report-chart';
@@ -132,6 +135,7 @@ const renderCell = (column: ReportColumn, value: string | number | boolean | nul
 };
 
 const CustomReportBuilder: React.FC = () => {
+  const P = useAgentChatPalette();
   const { t } = useI18n();
   const scope = useReportScope();
   const { showSuccess } = useToast();
@@ -360,7 +364,7 @@ const CustomReportBuilder: React.FC = () => {
                       <Box
                         component="pre"
                         data-testid="tql-caret"
-                        sx={{ m: 0, mt: 0.5, fontFamily: 'monospace', fontSize: '0.75rem', overflowX: 'auto' }}
+                        sx={{ m: 0, mt: 0.5, fontFamily: 'monospace', fontSize: TYPOGRAPHY.caption.size, overflowX: 'auto' }}
                       >
                         {tqlCaret}
                       </Box>
@@ -465,7 +469,7 @@ const CustomReportBuilder: React.FC = () => {
                 Save as…
               </Button>
               {selectedId && (
-                <Button color="error" onClick={() => setDeleteOpen(true)}>
+                <Button onClick={() => setDeleteOpen(true)} sx={dangerButtonSx(P)}>
                   Delete
                 </Button>
               )}

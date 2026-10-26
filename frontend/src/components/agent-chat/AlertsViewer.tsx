@@ -47,6 +47,7 @@ import { R2Image } from '../../components/common/R2Image';
 import { useAlerts } from '../../hooks/pages/useAlerts';
 import { Alert } from '../../types/pages/Monitoring_Types';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 const AlertsViewerContent: React.FC = () => {
   const P = useAgentChatPalette();
@@ -546,7 +547,7 @@ const AlertsViewerContent: React.FC = () => {
           <CardContent sx={{ py: 1, px: 2, height: '30px !important' }}>
             <Box display="flex" alignItems="center" justifyContent="space-between">
               <Box display="flex" alignItems="center" gap={1}>
-                <ActiveIcon color="error" sx={{ fontSize: 16 }} />
+                <ActiveIcon color="error" sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
                 <Typography variant="subtitle2" fontWeight={600}>
                   Active Alerts
                 </Typography>
@@ -598,14 +599,11 @@ const AlertsViewerContent: React.FC = () => {
                 },
               }}
             >
-              <Table size="small" sx={{ tableLayout: 'fixed', minWidth: showDetailedColumns ? 1160 : 760, '& .MuiTableCell-root': { overflowWrap: 'anywhere' } }}>
-<colgroup><col style={{ width: 80 }} /><col /><col style={{ width: 120 }} /><col style={{ width: 120 }} /><col style={{ width: 150 }} /><col style={{ width: 100 }} />{showDetailedColumns && (<><col style={{ width: 90 }} /><col style={{ width: 90 }} /><col style={{ width: 120 }} /><col style={{ width: 120 }} /></>)}</colgroup>
+              <Table size="small" sx={{ tableLayout: 'fixed', minWidth: showDetailedColumns ? 1080 : 680, '& .MuiTableCell-root': { overflowWrap: 'anywhere' } }}>
+<colgroup><col /><col style={{ width: 120 }} /><col style={{ width: 120 }} /><col style={{ width: 150 }} /><col style={{ width: 100 }} />{showDetailedColumns && (<><col style={{ width: 90 }} /><col style={{ width: 90 }} /><col style={{ width: 120 }} /><col style={{ width: 120 }} /></>)}</colgroup>
                 <TableHead>
                   <TableRow>
-                    <TableCell sx={{ py: 0.25, width: 50 }}>
-                      <strong>Expand</strong>
-                    </TableCell>
-                    <TableCell sx={{ py: 0.25 }}>
+                    <TableCell sx={{ py: 0.25, pl: 0.5 }}>
                       <strong>Incident</strong>
                     </TableCell>
                     <TableCell sx={{ py: 0.25 }}>
@@ -641,13 +639,13 @@ const AlertsViewerContent: React.FC = () => {
                 <TableBody>
                   {loading ? (
                     <TableRow sx={{ '&:hover': { backgroundColor: 'transparent !important' } }}>
-                      <TableCell colSpan={showDetailedColumns ? 10 : 6}>
+                      <TableCell colSpan={showDetailedColumns ? 9 : 5}>
                         <LoadingState />
                       </TableCell>
                     </TableRow>
                   ) : activeAlerts.length === 0 ? (
                     <TableRow sx={{ '&:hover': { backgroundColor: 'transparent !important' } }}>
-                      <TableCell colSpan={showDetailedColumns ? 10 : 6}>
+                      <TableCell colSpan={showDetailedColumns ? 9 : 5}>
                         <EmptyState />
                       </TableCell>
                     </TableRow>
@@ -655,30 +653,35 @@ const AlertsViewerContent: React.FC = () => {
                     activeAlerts.map((alert) => (
                       <React.Fragment key={alert.id}>
                         <TableRow
+                          onClick={() => toggleRowExpansion(alert.id)}
                           sx={{
+                            cursor: 'pointer',
                             '&:hover': {
                               backgroundColor: 'transparent !important',
                             },
                             height: '30px', // Compact height for main rows
                           }}
                         >
-                          <TableCell sx={{ py: 0.25 }}>
-                            <IconButton
-                              size="small"
-                              onClick={() => toggleRowExpansion(alert.id)}
-                              sx={{ p: 0.25 }}
-                            >
-                              {expandedRows.has(alert.id) ? <ExpandMoreIcon /> : <ExpandLessIcon />}
-                            </IconButton>
-                          </TableCell>
-                          <TableCell sx={{ py: 0.25 }}>
+                          <TableCell sx={{ py: 0.25, pl: 0.5, whiteSpace: 'nowrap' }}>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleRowExpansion(alert.id);
+                                }}
+                                sx={{ p: 0.25 }}
+                              >
+                                {expandedRows.has(alert.id) ? <ExpandMoreIcon /> : <ExpandLessIcon />}
+                              </IconButton>
                               <Chip
                                 icon={<ActiveIcon />}
                                 label={alert.incident_type}
                                 color={getIncidentTypeColor(alert.incident_type)}
                                 size="small"
-                                sx={{ height: '24px', fontSize: '0.75rem' }}
+                                sx={{ height: '24px', fontSize: TYPOGRAPHY.caption.size }}
                               />
+                            </Box>
                           </TableCell>
                           <TableCell sx={{ py: 0.25 }}>{alert.host_name}</TableCell>
                           <TableCell sx={{ py: 0.25 }}>{alert.device_id}</TableCell>
@@ -701,7 +704,7 @@ const AlertsViewerContent: React.FC = () => {
                               },
                             }}
                           >
-                            <TableCell colSpan={showDetailedColumns ? 10 : 6} sx={{ p: 0, borderBottom: 0 }}>
+                            <TableCell colSpan={showDetailedColumns ? 9 : 5} sx={{ p: 0, borderBottom: 0 }}>
                               <Collapse in={expandedRows.has(alert.id)} timeout="auto" unmountOnExit>
                                 <Box sx={{ backgroundColor: 'rgba(0, 0, 0, 0.02)' }}>
                                   {renderExpandedContent(alert)}

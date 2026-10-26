@@ -1,5 +1,5 @@
 /** Device page view (TASK-75): a scrolling grid with a page size, or a layout that fits the screen. */
-export type GridViewId = 'grid12' | 'grid24' | 'grid48';
+export type GridViewId = 'grid12' | 'grid24' | 'gridCustom';
 export type LayoutViewId =
   | 'side'
   | 'stack'
@@ -17,8 +17,10 @@ export interface GridView {
   id: GridViewId;
   label: string;
   pageSize: number;
-  /** Glyph shape only: columns × rows of little cells. */
+  /** Glyph shape only: columns × rows of little cells. For a custom grid it is the real shape. */
   glyph: { cols: number; rows: number };
+  /** The operator types the columns and rows. Page size is their product, at most 100. */
+  custom?: boolean;
 }
 
 export interface LayoutView {

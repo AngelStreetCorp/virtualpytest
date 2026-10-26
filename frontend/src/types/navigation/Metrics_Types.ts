@@ -64,6 +64,10 @@ export interface NodeMetricData extends MetricCommon {
    * Only updated when verify_node actually ran for a step landing here.
    */
   avg_verification_time: number;
+  /** Presigned URL of the last frame that passed this node's verification (none until a real run stored one). */
+  verified_frame_url?: string | null;
+  /** When that frame was stored (ISO). */
+  verified_at?: string | null;
 }
 
 // Backward-compat alias for code that doesn't care which kind it is.

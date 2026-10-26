@@ -9,7 +9,7 @@ These services run on the live 5fps capture path. On the RPi capture nodes
 (host*) the systemd journal lives on the SD card, so verbose per-frame
 logging both contends with capture I/O on a slow device and wears the card.
 We therefore run them at a quiet default and raise verbosity *only while
-actively debugging* — without a restart, since restarting vpt-monitor /
+actively debugging* — without a restart, since restarting vpt-monitor-img /
 vpt-stream drops capture.
 
 Two controls, deliberately minimal (stdlib only, no extra thread/file watcher):

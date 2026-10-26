@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium (every web page-title verification fails)             |
 | Area      | frontend (verification editor)                               |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `cf6705f30`                                                  |
 
 ---

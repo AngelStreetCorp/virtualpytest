@@ -21,21 +21,25 @@
 
 # ---------------------------------------------------------------------------
 # Example mapping for host3 (4× MS2109 HDMI grabbers).
+# Easier: pin_usb_ports.sh generates this file (and rewrites .env) from "N=PORT" pairs.
 # Replace KERNELS tokens with this host's actual ports from detect_grabber.sh.
 # ---------------------------------------------------------------------------
 
 # STB 1 — USB port 3-1
 SUBSYSTEM=="video4linux", KERNELS=="3-1", ATTR{index}=="0", SYMLINK+="stb1"
-SUBSYSTEM=="sound",       KERNELS=="3-1", ATTR{id}="stb1"
+SUBSYSTEM=="sound", KERNEL=="card*", KERNELS=="3-1", ATTR{id}="stb1"
 
 # STB 2 — USB port 3-2
 SUBSYSTEM=="video4linux", KERNELS=="3-2", ATTR{index}=="0", SYMLINK+="stb2"
-SUBSYSTEM=="sound",       KERNELS=="3-2", ATTR{id}="stb2"
+SUBSYSTEM=="sound", KERNEL=="card*", KERNELS=="3-2", ATTR{id}="stb2"
 
 # STB 3 — USB port 3-4
 SUBSYSTEM=="video4linux", KERNELS=="3-4", ATTR{index}=="0", SYMLINK+="stb3"
-SUBSYSTEM=="sound",       KERNELS=="3-4", ATTR{id}="stb3"
+SUBSYSTEM=="sound", KERNEL=="card*", KERNELS=="3-4", ATTR{id}="stb3"
 
 # STB 4 — USB port 3-5
 SUBSYSTEM=="video4linux", KERNELS=="3-5", ATTR{index}=="0", SYMLINK+="stb4"
-SUBSYSTEM=="sound",       KERNELS=="3-5", ATTR{id}="stb4"
+SUBSYSTEM=="sound", KERNEL=="card*", KERNELS=="3-5", ATTR{id}="stb4"
+
+# USB IR dongle (Pi hosts, ir_toy -> /dev/lircN) of DEVICE 3 on port 3-1.2:
+# SUBSYSTEM=="lirc", KERNELS=="3-1.2", SYMLINK+="lirc-stb3"

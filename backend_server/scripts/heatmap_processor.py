@@ -220,6 +220,7 @@ class HeatmapProcessor:
                 
             # Create complete device list with placeholders for missing captures
             complete_device_list = self.create_complete_device_list(hosts_devices, current_captures)
+            self.apply_discarded_incidents(complete_device_list)
             
             # Download every frame ONCE; ALL/OK/KO and workspace mosaics all reuse these cells
             cells = self.prepare_cells(complete_device_list)
@@ -477,7 +478,8 @@ class HeatmapProcessor:
                 host_data,
                 '/host/monitoring/latest-json',
                 method='POST',
-                data={'device_id': device_id},
+                # A device with no monitor (tv_lite / pc) still gets its newest capture
+                data={'device_id': device_id, 'capture_fallback': True},
                 timeout=10
             )
             
@@ -586,6 +588,9 @@ class HeatmapProcessor:
                         
                         # Analysis data is already in json_data
                         analysis_data = json_data if json_data.get('analyzed') else None
+                        monitoring_off = bool(response_data.get('capture_only'))
+                        if monitoring_off:
+                            json_url = None  # the device writes no metadata JSON
                         
                         logger.info(f"✅ Got json_data for {host_name}/{device_id}/{device_name}: sequence={sequence}")
                         
@@ -597,7 +602,8 @@ class HeatmapProcessor:
                             'json_url': json_url,
                             'analysis': analysis_data,
                             'timestamp': response_data.get('timestamp', ''),
-                            'sequence': sequence
+                            'sequence': sequence,
+                            'monitoring_off': monitoring_off,
                         }
                     else:
                         error_msg = response_data.get('error', 'Unknown error')
@@ -685,6 +691,30 @@ class HeatmapProcessor:
         
         return complete_list
     
+    # frame analysis flag -> alerts.incident_type
+    _FLAG_INCIDENT = {'blackscreen': 'blackscreen', 'freeze': 'freeze', 'audio': 'audio_loss'}
+
+    def apply_discarded_incidents(self, devices: List[Dict]) -> None:
+        """A frame flag whose alert was discarded (AI triage or human) is noise: clear it so the
+        border, OK/KO split and incident count ignore it. The original flags stay in 'discarded'."""
+        from shared.src.lib.database.heatmap_db import get_discarded_incident_keys
+        discarded = get_discarded_incident_keys()
+        if not discarded:
+            return
+        for device in devices:
+            analysis = device.get('analysis')
+            if device.get('is_placeholder') or not analysis:
+                continue
+            cleared = []
+            for flag, incident_type in self._FLAG_INCIDENT.items():
+                active = analysis.get(flag) is False if flag == 'audio' else analysis.get(flag, False)
+                if active and (device['host_name'], str(device['device_id']), incident_type) in discarded:
+                    analysis[flag] = None if flag == 'audio' else False
+                    cleared.append(incident_type)
+            if cleared:
+                analysis['discarded'] = cleared
+                logger.info(f"🧹 {device['host_name']}/{device['device_id']}: discarded {', '.join(cleared)} not shown")
+
     def save_heatmap_locally(self, time_key: str, mosaic_image: Image.Image) -> str:
         """Save heatmap locally before uploading for preview/debugging"""
         try:
@@ -823,6 +853,9 @@ class HeatmapProcessor:
         # with video OK gets green even when audio is N/A.
         if is_placeholder:
             border_color = (128, 128, 128)
+        elif image_data.get('monitoring_off'):
+            # Picture only, no monitor: neither OK nor KO, so not green
+            border_color = (66, 133, 244)
         elif has_incident:
             border_color = (255, 0, 0)
         else:
@@ -1014,7 +1047,8 @@ class HeatmapProcessor:
                 'sequence': image_data.get('sequence', 'missing'),
                 'analysis_json': analysis,  # Raw analysis with local paths (available for 24h)
                 'status': 'missing' if is_placeholder else 'active',
-                'is_placeholder': is_placeholder
+                'is_placeholder': is_placeholder,
+                'monitoring_off': bool(image_data.get('monitoring_off')),
             }
             
             devices.append(device_entry)

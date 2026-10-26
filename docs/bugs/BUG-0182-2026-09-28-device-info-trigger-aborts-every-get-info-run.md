@@ -9,7 +9,7 @@
 | Status    | Fixed (applied to node1 + QualiAI)                           |
 | Severity  | **High** — runs executed but were never recorded; data lost   |
 | Area      | db / device info / test execution                            |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `9fba11247`                                                  |
 
 ---

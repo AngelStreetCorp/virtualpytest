@@ -11,6 +11,8 @@ interface UseLiveTransportReturn {
   status: WhepStatus;
   stream: MediaStream | null;
   pc: RTCPeerConnection | null;
+  /** Why the last attempt gave up; null until `status` is `failed`. */
+  failReason: string | null;
   showStats: boolean;
 }
 
@@ -27,13 +29,14 @@ export const useLiveTransport = (
   const candidateUrl = useMemo(() => (enabled ? buildWhepUrl(streamUrl) : null), [enabled, streamUrl]);
   // openWhepSession mints the host-session cookie itself, so the session (and its
   // 'connecting' status, which drives the loading overlay) starts on the click.
-  const { status, stream, pc } = useWhepStream(candidateUrl, reconnectKey);
+  const { status, stream, pc, failReason } = useWhepStream(candidateUrl, reconnectKey);
 
   return {
     transport: status === 'playing' ? 'webrtc' : 'hls',
     status,
     stream,
     pc,
+    failReason,
     showStats: searchParams.get('latency_debug') === '1',
   };
 };

@@ -1,6 +1,7 @@
 import { DesktopWindows as DesktopWindowsIcon } from '@mui/icons-material';
 import { Box, Typography } from '@mui/material';
 import React from 'react';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface DesktopOnlyPlaceholderProps {
   title: string;
@@ -23,7 +24,7 @@ const DesktopOnlyPlaceholder: React.FC<DesktopOnlyPlaceholderProps> = ({ title }
       textAlign: 'center',
     }}
   >
-    <DesktopWindowsIcon sx={{ fontSize: 48, color: 'text.secondary', mb: 2 }} />
+    <DesktopWindowsIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: 'text.secondary', mb: 2 }} />
     <Typography variant="h6" color="text.secondary" gutterBottom>
       {title}
     </Typography>

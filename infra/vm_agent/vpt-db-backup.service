@@ -1,0 +1,14 @@
+[Unit]
+Description=VirtualPyTest database backup (started on request by the VM agent, or by hand)
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# The script reads VPT_API_KEY / VPT_BACKEND_URL itself from /etc/cron.d/vpt-db-backup.
+ExecStart=/usr/local/bin/vpt-db-backup.sh
+Nice=10
+TimeoutStartSec=3600
+# Deliberately NO sandbox (no ProtectSystem / ProtectHome / PrivateTmp): the script writes /data/backups and the
+# NFS share and talks to the docker socket. This is why it is a unit of its own and not a child of the
+# sandboxed vpt-vm-agent.

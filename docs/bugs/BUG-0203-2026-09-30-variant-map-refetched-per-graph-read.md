@@ -9,7 +9,7 @@
 | Severity  | Medium — 47 ms of database per navigation step on a variant run, measured on the lab; more on a remote or loaded DB |
 | Status    | Fixed (pending deploy)                                            |
 | Area      | `shared/src/lib/utils/navigation_cache.py` · `shared/src/lib/database/userinterface_db.py` |
-| Fixed in  | Unreleased                                                        |
+| Fixed in  | build 90145 |
 | Related   | [BUG-0200](BUG-0200-2026-09-30-node-verification-runs-under-a-leftover-variant.md), [BUG-0202](BUG-0202-2026-09-30-takecontrol-warmed-the-wrong-cache-scope.md) (same cache key) |
 | Commit    | this commit                                                       |
 

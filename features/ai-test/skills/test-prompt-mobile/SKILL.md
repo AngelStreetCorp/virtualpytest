@@ -4,6 +4,8 @@ description: Execute a test prompt on an Android mobile/tablet device — naviga
 platform: mobile
 requires_device: true
 timeout_seconds: 300
+think_budget_seconds: 120
+max_tool_calls: 40
 tools:
   - execute_device_action
   - navigate_to_node

@@ -53,9 +53,9 @@ parse_devices_from_env() {
         fi
     fi
     
-    # Check for regular devices (dynamically detect up to 30)
+    # Check for regular devices (dynamically detect up to MAX_DEVICES, default 99)
     local consecutive_empty=0
-    for i in {1..30}; do
+    for i in $(seq 1 "${MAX_DEVICES:-99}"); do  # DEVICE1..DEVICE99 by default (MAX_DEVICES overrides)
         local device_name
         local video_capture_path
         device_name=$(grep "^DEVICE${i}_NAME=" "$env_file" 2>/dev/null | cut -d '=' -f 2- | tr -d '"' | tr -d "'" | sed 's/[[:space:]]*#.*$//' | xargs)

@@ -7,6 +7,7 @@ import { getStreamViewerLayout } from '../../../config/layoutConfig';
 import { getZIndex } from '../../../utils/zIndexUtils';
 
 import { DragSelectionOverlay } from './DragSelectionOverlay';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface DragArea {
   x: number;
@@ -238,12 +239,12 @@ export function VideoCapture({
               }}
             />
             {/* palette: drawn on video/screenshot — overlay label over imagery */}
-            <Typography variant="caption" sx={{ color: '#ffffff', fontSize: '10px' }}>
+            <Typography variant="caption" sx={{ color: '#ffffff', fontSize: TYPOGRAPHY.microMeta.size }}>
               CAPTURED FRAMES
             </Typography>
           </Box>
           {/* palette: drawn on video/screenshot — overlay label over imagery */}
-          <Typography variant="caption" sx={{ color: '#cccccc', fontSize: '10px' }}>
+          <Typography variant="caption" sx={{ color: '#cccccc', fontSize: TYPOGRAPHY.microMeta.size }}>
             {totalFrames} frames
           </Typography>
         </Box>
@@ -352,7 +353,7 @@ export function VideoCapture({
               variant="caption"
               sx={{
                 color: '#ffffff',
-                fontSize: '0.8rem',
+                fontSize: TYPOGRAPHY.body.size,
                 textShadow: '1px 1px 2px rgba(0,0,0,0.8)',
               }}
             >

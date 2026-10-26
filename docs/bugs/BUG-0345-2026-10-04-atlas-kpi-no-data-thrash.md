@@ -9,7 +9,7 @@
 | Status    | Fixed                                                        |
 | Severity  | Low - slow and noisy answer, correct conclusion              |
 | Area      | `backend_server/src/lib/analytics/service.py`, `backend_server/src/mcp/tools/analytics_tools.py` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 
 ---
 

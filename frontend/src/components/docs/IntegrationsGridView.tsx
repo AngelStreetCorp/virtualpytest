@@ -1,5 +1,4 @@
 import { Box, Chip, Typography, alpha } from '@mui/material';
-import { ExtensionOutlined } from '@mui/icons-material';
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 import ReactMarkdown, { defaultUrlTransform } from 'react-markdown';
@@ -8,6 +7,7 @@ import rehypeRaw from 'rehype-raw';
 import { createDocsMarkdownComponents } from './markdownComponents';
 import { INTEGRATIONS, STATUS_LABEL, type Integration } from './integrationsData';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 const urlTransform = (url: string) => (url.startsWith('data:image/') ? url : defaultUrlTransform(url));
 
@@ -99,19 +99,19 @@ const IntegrationCard: React.FC<{ item: Integration }> = ({ item }) => {
             sx={{ width: 26, height: 26, display: 'block', objectFit: 'contain' }}
           />
         ) : (
-          <Typography component="span" sx={{ fontSize: '1.3rem', fontWeight: 700, lineHeight: 1 }}>
+          <Typography component="span" sx={{ fontSize: TYPOGRAPHY.pageTitle.size, fontWeight: 700, lineHeight: 1 }}>
             {name.charAt(0)}
           </Typography>
         )}
       </Box>
 
-      <Typography component="span" sx={{ fontSize: '0.95rem', fontWeight: 500 }}>
+      <Typography component="span" sx={{ fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 500 }}>
         {name}
       </Typography>
 
       <Typography
         component="span"
-        sx={{ fontSize: '0.8rem', lineHeight: 1.45, color: 'text.secondary' }}
+        sx={{ fontSize: TYPOGRAPHY.body.size, lineHeight: 1.45, color: 'text.secondary' }}
       >
         {description}
       </Typography>
@@ -125,7 +125,7 @@ const IntegrationCard: React.FC<{ item: Integration }> = ({ item }) => {
           sx={{
             mt: 'auto',
             height: 20,
-            fontSize: '0.65rem',
+            fontSize: TYPOGRAPHY.microMeta.size,
             letterSpacing: '0.06em',
             textTransform: 'uppercase',
           }}
@@ -149,17 +149,7 @@ const IntegrationsGridView: React.FC<{
   const P = useAgentChatPalette();
   return (
   <Box>
-    <Typography
-      variant="h4"
-      component="h1"
-      sx={{ mt: 1.5, mb: 1, fontWeight: 600, fontSize: '1.75rem', display: 'flex', alignItems: 'center', gap: 1.25 }}
-    >
-      {/* The same icon the docs navigator draws for this section, so the page and the
-          dropdown that reached it agree. An emoji here would be the one glyph left. */}
-      <ExtensionOutlined sx={{ fontSize: '1.6rem', color: P.accentText }} />
-      Integrations
-    </Typography>
-    <Typography sx={{ mb: 3, color: 'text.secondary' }}>
+    <Typography sx={{ mt: 1.5, mb: 3, color: 'text.secondary' }}>
       VirtualPyTest plugs into the tools your team already runs — for tickets, dashboards, CI,
       storage, and the cloud device farms your phones are leased from.
     </Typography>
@@ -182,10 +172,10 @@ const IntegrationsGridView: React.FC<{
 
     {SHOWS_STATUS && (
       <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: '8px 24px', mt: 2.5 }}>
-        <Typography sx={{ fontSize: '0.8rem', color: 'text.secondary' }}>
+        <Typography sx={{ fontSize: TYPOGRAPHY.body.size, color: 'text.secondary' }}>
           <b>Live</b> — shipped and documented.
         </Typography>
-        <Typography sx={{ fontSize: '0.8rem', color: 'text.secondary' }}>
+        <Typography sx={{ fontSize: TYPOGRAPHY.body.size, color: 'text.secondary' }}>
           <b>Planned</b> — wired behind the seam, not finished.
         </Typography>
       </Box>

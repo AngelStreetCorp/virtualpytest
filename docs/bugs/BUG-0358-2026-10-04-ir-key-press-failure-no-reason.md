@@ -9,7 +9,7 @@
 | Status    | Fixed                                                        |
 | Severity  | Low - the report hid why a key press failed                  |
 | Area      | `backend_host/src/controllers/remote/infrared.py`            |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `065b8ae9df`                                                 |
 
 ---

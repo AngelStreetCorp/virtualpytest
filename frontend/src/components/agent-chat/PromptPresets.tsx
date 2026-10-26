@@ -9,6 +9,7 @@ import React, { useState, useMemo } from 'react';
 import { Box, Chip, Collapse, Tooltip } from '@mui/material';
 import { ExpandMore } from '@mui/icons-material';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export interface PromptPreset {
   name: string;
@@ -92,7 +93,7 @@ export const PromptPresets: React.FC<PromptPresetsProps> = ({
     border: '1px solid',
     borderColor: P.borderColor,
     borderRadius: 2,
-    fontSize: '0.8rem',
+    fontSize: TYPOGRAPHY.body.size,
     cursor: 'pointer',
     transition: 'all 0.15s ease',
     '&:hover': {
@@ -113,7 +114,7 @@ export const PromptPresets: React.FC<PromptPresetsProps> = ({
         <Box
           component="span"
           sx={{
-            fontSize: '0.7rem',
+            fontSize: TYPOGRAPHY.caption.size,
             fontWeight: 600,
             color: P.accentText,
             textTransform: 'uppercase',
@@ -160,7 +161,7 @@ export const PromptPresets: React.FC<PromptPresetsProps> = ({
               <Box
                 component="span"
                 sx={{
-                  fontSize: '0.65rem',
+                  fontSize: TYPOGRAPHY.microMeta.size,
                   fontFamily: '"JetBrains Mono", ui-monospace, monospace',
                   fontWeight: 600,
                   color: isOpen ? P.accent : P.textSecondary,
@@ -220,7 +221,7 @@ export const PromptPresets: React.FC<PromptPresetsProps> = ({
                   onClick={() => handlePresetClick(preset.template)}
                   sx={{
                     ...chipStyle,
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                     height: 26,
                     '& .MuiChip-label': {
                       px: 1.25,

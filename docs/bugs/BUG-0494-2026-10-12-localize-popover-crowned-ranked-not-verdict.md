@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                             |
 | Severity  | Medium                                                             |
 | Area      | frontend (navigation popover)                                      |
-| Fixed in  | Unreleased                                                         |
+| Fixed in  | build 90145 |
 | Commit    | `2289edffe`                                                        |
 
 ---

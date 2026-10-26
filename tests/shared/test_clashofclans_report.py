@@ -310,8 +310,6 @@ class TestCocScoreScript(unittest.TestCase):
                 "run_video_path": "/var/lib/vpt/coc_frames/x.mp4",
                 "run_video_r2_url": "https://r2.example/x.mp4",
                 "run_video_chunk_count": 4,
-                "tutorial_complete": True,
-                "tutorial_dialogs_seen": 10,
             },
             "run_video": {
                 "local_path": "/var/lib/vpt/coc_frames/x.mp4",
@@ -324,9 +322,7 @@ class TestCocScoreScript(unittest.TestCase):
         for n, h, _note in rows:
             if n.startswith("run_video_"):
                 self.assertTrue(h)
-            if n == "tutorial_progress":
-                self.assertTrue(h)
-        self.assertEqual(score, 13)            # full score on this fixture
+        self.assertEqual(score, 12)            # full score on this fixture
 
     def test_video_recorded_but_not_uploaded_partial(self):
         """When the MP4 was recorded but R2 upload failed, the recorded

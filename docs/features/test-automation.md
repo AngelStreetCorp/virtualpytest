@@ -1,32 +1,31 @@
-# 🧪 Test Automation
+# Test Automation
 
 **Low-code automation for powerful testing.**
 
-Python-based test automation with intuitive navigation trees and visual test builder. Designed for QA teams without requiring deep coding expertise.
+Build tests with a map of your app and a visual test builder. You do not need deep coding skills. Tests are written in Python, but most of them can be built without writing code.
 
 ---
 
 ## The Problem
 
-Traditional test automation requires:
-- ❌ Programming expertise
-- ❌ Complex framework setup
-- ❌ Brittle scripts that break easily
-- ❌ Steep learning curve for QA teams
+Traditional test automation often needs programming skills, a complex setup, and scripts that break easily.
 
 ---
 
 ## The VirtualPyTest Solution
 
-✅ **Low-code approach** - Focus on what to test, not how  
-✅ **Navigation trees** - Visual representation of app structure  
-✅ **Reusable components** - Build once, use everywhere  
-✅ **Python-based** - Powerful yet accessible  
-✅ **Web interface** - Create and run tests from browser  
+- **Low-code approach:** focus on what to test, not how
+- **Navigation trees:** a visual picture of the app's structure
+- **Reusable components:** build once, use everywhere
+- **Web interface:** create and run tests from a browser
 
 ---
 
 ## Core Concepts
+
+The examples below show the idea. They are not exact code you can paste.
+
+<div data-technical>
 
 > The snippets below are conceptual illustrations of the node/test-case/campaign model, not literal
 > API calls — nodes and edges are actually stored in the database
@@ -34,9 +33,13 @@ Traditional test automation requires:
 > `action_sets` per edge (forward/reverse actions, retries), not a flat `path` list. See
 > [Navigation Tree Management](#navigation-tree-management) below for the real structure.
 
-### 📍 Navigation Nodes
+</div>
 
-**Define where things are in your app.**
+### Navigation Nodes
+
+**Define where things are in your app.** Update the map when the UI changes, and every test that uses it benefits.
+
+<div data-technical>
 
 ```python
 # Conceptual navigation tree structure
@@ -53,17 +56,15 @@ navigation_tree = {
 }
 ```
 
-**Benefits:**
-- Centralized app navigation logic
-- Easy updates when UI changes
-- Reusable across tests
-- Visual graph representation
+</div>
 
 ---
 
-### 🧩 Test Cases
+### Test Cases
 
-**Combine actions into reusable test scenarios.**
+**Combine actions into reusable test scenarios.** Each test runs step by step, checks the result, takes screenshots and retries when needed.
+
+<div data-technical>
 
 ```python
 # Simple test case
@@ -78,18 +79,17 @@ test_case = {
 }
 ```
 
-**Features:**
-- Step-by-step execution
-- Automatic verification
-- Screenshot capture
-- Error handling
-- Retry logic
+Features: step-by-step execution, automatic verification, screenshot capture, error handling, retry logic.
+
+</div>
 
 ---
 
-### 📋 Test Campaigns
+### Test Campaigns
 
-**Run multiple tests in batches.**
+**Run multiple tests in batches**, on one device or several.
+
+<div data-technical>
 
 ```python
 # Conceptual campaign structure — created via the web UI or /server/campaigns API
@@ -108,18 +108,24 @@ campaign = {
 There's no built-in cron-style scheduler for campaigns — trigger recurring runs via the
 [CI/CD feature](./cicd.md) or an external scheduler calling the REST API.
 
+</div>
+
+There is no built-in timer for campaigns. To run them on a schedule, use the [CI/CD feature](./cicd.md) or an outside scheduler.
+
 ---
 
 ## Web Interface
 
-### 🖥️ Visual Test Builder
+### Visual Test Builder
 
 **Create tests without writing code.**
 
-1. **Drag and drop actions** from palette
-2. **Configure parameters** in sidebar
-3. **Preview navigation** in real-time
-4. **Save and execute** immediately
+1. Drag and drop actions from the palette
+2. Set the options in the sidebar
+3. Preview the navigation as you go
+4. Save and run straight away
+
+<div data-technical>
 
 **Available actions:**
 - Navigate to node
@@ -130,23 +136,21 @@ There's no built-in cron-style scheduler for campaigns — trigger recurring run
 - Take screenshot
 - Custom Python code
 
+</div>
+
 ---
 
-### 🎯 Test Execution Interface
+### Test Execution Interface
 
-**Run tests from the browser.**
-
-**Features:**
-- Select device or multiple devices
-- Choose test case or campaign
-- Watch live execution
-- View real-time logs
-- See screenshots as they're captured
-- Stop/pause execution
+**Run tests from the browser.** Pick one device or several, choose a test case or a campaign, and watch the run live. You can read the logs, see screenshots as they are taken, and stop or pause the run.
 
 ---
 
 ## Python Test Scripts
+
+Test scripts are ordinary Python files. You write the steps, and the platform runs them on the device.
+
+<div data-technical>
 
 Scripts are plain Python files decorated with `@script` from
 `shared.src.lib.executors.script_decorators`, run via `ScriptExecutor`
@@ -159,11 +163,19 @@ See **[Writing Test Scripts](../user-guide/writing-scripts.md)** for the full, v
 script skeleton. For a complete working example, read `test_scripts/validation.py`, which drives
 navigation-tree transitions end to end.
 
+</div>
+
+For the full pattern, see **[Writing Test Scripts](../user-guide/writing-scripts.md)**: parameters, target rules and how steps are reported.
+
 ---
 
 ## Navigation Tree Management
 
 ### Create Navigation Trees
+
+**In the web interface:** open **Interface**, select your model, add a node, set its path and check, then connect the nodes. The map is kept in the database. You do not edit it as a file.
+
+<div data-technical>
 
 **Via Web Interface:**
 1. Go to **Interface** section
@@ -178,20 +190,32 @@ a `verifications` array (base verification set, with optional per-locale/platfor
 `variant_overrides`); each edge holds one or more `action_sets` (forward/reverse actions, retries,
 failure handling) rather than a single fixed `path`.
 
+</div>
+
 ---
 
 ### Navigation Strategies
+
+The platform finds the route between two screens for you. Your script does not need a fixed list of key presses.
+
+<div data-technical>
 
 VirtualPyTest computes the path between nodes automatically (pathfinding across the navigation
 graph) rather than requiring scripts to hardcode a sequence of key presses — see
 [What is a navigation tree?](../faq/README.md#what-is-a-navigation-tree) for the concept and
 `test_scripts/validation.py` for a real script that exercises pathfinding end to end.
 
+</div>
+
 ---
 
 ## Campaign Management
 
 ### Create Campaigns
+
+Create and run campaigns in the web UI, or through the `/server/campaigns` API.
+
+<div data-technical>
 
 Campaigns are created and run through the web UI or the `/server/campaigns` REST API — there is
 no test-author-facing `CampaignManager` Python class or cron-scheduling API. Internally, campaign
@@ -203,21 +227,21 @@ For automatic recurring runs, use the [CI/CD feature](./cicd.md) (GitHub
 Actions scheduling) or your own external scheduler calling the REST API — VirtualPyTest itself
 doesn't ship a built-in cron scheduler for campaigns.
 
+</div>
+
 ---
 
 ### Campaign Results
 
-**Comprehensive reporting:**
-- Overall pass/fail rate
-- Per-device results
-- Per-test-case results
-- Execution duration
-- Screenshots and logs
-- Failure analysis
+**Reports show** the overall pass/fail rate, results per device and per test case, how long the run took, and the screenshots, logs and failure analysis.
 
 ---
 
 ## Verification Methods
+
+The platform checks text on screen, matches images, spots black or frozen pictures, and can run AI checks on the screen. You set these checks on the navigation map. You do not write them into the script.
+
+<div data-technical>
 
 Real verification capabilities (text OCR, image template matching with a similarity threshold,
 black-screen/freeze detection, AI-powered semantic screen checks — see
@@ -228,9 +252,15 @@ loose `controller.verify_*()` methods from inside a test script. To actually exe
 script, call `verify_screen()`/similar helpers exposed via the script execution context — see
 [Writing Test Scripts](../user-guide/writing-scripts.md) for the real, current API.
 
+</div>
+
 ---
 
 ## Test Structure
+
+Scripts are simple Python files. There is no special test framework to learn. You share code by writing helper modules that several scripts import.
+
+<div data-technical>
 
 VirtualPyTest scripts are standalone Python files using the `@script` decorator — not pytest test
 functions, fixtures, or page objects. There's no built-in Test Fixture / Page Object framework or
@@ -238,19 +268,31 @@ external YAML test-data loader; reuse comes from writing shared helper functions
 multiple scripts import, the same way any Python project shares code. See
 [Writing Test Scripts](../user-guide/writing-scripts.md) for the real script-authoring pattern.
 
+</div>
+
 ---
 
 ## Running Across Multiple Devices
+
+To run one script on several devices, start a campaign or run it several times from the web interface. The server and the hosts share the work.
+
+<div data-technical>
 
 Rather than a `ThreadPoolExecutor` loop inside a script, run the same script against different
 devices via campaigns (`/server/campaigns`) or by triggering multiple executions through the web
 UI / REST API — the server and hosts handle concurrency, not the script itself.
 
+</div>
+
 ---
 
 ## CI/CD Integration
 
+You can run the scripts from your own build pipeline. Two examples follow.
+
 ### Jenkins
+
+<div data-technical>
 
 ```groovy
 stage('VirtualPyTest Tests') {
@@ -273,9 +315,13 @@ stage('VirtualPyTest Tests') {
 }
 ```
 
+</div>
+
 ---
 
 ### GitHub Actions
+
+<div data-technical>
 
 ```yaml
 name: VirtualPyTest Tests
@@ -297,34 +343,33 @@ jobs:
           path: test_results/
 ```
 
+</div>
+
 ---
 
 ## Benefits
 
-### 🚀 Faster Test Creation
-Visual tools and reusable components reduce test creation time by 80%.
+Visual tools and reusable components make tests quicker to build, and a change to the map updates every test that uses it.
 
-### 💪 Lower Maintenance
-Navigation trees mean updating one place updates all tests.
+<div data-technical>
 
-### 🎯 Better Coverage
-Easy test creation leads to more comprehensive test coverage.
+- **Faster Test Creation:** visual tools and reusable components reduce test creation time by 80%.
+- **Lower Maintenance:** navigation trees mean updating one place updates all tests.
+- **Better Coverage:** easy test creation leads to more comprehensive test coverage.
+- **Accessible to QA:** a low-code approach means non-programmers can create effective tests.
 
-### 👥 Accessible to QA
-Low-code approach means non-programmers can create effective tests.
+</div>
 
 ---
 
 ## Next Steps
 
-- 📖 [Unified Controller](./unified-controller.md) - Control devices
-- 📖 [AI Validation](./ai-validation.md) - Smart verification
-- 📚 User Guide - Test Builder
-- 🔧 Technical Docs - Test Architecture
+- [Unified Controller](./unified-controller.md): control devices
+- [AI Validation](./ai-validation.md): smarter checks
+- User Guide: Test Builder
+- Technical Docs: Test Architecture
 
 ---
 
-**Ready to automate your testing?**  
-➡️ [Get Started](../get-started/README.md)
-
-
+**Ready to automate your testing?**
+[Get Started](../get-started/README.md)

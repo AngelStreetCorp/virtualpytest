@@ -35,14 +35,6 @@ export const AgentActivityBridge: React.FC = () => {
 
   // Track processing state changes
   useEffect(() => {
-    console.log('🎯 Bridge: State change', { 
-      isProcessing, 
-      wasProcessing: wasProcessingRef.current, 
-      activeTask, 
-      hasCurrentTask: !!currentTaskIdRef.current,
-      agentId: lastAgentIdRef.current,
-    });
-    
     // Detect when processing starts
     if (isProcessing && !wasProcessingRef.current && activeTask) {
       // Extract agent ID from task context if available

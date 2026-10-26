@@ -16,20 +16,20 @@ export const groupLabel = (g: GroupBy, t: T): string => {
     case 'campaign': return t('Campaign');
     case 'user': return t('User');
     case 'server': return t('Server');
-    case 'arm': return t('A/B arm');
-    case 'error': return t('Error type');
-    case 'client': return t('Public Ask visitor');
+    case 'arm': return t('Model split (A/B)');
+    case 'error': return t('Error reason');
+    case 'client': return t('Docs visitor');
     case 'category': return t('Category');
-    case 'caller': return t('Caller');
+    case 'caller': return t('Source');
     case 'result': return t('Result');
-    case 'category_caller': return t('Category and caller');
+    case 'incident': return t('Incident type');
   }
 };
 
 export const originLabel = (origin: string, t: T): string => {
   switch (origin) {
     case 'ui': return t('Web app');
-    case 'api': return t('API (service key)');
+    case 'api': return t('Unknown API client');
     case 'script': return t('Script run');
     case 'chat': return t('Agent chat');
     case 'monitoring': return t('Monitoring');
@@ -128,8 +128,9 @@ export const familyLabel = (family: string, t: T): string => {
 export const isDecision = (key: string): boolean => key.startsWith('text.decision');
 export const isChat = (key: string): boolean => key.startsWith('agent.') || key === 'public.ask';
 
-/** The nine categories of backend `usages.category_of`. */
-export const categoryLabel = (key: string, t: T): string => {
+/** The named categories of backend `usages.page_category`; a usage with none is `usage:<key>`, named by the backend. */
+export const categoryLabel = (key: string, t: T, names?: Record<string, string>): string => {
+  if (key.startsWith('usage:')) return names?.[key] ?? key.slice('usage:'.length); // a usage with no named category: its own name
   switch (key) {
     case 'ask_ai': return t('Ask AI');
     case 'discard_script': return t('Discard script');
@@ -139,7 +140,8 @@ export const categoryLabel = (key: string, t: T): string => {
     case 'transcripts': return t('Transcripts & translation');
     case 'showcase': return t('Showcase / games');
     case 'web_lookup': return t('Web lookup');
-    default: return t('Other');
+    case 'model_tests': return t('Model tests');
+    default: return key;
   }
 };
 
@@ -147,12 +149,13 @@ const AGENT_NAMES: Record<string, string> = {
   atlas: 'Atlas', sherlock: 'Sherlock', forge: 'Forge', nightwatch: 'Nightwatch', browser: 'Browser agent', mcp_prompt: 'MCP prompt',
 };
 
-/** Caller key of backend `usage_caller.caller_of` (`agent:atlas`, `script:zap.py`, `process:vpt-monitor`, `other:ui`) as words. */
+/** Caller key of backend `usage_caller.caller_of` (`agent:atlas`, `script:zap.py`, `process:vpt-monitor`, `job:<job name>`, `eval:<feature>`, `other:ui`) as words. */
 export const callerLabel = (key: string, t: T): string => {
   const [kind, ...rest] = key.split(':');
   const name = rest.join(':');
   if (kind === 'agent') return AGENT_NAMES[name] ?? name.charAt(0).toUpperCase() + name.slice(1);
-  if (kind === 'script' || kind === 'process') return name;
+  if (kind === 'script' || kind === 'process' || kind === 'job') return name;
+  if (kind === 'eval') return t('Model test · {feature}', { feature: name });
   if (kind === 'other') return originLabel(name, t);
   return key;
 };

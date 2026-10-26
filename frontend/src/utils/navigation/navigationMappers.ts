@@ -57,9 +57,10 @@ export interface FrontendEdge {
   data: Record<string, unknown>;
 }
 
-const CONDITIONAL_STYLE = { stroke: AGENT_CHAT_PALETTE.series[1], strokeWidth: 2 };
+// Read the live palette per call so edges follow a colour-theme switch.
+const conditionalStyle = () => ({ stroke: AGENT_CHAT_PALETTE.series[1], strokeWidth: 2 });
 const DEFAULT_STYLE = { stroke: '#555', strokeWidth: 2 };
-const CONDITIONAL_MARKER = { type: 'arrowclosed' as const, color: AGENT_CHAT_PALETTE.series[1] };
+const conditionalMarker = () => ({ type: 'arrowclosed' as const, color: AGENT_CHAT_PALETTE.series[1] });
 const DEFAULT_MARKER = { type: 'arrowclosed' as const, color: '#555' };
 
 /** Map backend node to frontend ReactFlow format */
@@ -91,8 +92,8 @@ export function mapEdgeToFrontend(edge: BackendEdge): FrontendEdge {
     label: edge.label,
     sourceHandle: edge.data?.sourceHandle as string | undefined,
     targetHandle: edge.data?.targetHandle as string | undefined,
-    style: isConditional ? CONDITIONAL_STYLE : DEFAULT_STYLE,
-    markerEnd: isConditional ? CONDITIONAL_MARKER : DEFAULT_MARKER,
+    style: isConditional ? conditionalStyle() : DEFAULT_STYLE,
+    markerEnd: isConditional ? conditionalMarker() : DEFAULT_MARKER,
     data: {
       action_sets: edge.action_sets,
       default_action_set_id: edge.default_action_set_id,

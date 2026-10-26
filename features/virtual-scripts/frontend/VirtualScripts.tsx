@@ -3,7 +3,8 @@ import DeleteIcon from '@mui/icons-material/Delete';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import FiberManualRecordIcon from '@mui/icons-material/FiberManualRecord';
 import HistoryIcon from '@mui/icons-material/History';
-import MoreHorizIcon from '@mui/icons-material/MoreHoriz';
+import VisibilityIcon from '@mui/icons-material/Visibility';
+import VisibilityOffIcon from '@mui/icons-material/VisibilityOff';
 import SearchIcon from '@mui/icons-material/Search';
 import CheckCircleOutlineIcon from '@mui/icons-material/CheckCircleOutline';
 import HighlightOffIcon from '@mui/icons-material/HighlightOff';
@@ -13,6 +14,7 @@ import TerminalIcon from '@mui/icons-material/Terminal';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
 import PublishIcon from '@mui/icons-material/Publish';
 import SaveIcon from '@mui/icons-material/Save';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import {
   Autocomplete,
   Box,
@@ -43,6 +45,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+import { usePermissions } from '../../../frontend/src/hooks/auth/usePermissions';
 import { useAgentChatPalette } from '../../../frontend/src/constants/agentChatTheme';
 
 import { BuilderPageLayout } from '../../../frontend/src/components/common/builder';
@@ -50,6 +53,9 @@ import { DeviceControlPanels } from '../../../frontend/src/components/common/Dev
 import { ScriptParameterRow } from '../../../frontend/src/components/common/ParameterInput/ScriptParameterRow';
 import { UserinterfaceSelector } from '../../../frontend/src/components/common/UserinterfaceSelector';
 import { VariantSelector } from '../../../frontend/src/components/common/VariantSelector';
+import { ExecutableFavoriteStar } from '../../../frontend/src/components/common/DeviceFavoriteStar';
+import { DeviceFavoriteGroupHeader } from '../../../frontend/src/components/common/DeviceFavoriteGroupHeader';
+import { useExecutableFavorites } from '../../../frontend/src/hooks/useExecutableFavorites';
 import { NavigationEditorDeviceControls } from '../../../frontend/src/components/navigation/Navigation_NavigationEditor_DeviceControls';
 import { StyledDialog } from '../../../frontend/src/components/common/StyledDialog';
 import { RunButton } from '../../../frontend/src/components/testcase/builder/RunButton';
@@ -220,12 +226,41 @@ if __name__ == "__main__":
     main()
 `;
 
+// Script text size: S / M / L, default S. A visitor's choice is kept in this browser only.
+const EDITOR_SIZES = ['s', 'm', 'l'] as const;
+type EditorSize = (typeof EDITOR_SIZES)[number];
+const EDITOR_PX: Record<EditorSize, number> = { s: 12, m: 13, l: 15 };
+const EDITOR_SIZE_KEY = 'virtualpytest:virtualScripts:editorSize';
+const readEditorSize = (): EditorSize => {
+  try {
+    const raw = localStorage.getItem(EDITOR_SIZE_KEY);
+    return (EDITOR_SIZES as readonly string[]).includes(raw ?? '') ? (raw as EditorSize) : 's';
+  } catch {
+    return 's';
+  }
+};
+
 const DOC_TEMPLATE = (name: string) =>
   `# ${name || 'My Script'}\n\nDescribe what this script does, its parameters, and expected results.\n`;
+
+// System scripts (_harness, _*_adapter, utils_*) are plumbing, hidden unless the user may see them and opts in.
+// The folder of a script is null when it has none (the server sends null, not an empty string), so the
+// parameter takes null: the body already treats it as an empty folder with (s.folder || '').
+const isSystemScript = (s: { name: string; folder?: string | null }) =>
+  s.name.startsWith('_') || s.name.startsWith('utils_') || (s.folder || '').startsWith('_') || s.folder === 'utils';
 
 const VirtualScripts: React.FC = () => {
   const theme = useTheme();
   const P = useAgentChatPalette();
+  const [editorSize, setEditorSizeState] = useState<EditorSize>(readEditorSize);
+  const setEditorSize = (v: EditorSize) => {
+    setEditorSizeState(v);
+    try {
+      localStorage.setItem(EDITOR_SIZE_KEY, v);
+    } catch {
+      /* storage unavailable: the choice lasts until the page closes */
+    }
+  };
   // Editor chrome on the palette (the built-in light/dark themes paint grey gutters / a blue-grey page);
   // syntax colours still come from the built-in theme.
   const editorChrome = useMemo(
@@ -233,7 +268,7 @@ const VirtualScripts: React.FC = () => {
       Prec.highest(
         EditorView.theme(
           {
-            '&': { backgroundColor: P.surface, color: P.textPrimary },
+            '&': { backgroundColor: P.surface, color: P.textPrimary, fontSize: `${EDITOR_PX[editorSize]}px` },
             '.cm-gutters': { backgroundColor: P.surface, color: P.textMuted, borderRight: `1px solid ${P.borderColor}` },
             '.cm-activeLine': { backgroundColor: `${P.accent}14` },
             '.cm-activeLineGutter': { backgroundColor: `${P.accent}26` },
@@ -243,7 +278,7 @@ const VirtualScripts: React.FC = () => {
           { dark: theme.palette.mode === 'dark' },
         ),
       ),
-    [P, theme.palette.mode],
+    [P, theme.palette.mode, editorSize],
   );
   const { showInfo, showError, showSuccess } = useToast();
   const {
@@ -346,13 +381,35 @@ const VirtualScripts: React.FC = () => {
     });
   }, []);
   const [doc, setDoc] = useState('');
+  // Doc tab: read view by default; Edit opens the editor, Cancel restores the text from before it.
+  const [docEditing, setDocEditing] = useState(false);
+  const [docSnapshot, setDocSnapshot] = useState('');
+  const startDocEdit = () => {
+    setDocSnapshot(doc);
+    setDocEditing(true);
+  };
+  const cancelDocEdit = () => {
+    setDoc(docSnapshot);
+    setDocEditing(false);
+  };
   const [source, setSource] = useState('');
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [running, setRunning] = useState(false);
   // Result of the last Run in this session, shown under the editor (cleared on script switch).
   const [lastRun, setLastRun] = useState<LastRun | null>(null);
-  const [moreAnchor, setMoreAnchor] = useState<null | HTMLElement>(null);
+  const { hasPermission } = usePermissions();
+  const canShowSystem = hasPermission('testcases:hide');
+  const canDelete = hasPermission('testcases:delete');
+  const [showSystemPref, setShowSystemPref] = useState<boolean>(() => {
+    try { return localStorage.getItem('vpt:vscripts:showSystem') === '1'; } catch { return false; }
+  });
+  const showSystem = canShowSystem && showSystemPref;
+  const toggleShowSystem = () => {
+    const next = !showSystemPref;
+    setShowSystemPref(next);
+    try { localStorage.setItem('vpt:vscripts:showSystem', next ? '1' : '0'); } catch { /* ignore */ }
+  };
   const [tab, setTab] = useState(0);
   const [validation, setValidation] = useState<VirtualScriptValidation | null>(null);
   const [params, setParams] = useState<VirtualScriptParam[]>([]);
@@ -389,6 +446,7 @@ const VirtualScripts: React.FC = () => {
   const allGroupedScripts = useMemo(() => {
     const groups = new Map<string, typeof scripts>();
     scripts.forEach((s) => {
+      if (!showSystem && isSystemScript(s)) return;
       const key = s.folder || '(Root)';
       if (!groups.has(key)) groups.set(key, []);
       groups.get(key)!.push(s);
@@ -398,7 +456,7 @@ const VirtualScripts: React.FC = () => {
       if (b === '(Root)') return 1;
       return a.localeCompare(b);
     });
-  }, [scripts]);
+  }, [scripts, showSystem]);
 
   // Folder filter for the rail — "All" shows every group; a specific folder
   // shows only that one. Options are folders that actually contain a script.
@@ -412,6 +470,40 @@ const VirtualScripts: React.FC = () => {
       ] as [string, typeof items])
       .filter(([, items]) => items.length > 0);
   }, [allGroupedScripts, search]);
+
+  // Starred scripts are listed in a Favorites group above the folders (TASK-100).
+  const executableFavorites = useExecutableFavorites();
+  const favoriteScripts = groupedScripts.flatMap(([, items]) => items).filter((s) => executableFavorites.isFavorite('virtual_script', s.name));
+  const folderGroups = groupedScripts
+    .map(([folderName, items]) => [folderName, items.filter((s) => !executableFavorites.isFavorite('virtual_script', s.name))] as [string, typeof items])
+    .filter(([, items]) => items.length > 0);
+
+  // One script row of the rail; shared by the Favorites group and the folder groups.
+  const renderScriptRow = (s: typeof scripts[number]) => {
+    const selected = s.id === selectedId;
+    const inProd = !!s.environments?.prod;
+    return (
+      <Box
+        key={s.id}
+        title={s.name}
+        onClick={() => handleSelect(s.id)}
+        sx={{
+          display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.6, mb: 0.25, borderRadius: 1.5, cursor: 'pointer',
+          bgcolor: selected ? `${P.accent}26` : 'transparent',
+          '&:hover': { bgcolor: selected ? `${P.accent}26` : P.hoverBg },
+        }}
+      >
+        <ExecutableFavoriteStar kind="virtual_script" itemId={s.name} />
+        <Typography sx={{ flex: 1, minWidth: 0, fontSize: '0.8rem', fontWeight: selected ? 600 : 400, color: selected ? P.accentText : P.textPrimary, overflowWrap: 'anywhere', lineHeight: 1.25 }}>
+          {s.name}
+        </Typography>
+        <Tooltip title={inProd ? `In prod${s.prod_version ? ` (v${s.prod_version})` : ''}` : s.environments?.test ? 'In test' : 'Dev only'}>
+          <Box sx={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, bgcolor: inProd ? P.accent : s.environments?.test ? P.textSecondary : P.borderColor }} />
+        </Tooltip>
+      </Box>
+    );
+
+  };
 
   const validateTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const autoSelectedRef = useRef(false);
@@ -883,13 +975,15 @@ const VirtualScripts: React.FC = () => {
               </IconButton>
             </span>
           </Tooltip>
-          <Tooltip title="More">
-            <span>
-              <IconButton size="small" onClick={(e) => setMoreAnchor(e.currentTarget)} disabled={!selectedId}>
-                <MoreHorizIcon fontSize="small" />
-              </IconButton>
-            </span>
-          </Tooltip>
+          {canDelete && (
+            <Tooltip title="Delete script">
+              <span>
+                <IconButton size="small" onClick={() => setDeleteOpen(true)} disabled={!selectedId} sx={{ color: P.error }}>
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </span>
+            </Tooltip>
+          )}
           <Button
             size="small"
             variant="outlined"
@@ -919,9 +1013,16 @@ const VirtualScripts: React.FC = () => {
 
       {/* Content: scripts rail + editor (internal scroll, no page scroll) */}
       <Box sx={{ flex: 1, minHeight: 0, display: 'flex', gap: 1, p: 1 }}>
-        <Paper variant="outlined" sx={{ width: 230, display: 'flex', flexDirection: 'column', borderRadius: 2, borderColor: P.borderColor, bgcolor: P.sidebarBg }}>
+        <Paper variant="outlined" sx={{ width: 300, display: 'flex', flexDirection: 'column', borderRadius: 2, borderColor: P.borderColor }}>
           <Box sx={{ px: 1.5, pt: 1.25, pb: 1, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
             <Typography variant="subtitle2" fontWeight={600}>Scripts</Typography>
+            {canShowSystem && (
+              <Tooltip title={showSystem ? 'Hide system scripts' : 'Show system scripts'}>
+                <IconButton size="small" onClick={toggleShowSystem} sx={{ color: showSystem ? P.accentText : P.textMuted, ml: 'auto', mr: 0.5 }}>
+                  {showSystem ? <VisibilityIcon sx={{ fontSize: 18 }} /> : <VisibilityOffIcon sx={{ fontSize: 18 }} />}
+                </IconButton>
+              </Tooltip>
+            )}
             <Tooltip title="New script">
               <IconButton size="small" onClick={handleNew} sx={{ color: P.accentText, border: `1px solid ${P.borderColor}`, borderRadius: 1.5, p: 0.5 }}>
                 <AddIcon sx={{ fontSize: 18 }} />
@@ -942,7 +1043,13 @@ const VirtualScripts: React.FC = () => {
             />
           </Box>
           <Box sx={{ overflow: 'auto', flex: 1, px: 1, pb: 1 }}>
-            {groupedScripts.map(([folderName, items]) => {
+            {favoriteScripts.length > 0 && (
+              <Box>
+                <DeviceFavoriteGroupHeader kind="favorites" inline />
+                {favoriteScripts.map(renderScriptRow)}
+              </Box>
+            )}
+            {folderGroups.map(([folderName, items]) => {
               const collapsed = collapsedFolders.has(folderName) && !search.trim();
               return (
                 <Box key={folderName}>
@@ -954,29 +1061,7 @@ const VirtualScripts: React.FC = () => {
                     <Typography noWrap sx={{ fontSize: '0.7rem', fontWeight: 600 }}>{folderName} · {items.length}</Typography>
                   </Box>
                   <Collapse in={!collapsed} timeout="auto" unmountOnExit>
-                    {items.map((s) => {
-                      const selected = s.id === selectedId;
-                      const inProd = !!s.environments?.prod;
-                      return (
-                        <Box
-                          key={s.id}
-                          title={s.name}
-                          onClick={() => handleSelect(s.id)}
-                          sx={{
-                            display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.6, mb: 0.25, borderRadius: 1.5, cursor: 'pointer',
-                            bgcolor: selected ? `${P.accent}26` : 'transparent',
-                            '&:hover': { bgcolor: selected ? `${P.accent}26` : P.hoverBg },
-                          }}
-                        >
-                          <Typography noWrap sx={{ flex: 1, minWidth: 0, fontSize: '0.8rem', fontWeight: selected ? 600 : 400, color: selected ? P.accentText : P.textPrimary }}>
-                            {s.name}
-                          </Typography>
-                          <Tooltip title={inProd ? `In prod${s.prod_version ? ` (v${s.prod_version})` : ''}` : s.environments?.test ? 'In test' : 'Dev only'}>
-                            <Box sx={{ width: 6, height: 6, borderRadius: '50%', flexShrink: 0, bgcolor: inProd ? P.accent : s.environments?.test ? P.textSecondary : P.borderColor }} />
-                          </Tooltip>
-                        </Box>
-                      );
-                    })}
+                    {items.map(renderScriptRow)}
                   </Collapse>
                 </Box>
               );
@@ -1037,23 +1122,23 @@ const VirtualScripts: React.FC = () => {
                 placeholder="script_name"
                 inputProps={{ 'aria-label': 'Name' }}
                 sx={{
-                  flex: 1, minWidth: 0, fontSize: '1.15rem', fontWeight: 600, fontFamily: 'monospace',
+                  flex: '0 0 auto', width: `${Math.max(12, name.length + 2)}ch`, maxWidth: '100%', fontSize: '1.15rem', fontWeight: 600, fontFamily: 'monospace',
                   borderRadius: 1, px: 0.5, '&:hover, &.Mui-focused': { bgcolor: P.hoverBg },
                 }}
               />
               {syntaxDot}
+              <Typography sx={{ color: P.textMuted, flexShrink: 0 }}>–</Typography>
+              <InputBase
+                value={description}
+                onChange={(e) => {
+                  setDescription(e.target.value);
+                  setDirty(true);
+                }}
+                placeholder="Add a description"
+                inputProps={{ 'aria-label': 'Description' }}
+                sx={{ flex: 1, minWidth: 0, fontSize: '0.9rem', color: P.textSecondary, borderRadius: 1, px: 0.5, '&:hover, &.Mui-focused': { bgcolor: P.hoverBg } }}
+              />
             </Box>
-            <InputBase
-              value={description}
-              onChange={(e) => {
-                setDescription(e.target.value);
-                setDirty(true);
-              }}
-              placeholder="Add a description"
-              inputProps={{ 'aria-label': 'Description' }}
-              fullWidth
-              sx={{ fontSize: '0.82rem', color: P.textSecondary, borderRadius: 1, px: 0.5, mx: -0.5, '&:hover, &.Mui-focused': { bgcolor: P.hoverBg } }}
-            />
             {stripParams.length > 0 && (
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', pt: 0.5 }}>
                 <Typography sx={{ fontSize: '0.7rem', fontWeight: 600, color: P.textMuted }}>Parameters</Typography>
@@ -1075,7 +1160,7 @@ const VirtualScripts: React.FC = () => {
           </Box>
 
           {/* Script / Doc */}
-          <Box sx={{ px: 2, py: 0.75, borderTop: `1px solid ${P.borderColor}`, borderBottom: `1px solid ${P.borderColor}` }}>
+          <Box sx={{ px: 2, py: 0.75, borderTop: `1px solid ${P.borderColor}`, borderBottom: `1px solid ${P.borderColor}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
             <ToggleButtonGroup
               size="small"
               exclusive
@@ -1097,6 +1182,29 @@ const VirtualScripts: React.FC = () => {
               <ToggleButton value={0}>Script</ToggleButton>
               <ToggleButton value={1}>Doc</ToggleButton>
             </ToggleButtonGroup>
+            <ToggleButtonGroup
+              size="small"
+              exclusive
+              value={editorSize}
+              onChange={(_, v) => v !== null && setEditorSize(v)}
+              aria-label="Script text size"
+              sx={{
+                bgcolor: P.sidebarBg, p: 0.375, borderRadius: 2, gap: 0.375,
+                '& .MuiToggleButton-root': {
+                  border: '1px solid transparent !important', borderRadius: '6px !important',
+                  textTransform: 'none', fontSize: 12, fontWeight: 500, color: P.textSecondary, py: 0.25, px: 1, minWidth: 28,
+                  '&:hover': { bgcolor: P.hoverBg },
+                },
+                '& .MuiToggleButton-root.Mui-selected': {
+                  bgcolor: P.surface, color: P.accentText, fontWeight: 600,
+                  borderColor: `${P.borderColor} !important`, '&:hover': { bgcolor: P.surface },
+                },
+              }}
+            >
+              {EDITOR_SIZES.map((s) => (
+                <ToggleButton key={s} value={s} aria-label={`Text size ${s.toUpperCase()}`}>{s.toUpperCase()}</ToggleButton>
+              ))}
+            </ToggleButtonGroup>
           </Box>
 
           <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
@@ -1114,25 +1222,61 @@ const VirtualScripts: React.FC = () => {
                 />
               </Box>
             ) : (
-              <Box sx={{ height: '100%', display: 'flex', gap: 1, p: 1, overflow: 'hidden' }}>
-                <TextField
-                  multiline
-                  fullWidth
-                  placeholder="# Markdown documentation for this script"
-                  value={doc}
-                  onChange={(e) => {
-                    setDoc(e.target.value);
-                    setDirty(true);
-                  }}
-                  sx={{
-                    flex: 1,
-                    '& .MuiInputBase-root': { height: '100%', alignItems: 'flex-start', fontFamily: 'monospace', fontSize: 13 },
-                    '& textarea': { height: '100% !important', overflow: 'auto !important' },
-                  }}
-                />
-                <Box sx={{ flex: 1, overflow: 'auto', p: 1, border: 1, borderColor: 'divider', borderRadius: 1 }}>
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc || '_No documentation yet._'}</ReactMarkdown>
-                </Box>
+              <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+                {docEditing ? (
+                  <>
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1, px: 2, py: 0.75, borderBottom: `1px solid ${P.borderColor}` }}>
+                      <Button size="small" onClick={cancelDocEdit} sx={{ textTransform: 'none', color: P.textSecondary }}>
+                        Cancel
+                      </Button>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={saving ? <CircularProgress size={14} /> : <SaveIcon />}
+                        onClick={() => {
+                          setDocEditing(false);
+                          handleSave();
+                        }}
+                        disabled={saving}
+                        sx={{ textTransform: 'none', borderColor: P.accent, color: P.accentText, '&:hover': { borderColor: P.accent, bgcolor: `${P.accent}1a` } }}
+                      >
+                        Save
+                      </Button>
+                    </Box>
+                    <TextField
+                      multiline
+                      fullWidth
+                      placeholder="# Markdown documentation for this script"
+                      value={doc}
+                      onChange={(e) => {
+                        setDoc(e.target.value);
+                        setDirty(true);
+                      }}
+                      sx={{
+                        flex: 1, minHeight: 0,
+                        '& .MuiInputBase-root': { height: '100%', alignItems: 'flex-start', fontFamily: 'monospace', fontSize: 13 },
+                        '& textarea': { height: '100% !important', overflow: 'auto !important' },
+                      }}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <Box sx={{ display: 'flex', justifyContent: 'flex-end', px: 2, py: 0.75, borderBottom: `1px solid ${P.borderColor}` }}>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={<EditOutlinedIcon sx={{ fontSize: 16 }} />}
+                        onClick={startDocEdit}
+                        sx={{ textTransform: 'none', borderColor: P.borderColor, color: P.textSecondary, '&:hover': { borderColor: P.accent, color: P.accentText } }}
+                      >
+                        Edit
+                      </Button>
+                    </Box>
+                    <Box sx={{ flex: 1, minHeight: 0, overflow: 'auto', p: 2 }}>
+                      <ReactMarkdown remarkPlugins={[remarkGfm]}>{doc || '_No documentation yet._'}</ReactMarkdown>
+                    </Box>
+                  </>
+                )}
               </Box>
             )}
           </Box>
@@ -1169,19 +1313,6 @@ const VirtualScripts: React.FC = () => {
           </Button>
         </DialogActions>
       </StyledDialog>
-
-      {/* More: delete */}
-      <Menu anchorEl={moreAnchor} open={Boolean(moreAnchor)} onClose={() => setMoreAnchor(null)}>
-        <MenuItem
-          onClick={() => {
-            setMoreAnchor(null);
-            setDeleteOpen(true);
-          }}
-          sx={{ color: P.error, gap: 1 }}
-        >
-          <DeleteIcon fontSize="small" /> Delete script
-        </MenuItem>
-      </Menu>
 
       {/* Version history */}
       <Menu anchorEl={historyAnchor} open={Boolean(historyAnchor)} onClose={() => setHistoryAnchor(null)}>

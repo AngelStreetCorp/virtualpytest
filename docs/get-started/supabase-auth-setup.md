@@ -1,46 +1,46 @@
 # Supabase Authentication Setup Guide
 
-Complete guide for setting up user authentication in VirtualPyTest with Supabase.
+This guide shows how to set up user sign-in for VirtualPyTest with Supabase.
 
 ## Overview
 
-VirtualPyTest supports **optional authentication** with multiple sign-in methods:
+Sign-in is **optional**. Users can sign in with email and password, Google or GitHub. Each user gets a role (admin, tester or viewer) that decides what they can do.
 
-✅ **Email/Password** - Built-in Supabase authentication  
-✅ **Google OAuth** - Sign in with Google account  
-✅ **GitHub OAuth** - Sign in with GitHub account  
-✅ **Role-Based Access Control** - Admin, Tester, Viewer roles  
-✅ **Backend JWT Validation** - Secure API protection  
+Whether users must sign in is set on the server. A new install starts with no sign-in. See [supabase.md](supabase.md#authentication-open-mode-or-login) to switch.
 
-**Whether users must log in is decided by the server's auth posture** (`SERVER_OPEN_MODE`,
-`SUPABASE_JWT_SECRET` — see [supabase.md](supabase.md#authentication-open-mode-or-login)).
-Fresh installs start in open mode (no login). This page is the long version: OAuth
-providers, roles, permissions, how the tokens flow.
+<div data-technical>
+
+The switch is `SERVER_OPEN_MODE` together with `SUPABASE_JWT_SECRET`. Fresh installs start in open mode (no login).
+
+</div>
 
 ## Prerequisites
 
-- **Optional**: Supabase account ([supabase.com](https://supabase.com))
-- **Optional**: Google Cloud Console account (for Google OAuth)
-- **Optional**: GitHub account (for GitHub OAuth)
+- **Optional**: a Supabase account ([supabase.com](https://supabase.com))
+- **Optional**: a Google Cloud Console account (for Google sign-in)
+- **Optional**: a GitHub account (for GitHub sign-in)
 
-## 1. Create Supabase Project
+## 1. Create a Supabase project
 
-1. Go to [app.supabase.com](https://app.supabase.com)
-2. Click "New Project"
-3. Fill in project details:
-   - **Name**: VirtualPyTest (or your preferred name)
-   - **Database Password**: Generate a strong password
-   - **Region**: Choose closest to your users
-4. Click "Create new project"
-5. Wait for the project to be provisioned (~2 minutes)
+Go to [app.supabase.com](https://app.supabase.com), click **"New Project"**, and fill in the details. Wait about two minutes.
 
-## 2. Get Supabase Credentials
+<div data-technical>
 
-1. In your Supabase project dashboard, go to **Settings** → **API**
-2. Copy the following values:
-   - **Project URL** (e.g., `https://xxxxx.supabase.co`)
-   - **anon/public key** (starts with `eyJ...`)
-3. Add to `frontend/.env` file:
+Name: VirtualPyTest, or any name. Database password: a strong one. Region: the one closest to your users. Then click **"Create new project"**.
+
+</div>
+
+## 2. Get the Supabase credentials
+
+1. In your Supabase project, go to **Settings**, then **API**
+2. Copy the **Project URL** and the **anon / public key**
+3. Add them to the frontend's settings file
+
+<div data-technical>
+
+Example values: the Project URL looks like `https://xxxxx.supabase.co`, and the anon key starts with `eyJ...`.
+
+In `frontend/.env`:
 
 ```env
 # Add these to enable authentication:
@@ -48,170 +48,163 @@ VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=eyJhbGc...your-anon-key
 ```
 
-**Note:** If you don't add these variables, the app runs without authentication (all pages public).
+</div>
 
-## 3. Create Database Schema
+**Note:** if you leave these out, the app runs without sign-in, and every page is public.
 
-If you already ran the full schema per [Supabase and authentication](./supabase.md) (recommended
-— `./setup/db/apply_schema.sh`), this is done: it includes
-`setup/db/schema/018_supabase_auth_schema.sql`, which creates `profiles`, the `handle_new_user()`
-signup trigger, admin RLS policies, and `is_admin()`.
+## 3. Create the database tables
 
-**Adding auth to an install that skipped it:** apply just that one file (it's self-contained —
-safe to run on its own even before `019_team_members.sql`):
+If you already set up the full database as described in [Supabase and authentication](./supabase.md), this step is done. We recommend that route.
+
+<div data-technical>
+
+Run `./setup/db/apply_schema.sh`. It includes `setup/db/schema/018_supabase_auth_schema.sql`, which creates `profiles`, the `handle_new_user()` signup trigger, admin RLS policies, and `is_admin()`.
+
+</div>
+
+**Adding sign-in to an install that skipped it:** apply just that one file. It stands on its own, so it is safe to run before `019_team_members.sql`.
+
+<div data-technical>
 
 ```bash
 psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -f setup/db/schema/018_supabase_auth_schema.sql
 ```
 
-Or copy its contents into the Supabase dashboard's **SQL Editor** and click **Run**. Don't
-hand-copy an older snippet from elsewhere — always use the current file, since the RLS policies
-and trigger functions in it have changed over time (most recently to add a nullable `team_id`).
+You can also copy the file's contents into the Supabase dashboard's **SQL Editor** and click **Run**. Always use the current file, not an older copy from somewhere else. The security rules and trigger functions in it have changed over time (most recently to add a nullable `team_id`).
 
-**What this does:**
-- Creates `profiles` table linked to `auth.users`, with a nullable `team_id`
-- Auto-creates a profile (and default-team membership, once `team_members` exists) on signup
-- Sets default role to `viewer`
-- Enables Row Level Security, including admin-only policies via `is_admin()`
+</div>
 
-## 4. Enable Email/Password Authentication
+The file creates a `profiles` table linked to the sign-in accounts. It gives each new user the `viewer` role and limits admin-only rules to admins.
 
-Email/password authentication works automatically once you've created the database schema.
+<div data-technical>
 
-**To enable it in Supabase:**
+What this does:
 
-1. Go to **Authentication** → **Providers**
-2. Find **Email** provider
-3. Ensure it's **enabled** (should be on by default)
-4. Optional: Configure email templates for verification emails
+- Creates a `profiles` table linked to `auth.users`, with a nullable `team_id`
+- Creates a profile on signup, and adds the user to the default team once `team_members` exists
+- Gives every new user the `viewer` role by default
+- Turns on Row Level Security, with admin-only rules through `is_admin()`
 
-**Users can now:**
-- Sign up with email/password
-- Sign in with email/password
-- Reset forgotten passwords
+</div>
 
-## 5. Configure Google OAuth (Optional)
+## 4. Turn on email and password sign-in
 
-### 5.1 Create Google OAuth Credentials
+Email sign-in is on by default in **Authentication**, then **Providers**. Users can then sign up, sign in and reset a forgotten password.
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com)
-2. Create a new project or select an existing one
-3. Go to **APIs & Services** → **Credentials**
-4. Click **Create Credentials** → **OAuth client ID**
-5. Configure consent screen if prompted:
-   - User Type: **External**
-   - App name: **VirtualPyTest**
-   - User support email: Your email
-   - Developer contact: Your email
-6. Create OAuth client ID:
-   - Application type: **Web application**
-   - Name: **VirtualPyTest**
-   - Authorized redirect URIs:
-     ```
-     https://your-project.supabase.co/auth/v1/callback
-     ```
-7. Copy the **Client ID** and **Client Secret**
+<div data-technical>
 
-### 5.2 Configure in Supabase
+Make sure the **Email** provider is **enabled**. Optional: customise the emails for account verification.
 
-1. In Supabase dashboard, go to **Authentication** → **Providers**
-2. Find **Google** and click to expand
-3. Enable Google provider
-4. Paste your **Client ID** and **Client Secret**
-5. Click **Save**
+</div>
 
-**Note:** Google OAuth is optional. Email/password auth works without it.
+## 5. Set up Google sign-in (optional)
 
-## 6. Configure GitHub OAuth (Optional)
+### 5.1 Create Google credentials
 
-### 6.1 Create GitHub OAuth App
+1. In the [Google Cloud Console](https://console.cloud.google.com), create an OAuth client ID under **APIs & Services**, then **Credentials**
+2. Copy the **Client ID** and the **Client Secret**
 
-1. Go to [GitHub Settings](https://github.com/settings/developers)
-2. Click **OAuth Apps** → **New OAuth App**
-3. Fill in the details:
-   - **Application name**: VirtualPyTest
-   - **Homepage URL**: `http://localhost:5073` (development) or your production URL
-   - **Authorization callback URL**:
-     ```
-     https://your-project.supabase.co/auth/v1/callback
-     ```
-4. Click **Register application**
-5. Copy the **Client ID**
-6. Click **Generate a new client secret** and copy it
+<div data-technical>
 
-### 6.2 Configure in Supabase
+Steps: click **"Create Credentials"**, then **"OAuth client ID"**. If asked, set up the consent screen with your email and the app name **VirtualPyTest**. Create the client as a **Web application** named **VirtualPyTest**, and set the authorized redirect URI to the address below.
 
-1. In Supabase dashboard, go to **Authentication** → **Providers**
-2. Find **GitHub** and click to expand
-3. Enable GitHub provider
-4. Paste your **Client ID** and **Client Secret**
-5. Click **Save**
+Consent screen: user type **External**, app name **VirtualPyTest**, user support email and developer contact both your email.
 
-**Note:** GitHub OAuth is optional. Email/password auth works without it.
+Authorized redirect URI:
 
-## 7. Configure Redirect URLs (Required for OAuth only)
+```
+https://your-project.supabase.co/auth/v1/callback
+```
 
-1. In Supabase dashboard, go to **Authentication** → **URL Configuration**
-2. Add your redirect URLs:
-   - **Site URL**: `http://localhost:5073` (for development)
-   - **Redirect URLs**: Add:
-     ```
-     http://localhost:5073/auth/callback
-     https://your-production-domain.com/auth/callback
-     ```
+</div>
 
-## 8. Test Authentication
+### 5.2 Add them to Supabase
 
-1. Start your frontend:
-   ```bash
-   cd frontend
-   npm run dev
-   ```
+Turn on **Google** under **Authentication**, then **Providers**. Paste the Client ID and Client Secret, and save. Google sign-in is optional.
 
-2. Navigate to `http://localhost:5073`
-   - Should automatically redirect to `/login`
+## 6. Set up GitHub sign-in (optional)
 
-3. **Try all authentication methods:**
+### 6.1 Create a GitHub OAuth app
 
-   **Email/Password:**
-   - Click **SIGN UP** tab
-   - Enter your name, email, password
-   - Click "Create Account"
-   - Check your email for verification (if enabled)
-   - Switch to **LOGIN** tab and sign in
+1. In [GitHub Settings](https://github.com/settings/developers), create a new OAuth app named **VirtualPyTest**
+2. Copy the **Client ID**, and generate and copy a **client secret**
 
-   **Google OAuth:**
-   - Click the Google icon
-   - Complete Google sign-in flow
-   - Redirected back to dashboard
+<div data-technical>
 
-   **GitHub OAuth:**
-   - Click the GitHub icon
-   - Authorize the application
-   - Redirected back to dashboard
+Steps: click **"OAuth Apps"**, then **"New OAuth App"**. Set the homepage URL to `http://localhost:5073` for development, or your production address. Set the authorization callback URL to the address below, then click **"Register application"**.
 
-4. After first login, you should see the dashboard
+</div>
 
-## 9. Create Your First Admin User
+<div data-technical>
 
-All new users get the default `viewer` role. To promote yourself to admin:
+Authorization callback URL:
 
-1. Sign in to your app (any method)
-2. In Supabase dashboard, go to **Table Editor** → **profiles**
-3. Find your user row
-4. Edit the `role` column and change it to `admin`
-5. Refresh your app - you now have admin access!
+```
+https://your-project.supabase.co/auth/v1/callback
+```
 
-**Admin SQL shortcut:**
+</div>
+
+### 6.2 Add them to Supabase
+
+Turn on **GitHub** under **Authentication**, then **Providers**. Paste the Client ID and Client Secret, and save. GitHub sign-in is optional.
+
+## 7. Set the redirect addresses (only needed for Google or GitHub)
+
+Supabase must know where to send users after they sign in with Google or GitHub. Set these under **Authentication**, then **URL Configuration**.
+
+<div data-technical>
+
+Site URL: `http://localhost:5073` for development. Redirect URLs:
+
+```
+http://localhost:5073/auth/callback
+https://your-production-domain.com/auth/callback
+```
+
+</div>
+
+## 8. Test the sign-in
+
+1. Open the app. You should be sent to the sign-in page.
+2. Sign up with email and password, or use Google or GitHub. You are sent to the dashboard.
+
+<div data-technical>
+
+Start the frontend first (`http://localhost:5073`):
+
+```bash
+cd frontend
+npm run dev
+```
+
+Sign-up tab: enter your name, email and password, then click **"Create Account"**. Check your email if verification is on, then switch to the **Log in** tab. GitHub: authorise the app.
+
+</div>
+
+## 9. Make your first admin
+
+Every new user starts as `viewer`. To become admin, sign in once, change your `role` to `admin` in Supabase's **profiles** table, and refresh the app.
+
+<div data-technical>
+
+Shortcut with SQL:
+
 ```sql
-UPDATE public.profiles 
-SET role = 'admin' 
+UPDATE public.profiles
+SET role = 'admin'
 WHERE email = 'your-email@example.com';
 ```
 
-## 10. User Roles & Permissions
+</div>
 
-### Default Roles
+## 10. User roles and permissions
+
+### Default roles
+
+There are three roles. **Admin** can do everything. **Tester** can build and run tests. **Viewer** can only look.
+
+<div data-technical>
 
 Real default permission strings, from `backend_server/src/routes/server_permissions_routes.py`
 (`namespace:action` format — this replaced an older flat naming scheme, so don't trust an example
@@ -223,26 +216,33 @@ elsewhere that doesn't look like this):
 | **tester** | Can build and run tests | `dashboard:view`, `device_control:view`/`execute`, `testcases:view`/`create`/`edit`/`hide`, `campaigns:view`/`create`/`edit`/`execute`, `builder.test:view`/`use`, `builder.campaign:view`/`use`, `execution.run:view`/`run_test`/`run_campaign`, `execution.monitor:view`, `reports.tests:view`, `reports.campaigns:view`, `reports.models:view`, `reports.dependency:view`, `monitoring.incidents:view`, `monitoring.heatmap:view`, `monitoring.ai_queue:view`, `interface:view`, `ai_agent:view`/`use`, `plugins.jira:view`/`manage`, `settings.status:view` |
 | **viewer** | Read-only access | `dashboard:view`, `testcases:view`, `campaigns:view`, `reports.tests:view`, `reports.campaigns:view`, `reports.models:view`, `reports.dependency:view`, `monitoring.incidents:view`, `monitoring.heatmap:view`, `monitoring.ai_queue:view`, `settings.status:view` |
 
-### Changing User Roles
+</div>
 
-**Recommended — the built-in Users page** (`frontend/src/pages/Users.tsx`, an admin can reach it
-from the app): edit a user's role directly, or override individual permissions.
+### Changing a user's role
 
-**Manually in Supabase** (works too, e.g. before you have any admin yet):
-1. Go to **Table Editor** → **profiles**
-2. Find the user
-3. Edit the `role` field
+Admins change roles on the **Users** page in the app. Without an admin, edit the `role` field in Supabase's **profiles** table.
 
-### Custom Permissions
+<div data-technical>
 
-Individual permission overrides are **allow/deny**, not a simple additive list — a denied
-permission blocks access even if the user's role would otherwise grant it. Manage these from the
-**Users** page's Permissions tab (grouped by namespace: `dashboard`, `device_control`,
-`testcases`, `campaigns`, `builder.*`, `execution.*`, `reports.*`, `monitoring.*`, `interface`,
-`ai_agent`, `plugins.jira`, `settings.status`) rather than hand-editing the `profiles.permissions`
-column directly.
+Recommended path: the built-in Users page (`frontend/src/pages/Users.tsx`, an admin can reach it from the app).
 
-## 11. Backend API Protection
+</div>
+
+### Custom permissions
+
+On the **Users** page, Permissions tab, you can allow or deny single permissions. A denied permission blocks access, even if the role allows it.
+
+<div data-technical>
+
+Individual permission overrides are **allow/deny**, not a simple additive list — a denied permission blocks access even if the user's role would otherwise grant it. Manage these from the **Users** page's Permissions tab (grouped by namespace: `dashboard`, `device_control`, `testcases`, `campaigns`, `builder.*`, `execution.*`, `reports.*`, `monitoring.*`, `interface`, `ai_agent`, `plugins.jira`, `settings.status`) rather than hand-editing the `profiles.permissions` column directly.
+
+</div>
+
+## 11. How the server protects its routes
+
+The server checks every request for a valid sign-in, an API key or an auto-sign token. A few public routes, such as the health check, need nothing.
+
+<div data-technical>
 
 Every `/server/*` route is gated by one global guard (`configure_global_frontend_auth_guard`
 in `backend_server/src/app.py`): unless `SERVER_OPEN_MODE=true`, a request needs a valid
@@ -253,7 +253,7 @@ of routes such as `/server/health` stays public. On top of that, individual rout
 `/configuration/models` and `/configuration/settings` are **frontend page paths** (protected
 client-side by `ProtectedRoute`/`PermissionGate`, a different mechanism), not backend routes.
 
-**How it works, where it is enforced:**
+**How it works:**
 
 1. Frontend sends JWT token in `Authorization: Bearer <token>` header
 2. Backend validates token using `@require_user_auth` decorator
@@ -261,6 +261,7 @@ client-side by `ProtectedRoute`/`PermissionGate`, a different mechanism), not ba
 4. Request proceeds if authorized, returns 401/403 if not
 
 **Real example** (`GET /server/auth/admin/test`, from `server_auth_routes.py`):
+
 ```python
 from backend_server.src.lib.auth_middleware import require_user_auth, require_role
 
@@ -271,9 +272,23 @@ def admin_only_endpoint():
     return jsonify({'success': True, 'message': 'Welcome, admin!', 'user': request.user_email})
 ```
 
-## 12. How Authentication Works
+</div>
 
-### Frontend Flow
+Requests from users who are not allowed are refused.
+
+<div data-technical>
+
+Refused requests get "unauthorised" (401) or "forbidden" (403).
+
+</div>
+
+## 12. How sign-in works
+
+If sign-in is set up, users sign in first. After that, every request carries proof of the sign-in, and the server checks it.
+
+### Frontend flow
+
+<div data-technical>
 
 ```
 User visits app
@@ -293,7 +308,11 @@ Every API call includes: Authorization: Bearer <JWT>
 Backend validates JWT → Allows/Denies
 ```
 
-### Backend Flow
+</div>
+
+### Backend flow
+
+<div data-technical>
 
 ```
 API Request arrives
@@ -309,56 +328,122 @@ Extracts user_id, email, role
 Proceeds if authorized ✅  OR  Returns 403 ❌
 ```
 
+</div>
+
 ## 13. Troubleshooting
 
+Find your problem below.
+
 ### "Invalid redirect URL" error
-- Check that your redirect URLs are correctly configured in Supabase
-- Ensure the callback URL matches exactly: `/auth/callback`
 
-### User profile not created
-- Check the SQL function `handle_new_user()` is created
-- Check the trigger `on_auth_user_created` exists
-- Look at Supabase logs for errors
+Check the redirect addresses in Supabase. The callback address must match exactly.
 
-### Can't access protected pages
-- Check your role in the `profiles` table
-- Verify permissions are correctly set
-- Check browser console for auth errors
+<div data-technical>
 
-### Environment variables not loading
+Ensure the callback URL matches exactly: `/auth/callback`
+
+</div>
+
+### The user profile was not created
+
+Check the database function and trigger that create profiles, and the Supabase logs.
+
+<div data-technical>
+
+Check the SQL function `handle_new_user()` is created; check the trigger `on_auth_user_created` exists.
+
+</div>
+
+### The user cannot open some pages
+
+Check the user's role and permissions.
+
+<div data-technical>
+
+Check your role in the `profiles` table; verify permissions are correctly set; check browser console for auth errors.
+
+</div>
+
+### Environment settings are not picked up
+
+Put the `.env` file in the `frontend` folder and restart the dev server. The browser console shows whether sign-in is on.
+
+<div data-technical>
+
+Setting names must start with `VITE_`. Values must not have quotes.
+
+</div>
+
+<div data-technical>
+
 - Make sure `.env` file is in the `frontend` directory (NOT project root)
 - Restart the Vite dev server after changing `.env`
 - Variables must start with `VITE_` prefix
 - Check browser console: Should see "🔒 Auth enabled" or "🔓 Auth disabled"
 
-### Login page says "Authentication Disabled"
+</div>
+
+### The login page says "Authentication Disabled"
+
+Check that `frontend/.env` has both Supabase settings, then restart the dev server.
+
+<div data-technical>
+
+Do not put quotes around the values.
+
+</div>
+
+<div data-technical>
+
 - Check `frontend/.env` has `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`
 - Restart dev server after adding credentials
 - Variables must NOT have quotes in .env file
 
-### "supabaseUrl is required" error
-- Ensure `VITE_SUPABASE_URL` is set in `frontend/.env` (not project root)
-- Clear browser cache and restart dev server
+</div>
 
-### Email verification not working
-- Check Supabase → Authentication → Email Templates
-- For development, disable email confirmation in Supabase settings
-- Or check your email spam folder
+### The error "supabaseUrl is required"
 
-## Security Best Practices
+Put the URL setting in `frontend/.env`, then clear the browser cache and restart the dev server.
 
-1. **Never commit `.env` files** - They're in `.gitignore` by default
-2. **Row Level Security (RLS)** - `profiles` and `team_members` have real per-user/admin
-   policies (from the SQL above). All other tables have RLS enabled with an open policy;
-   app-data authorization is enforced by the backend, not by Postgres — see
-   [supabase.md — Row-level security](supabase.md#row-level-security)
-3. **Validate roles on backend** - Always verify user permissions on your API
-4. **Rotate secrets regularly** - Update OAuth credentials periodically
-5. **Use different projects for dev/prod** - Keep environments separate
+<div data-technical>
 
-## 14. Architecture Summary
+Ensure `VITE_SUPABASE_URL` is set in `frontend/.env` (not project root).
 
-### Frontend Components
+</div>
+
+### Email verification does not work
+
+Check your spam folder. For development, you can turn off email confirmation in Supabase.
+
+<div data-technical>
+
+In Supabase, check **Authentication**, then **Email Templates**.
+
+</div>
+
+## Security best practices
+
+1. **Never commit `.env` files.**
+2. **Row Level Security.** The backend enforces the access rules for app data. See [supabase.md, Row-level security](supabase.md#row-level-security).
+3. **Check roles on the backend** on every API call.
+4. **Rotate secrets** and OAuth credentials from time to time.
+5. **Keep development and production in separate projects.**
+
+<div data-technical>
+
+Item 1: they are listed in `.gitignore`.
+
+Item 2: the `profiles` and `team_members` tables have their own per-user and admin rules. All other tables have RLS turned on with an open rule.
+
+</div>
+
+## 14. Architecture summary
+
+The files that make up sign-in, for code changes.
+
+<div data-technical>
+
+### Frontend components
 
 ```
 frontend/src/
@@ -378,7 +463,7 @@ frontend/src/
 └── utils/apiClient.ts                 # Auto JWT injection
 ```
 
-### Backend Components
+### Backend components
 
 ```
 backend_server/src/
@@ -386,7 +471,7 @@ backend_server/src/
 └── routes/server_auth_routes.py       # Auth test endpoints
 ```
 
-### Database Schema
+### Database schema
 
 ```
 Supabase:
@@ -398,17 +483,31 @@ Supabase:
     └── permissions (JSONB array)
 ```
 
-## 15. Disabling Authentication
+</div>
+
+## 15. Turning sign-in off
+
+Turning sign-in off takes two changes, or the API or the login page keeps asking for a login:
+
+1. On the server, turn on open mode.
+2. In the frontend, clear the two Supabase settings, then build the frontend again.
+
+<div data-technical>
 
 Two halves, both needed: `SERVER_OPEN_MODE=true` in the server's `.env` (otherwise the API
 keeps answering 401), and empty `VITE_SUPABASE_URL` / `VITE_SUPABASE_ANON_KEY` in
 `frontend/.env` followed by a frontend rebuild (otherwise the login page stays). Recipes for
 each install path: [supabase.md](supabase.md#enforce-login) (read it backwards).
 
-## 16. Login Page Options (Admin-Provisioned Sites)
+For the steps for each kind of install, see [Supabase and authentication](supabase.md#enforce-login), read from the end.
 
-A site where admins create every account can reduce the login page to email + password.
-Each flag defaults to `true`; set it to `false` in `frontend/.env` and rebuild the frontend:
+</div>
+
+## 16. Login page options (for sites where admins create every account)
+
+If an admin creates every account, you can show only email and password on the login page. Turn options off in the frontend's settings file, then build the frontend again.
+
+<div data-technical>
 
 | Flag | Hides |
 |------|-------|
@@ -425,25 +524,24 @@ install, then `supabase stop && supabase start`). Leave `[auth.email] enable_sig
 in the CLI that key switches the whole email provider, so setting it to `false` breaks
 email/password **sign-in** too. `DISABLE_SIGNUP=true` for the
 Docker stack, or *Authentication → Providers → Email → Allow new users to sign up* off on a
-cloud project. Admins keep creating users from the **Users** page or Supabase Studio, and
-reset passwords there.
+cloud project.
 
-## Next Steps
+Admins keep creating users from the **Users** page or Supabase Studio, and reset passwords there.
 
-**Completed:**
-- ✅ Email/password authentication
-- ✅ Google & GitHub OAuth
-- ✅ Backend JWT validation
-- ✅ Role-based access control
-- ✅ Protected routes
-- ✅ Password reset flow
-- ✅ Admin panel for user management (Users page: role changes + per-permission allow/deny overrides)
+</div>
 
-**Future Enhancements:**
+Hiding buttons does not stop sign-ups. Close sign-up in Supabase too.
+
+## Next steps
+
+**Done:** email, Google and GitHub sign-in, role-based access, password reset and an admin Users page.
+
+**Planned:**
+
 - [ ] Custom email templates (branded emails)
-- [ ] Multi-Factor Authentication (MFA)
-- [ ] Session management UI
-- [ ] Activity logs/audit trail
+- [ ] Multi-factor authentication (MFA)
+- [ ] A session management screen
+- [ ] An activity log and audit trail
 
 ## Resources
 
@@ -451,4 +549,3 @@ reset passwords there.
 - [Google OAuth Setup](https://supabase.com/docs/guides/auth/social-login/auth-google)
 - [GitHub OAuth Setup](https://supabase.com/docs/guides/auth/social-login/auth-github)
 - [Row Level Security Guide](https://supabase.com/docs/guides/auth/row-level-security)
-

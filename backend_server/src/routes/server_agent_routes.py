@@ -7,10 +7,13 @@ SocketIO handlers for real-time chat with QA Manager and specialist agents.
 
 import os
 import logging
+import re
 import asyncio
 import json
 import uuid
 from datetime import datetime, timezone
+
+import time
 
 import requests
 from flask import Blueprint, request, jsonify
@@ -253,7 +256,7 @@ def save_api_key():
 
     from agent.core.manager import QAManagerAgent
     from shared.src.lib.ai import router as ai_router, secrets_store
-    from shared.src.lib.ai.provider_client import check_connectivity, create_client
+    from shared.src.lib.ai.provider_client import classify_error, connectivity_response, create_client, response_usage
     from shared.src.lib.database import ai_routing_db
 
     manager = QAManagerAgent(agent_id=data.get('agent_id'))
@@ -262,16 +265,23 @@ def save_api_key():
     except Exception as e:
         return jsonify({"success": False, "error": f"No AI route for this agent: {e}"}), 400
 
+    # The check is a real (tiny) completion: it is counted like a Settings Test call (test:text).
+    test_resolution = ai_router.test_resolution(hop, 'text')
+    started = time.time()
     try:
-        check_connectivity(create_client(hop.preset, api_key, base_url=hop.endpoint.get('base_url'),
-                                         timeout=hop.timeout), hop.model)
-    except requests.HTTPError as e:
-        status_code = e.response.status_code if e.response is not None else 500
-        return jsonify({
-            "success": False,
-            "error": f"Validation failed for {hop.endpoint_name}: {e.response.text[:300] if e.response is not None else str(e)}"
-        }), 401 if status_code in (401, 403) else status_code
+        used = response_usage(connectivity_response(
+            create_client(hop.preset, api_key, base_url=hop.endpoint.get('base_url'), timeout=hop.timeout), hop.model))
+        ai_router.record(test_resolution, hop, ok=True, ms=int((time.time() - started) * 1000),
+                         tokens_in=used.tokens_in, tokens_out=used.tokens_out, usage=used)
     except Exception as e:
+        ai_router.record(test_resolution, hop, ok=False, ms=int((time.time() - started) * 1000),
+                         error_type=classify_error(e))
+        if isinstance(e, requests.HTTPError):
+            status_code = e.response.status_code if e.response is not None else 500
+            return jsonify({
+                "success": False,
+                "error": f"Validation failed for {hop.endpoint_name}: {e.response.text[:300] if e.response is not None else str(e)}"
+            }), 401 if status_code in (401, 403) else status_code
         logger.error(f"API key validation error: {e}")
         return jsonify({"success": False, "error": f"Validation error: {str(e)}"}), 500
 
@@ -309,6 +319,227 @@ def create_session():
         "success": True,
         "session": session.to_dict(),
     })
+
+
+def _drone_voice_outcome(data: dict):
+    """TASK-160: a spoken Tello command, with a Tello held in Take Control, goes to the drone executor (same safety
+    checks as the push-to-talk button), not to the model. None = not a drone phrase: the normal voice path runs."""
+    text = str(data.get('text') or '').strip()
+    host_name, device_id = str(data.get('host_name') or ''), str(data.get('device_id') or '')
+    if not (text and host_name and device_id):
+        return None
+    from backend_server.src.lib.utils import drone_voice
+    from backend_server.src.lib.utils.lock_utils import resolve_lock_owner
+    from backend_server.src.lib.utils.server_utils import get_host_manager
+    from backend_server.src.routes.server_drone_routes import _voice
+    from shared.src.lib.drone.voice_grammar import parse
+    host_info = get_host_manager().get_host(host_name)
+    devices = [{'device_id': d.get('device_id'), 'device_name': d.get('device_name'), 'name': d.get('device_name')}
+               for d in ((host_info or {}).get('devices') or []) if str(d.get('device_model') or '').lower() == 'tello']
+    if not any(str(d['device_id']) == device_id for d in devices):
+        return None
+    user_id, user_name = resolve_lock_owner(data)
+    executor = _voice()
+    ex = executor.settings
+    parsed = parse(text, devices, drone_voice.Limits(ex.max_cm, ex.max_deg))
+    if not drone_voice.is_drone_phrase(parsed):
+        return None
+    caller = {'user_id': user_id, 'user_name': user_name,
+              'session_ids': [data.get('session_id')] if data.get('session_id') else []}
+    out = executor.handle(transcript=text, lang=str(data.get('lang') or 'en')[:2], host_name=host_name,
+                          device_id=device_id, devices=devices, caller=caller)
+    return {'action': 'drone', 'drone': {k: out.get(k) for k in ('decision', 'reply', 'reason', 'listening')}}
+
+
+def _voice_caller(data: dict) -> dict:
+    from backend_server.src.lib.utils.lock_utils import resolve_lock_owner
+    user_id, user_name = resolve_lock_owner(data)
+    return {'user_id': user_id, 'user_name': user_name,
+            'session_ids': [data.get('session_id')] if data.get('session_id') else []}
+
+
+def _voice_holds_lock(host_name, device_id, caller):
+    from backend_server.src.lib.utils import drone_voice
+    from backend_server.src.lib.utils.lock_utils import get_device_lock_info
+    return drone_voice.holds_lock(get_device_lock_info(host_name, device_id), caller)
+
+
+@server_agent_bp.route('/voice/plan', methods=['POST'])
+@handle_route_exceptions('server_agent:voice_plan')
+def voice_plan():
+    """TASK-160 phase 2: one spoken command for the device the caller HOLDS (Take Control) -> a plan to read back.
+
+    Body: {host_name, device_id, text, lang, session_id, model?}. ``decision``: plan (read ``label`` back, then call
+    /voice/run with ``plan_id``) | stop | abort | answered | sent (stop / land / battery are final) | refused.
+    Nothing here changes the device except the stop / abort / land / hover of a drone."""
+    from agent import voice_command as vc
+    from agent import voice_device
+    from backend_server.src.lib.utils.server_utils import get_host_manager
+    from backend_server.src.routes.server_drone_routes import _voice
+    data = request.get_json(silent=True) or {}
+    team_id = request.args.get('team_id') or data.get('team_id')
+    host_name, device_id = str(data.get('host_name') or ''), str(data.get('device_id') or '')
+    if not team_id or not host_name or not device_id:
+        return jsonify({"success": False, "error": "team_id, host_name and device_id are required"}), 400
+    host_info = get_host_manager().get_host(host_name)
+    if not host_info:
+        return jsonify({"success": False, "error": f'Host "{host_name}" not found'}), 400
+
+    def classify(**kw):
+        command = vc.classify(mode='transcript', model_key=str(data.get('model') or 'voxtral'), **kw)
+        finish = command.pop('_finish', None)
+        if finish:
+            finish({"action": "device_action"})
+        return command
+
+    out = voice_device.plan(text=str(data.get('text') or '')[:300], lang=str(data.get('lang') or 'en')[:2],
+                            host_name=host_name, device_id=device_id, host_info=host_info,
+                            caller=_voice_caller(data), team_id=team_id, holds_lock=_voice_holds_lock,
+                            drone=_voice(), classify=classify)
+    return jsonify(out), 200
+
+
+@server_agent_bp.route('/voice/run', methods=['POST'])
+@handle_route_exceptions('server_agent:voice_run')
+def voice_run():
+    """Run a plan made by /voice/plan (by id: the client never sends a command). Body: {plan_id, session_id}."""
+    from agent import voice_device
+    from backend_server.src.lib.utils.server_utils import get_host_manager
+    from backend_server.src.routes.server_drone_routes import _voice
+    from shared.src.lib.utils.build_url_utils import call_host
+    data = request.get_json(silent=True) or {}
+    team_id = request.args.get('team_id') or data.get('team_id')
+    if not team_id or not data.get('plan_id'):
+        return jsonify({"success": False, "error": "team_id and plan_id are required"}), 400
+
+    def execute(host_name, device_id, action, team):
+        host_info = get_host_manager().get_host(host_name)
+        if not host_info:
+            return {"success": False, "error": f'host "{host_name}" not found'}
+        payload = {'actions': [{'command': action['command'], 'params': action['params'],
+                                'action_type': action['action_type']}],
+                   'device_id': device_id, 'team_id': team}
+        res, status = call_host(host_info, '/host/action/executeBatch', 'POST', payload,
+                                {'device_id': device_id, 'team_id': team}, timeout=30)
+        return res if isinstance(res, dict) else {"success": False, "error": f"host answered {status}"}
+
+    out = voice_device.run(plan_id=str(data['plan_id']), caller=_voice_caller(data), team_id=team_id,
+                           holds_lock=_voice_holds_lock, drone=_voice(), execute=execute)
+    return jsonify(out), 200
+
+
+@server_agent_bp.route('/voice/command', methods=['POST'])
+@handle_route_exceptions('server_agent:voice_command')
+def voice_command():
+    """Atlas voice fast path (TASK-140): one spoken command → page / take control / goto / stop.
+
+    Body: {mode: 'transcript'|'audio', model: 'voxtral'|'gemini-lite', text?, audio_b64? (16 kHz WAV),
+    lang, devices: [{device_name, host_name, device_id, userinterface_name?}], host_name, device_id,
+    userinterface_name}. Anything that is not one simple command comes back as action 'atlas' with the
+    words, for the normal Atlas turn.
+    """
+    from agent import voice_command as vc
+    data = request.get_json(silent=True) or {}
+    team_id = request.args.get('team_id') or data.get('team_id')
+    if not team_id:
+        return jsonify({"success": False, "error": "team_id required"}), 400
+    devices = [d for d in (data.get('devices') or []) if isinstance(d, dict)][:200]
+    current = next((str(d.get('device_name')) for d in devices
+                    if d.get('host_name') == data.get('host_name') and d.get('device_id') == data.get('device_id')), '')
+    drone = _drone_voice_outcome(data)
+    if drone is not None:
+        return jsonify({"success": True, "command": {"tool": "drone_command"}, "outcome": drone})
+    if data.get('abort_only'):          # a spoken stop on a device that is not a drone: no model call, the client aborts
+        return jsonify({"success": True, "command": {"tool": "abort"}, "outcome": {"action": "abort"}})
+    command = vc.classify(mode=str(data.get('mode') or 'transcript'), model_key=str(data.get('model') or 'voxtral'),
+                          lang=str(data.get('lang') or 'en'), devices=devices, current_device=current, team_id=team_id,
+                          text=str(data.get('text') or ''), audio_b64=str(data.get('audio_b64') or ''))
+    if command.get('error'):
+        return jsonify({"success": False, **command}), 200
+    finish = command.pop('_finish', None)
+    outcome = vc.to_hint(command, devices=devices, host_name=str(data.get('host_name') or ''),
+                         device_id=str(data.get('device_id') or ''),
+                         userinterface_name=str(data.get('userinterface_name') or ''))
+    if outcome.get('action') == 'atlas':
+        outcome['text'] = str((command.get('args') or {}).get('text') or data.get('text') or '')
+    if finish:
+        finish(outcome)
+    return jsonify({"success": True, "command": command, "outcome": outcome, "spent_usd": round(vc.spent_usd(), 4),
+                    "cap_usd": vc.SPEND_CAP_USD})
+
+
+@server_agent_bp.route('/voice/speak', methods=['POST'])
+@handle_route_exceptions('server_agent:voice_speak')
+def voice_speak():
+    """Atlas's spoken answer (TASK-140): {text, lang, speed} → audio/mpeg (MiniMax, Trustworth Man)."""
+    from flask import Response
+    from agent import voice_command as vc
+    data = request.get_json(silent=True) or {}
+    team_id = request.args.get('team_id') or data.get('team_id')
+    if not team_id:
+        return jsonify({"success": False, "error": "team_id required"}), 400
+    audio, error = vc.speak(text=str(data.get('text') or ''), lang=str(data.get('lang') or 'en'),
+                            speed=float(data.get('speed') or 1.2), team_id=team_id)
+    if audio is None:
+        return jsonify({"success": False, "error": error}), 502
+    return Response(audio, mimetype='audio/mpeg', headers={'Cache-Control': 'no-store'})
+
+
+@server_agent_bp.route('/quick/tools', methods=['GET'])
+@handle_route_exceptions('server_agent:quick_tools')
+def quick_tools():
+    """The caller's Atlas quick tools (TASK-140 Q3): base tools + their most used ones, with the counters."""
+    from agent import quick_step
+    from shared.src.lib.database import atlas_quick_stats_db as stats_db
+    team_id = request.args.get('team_id')
+    if not team_id:
+        return jsonify({"success": False, "error": "team_id required"}), 400
+    user_id = getattr(request, 'user_id', None) or ''
+    tools = quick_step.quick_tools(team_id, user_id, list(quick_step.POOL))
+    stats = stats_db.load(team_id, user_id) if user_id else {}
+    return jsonify({"success": True, "tools": tools, "base": list(quick_step.BASE),
+                    "stats": {t: {k: int(v.get(k) or 0) for k in ('uses', 'hits', 'misses')} for t, v in stats.items()}})
+
+
+@server_agent_bp.route('/memory', methods=['GET'])
+@handle_route_exceptions('server_agent:memory_status')
+def memory_status():
+    """The caller's Atlas memory (TASK-172): available, switched on, how much is kept."""
+    from agent import memory
+    team_id = request.args.get('team_id')
+    if not team_id:
+        return jsonify({"success": False, "error": "team_id required"}), 400
+    return jsonify({"success": True, **memory.status(team_id, getattr(request, 'user_id', None))})
+
+
+@server_agent_bp.route('/memory', methods=['PUT'])
+@handle_route_exceptions('server_agent:memory_toggle')
+def memory_toggle():
+    """Switch the caller's own memory on or off, on demand. Body: {"enabled": bool}."""
+    from agent import memory
+    team_id = request.args.get('team_id')
+    data = request.get_json(silent=True) or {}
+    if not team_id or not isinstance(data.get('enabled'), bool):
+        return jsonify({"success": False, "error": "team_id and a boolean enabled are required"}), 400
+    user_id = getattr(request, 'user_id', None)
+    if memory.user_dir(team_id, user_id) is None or not memory.enabled():
+        return jsonify({"success": False, "error": "memory not available for this user", **memory.status(team_id, user_id)}), 409
+    if not memory.set_enabled(team_id, user_id, data['enabled']):
+        return jsonify({"success": False, "error": "could not save the switch"}), 500
+    return jsonify({"success": True, **memory.status(team_id, user_id)})
+
+
+@server_agent_bp.route('/memory', methods=['DELETE'])
+@handle_route_exceptions('server_agent:memory_forget')
+def memory_forget():
+    """Delete the caller's own memory files. Touches only that user's directory."""
+    from agent import memory
+    team_id = request.args.get('team_id')
+    if not team_id:
+        return jsonify({"success": False, "error": "team_id required"}), 400
+    user_id = getattr(request, 'user_id', None)
+    removed = memory.forget(team_id, user_id)
+    return jsonify({"success": True, "removed": removed, **memory.status(team_id, user_id)})
 
 
 @server_agent_bp.route('/sessions', methods=['GET'])
@@ -443,6 +674,7 @@ def _may_use_session(session_id: str) -> bool:
 
 
 
+from backend_server.src.agent.tools.page_interaction import COMPANION_ECHO as _COMPANION_ECHO
 _RECENT_CLIENT_MSGS: dict = {}
 _RECENT_CLIENT_MSG_TTL_S = 300
 
@@ -543,7 +775,8 @@ def register_agent_socketio_handlers(socketio):
             "current_page": "/path/to/page",
             "host_name": "...",
             "device_id": "...",
-            "userinterface_name": "..."
+            "userinterface_name": "...",
+            "quick_hint": {"tool": "...", "args": {...}}   # optional, from the voice audio path (TASK-140 Q5)
         }
         """
         session_id = data.get('session_id')
@@ -653,6 +886,22 @@ def register_agent_socketio_handlers(socketio):
             }, namespace='/agent')
             return
         
+        # TASK-175: Forge owns creating and changing scripts, testcases and virtual scripts. An Atlas
+        # message that asks for it is handed to Forge here, before Atlas spends a token; the event tells
+        # the chat to switch to Forge so the follow-ups go there too.
+        if agent_id == 'assistant':
+            from agent import agent_routing_rules
+            if agent_routing_rules.forge_handoff(message):
+                agent_id = agent_routing_rules.FORGE
+                socketio.emit('agent_event', {
+                    'type': 'agent_delegated',
+                    'agent': 'Atlas',
+                    'content': 'Script and testcase work is Forge\'s: handing this to Forge.',
+                    'metrics': {'handoff_to': agent_id, 'handoff_name': agent_routing_rules.AGENT_NAMES[agent_id]},
+                    'timestamp': datetime.now().isoformat(),
+                    'session_id': session_id,
+                }, room=session_id, namespace='/agent')
+
         # Store context in session for 2-step workflow
         if team_id:
             session.set_context('team_id', team_id)
@@ -680,10 +929,45 @@ def register_agent_socketio_handlers(socketio):
         session.set_context('user_role', principal.get('user_role'))
         session.set_context('available_devices', available_devices)
         session.set_context('available_userinterfaces', available_userinterfaces)
-        
+
+        # Voice (TASK-140 Q5): a speech model already picked a command from the audio. The quick step validates it
+        # and, when valid, runs it without a model call; the manager takes it from the context once per turn.
+        quick_hint = data.get('quick_hint')
+        if isinstance(quick_hint, dict) and isinstance(quick_hint.get('tool'), str) and isinstance(quick_hint.get('args') or {}, dict):
+            session.set_context('quick_hint', {'tool': quick_hint['tool'], 'args': quick_hint.get('args') or {}})
+        else:
+            session.context.pop('quick_hint', None)
+
+        # Atlas model picker: pin this session to one profile from the chain (UI: fallback
+        # dropdown). Empty / missing value clears any earlier pin and reverts to the chain.
+        # Validate before storing: a tampered id must not be able to swap in a disabled
+        # profile or one whose endpoint is not allowed for this team.
+        pinned_profile_id = (data.get('pinned_profile_id') or '').strip()
+        if pinned_profile_id:
+            from shared.src.lib.database import ai_routing_db
+            profile = ai_routing_db.get_row('ai_profiles', pinned_profile_id)
+            if not profile or not profile.get('enabled', True):
+                socketio.emit('error', {
+                    'message': f"Pinned model '{pinned_profile_id}' is not available",
+                }, namespace='/agent', to=request.sid)
+                return
+            endpoint = ai_routing_db.get_row('ai_endpoints', profile.get('endpoint_id'))
+            allowed = (endpoint or {}).get('allowed_team_ids') or []
+            if team_id and allowed and team_id not in allowed:
+                socketio.emit('error', {
+                    'message': f"Pinned model '{profile.get('name', pinned_profile_id)}' is not available to this team",
+                }, namespace='/agent', to=request.sid)
+                return
+        session.set_context('pinned_profile_id', pinned_profile_id)
+
+        # Atlas Companion (TASK-126): what the companion shows rides with the message, so a
+        # follow-up ("only failed") edits the same page. Plain text, one line, length-capped.
+        companion = ' '.join(str(data.get('companion') or '').split())[:400]
+        session.set_context('companion', companion[len('Companion: '):] if companion.startswith('Companion: ') else '')
+
         # Reset cancellation flag for new message (ensures clean start)
         session.reset_cancellation()
-        
+
         # Try to get manager - handle API key not configured
         try:
             manager = get_manager(team_id=team_id, agent_id=agent_id, session=session)
@@ -747,6 +1031,9 @@ def register_agent_socketio_handlers(socketio):
                 event_counter = 0
                 async for event in manager.process_message(message, session):
                     event_counter += 1
+                    if event.type in ('message', 'result') and isinstance(event.content, str):
+                        # the model sometimes echoes the companion context line: never show it
+                        event.content = _COMPANION_ECHO.sub('', event.content).rstrip()
                     event_dict = event.to_dict()
                     
                     # Count tool calls for metrics

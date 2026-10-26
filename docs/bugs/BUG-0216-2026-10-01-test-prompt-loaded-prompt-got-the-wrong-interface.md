@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — the Interface picker is locked while a prompt is open, so the user cannot correct it; Take Control loads the wrong tree and Target list |
 | Area      | `features/ai-test/frontend/hooks/useTestPromptPage.ts` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

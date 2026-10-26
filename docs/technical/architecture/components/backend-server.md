@@ -138,7 +138,7 @@ MCP_SECRET_KEY=your_mcp_secret
 
 # Grafana (separate service, not this container)
 GRAFANA_ADMIN_USER=admin
-GRAFANA_ADMIN_PASSWORD=admin123
+GRAFANA_ADMIN_PASSWORD=<admin-password>
 ```
 
 > Note: `backend_server/src/app.py` never calls Flask-CORS's `CORS(app, ...)`, despite

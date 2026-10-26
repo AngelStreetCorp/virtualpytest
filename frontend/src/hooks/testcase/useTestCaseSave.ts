@@ -30,6 +30,18 @@ export const useTestCaseSave = () => {
     tags?: string[]   // NEW: List of tag names
   ): Promise<{ success: boolean; action?: string; error?: string; testcase?: any }> => {
     try {
+      // TASK-65 G10: pass `X-Project-Id` so the server auto-tags the new
+      // test case with the current project's tag (mirrors G5's
+      // `current_project_from_id` path). The header is read from the same
+      // localStorage slot AgentChat and the executable list already use —
+      // a project not picked means no header, no auto-tag (legacy behaviour).
+      const headers: Record<string, string> = {};
+      if (typeof window !== 'undefined') {
+        const projectId = window.localStorage.getItem('virtualpytest:project_id');
+        if (projectId && projectId !== 'all') {
+          headers['X-Project-Id'] = projectId;
+        }
+      }
       const result = await api.post(buildServerUrl('/server/testcase/save'), {
         testcase_name: testcaseName,
         graph_json: graphJson,
@@ -40,14 +52,14 @@ export const useTestCaseSave = () => {
         overwrite,
         folder,
         tags,
-      });
-      
+      }, { headers });
+
       // Invalidate cache after successful save
       if (result.success) {
         invalidateTestCaseListCache();
         invalidateExecutableListCache();
       }
-      
+
       return result;
     } catch (error) {
       console.error('[useTestCaseSave] Error saving test case:', getErrorMessage(error));

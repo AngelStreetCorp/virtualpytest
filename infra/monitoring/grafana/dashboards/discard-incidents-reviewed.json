@@ -21,6 +21,19 @@
   "links": [],
   "panels": [
     {
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "collapsed": false,
+      "panels": []
+    },
+    {
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "supabase-postgres"
@@ -47,7 +60,7 @@
         "h": 4,
         "w": 8,
         "x": 0,
-        "y": 0
+        "y": 1
       },
       "id": 1,
       "options": {
@@ -114,7 +127,7 @@
         "h": 4,
         "w": 8,
         "x": 8,
-        "y": 0
+        "y": 1
       },
       "id": 2,
       "options": {
@@ -177,7 +190,7 @@
         "h": 4,
         "w": 8,
         "x": 16,
-        "y": 0
+        "y": 1
       },
       "id": 3,
       "options": {
@@ -247,7 +260,7 @@
         "h": 8,
         "w": 24,
         "x": 0,
-        "y": 4
+        "y": 5
       },
       "id": 4,
       "options": {
@@ -291,51 +304,65 @@
       "type": "timeseries"
     },
     {
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          }
-        },
-        "overrides": []
-      },
+      "type": "row",
+      "title": "Details",
       "gridPos": {
-        "h": 10,
+        "h": 1,
         "w": 24,
         "x": 0,
-        "y": 12
+        "y": 13
       },
-      "id": 5,
-      "options": {
-        "cellHeight": "sm",
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "updated_at"
-          }
-        ]
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
+      "id": 101,
+      "collapsed": true,
+      "panels": [
         {
           "datasource": {
             "type": "grafana-postgresql-datasource",
             "uid": "supabase-postgres"
           },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT updated_at, id, host_name, device_id, incident_type, status, discard, check_type, COALESCE(discard_comment, '') AS discard_comment FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE checked = true AND $__timeFilter(updated_at) ORDER BY updated_at DESC LIMIT 50",
-          "refId": "A"
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 14
+          },
+          "id": 5,
+          "options": {
+            "cellHeight": "sm",
+            "showHeader": true,
+            "sortBy": [
+              {
+                "desc": true,
+                "displayName": "updated_at"
+              }
+            ]
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT updated_at, id, host_name, device_id, incident_type, status, discard, check_type, COALESCE(discard_comment, '') AS discard_comment FROM (SELECT * FROM alerts /*device-scope*/ WHERE ('*' = ANY(string_to_array(${allowed_devices:sqlstring}, '|')) OR host_name || ':' || device_id = ANY(string_to_array(${allowed_devices:sqlstring}, '|')))) alerts WHERE checked = true AND $__timeFilter(updated_at) ORDER BY updated_at DESC LIMIT 50",
+              "refId": "A"
+            }
+          ],
+          "title": "Latest Reviewed Incidents",
+          "type": "table"
         }
-      ],
-      "title": "Latest Reviewed Incidents",
-      "type": "table"
+      ]
     }
   ],
   "refresh": "30s",

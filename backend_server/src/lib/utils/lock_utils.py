@@ -10,7 +10,8 @@ Server-authoritative in-memory lock manager with device-scoped keys:
 import threading
 import uuid
 import time
-from typing import Any, Dict, Optional, Tuple
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Tuple
 
 from flask import request
 
@@ -175,11 +176,14 @@ class DeviceLockManager:
                         "conflict": self._serialize_lock(existing),
                     }
 
-                # Same user_id takeover for script execution
+                # Same user_id takeover for script execution. The built-in default id is shared by every
+                # API-key, auto-sign and anonymous caller: it is not the same person, so a CI smoke must not run
+                # under someone else's Take Control on it (TASK-135; same rule as live_foreign_execution).
                 same_user = (
                     bool(owner_user_id)
                     and bool(existing.get("owner_user_id"))
                     and owner_user_id == existing.get("owner_user_id")
+                    and str(owner_user_id) not in _shared_user_ids()
                 )
 
                 # The caller's own Take Control, matched by user or, for callers that
@@ -824,11 +828,128 @@ def abort_running_execution(
     return {"success": True, "aborted": any_aborted, "details": details}
 
 
+EXECUTION_LOCK_OWNER_TYPES = ("script_execution", "deployment_execution", "testcase_execution")
+
+# A fresh execution lock whose run the host does not list yet is a run that is starting
+# (lock grabbed, process/registry entry not there yet), not a zombie.
+FRESH_EXECUTION_LOCK_GRACE_SECONDS = 60
+
+
+def _shared_user_ids() -> set:
+    """User ids many callers share (built-in defaults): never proof of the same caller."""
+    ids = {"default-user", "default-user-id"}
+    try:
+        from shared.src.lib.utils.app_utils import DEFAULT_USER_ID
+        ids.add(str(DEFAULT_USER_ID))
+    except Exception:
+        pass
+    try:
+        from shared.src.lib.config.constants import APP_CONFIG
+        ids.add(str(APP_CONFIG.get("DEFAULT_USER_ID")))
+    except Exception:
+        pass
+    return ids
+
+
+def _lock_age_text(lock: Optional[Dict[str, Any]]) -> str:
+    try:
+        locked_at = float((lock or {}).get("locked_at") or 0)
+    except (TypeError, ValueError):
+        locked_at = 0
+    if not locked_at:
+        return "an unknown time"
+    return datetime.fromtimestamp(locked_at, tz=timezone.utc).strftime("%H:%M:%S UTC")
+
+
+def live_foreign_execution(
+    host_name: str,
+    device_id: str,
+    caller_sessions: Optional[List[str]] = None,
+    caller_user_id: Optional[str] = None,
+    host_data: Optional[Dict[str, Any]] = None,
+) -> Optional[Dict[str, Any]]:
+    """Refusal payload when force_unlock would kill ANOTHER caller's live run, else None.
+
+    force_unlock may clear a stale lock (the host reports nothing running) or the
+    caller's own lock (same session / user). It must not abort a live script, deployment
+    or testcase that belongs to someone else (BUG-0679). Host unreachable counts as live:
+    the abort could not be delivered anyway and the stale-lock probe cleans up later.
+    """
+    lock = get_device_lock_info(host_name, device_id)
+    if lock:
+        if lock.get("owner_type") not in EXECUTION_LOCK_OWNER_TYPES:
+            return None  # manual_control etc: not a running execution; other paths decide
+        owner_session = lock.get("owner_session_id")
+        owner_user = lock.get("owner_user_id")
+        # The default/built-in user id is shared by every API-key and fallback caller:
+        # matching on it would make everyone "the same owner", so only a personal id counts.
+        same_user = bool(
+            caller_user_id and owner_user == caller_user_id
+            and str(caller_user_id) not in _shared_user_ids()
+        )
+        if (owner_session and owner_session in (caller_sessions or [])) or same_user:
+            return None
+
+    if host_data is None:
+        from backend_server.src.lib.utils.server_utils import get_host_manager
+        host_data = get_host_manager().get_host(host_name)
+
+    active_jobs: List[Dict[str, Any]] = []
+    if host_data:
+        from shared.src.lib.utils.build_url_utils import call_host
+        try:
+            resp, status = call_host(
+                host_data, f"/host/system/device/{device_id}/is_busy", method="GET", timeout=10
+            )
+            if status == 200 and isinstance(resp, dict):
+                if not resp.get("busy"):
+                    try:
+                        age = time.time() - float((lock or {}).get("locked_at") or 0)
+                    except (TypeError, ValueError):
+                        age = float("inf")
+                    if lock and age < FRESH_EXECUTION_LOCK_GRACE_SECONDS:
+                        active_jobs = [{"type": "starting", "started_at": _lock_age_text(lock)}]
+                    else:
+                        return None  # stale lock / nothing running
+                else:
+                    active_jobs = resp.get("active_jobs") or []
+        except Exception as err:
+            print(f"⚠️ [LOCK] is_busy probe failed for {host_name}:{device_id}: {err}")
+    if not lock and not active_jobs:
+        return None  # no lock and no evidence of a live run: nothing to protect
+
+    reason = (lock or {}).get("lock_reason") or (lock or {}).get("owner_type") or (
+        (active_jobs[0].get("type") if active_jobs else None) or "execution"
+    )
+    owner = (
+        (lock or {}).get("owner_user_name")
+        or (lock or {}).get("owner_user_id")
+        or (lock or {}).get("owner_session_id")
+        or "another caller"
+    )
+    since = _lock_age_text(lock) if lock else (active_jobs[0].get("started_at") or "an unknown time")
+    return {
+        "success": False,
+        "aborted": False,
+        "released": False,
+        "error": (
+            f"device busy: {reason} by {owner} since {since}; "
+            "force_unlock does not abort another caller's live run"
+        ),
+        "errorType": "device_busy",
+        "lock_info": lock,
+        "details": {"active_jobs": active_jobs},
+    }
+
+
 def abort_and_force_unlock(
     host_name: str,
     device_id: str,
     *,
     strict: bool,
+    protect_others: bool = False,
+    caller_sessions: Optional[List[str]] = None,
+    caller_user_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     """Kill whatever is running on a device, then clear its lock.
 
@@ -836,6 +957,10 @@ def abort_and_force_unlock(
     and by the force_unlock path of script/campaign execute. Clearing the server lock
     without killing the host process is split-brain: the lock says free, the script
     keeps driving the device.
+
+    ``protect_others=True`` (API/MCP callers): refuse with ``device_busy`` instead of
+    aborting a live run owned by someone other than the caller. Human UI paths
+    (``/forceUnlock``, Force Takeover) leave it False.
 
     ``strict=True`` (a NEW execution is about to start): refuse on abort failure —
     starting a second run on a device that may still be busy is worse than failing.
@@ -847,6 +972,12 @@ def abort_and_force_unlock(
     On ``success=False`` the caller should surface ``error``/``errorType`` (409).
     """
     from backend_server.src.lib.utils.server_utils import get_host_manager
+
+    if protect_others:
+        # Programmatic callers (API/MCP): never kill another caller's live run.
+        refusal = live_foreign_execution(host_name, device_id, caller_sessions, caller_user_id)
+        if refusal:
+            return refusal
 
     existing_lock = get_device_lock_info(host_name, device_id)
     owner_type = existing_lock.get("owner_type") if existing_lock else None

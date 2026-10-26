@@ -4,6 +4,7 @@ import { PanelInfo } from '../../../types/controller/Panel_Types';
 import { WebElement } from '../../../types/controller/Web_Types';
 import { getZIndex } from '../../../utils/zIndexUtils';
 import '../../../styles/webOverlayAnimations.css';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface ScaledElement {
   selector: string;
@@ -309,7 +310,7 @@ export const PlaywrightWebOverlay = React.memo(
                     position: 'absolute',
                     bottom: '2px',
                     right: '2px',
-                    fontSize: '10px',
+                    fontSize: TYPOGRAPHY.microMeta.size,
                     color: scaledElement.color,
                     fontWeight: 'bold',
                     lineHeight: '1',
@@ -354,7 +355,7 @@ export const PlaywrightWebOverlay = React.memo(
               color: 'white',
               padding: '4px 8px',
               borderRadius: '4px',
-              fontSize: '12px',
+              fontSize: TYPOGRAPHY.caption.size,
               fontFamily: 'monospace',
               fontWeight: 'bold',
               zIndex: getZIndex('DEBUG_OVERLAY', 5),

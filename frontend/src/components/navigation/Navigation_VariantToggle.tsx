@@ -27,6 +27,7 @@
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import { Box, Button, Menu, MenuItem, Tooltip } from '@mui/material';
 import React, { useCallback, useMemo, useState } from 'react';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export type VariantScope = 'base' | string;
 
@@ -107,7 +108,7 @@ export const Navigation_VariantToggle: React.FC<Navigation_VariantToggleProps> =
         sx={{
           minWidth: 'auto',
           whiteSpace: 'nowrap',
-          fontSize: '0.7rem',
+          fontSize: TYPOGRAPHY.caption.size,
           textTransform: 'none',
           py: 0.25,
           px: 1,

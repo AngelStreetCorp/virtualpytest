@@ -42,9 +42,23 @@ sys.path.insert(0, current_dir)
 project_root = os.path.dirname(os.path.dirname(current_dir))
 sys.path.insert(0, project_root)
 
-from shared.src.lib.utils.storage_path_utils import get_capture_base_directories, is_ram_mode, ARCHIVE_STAGE_ROOT
+if __name__ == '__main__':
+    # TASK-95: idle (a few MB) while no device on this host has a profile that keeps the archiver (tv_lite does not).
+    from shared.src.lib.utils.monitor_service import wait_until_needed
+    wait_until_needed('archiver', 'vpt-archiver')
+
+from shared.src.lib.utils.storage_path_utils import get_capture_base_directories as _all_capture_dirs, is_ram_mode, ARCHIVE_STAGE_ROOT
 from shared.src.lib.utils.storage_path_utils import get_active_captures_conf_path, parse_active_captures_conf
 from shared.src.lib.utils.video_utils import merge_progressive_batch
+from shared.src.lib.utils.monitor_profile import folders_needing_service
+
+
+def get_capture_base_directories() -> List[str]:
+    """The device folders this archiver works on: all of them except those whose monitor profile switches the archiver
+    off (tv_lite keeps no 24 h review buffer; run_ffmpeg.sh prunes such a device's own folders)."""
+    dirs = _all_capture_dirs()
+    wanted = set(folders_needing_service('archiver', [os.path.basename(d.rstrip('/')) for d in dirs]))
+    return [d for d in dirs if os.path.basename(d.rstrip('/')) in wanted]
 
 # Configure logging (systemd handles file output)
 logging.basicConfig(
@@ -178,7 +192,7 @@ HOT_LIMITS = {
 # ---------------------------------------------------------------------------- #
 # OFF by default to preserve current behavior (captures are HOT-only → deleted).
 # Enable per-host via the archiver service flag `--keep-captures true` (mirrors
-# transcript.service) or the env var ARCHIVE_CAPTURES=true. Stills are sampled to
+# monitor-audio.service) or the env var ARCHIVE_CAPTURES=true. Stills are sampled to
 # ARCHIVE_CAPTURES_FPS (default 2 — measured ~7.5 GB/device/24h on a real host) and
 # COPIED into captures/{hour}/ with time-based names — same hour-folder + 24h
 # rolling-overwrite principle as segments/metadata. Cold cleanup is already done
@@ -2546,7 +2560,7 @@ def cold_storage_loop():
 
 
 def _parse_capture_args(argv):
-    """Mirror transcript.service's `--transcript true`: `--keep-captures true`
+    """Mirror monitor-audio.service's `--transcript true`: `--keep-captures true`
     enables 24h full-res still archiving; `--keep-captures-fps N` sets the sample
     rate. CLI overrides the ARCHIVE_CAPTURES / ARCHIVE_CAPTURES_FPS env fallbacks."""
     global ARCHIVE_CAPTURES, ARCHIVE_CAPTURES_FPS

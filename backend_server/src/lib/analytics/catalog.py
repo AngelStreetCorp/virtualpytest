@@ -424,6 +424,88 @@ ANALYTICS_SOURCES: Dict[str, Source] = {
          "device_model": _f("", "string"), "device_status": _f("", "string")},
         {}, None, None, None,
         None, dashboard_refs=("Dashboard.tsx", "system-service-status.json"), live=True, family="system"),
+
+    # ---------------------------------------------------------------------------
+    # TASK-115: matcher history (match_runs) + the auto-classify counter
+    # (screen_fingerprints).  Three sources, all read-only, all the
+    # operator-facing views of the live matcher's behaviour.
+    # ---------------------------------------------------------------------------
+    "match_runs": Source(
+        "match_runs", "Matcher history (verify, localize, monitor)",
+        "One row per matcher run across all sources.  Carries the top-3 candidates, "
+        "the runner-up margin, the previous event on the same device and the dhash of "
+        "the captured frame.  Use the 'uncertain' metric (runner_up_margin < 0.05) to "
+        "spot borderline matches; the 'matched' metric for the confident wins.",
+        "match_runs mr",
+        "mr.started_at",
+        {"time": _f("mr.started_at", "time"),
+         "userinterface_name": _f("mr.userinterface_name"),
+         "host_name": _f("mr.host_name"),
+         "device_id": _f("mr.device_id"),
+         "device_name": _f("mr.device_name"),
+         "device_model": _f("mr.device_model"),
+         "source": _f("mr.source"),
+         "variant": _f("mr.variant"),
+         "verdict": _f("mr.verdict"),
+         "matched_node_id": _f("mr.matched_node_id"),
+         "matched_node_label": _f("(mr.candidates_top_3->0->>'label')"),
+         "runner_up_node_label": _f("(mr.candidates_top_3->1->>'label')"),
+         "floor_hit": _f("mr.candidate_floor_hit", "boolean")},
+        {"run_count": Metric("COUNT(*)"),
+         "matched_count": Metric("COUNT(*) FILTER (WHERE mr.verdict = 'known_node')"),
+         "unknown_count": Metric("COUNT(*) FILTER (WHERE mr.verdict = 'unknown')"),
+         "low_confidence_count": Metric("COUNT(*) FILTER (WHERE mr.verdict = 'low_confidence')"),
+         "no_signal_count": Metric("COUNT(*) FILTER (WHERE mr.verdict = 'no_signal')"),
+         "uncertain_count": Metric("COUNT(*) FILTER (WHERE mr.runner_up_margin < 0.05 AND mr.verdict = 'known_node')"),
+         "avg_confidence": Metric("ROUND(AVG(mr.matched_confidence)::numeric, 3)"),
+         "avg_runner_up_margin": Metric("ROUND(AVG(mr.runner_up_margin)::numeric, 3)"),
+         "avg_elapsed_ms": Metric("ROUND(AVG(mr.elapsed_ms))", "ms"),
+         "last_run_at": Metric("MAX(mr.started_at)", kind="time")},
+        "mr.team_id", "mr.host_name", "mr.device_name", "id",
+        ("userinterface_name", "source"),
+        ("run_count", "matched_count", "uncertain_count"),
+        ("fingerprints.json",), family="matcher"),
+    "node_transitions": Source(
+        "node_transitions", "Node transition matrix (P to_node | from_node)",
+        "Aggregated by v_node_transitions: the number of times a matcher run on "
+        "from_node_id was followed by a match on to_node_id, on the same device and "
+        "userinterface.  Drives prediction ('where is this device going next?') and "
+        "highlights never-observed transitions for the operator to fingerprint.",
+        "v_node_transitions vt",
+        "vt.last_seen_at",
+        {"time": _f("vt.last_seen_at", "time"),
+         "userinterface_name": _f("vt.userinterface_name"),
+         "from_node_id": _f("vt.from_node_id"),
+         "to_node_id": _f("vt.to_node_id")},
+        {"occurrences": Metric("SUM(vt.occurrences)"),
+         "uncertain_occurrences": Metric("SUM(vt.uncertain_occurrences)"),
+         "last_seen_at": Metric("MAX(vt.last_seen_at)", kind="time")},
+        "vt.team_id", "vt.device_id", None, None,
+        ("from_node_id", "to_node_id"),
+        ("occurrences",),
+        ("fingerprints.json",), family="matcher"),
+    "screen_fingerprints_counter": Source(
+        "screen_fingerprints_counter", "Unknown screen counter (the 'big counter' rule)",
+        "The screen_fingerprints rows fed by the live matcher, with the auto-classify "
+        "scheduler's view.  verdict='unknown' is the backlog; seen_count is the "
+        "'big counter' (rows above the auto-classify threshold get a name proposed); "
+        "classification_attempts bounds how many times the AI tried before giving up.",
+        "screen_fingerprints sf",
+        "sf.last_seen",
+        {"time": _f("sf.last_seen", "time"),
+         "scope": _f("sf.scope"),
+         "verdict": _f("sf.verdict"),
+         "dhash": _f("sf.dhash")},
+        {"row_count": Metric("COUNT(*)"),
+         "above_threshold": Metric("COUNT(*) FILTER (WHERE sf.seen_count >= 5)"),
+         "exhausted_attempts": Metric("COUNT(*) FILTER (WHERE sf.classification_attempts >= 3)"),
+         "total_seen": Metric("SUM(sf.seen_count)"),
+         "last_seen_at": Metric("MAX(sf.last_seen)", kind="time")},
+        "sf.team_id", "split_part(sf.scope, '/', 1)", None, None,
+        ("verdict",),
+        ("row_count", "above_threshold"),
+        ("fingerprints.json",), family="matcher",
+        base_predicates=("sf.merged_into IS NULL",)),
 }
 
 

@@ -1,4 +1,4 @@
-import { Box, Typography, Paper, Link } from '@mui/material';
+import { Box, Typography, Paper, Link, Container } from '@mui/material';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import PhoneAndroidIcon from '@mui/icons-material/PhoneAndroid';
 import React from 'react';
@@ -7,6 +7,8 @@ import { Link as RouterLink } from 'react-router-dom';
 import { isFeatureEnabled } from '../../config/features';
 import { useBranding } from '../../contexts/BrandingContext';
 import { useIsNativeApp } from '../../hooks/useIsNativeApp';
+import { useResponsiveMode } from '../../hooks/useResponsiveMode';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 const GITHUB_REPO_URL = 'https://github.com/AngelStreetCorp/virtualpytest';
 const PROJECT_HOMEPAGE_URL = 'https://virtualpytest.com/';
@@ -17,6 +19,8 @@ const MOBILE_APP_PAGE = '/configuration/mobile-app';
 const Footer: React.FC = () => {
   const { branding } = useBranding();
   const isNative = useIsNativeApp();
+  // Same centred column as the page container in App.tsx, so footer text lines up with page content.
+  const { isTablet } = useResponsiveMode();
   const year = new Date().getFullYear();
   const embeddedVersion = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : 'unknown';
   const [appVersion, setAppVersion] = React.useState(embeddedVersion);
@@ -72,12 +76,12 @@ const Footer: React.FC = () => {
       sx={{
         mt: 'auto',
         py: 0,
-        px: 4,
         backgroundColor: 'background.paper',
         borderTop: 1,
         borderColor: 'divider',
       }}
     >
+      <Container maxWidth={isTablet ? 'xl' : 'lg'}>
       <Box display="flex" justifyContent="space-between" alignItems="center" minHeight={16}>
         <Box display="flex" alignItems="center" gap={1}>
           {/* TASK-23 footer-logo follow-up: tenant-specific logo wins over
@@ -123,7 +127,7 @@ const Footer: React.FC = () => {
               sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
             >
               Get the mobile app
-              <PhoneAndroidIcon sx={{ fontSize: 14 }} />
+              <PhoneAndroidIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
             </Link>
           )}
           {branding.showGithubLink && (
@@ -137,7 +141,7 @@ const Footer: React.FC = () => {
             sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}
           >
             View on GitHub
-            <GitHubIcon sx={{ fontSize: 14 }} />
+            <GitHubIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
           </Link>
           )}
           {appVersion && (
@@ -147,6 +151,7 @@ const Footer: React.FC = () => {
           )}
         </Box>
       </Box>
+      </Container>
     </Paper>
   );
 };

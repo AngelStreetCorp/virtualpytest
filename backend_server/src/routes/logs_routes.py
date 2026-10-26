@@ -22,11 +22,11 @@ ALLOWED_SERVICES = [
     'vpt-discard-scripts',
     'vpt-discard-incidents',
     'vpt-stream',
-    'vpt-monitor',
+    'vpt-monitor-img',
     'vpt-archiver',
     'vpt-kpi',
-    'vpt-transcript',
-    'vpt-subtitle',
+    'vpt-monitor-audio',
+    'vpt-monitor-subtitle',
     'vpt-vnc',
     'vpt-websockify',
     'vpt-emulator',
@@ -59,7 +59,10 @@ def view_logs():
     """
     data = request.get_json() or {}
 
+    from shared.src.lib.utils.service_names import canonical_unit_name
     service = data.get('service')
+    if service:
+        service = canonical_unit_name(service)
     try:
         lines = max(1, min(500, int(data.get('lines', 50))))
     except (TypeError, ValueError):

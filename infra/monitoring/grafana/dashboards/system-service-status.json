@@ -975,328 +975,330 @@
     },
     {
       "type": "row",
-      "title": "📈 History",
+      "title": "Details",
       "id": 14,
-      "collapsed": false,
+      "collapsed": true,
       "gridPos": {
         "h": 1,
         "w": 24,
         "x": 0,
         "y": 37
       },
-      "panels": []
-    },
-    {
-      "type": "state-timeline",
-      "title": "Status over time",
-      "id": 15,
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "supabase-postgres"
-      },
-      "description": "Built from the change log: each status lasts until the next change. Reports that stopped for 3+ minutes are recorded as DOWN (no report).",
-      "gridPos": {
-        "h": 16,
-        "w": 24,
-        "x": 0,
-        "y": 38
-      },
-      "fieldConfig": {
-        "defaults": {
-          "mappings": [
-            {
-              "type": "value",
-              "options": {
-                "0": {
-                  "color": "green",
-                  "index": 0,
-                  "text": "OK"
-                },
-                "1": {
-                  "color": "blue",
-                  "index": 1,
-                  "text": "STOPPED"
-                },
-                "2": {
-                  "color": "text",
-                  "index": 2,
-                  "text": "UNKNOWN"
-                },
-                "3": {
-                  "color": "orange",
-                  "index": 3,
-                  "text": "DEGRADED"
-                },
-                "4": {
-                  "color": "red",
-                  "index": 4,
-                  "text": "DOWN"
-                }
-              }
-            }
-          ],
-          "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              }
-            ]
-          },
-          "custom": {
-            "fillOpacity": 80,
-            "lineWidth": 0,
-            "spanNulls": true
-          }
-        },
-        "overrides": []
-      },
-      "options": {
-        "mergeValues": true,
-        "showValue": "never",
-        "alignValue": "left",
-        "rowHeight": 0.8,
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom",
-          "showLegend": false
-        },
-        "tooltip": {
-          "mode": "single",
-          "sort": "none"
-        }
-      },
-      "targets": [
+      "panels": [
         {
+          "type": "state-timeline",
+          "title": "Status over time",
+          "id": 15,
           "datasource": {
             "type": "grafana-postgresql-datasource",
             "uid": "supabase-postgres"
           },
-          "format": "time_series",
-          "rawQuery": true,
-          "editorMode": "code",
-          "rawSql": "WITH keys AS (\n  SELECT server_name, vm, component FROM service_status_current WHERE server_name = ANY(string_to_array('${collector:csv}', ','))\n), points AS (\n  -- the status each component was in when the range starts\n  SELECT $__timeFrom()::timestamptz AS time, CASE WHEN k.vm = 'server' THEN 'server · ' || k.server_name ELSE k.vm END || ' / ' || k.component AS metric, b.code AS value\n  FROM keys k CROSS JOIN LATERAL (\n    SELECT CASE status WHEN 'ok' THEN 0 WHEN 'stopped' THEN 1 WHEN 'unknown' THEN 2 WHEN 'degraded' THEN 3 ELSE 4 END AS code FROM service_status s\n    WHERE s.server_name = k.server_name AND s.vm = k.vm AND s.component = k.component\n      AND s.checked_at <= $__timeFrom()\n    ORDER BY s.checked_at DESC LIMIT 1) b\n  UNION ALL\n  -- every change inside the range\n  SELECT checked_at, CASE WHEN vm = 'server' THEN 'server · ' || server_name ELSE vm END || ' / ' || component, CASE status WHEN 'ok' THEN 0 WHEN 'stopped' THEN 1 WHEN 'unknown' THEN 2 WHEN 'degraded' THEN 3 ELSE 4 END\n  FROM service_status WHERE $__timeFilter(checked_at) AND server_name = ANY(string_to_array('${collector:csv}', ','))\n  UNION ALL\n  -- where it is now (stale = down)\n  SELECT LEAST(now(), $__timeTo()::timestamptz), CASE WHEN vm = 'server' THEN 'server · ' || server_name ELSE vm END || ' / ' || component,\n         CASE WHEN checked_at < now() - interval '3 minutes' THEN 4 ELSE CASE status WHEN 'ok' THEN 0 WHEN 'stopped' THEN 1 WHEN 'unknown' THEN 2 WHEN 'degraded' THEN 3 ELSE 4 END END\n  FROM service_status_current WHERE server_name = ANY(string_to_array('${collector:csv}', ','))\n)\nSELECT time, metric, max(value) AS value FROM points GROUP BY 1, 2 ORDER BY 1",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "type": "table",
-      "title": "Availability over the selected range",
-      "id": 16,
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "supabase-postgres"
-      },
-      "description": "Time OK ÷ time observed in the range, from the change log. Time without reports counts as down; STOPPED (switched off) and UNKNOWN time are left out.",
-      "gridPos": {
-        "h": 12,
-        "w": 24,
-        "x": 0,
-        "y": 54
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "filterable": true
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Availability %"
-            },
-            "properties": [
-              {
-                "id": "unit",
-                "value": "percent"
-              },
-              {
-                "id": "decimals",
-                "value": 2
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background",
-                  "mode": "basic"
-                }
-              },
-              {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "red",
-                      "value": null
-                    },
-                    {
-                      "color": "orange",
-                      "value": 99
-                    },
-                    {
+          "description": "Built from the change log: each status lasts until the next change. Reports that stopped for 3+ minutes are recorded as DOWN (no report).",
+          "gridPos": {
+            "h": 16,
+            "w": 24,
+            "x": 0,
+            "y": 38
+          },
+          "fieldConfig": {
+            "defaults": {
+              "mappings": [
+                {
+                  "type": "value",
+                  "options": {
+                    "0": {
                       "color": "green",
-                      "value": 99.9
+                      "index": 0,
+                      "text": "OK"
+                    },
+                    "1": {
+                      "color": "blue",
+                      "index": 1,
+                      "text": "STOPPED"
+                    },
+                    "2": {
+                      "color": "text",
+                      "index": 2,
+                      "text": "UNKNOWN"
+                    },
+                    "3": {
+                      "color": "orange",
+                      "index": 3,
+                      "text": "DEGRADED"
+                    },
+                    "4": {
+                      "color": "red",
+                      "index": 4,
+                      "text": "DOWN"
                     }
-                  ]
+                  }
                 }
-              }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "sortBy": [
-          {
-            "displayName": "Availability %",
-            "desc": false
-          }
-        ],
-        "footer": {
-          "show": false,
-          "reducer": [
-            "sum"
-          ],
-          "fields": ""
-        }
-      },
-      "targets": [
-        {
-          "datasource": {
-            "type": "grafana-postgresql-datasource",
-            "uid": "supabase-postgres"
-          },
-          "format": "table",
-          "rawQuery": true,
-          "editorMode": "code",
-          "rawSql": "WITH events AS (\n  SELECT server_name, vm, component, checked_at AS t, status, detail\n  FROM service_status WHERE server_name = ANY(string_to_array('${collector:csv}', ',')) AND checked_at < $__timeTo()\n  UNION ALL\n  -- a component that stopped reporting is down from one minute after its last report\n  SELECT server_name, vm, component, checked_at + interval '1 minute', 'down', 'no report'\n  FROM service_status_current WHERE server_name = ANY(string_to_array('${collector:csv}', ',')) AND checked_at < now() - interval '3 minutes'\n), spans AS (\n  SELECT server_name, vm, component, status,\n         GREATEST(t, $__timeFrom()::timestamptz) AS a,\n         LEAST(COALESCE(lead(t) OVER (PARTITION BY server_name, vm, component ORDER BY t), now()),\n               $__timeTo()::timestamptz, now()) AS b\n  FROM events\n), secs AS (\n  SELECT CASE WHEN vm = 'server' THEN 'server · ' || server_name ELSE vm END AS vm, component, status, extract(epoch FROM b - a) AS s FROM spans WHERE b > a AND status NOT IN ('unknown', 'stopped')\n)\nSELECT vm AS \"VM\", component AS \"Component\",\n       round((100.0 * coalesce(sum(s) FILTER (WHERE status = 'ok'), 0) / NULLIF(sum(s), 0))::numeric, 2) AS \"Availability %\",\n       round((coalesce(sum(s) FILTER (WHERE status <> 'ok'), 0) / 60)::numeric) AS \"Minutes not OK\",\n       count(*) FILTER (WHERE status <> 'ok') AS \"Times not OK\"\nFROM secs GROUP BY vm, component\nORDER BY 3, CASE WHEN vm LIKE 'server%' THEN 0 WHEN vm = 'database' THEN 1 WHEN vm = 'storage' THEN 2 WHEN vm = 'frontend' THEN 3 WHEN vm = 'proxy' THEN 4 WHEN vm = 'monitoring' THEN 5 ELSE 9 END, vm, component",
-          "refId": "A"
-        }
-      ]
-    },
-    {
-      "type": "table",
-      "title": "Status changes",
-      "id": 17,
-      "datasource": {
-        "type": "grafana-postgresql-datasource",
-        "uid": "supabase-postgres"
-      },
-      "description": "Every status change in the selected range, newest first.",
-      "gridPos": {
-        "h": 12,
-        "w": 24,
-        "x": 0,
-        "y": 66
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "filterable": true
-          }
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Status"
-            },
-            "properties": [
-              {
-                "id": "mappings",
-                "value": [
+              ],
+              "color": {
+                "mode": "thresholds"
+              },
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
                   {
-                    "type": "value",
-                    "options": {
-                      "OK": {
-                        "color": "green",
-                        "index": 0,
-                        "text": "OK"
-                      },
-                      "DEGRADED": {
-                        "color": "orange",
-                        "index": 1,
-                        "text": "DEGRADED"
-                      },
-                      "UNKNOWN": {
-                        "color": "text",
-                        "index": 2,
-                        "text": "UNKNOWN"
-                      },
-                      "DOWN": {
-                        "color": "red",
-                        "index": 3,
-                        "text": "DOWN"
-                      },
-                      "STALE": {
-                        "color": "red",
-                        "index": 4,
-                        "text": "STALE (no report)"
-                      },
-                      "STOPPED": {
-                        "color": "blue",
-                        "index": 5,
-                        "text": "STOPPED"
-                      }
-                    }
+                    "color": "green",
+                    "value": null
                   }
                 ]
               },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background",
-                  "mode": "basic"
-                }
-              },
-              {
-                "id": "custom.width",
-                "value": 140
+              "custom": {
+                "fillOpacity": 80,
+                "lineWidth": 0,
+                "spanNulls": true
               }
-            ]
-          }
-        ]
-      },
-      "options": {
-        "showHeader": true,
-        "cellHeight": "sm",
-        "footer": {
-          "show": false,
-          "reducer": [
-            "sum"
-          ],
-          "fields": ""
-        }
-      },
-      "targets": [
+            },
+            "overrides": []
+          },
+          "options": {
+            "mergeValues": true,
+            "showValue": "never",
+            "alignValue": "left",
+            "rowHeight": 0.8,
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": false
+            },
+            "tooltip": {
+              "mode": "single",
+              "sort": "none"
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "format": "time_series",
+              "rawQuery": true,
+              "editorMode": "code",
+              "rawSql": "WITH keys AS (\n  SELECT server_name, vm, component FROM service_status_current WHERE server_name = ANY(string_to_array('${collector:csv}', ','))\n), points AS (\n  -- the status each component was in when the range starts\n  SELECT $__timeFrom()::timestamptz AS time, CASE WHEN k.vm = 'server' THEN 'server · ' || k.server_name ELSE k.vm END || ' / ' || k.component AS metric, b.code AS value\n  FROM keys k CROSS JOIN LATERAL (\n    SELECT CASE status WHEN 'ok' THEN 0 WHEN 'stopped' THEN 1 WHEN 'unknown' THEN 2 WHEN 'degraded' THEN 3 ELSE 4 END AS code FROM service_status s\n    WHERE s.server_name = k.server_name AND s.vm = k.vm AND s.component = k.component\n      AND s.checked_at <= $__timeFrom()\n    ORDER BY s.checked_at DESC LIMIT 1) b\n  UNION ALL\n  -- every change inside the range\n  SELECT checked_at, CASE WHEN vm = 'server' THEN 'server · ' || server_name ELSE vm END || ' / ' || component, CASE status WHEN 'ok' THEN 0 WHEN 'stopped' THEN 1 WHEN 'unknown' THEN 2 WHEN 'degraded' THEN 3 ELSE 4 END\n  FROM service_status WHERE $__timeFilter(checked_at) AND server_name = ANY(string_to_array('${collector:csv}', ','))\n  UNION ALL\n  -- where it is now (stale = down)\n  SELECT LEAST(now(), $__timeTo()::timestamptz), CASE WHEN vm = 'server' THEN 'server · ' || server_name ELSE vm END || ' / ' || component,\n         CASE WHEN checked_at < now() - interval '3 minutes' THEN 4 ELSE CASE status WHEN 'ok' THEN 0 WHEN 'stopped' THEN 1 WHEN 'unknown' THEN 2 WHEN 'degraded' THEN 3 ELSE 4 END END\n  FROM service_status_current WHERE server_name = ANY(string_to_array('${collector:csv}', ','))\n)\nSELECT time, metric, max(value) AS value FROM points GROUP BY 1, 2 ORDER BY 1",
+              "refId": "A"
+            }
+          ]
+        },
         {
+          "type": "table",
+          "title": "Availability over the selected range",
+          "id": 16,
           "datasource": {
             "type": "grafana-postgresql-datasource",
             "uid": "supabase-postgres"
           },
-          "format": "table",
-          "rawQuery": true,
-          "editorMode": "code",
-          "rawSql": "SELECT checked_at AS \"Time\", CASE WHEN vm = 'server' THEN 'server · ' || server_name ELSE vm END AS \"VM\", component AS \"Component\", upper(status) AS \"Status\",\n       detail AS \"Detail\", server_name AS \"Collector\"\nFROM service_status WHERE $__timeFilter(checked_at) AND server_name = ANY(string_to_array('${collector:csv}', ','))\nORDER BY checked_at DESC LIMIT 500",
-          "refId": "A"
+          "description": "Time OK ÷ time observed in the range, from the change log. Time without reports counts as down; STOPPED (switched off) and UNKNOWN time are left out.",
+          "gridPos": {
+            "h": 12,
+            "w": 24,
+            "x": 0,
+            "y": 54
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Availability %"
+                },
+                "properties": [
+                  {
+                    "id": "unit",
+                    "value": "percent"
+                  },
+                  {
+                    "id": "decimals",
+                    "value": 2
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background",
+                      "mode": "basic"
+                    }
+                  },
+                  {
+                    "id": "thresholds",
+                    "value": {
+                      "mode": "absolute",
+                      "steps": [
+                        {
+                          "color": "red",
+                          "value": null
+                        },
+                        {
+                          "color": "orange",
+                          "value": 99
+                        },
+                        {
+                          "color": "green",
+                          "value": 99.9
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "sortBy": [
+              {
+                "displayName": "Availability %",
+                "desc": false
+              }
+            ],
+            "footer": {
+              "show": false,
+              "reducer": [
+                "sum"
+              ],
+              "fields": ""
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "format": "table",
+              "rawQuery": true,
+              "editorMode": "code",
+              "rawSql": "WITH events AS (\n  SELECT server_name, vm, component, checked_at AS t, status, detail\n  FROM service_status WHERE server_name = ANY(string_to_array('${collector:csv}', ',')) AND checked_at < $__timeTo()\n  UNION ALL\n  -- a component that stopped reporting is down from one minute after its last report\n  SELECT server_name, vm, component, checked_at + interval '1 minute', 'down', 'no report'\n  FROM service_status_current WHERE server_name = ANY(string_to_array('${collector:csv}', ',')) AND checked_at < now() - interval '3 minutes'\n), spans AS (\n  SELECT server_name, vm, component, status,\n         GREATEST(t, $__timeFrom()::timestamptz) AS a,\n         LEAST(COALESCE(lead(t) OVER (PARTITION BY server_name, vm, component ORDER BY t), now()),\n               $__timeTo()::timestamptz, now()) AS b\n  FROM events\n), secs AS (\n  SELECT CASE WHEN vm = 'server' THEN 'server · ' || server_name ELSE vm END AS vm, component, status, extract(epoch FROM b - a) AS s FROM spans WHERE b > a AND status NOT IN ('unknown', 'stopped')\n)\nSELECT vm AS \"VM\", component AS \"Component\",\n       round((100.0 * coalesce(sum(s) FILTER (WHERE status = 'ok'), 0) / NULLIF(sum(s), 0))::numeric, 2) AS \"Availability %\",\n       round((coalesce(sum(s) FILTER (WHERE status <> 'ok'), 0) / 60)::numeric) AS \"Minutes not OK\",\n       count(*) FILTER (WHERE status <> 'ok') AS \"Times not OK\"\nFROM secs GROUP BY vm, component\nORDER BY 3, CASE WHEN vm LIKE 'server%' THEN 0 WHEN vm = 'database' THEN 1 WHEN vm = 'storage' THEN 2 WHEN vm = 'frontend' THEN 3 WHEN vm = 'proxy' THEN 4 WHEN vm = 'monitoring' THEN 5 ELSE 9 END, vm, component",
+              "refId": "A"
+            }
+          ]
+        },
+        {
+          "type": "table",
+          "title": "Status changes",
+          "id": 17,
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "description": "Every status change in the selected range, newest first.",
+          "gridPos": {
+            "h": 12,
+            "w": 24,
+            "x": 0,
+            "y": 66
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
+                },
+                "filterable": true
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "Status"
+                },
+                "properties": [
+                  {
+                    "id": "mappings",
+                    "value": [
+                      {
+                        "type": "value",
+                        "options": {
+                          "OK": {
+                            "color": "green",
+                            "index": 0,
+                            "text": "OK"
+                          },
+                          "DEGRADED": {
+                            "color": "orange",
+                            "index": 1,
+                            "text": "DEGRADED"
+                          },
+                          "UNKNOWN": {
+                            "color": "text",
+                            "index": 2,
+                            "text": "UNKNOWN"
+                          },
+                          "DOWN": {
+                            "color": "red",
+                            "index": 3,
+                            "text": "DOWN"
+                          },
+                          "STALE": {
+                            "color": "red",
+                            "index": 4,
+                            "text": "STALE (no report)"
+                          },
+                          "STOPPED": {
+                            "color": "blue",
+                            "index": 5,
+                            "text": "STOPPED"
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "color-background",
+                      "mode": "basic"
+                    }
+                  },
+                  {
+                    "id": "custom.width",
+                    "value": 140
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "footer": {
+              "show": false,
+              "reducer": [
+                "sum"
+              ],
+              "fields": ""
+            }
+          },
+          "targets": [
+            {
+              "datasource": {
+                "type": "grafana-postgresql-datasource",
+                "uid": "supabase-postgres"
+              },
+              "format": "table",
+              "rawQuery": true,
+              "editorMode": "code",
+              "rawSql": "SELECT checked_at AS \"Time\", CASE WHEN vm = 'server' THEN 'server · ' || server_name ELSE vm END AS \"VM\", component AS \"Component\", upper(status) AS \"Status\",\n       detail AS \"Detail\", server_name AS \"Collector\"\nFROM service_status WHERE $__timeFilter(checked_at) AND server_name = ANY(string_to_array('${collector:csv}', ','))\nORDER BY checked_at DESC LIMIT 500",
+              "refId": "A"
+            }
+          ]
         }
-      ]
+      ],
+      "description": "📈 History"
     }
   ]
 }

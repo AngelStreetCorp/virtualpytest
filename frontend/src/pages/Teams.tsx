@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import SettingRow from '../components/common/SettingRow';
 import {
   Box,
   Card,
@@ -25,11 +26,9 @@ import {
   Autocomplete,
   Tabs,
   Tab,
-  FormControlLabel,
-  Switch,
 } from '@mui/material';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
-import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
+import { PAGE_TITLE_SX, dangerIconSx, pageSurfaceSx } from '../components/common/PageChrome';
 import {
   Add as AddIcon,
   Edit as EditIcon,
@@ -45,12 +44,14 @@ import { useUsers } from '../hooks/pages/useUsers';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
 import { StyledDialog } from '../components/common/StyledDialog';
+import { TableRowsSkeleton } from '../components/common/ReportSkeleton';
 import { PermissionChecklist } from '../components/auth/PermissionChecklist';
 import { DeviceScopePicker } from '../components/auth/DeviceScopePicker';
 import { usePermissions } from '../hooks/auth/usePermissions';
 import { ALL_PERMISSIONS, Permission } from '../types/auth';
 import { api } from '../utils/apiClient';
 import { buildServerUrl } from '../utils/buildUrlUtils';
+import { TYPOGRAPHY } from '../constants/typography';
 
 interface TabPanelProps {
   children?: React.ReactNode;
@@ -168,7 +169,7 @@ const TeamRowDetail: React.FC<TeamRowDetailProps> = ({ team, allUsers, onMembers
               disabled={isAdding}
               renderOption={(props, option) => (
                 <Box component="li" {...props} sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Avatar src={option.avatar_url} sx={{ width: 24, height: 24, fontSize: '0.75rem' }}>
+                  <Avatar src={option.avatar_url} sx={{ width: 24, height: 24, fontSize: TYPOGRAPHY.caption.size }}>
                     {(option.full_name || option.email)?.charAt(0).toUpperCase()}
                   </Avatar>
                   <Box>
@@ -190,7 +191,7 @@ const TeamRowDetail: React.FC<TeamRowDetailProps> = ({ team, allUsers, onMembers
                     '& .MuiOutlinedInput-root': {
                       height: 32,
                       borderRadius: '16px',
-                      fontSize: '0.85rem',
+                      fontSize: TYPOGRAPHY.body.size,
                       '& fieldset': { borderWidth: 1, borderColor: 'divider' },
                       '&:hover fieldset': { borderColor: 'text.secondary' },
                       '&.Mui-focused fieldset': { borderWidth: 1, borderColor: P.accent },
@@ -329,7 +330,7 @@ const Teams: React.FC = () => {
     <Box sx={pageSurfaceSx(P)}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 3 }}>
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 2 }}>
-          <TeamsIcon sx={{ color: P.accentText, fontSize: 28 }} />
+          <TeamsIcon sx={{ color: P.accentText, fontSize: TYPOGRAPHY.kpiValue.size }} />
           <Typography component="h1" sx={PAGE_TITLE_SX}>
             Teams Management
           </Typography>
@@ -352,34 +353,31 @@ const Teams: React.FC = () => {
         </Alert>
       )}
 
-      {isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress />
-        </Box>
-      ) : (
-        <Card>
-          <CardContent>
-            <TableContainer component={Paper} elevation={0}>
-              <Table
-                sx={{
-                  tableLayout: 'fixed', minWidth: 760, '& .MuiTableCell-root': { overflowWrap: 'anywhere' },
-                  '& .MuiTableRow-root:hover': {
-                    backgroundColor: 'transparent !important',
-                  },
-                }}
-              >
-              <colgroup><col style={{ width: 220 }} /><col /><col style={{ width: 100 }} /><col style={{ width: 170 }} /><col style={{ width: 130 }} /></colgroup>
-                <TableHead>
-                  <TableRow>
-                    <TableCell><strong>Team Name</strong></TableCell>
-                    <TableCell><strong>Description</strong></TableCell>
-                    <TableCell align="center"><strong>Members</strong></TableCell>
-                    <TableCell><strong>Created</strong></TableCell>
-                    <TableCell align="right"><strong>Actions</strong></TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {teams.map((team) => (
+      <Card>
+        <CardContent>
+          <TableContainer component={Paper} elevation={0}>
+            <Table
+              sx={{
+                tableLayout: 'fixed', minWidth: 760, '& .MuiTableCell-root': { overflowWrap: 'anywhere' },
+                '& .MuiTableRow-root:hover': {
+                  backgroundColor: 'transparent !important',
+                },
+              }}
+            >
+            <colgroup><col style={{ width: 220 }} /><col /><col style={{ width: 100 }} /><col style={{ width: 170 }} /><col style={{ width: 130 }} /></colgroup>
+              <TableHead>
+                <TableRow>
+                  <TableCell><strong>Team Name</strong></TableCell>
+                  <TableCell><strong>Description</strong></TableCell>
+                  <TableCell align="center"><strong>Members</strong></TableCell>
+                  <TableCell><strong>Created</strong></TableCell>
+                  <TableCell align="right"><strong>Actions</strong></TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {isLoading ? (
+                  <TableRowsSkeleton widths={[220, null, 100, 170, 130]} rows={6} />
+                ) : teams.map((team) => (
                     <React.Fragment key={team.id}>
                       <TableRow>
                         <TableCell>
@@ -411,9 +409,9 @@ const Teams: React.FC = () => {
                           {canAccess('org.teams:delete') && (
                             <IconButton
                               size="small"
-                              color="error"
                               onClick={() => handleDeleteTeam(team.id)}
                               disabled={isUpdating || isDeleting}
+                              sx={dangerIconSx(P)}
                             >
                               <DeleteIcon fontSize="small" />
                             </IconButton>
@@ -447,7 +445,6 @@ const Teams: React.FC = () => {
             </TableContainer>
           </CardContent>
         </Card>
-      )}
 
       <StyledDialog open={openDialog} onClose={handleCloseDialog} maxWidth="md" fullWidth>
         <DialogTitle>{editingTeam ? 'Edit Team' : 'Create New Team'}</DialogTitle>
@@ -485,15 +482,11 @@ const Teams: React.FC = () => {
               in several teams, the limits add up; the default team only counts when it is their only
               team. Changes apply at each member's next sign-in.
             </Typography>
-            <FormControlLabel
-              control={
-                <Switch
-                  checked={teamPerms === null}
-                  onChange={(e) => setTeamPerms(e.target.checked ? null : new Set(ALL_PERMISSIONS))}
-                />
-              }
-              label={teamPerms === null ? 'No limit' : `${teamPerms.size} permissions allowed`}
-              sx={{ mb: 1 }}
+            <SettingRow
+              title="No limit"
+              description={teamPerms === null ? undefined : `${teamPerms.size} permissions allowed`}
+              checked={teamPerms === null}
+              onChange={(on) => setTeamPerms(on ? null : new Set(ALL_PERMISSIONS))}
             />
             {teamPerms !== null && (
               <PermissionChecklist isChecked={(perm) => teamPerms.has(perm)} onToggle={toggleTeamPerm} />

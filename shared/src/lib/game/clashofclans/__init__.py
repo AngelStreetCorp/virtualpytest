@@ -16,4 +16,4 @@ Only the runner imports controllers or talks to a device. ``vision``,
 synthetic frames (per TASK-81 §81.1.4).
 """
 
-from . import menus, runner, tactics, tutorial, video, vision  # noqa: F401
+from . import menus, runner, tactics, video, vision  # noqa: F401

@@ -199,6 +199,13 @@ const normalizeStoragePath = (path: string): { resolvedUrl: string | null; norma
   if (isPresignedUrl(path)) {
     return { resolvedUrl: path, normalizedPath: path };
   }
+  // A capture that came inline as a data: URI is the picture itself, not a
+  // path in the bucket. It is used as it is: asking the server to sign it
+  // produced a URL whose path was the base64 payload, and the browser asked
+  // for /virtualpytest/data%3Aimage/jpeg%3Bbase64%2C... (BUG-0798).
+  if (path.startsWith('data:')) {
+    return { resolvedUrl: path, normalizedPath: path };
+  }
   // Full non-R2 URL (MinIO public, etc.)
   if ((path.startsWith('http://') || path.startsWith('https://')) && !isCloudflareR2Url(path)) {
     // In private mode, old MinIO URLs need path extraction + signing

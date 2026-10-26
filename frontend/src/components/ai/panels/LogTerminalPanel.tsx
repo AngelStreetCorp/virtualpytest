@@ -6,6 +6,7 @@ import {
 } from '@mui/icons-material';
 import { useAIContext } from '../../../contexts/AIContext';
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 export const LogTerminalPanel: React.FC = () => {
   const { toggleLogs } = useAIContext();
@@ -19,7 +20,7 @@ export const LogTerminalPanel: React.FC = () => {
         right: 0,
         bottom: 0,
         height: 200,
-        bgcolor: P.surface,
+        bgcolor: P.surfaceSolid,
         color: P.textPrimary,
         borderTop: `1px solid ${P.borderColor}`,
         zIndex: 1200,
@@ -33,10 +34,10 @@ export const LogTerminalPanel: React.FC = () => {
         px: 2, py: 0.5,
         display: 'flex',
         alignItems: 'center',
-        bgcolor: P.sidebarBg,
+        bgcolor: P.sidebarBgSolid,
         borderBottom: `1px solid ${P.borderColor}`
       }}>
-        <TerminalIcon sx={{ mr: 1, fontSize: 16, color: P.textMuted }} />
+        <TerminalIcon sx={{ mr: 1, fontSize: TYPOGRAPHY.navbarItem.size, color: P.textMuted }} />
         <Typography variant="caption" sx={{ flex: 1, fontFamily: 'monospace', color: P.textMuted }}>
           System Logs
         </Typography>
@@ -46,8 +47,8 @@ export const LogTerminalPanel: React.FC = () => {
       </Box>
 
       {/* Log Content */}
-      <Box sx={{ flex: 1, overflowY: 'auto', p: 1.5, fontSize: '0.85rem' }}>
-        <div style={{ color: P.success }}>➜  System initialized.</div>
+      <Box sx={{ flex: 1, overflowY: 'auto', p: 1.5, fontSize: TYPOGRAPHY.body.size }}>
+        <div style={{ color: P.success }}>{'>'} System initialized.</div>
         <div style={{ color: P.textMuted }}>[INFO] Listening for AI events...</div>
         {/* Placeholder logs */}
       </Box>

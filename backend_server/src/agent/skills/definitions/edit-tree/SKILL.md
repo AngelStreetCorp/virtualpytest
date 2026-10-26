@@ -2,6 +2,8 @@
 name: edit-tree
 description: Create, update, and delete navigation tree structure (nodes and edges)
 timeout_seconds: 600
+think_budget_seconds: 120
+max_tool_calls: 40
 tools:
   - get_userinterface_complete
   - list_nodes

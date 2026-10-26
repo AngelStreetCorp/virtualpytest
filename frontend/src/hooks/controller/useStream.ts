@@ -10,19 +10,27 @@ import { useControllerApi } from './useControllerApi';
 // ============================================================================
 interface StreamUrlCache {
   url: string;
+  audioUrl: string | null;  // audio_stream_url companion (BUG-0596, only set for host_vnc)
   timestamp: number;
 }
 
 const streamUrlCache = new Map<string, StreamUrlCache>();
 
+/**
+ * Deadline for the getStreamUrl round trip. See the call site for why 15 s: the
+ * point is that `isLoadingUrl` must always fall back to false, because every
+ * "Loading stream…" a user sees is gated on it.
+ */
+const STREAM_URL_TIMEOUT_MS = 15000;
+
 // Host names are only unique WITHIN a server — `host-clone-1` exists on both
 // VirtualPyTest and QualiAI — so the server must be part of the key or selecting one
 // server serves the other's cached URL for 24h (BUG-0106).
-function getCachedStreamUrl(server_url: string, host_name: string, device_id: string): string | null {
+function getCachedStreamUrl(server_url: string, host_name: string, device_id: string): StreamUrlCache | null {
   const cacheKey = `${server_url}|${host_name}:${device_id}`;
   const cached = streamUrlCache.get(cacheKey);
   if (cached && (Date.now() - cached.timestamp) < CACHE_CONFIG.LONG_TTL) {
-    return cached.url;
+    return cached;
   }
   if (cached) {
     streamUrlCache.delete(cacheKey); // Remove expired
@@ -30,9 +38,9 @@ function getCachedStreamUrl(server_url: string, host_name: string, device_id: st
   return null;
 }
 
-function setCachedStreamUrl(server_url: string, host_name: string, device_id: string, url: string) {
+function setCachedStreamUrl(server_url: string, host_name: string, device_id: string, url: string, audioUrl: string | null) {
   const cacheKey = `${server_url}|${host_name}:${device_id}`;
-  streamUrlCache.set(cacheKey, { url, timestamp: Date.now() });
+  streamUrlCache.set(cacheKey, { url, audioUrl, timestamp: Date.now() });
 }
 
 interface UseStreamProps {
@@ -42,6 +50,14 @@ interface UseStreamProps {
 
 interface UseStreamReturn {
   streamUrl: string | null;
+  /**
+   * Companion audio HLS URL (only set for host_vnc devices with audio capture
+   * configured, e.g. vpt-windows's Mixage stereo / Realtek Stereo Mix). The
+   * `<audio>` element that consumes it lives next to the VNC iframe in
+   * VNCStream.tsx; both share wall-clock timestamps from ffmpeg so they
+   * stay in sync. See BUG-0596.
+   */
+  audioStreamUrl: string | null;
   isLoadingUrl: boolean;
   urlError: string | null;
   refetchStreamUrl: () => void; // Add manual refetch function
@@ -64,7 +80,15 @@ interface UseStreamReturn {
  */
 export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn => {
   const [streamUrl, setStreamUrl] = useState<string | null>(null);
-  const [isLoadingUrl, setIsLoadingUrl] = useState(false);
+  const [audioStreamUrl, setAudioStreamUrl] = useState<string | null>(null);
+  // Start in the loading state when there is already a device to ask about. The
+  // auto-fetch effect below only runs after the first paint, so a `false` here left
+  // one frame where streamUrl was null, urlError was null and isLoadingUrl was
+  // false — the exact combination consumers read as "settled, nothing available".
+  // That frame is what flashed "No stream available" before the request started.
+  const [isLoadingUrl, setIsLoadingUrl] = useState(
+    () => Boolean(host && device_id && device_id.trim() !== ''),
+  );
   const [urlError, setUrlError] = useState<string | null>(null);
 
   // Cache to track which devices we've already fetched URLs for
@@ -78,6 +102,49 @@ export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn 
   const latestRequestKeyRef = useRef<string | null>(null);
   const { postToHost } = useControllerApi(host, device_id);
 
+  // Resolve a host-relative or fully-qualified URL against the host's owner
+  // server origin. Mirrors the conversion logic the video stream_url goes
+  // through below. Used by both video and audio paths so HLS.js can load the
+  // playlist from the right proxy (BUG-0106 -- a wrong origin 502s).
+  const resolveStreamUrl = useCallback(
+    (rawUrl: string): string => {
+      if (!rawUrl) return rawUrl;
+      if (rawUrl.startsWith('http')) return rawUrl;
+      const normalizedPath = rawUrl.startsWith('/') ? rawUrl : `/${rawUrl}`;
+      const hostAwarePath = normalizedPath.startsWith('/host/')
+        ? normalizedPath
+        : host?.host_name
+          ? `/host/${host.host_name}${normalizedPath}`
+          : normalizedPath;
+      const ownerOrigin = (() => {
+        const ownerServerUrl = host?.server_url;
+        if (ownerServerUrl && /^https?:\/\//.test(ownerServerUrl)) {
+          try {
+            return new URL(ownerServerUrl).origin;
+          } catch {
+            /* malformed server_url -- fall back to this frontend's origin */
+          }
+        }
+        return typeof window !== 'undefined' ? window.location?.origin : undefined;
+      })();
+      const cleanHostUrl = host?.host_url?.replace(/\/$/, '');
+      if (cleanHostUrl) {
+        if (cleanHostUrl.startsWith('http://') || cleanHostUrl.startsWith('https://')) {
+          return `${cleanHostUrl}${hostAwarePath}`;
+        }
+        if (ownerOrigin) {
+          return `${ownerOrigin}${hostAwarePath}`;
+        }
+        return hostAwarePath;
+      }
+      if (ownerOrigin) {
+        return `${ownerOrigin}${hostAwarePath}`;
+      }
+      return hostAwarePath;
+    },
+    [host?.host_name, host?.host_url, host?.server_url],
+  );
+
   const fetchStreamUrl = useCallback(
     async (force: boolean = false) => {
       if (!host || !device_id || device_id.trim() === '') return;
@@ -89,12 +156,13 @@ export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn 
 
       // Check 24h cache first
       if (!force) {
-        const cachedUrl = getCachedStreamUrl(host.server_url || '', host.host_name, device_id);
-        if (cachedUrl) {
+        const cached = getCachedStreamUrl(host.server_url || '', host.host_name, device_id);
+        if (cached) {
           console.log(
             `[@hook:useStream] Cache HIT: Stream URL for ${host.host_name}/${device_id} (24h cache)`,
           );
-          setStreamUrl(cachedUrl);
+          setStreamUrl(cached.url);
+          setAudioStreamUrl(cached.audioUrl);
           setUrlError(null);
           fetchedDevicesRef.current.add(deviceKey);
           return;
@@ -105,75 +173,49 @@ export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn 
       setUrlError(null);
 
       try {
-        console.log(
-          `[@hook:useStream] Fetching stream URL for host: ${host.host_name}, device: ${device_id}`,
-        );
-
-        const result = await postToHost<{ success?: boolean; stream_url?: string; error?: string }>(
+        const result = await postToHost<{
+          success?: boolean;
+          stream_url?: string;
+          audio_stream_url?: string | null;
+          error?: string;
+        }>(
           '/server/av/getStreamUrl',
           {},
-          { includeDeviceId: true },
+          // A stream URL is either there in a moment or the host is not going to
+          // answer at all. 15 s is generous for the real cases (measured: 80 ms
+          // healthy, 400 ms with the host's DB busy) and short enough that a dead
+          // host shows an error instead of a spinner that outlives the outage.
+          { includeDeviceId: true, timeoutMs: STREAM_URL_TIMEOUT_MS },
         );
 
         if (result.success && result.stream_url) {
-          console.log(`[@hook:useStream] Stream URL received: ${result.stream_url}`);
-
           let processedUrl = result.stream_url;
           if (!processedUrl.startsWith('http')) {
-            const normalizedPath = processedUrl.startsWith('/') ? processedUrl : `/${processedUrl}`;
-            const hostAwarePath = normalizedPath.startsWith('/host/')
-              ? normalizedPath
-              : host?.host_name
-                ? `/host/${host.host_name}${normalizedPath}`
-                : normalizedPath;
-            // Resolve against the origin of the server that OWNS this host, not this
-            // frontend's origin. Hosts register a relative host_url (/host/<name>) that only
-            // resolves on their own proxy; ServerManagerProvider stamps server_url on every
-            // host for exactly this case. Using window.location.origin sent another server's
-            // hosts to THIS proxy, which 502s on names it does not have — and, worse, quietly
-            // served this server's own host of the same name instead (BUG-0106).
-            const ownerOrigin = (() => {
-              const ownerServerUrl = host?.server_url;
-              if (ownerServerUrl && /^https?:\/\//.test(ownerServerUrl)) {
-                try {
-                  return new URL(ownerServerUrl).origin;
-                } catch {
-                  /* malformed server_url — fall back to this frontend's origin */
-                }
-              }
-              return typeof window !== 'undefined' ? window.location?.origin : undefined;
-            })();
-            const cleanHostUrl = host?.host_url?.replace(/\/$/, '');
+            processedUrl = resolveStreamUrl(processedUrl);
+          }
 
-            if (cleanHostUrl) {
-              // host_url can be absolute (https://...) or relative (/host/<name>).
-              // hostAwarePath already includes /host/<name>/..., so avoid double-prefixing.
-              if (cleanHostUrl.startsWith('http://') || cleanHostUrl.startsWith('https://')) {
-                processedUrl = `${cleanHostUrl}${hostAwarePath}`;
-              } else if (ownerOrigin) {
-                processedUrl = `${ownerOrigin}${hostAwarePath}`;
-              } else {
-                processedUrl = hostAwarePath;
-              }
-              console.log(`[@hook:useStream] Resolved relative stream URL via host_url: ${processedUrl}`);
-            } else if (ownerOrigin) {
-              processedUrl = `${ownerOrigin}${hostAwarePath}`;
-              console.log(`[@hook:useStream] Resolved relative stream URL against owning server origin: ${processedUrl}`);
-            } else {
-              processedUrl = hostAwarePath;
-              console.log(`[@hook:useStream] Using normalized path for relative stream URL: ${processedUrl}`);
-            }
+          // Same origin-aware resolution for the audio HLS, so HLS.js can load
+          // it from the right proxy (BUG-0106 -- a wrong-origin URL 502s).
+          // The audio_stream_url field is optional: when absent the dashboard
+          // falls back to the silent VNC view.
+          let processedAudioUrl: string | null = null;
+          if (result.audio_stream_url) {
+            processedAudioUrl = result.audio_stream_url.startsWith('http')
+              ? result.audio_stream_url
+              : resolveStreamUrl(result.audio_stream_url);
           }
 
           console.log(
-            `[@hook:useStream] Stream URL processed: ${result.stream_url} -> ${processedUrl}`,
+            `[@hook:useStream] ${host.host_name}/${device_id}: ${result.stream_url} -> ${processedUrl}` +
+              (processedAudioUrl ? ` (audio ${processedAudioUrl})` : ''),
           );
 
           // Store in 24h cache (valid for its device, even if the selection moved on)
-          setCachedStreamUrl(host.server_url || '', host.host_name, device_id, processedUrl);
+          setCachedStreamUrl(host.server_url || '', host.host_name, device_id, processedUrl, processedAudioUrl);
           if (isStale()) return;
 
           setStreamUrl(processedUrl);
+          setAudioStreamUrl(processedAudioUrl);
           setUrlError(null);
 
           // Mark this device as fetched
@@ -192,7 +234,20 @@ export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn 
         setUrlError(errorMessage);
         setStreamUrl(null);
       } finally {
-        setIsLoadingUrl(false);
+        // Only the CURRENT request may clear the spinner. `isLoadingUrl` is one
+        // boolean shared by every in-flight request, and a `finally` runs on the
+        // stale early-returns above too: a slow answer for the device the user just
+        // left would clear the flag belonging to the device they are now looking
+        // at, whose own request is still pending. That is not a hang, it is the
+        // mirror image — a spinner replaced by "No stream available" while a
+        // perfectly healthy fetch is still running.
+        //
+        // Guarded with `if (!isStale())` rather than an early `return`: a return
+        // inside finally swallows whatever the try block threw, which would turn a
+        // real failure into a silent success (no-unsafe-finally).
+        if (!isStale()) {
+          setIsLoadingUrl(false);
+        }
       }
     },
     [host?.host_name, device_id, postToHost], // Only depend on host_name, not entire host object
@@ -208,9 +263,16 @@ export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn 
   useEffect(() => {
     // Only process if we have a valid device_id
     if (!device_id || device_id.trim() === '') {
-      // Clear stream data when no device is selected
+      // Clear stream data when no device is selected.
+      // isLoadingUrl is cleared with the rest: deselecting while a fetch is in
+      // flight used to leave the flag true with no request left to clear it — the
+      // device was gone, so nothing would ever run that finally block. A later
+      // render (or the same component reused for the next device) then showed a
+      // "Loading stream..." that no request could finish.
       setStreamUrl(null);
+      setAudioStreamUrl(null);
       setUrlError(null);
+      setIsLoadingUrl(false);
       currentDeviceRef.current = null;
       return;
     }
@@ -219,9 +281,6 @@ export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn 
 
     // Check if device changed
     if (currentDeviceRef.current !== deviceKey) {
-      console.log(
-        `[@hook:useStream] Device changed from ${currentDeviceRef.current} to ${deviceKey}`,
-      );
       currentDeviceRef.current = deviceKey;
 
       // Fetch for new device (will check cache internally)
@@ -232,6 +291,7 @@ export const useStream = ({ host, device_id }: UseStreamProps): UseStreamReturn 
 
   return {
     streamUrl,
+    audioStreamUrl,
     isLoadingUrl,
     urlError,
     refetchStreamUrl,

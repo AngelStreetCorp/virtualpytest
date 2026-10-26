@@ -49,7 +49,7 @@ WORKFLOW — pick the right tool for the question:
 
 3. For "list services" / "is X down" / "restart X" — this is masterchief.
    Call `propose_masterchief_op(op='logs.services' | 'service.status' |
-   'service.restart', params={...})`. The user gets a confirm card and an
+   'service.restart' | 'host.disk_preview' | 'host.disk_cleanup', params={...})`. The user gets a confirm card and an
    audit row. This skill does NOT shortcut that flow.
 
 ANTI-PATTERNS — do not do these, they break the masterchief contract:

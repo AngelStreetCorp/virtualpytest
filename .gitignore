@@ -40,9 +40,21 @@ __pycache__/
 venv/
 
 .env
+# Every per-host / per-environment .env-shaped file: a sibling name of `.env`,
+# a name ending in `.env`, a name starting with `.env.` (e.g. `.env.staging`),
+# and the depth-independent variants. Templates end in `.example` and stay
+# tracked. The `vpt_windows_native.env` incident is the reason this block
+# is broader than a single `.env` line.
+*.env
+.env.*
+**/*.env
+**/.env.*
+# Specific per-deployment names that have surfaced in past commits.
 .env.host
 .env.server
 .env.docker
+.env.proxmox
+vpt_windows_native.env
 *.pyc
 nohup.out
 
@@ -245,8 +257,29 @@ test_scripts/gw/windows_networkassessmenttools.py
 test_scripts/gw/gw_set_nat.md
 test_scripts/gw/gw_set_nat.py
 test_scripts/gw/gw_set_nat_re.py
-test_scripts/gw/gw_set_nat_sfr.py
-# SFR box (NB6VAC) port-forward GUI flow: script + per-GUI profiles.
+test_scripts/gw/gw_set_nat_rougetel.py
+# rougetel box (NB6VAC) port-forward GUI flow: script + per-GUI profiles.
 test_scripts/gw/gw_nat_gui.md
 test_scripts/gw/gw_nat_gui.py
 test_scripts/gw/gw_nat_gui_profiles.json
+
+# Local datasets, models and recordings for monitor profile work (TASK-90): never in git
+.local-data/
+# Atlas daily memory (TASK-172): users' questions and answers, never committed.
+data/atlas_memory/
+
+# tsc incremental cache
+frontend/.tsbuildinfo
+
+# Samsung Tizen TV pairing tokens (per host/device) — never wiped by deploy
+.tizen_token_*.txt
+.vpt_tizen_token_*.txt
+
+.tmp/
+
+# QA chaos run artefacts
+scripts/qa/__pycache__/
+
+# Local-only data for overlay-preview.html (real captures from a VPT host). Never shipped:
+# it sits outside public/ on purpose, so it cannot end up in the built bundle.
+frontend/overlay-preview-data/

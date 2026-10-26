@@ -17,7 +17,6 @@ import {
   DialogContent,
   DialogActions,
   Chip,
-  CircularProgress,
   Alert,
   TextField,
   Stack,
@@ -33,9 +32,11 @@ import { useRoles } from '../hooks/pages/useRoles';
 import { useUsers } from '../hooks/pages/useUsers';
 import { usePermissions } from '../hooks/auth/usePermissions';
 import { StyledDialog } from '../components/common/StyledDialog';
+import { TableRowsSkeleton } from '../components/common/ReportSkeleton';
 import { PermissionChecklist } from '../components/auth/PermissionChecklist';
 import { DeviceScopePicker } from '../components/auth/DeviceScopePicker';
 import { ALL_PERMISSIONS, Permission, Role, RoleInfo } from '../types/auth';
+import { TYPOGRAPHY } from '../constants/typography';
 
 const ROLE_DESCRIPTION: Record<Role, string> = {
   admin: 'Holds every permission. Cannot be restricted.',
@@ -46,6 +47,24 @@ const ROLE_DESCRIPTION: Record<Role, string> = {
 };
 
 const isViewPermission = (perm: Permission) => perm.endsWith(':view');
+
+/**
+ * The permissions the app can honour.
+ *
+ * A stored role can hold permissions the app has no route for: the projects
+ * migration (20261006a_projects.sql) seeded team:projects:view / :edit / :delete
+ * into the role rows, and no project route but POST checks them, so they gate
+ * nothing. They are in neither the frontend registry nor the backend one, which
+ * made this page count 3 permissions more than the Users page counted for the
+ * same role, and made every save of those roles fail (BUG-0787).
+ */
+const KNOWN_PERMISSIONS = new Set<string>(ALL_PERMISSIONS);
+
+const knownPermissions = (permissions: readonly string[] | undefined): Permission[] =>
+  (permissions ?? []).filter((p): p is Permission => KNOWN_PERMISSIONS.has(p));
+
+const unknownPermissions = (permissions: readonly string[] | undefined): string[] =>
+  (permissions ?? []).filter((p) => !KNOWN_PERMISSIONS.has(p));
 
 const Roles: React.FC = () => {
   const P = useAgentChatPalette();
@@ -62,7 +81,9 @@ const Roles: React.FC = () => {
   const handleOpenDialog = (info: RoleInfo) => {
     setEditing(info);
     setDisplayName(info.display_name);
-    setSelected(new Set(roles?.[info.role] ?? []));
+    // Only the permissions the app knows: the stored list can hold permissions that
+    // gate nothing, and sending them back would make the save fail (BUG-0787).
+    setSelected(new Set(knownPermissions(roles?.[info.role])));
     setRoleDevices(info.allowed_devices ?? null);
   };
 
@@ -97,7 +118,7 @@ const Roles: React.FC = () => {
   return (
     <Box sx={pageSurfaceSx(P)}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 3 }}>
-        <RolesIcon sx={{ color: P.accentText, fontSize: 28 }} />
+        <RolesIcon sx={{ color: P.accentText, fontSize: TYPOGRAPHY.kpiValue.size }} />
         <Typography component="h1" sx={PAGE_TITLE_SX}>
           Roles Management
         </Typography>
@@ -109,27 +130,24 @@ const Roles: React.FC = () => {
         </Alert>
       )}
 
-      {isLoading ? (
-        <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
-          <CircularProgress />
-        </Box>
-      ) : (
-        <Card>
-          <CardContent>
-            <TableContainer component={Paper} elevation={0}>
-              <Table sx={{ tableLayout: 'fixed', minWidth: 760, '& .MuiTableCell-root': { overflowWrap: 'anywhere' } }}>
+      <Card>
+        <CardContent>
+          <TableContainer component={Paper} elevation={0}>
+            <Table sx={{ tableLayout: 'fixed', minWidth: 760, '& .MuiTableCell-root': { overflowWrap: 'anywhere' } }}>
 <colgroup><col style={{ width: 150 }} /><col /><col style={{ width: 140 }} /><col style={{ width: 90 }} /><col style={{ width: 120 }} /></colgroup>
-                <TableHead>
-                  <TableRow>
-                    <TableCell><strong>Role</strong></TableCell>
-                    <TableCell><strong>Description</strong></TableCell>
-                    <TableCell><strong>Permissions</strong></TableCell>
-                    <TableCell><strong>Users</strong></TableCell>
-                    <TableCell align="right"><strong>Actions</strong></TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {catalog.map((info) => {
+              <TableHead>
+                <TableRow>
+                  <TableCell><strong>Role</strong></TableCell>
+                  <TableCell><strong>Description</strong></TableCell>
+                  <TableCell><strong>Permissions</strong></TableCell>
+                  <TableCell><strong>Users</strong></TableCell>
+                  <TableCell align="right"><strong>Actions</strong></TableCell>
+                </TableRow>
+              </TableHead>
+              <TableBody>
+                {isLoading ? (
+                  <TableRowsSkeleton widths={[150, null, 140, 90, 120]} rows={6} />
+                ) : catalog.map((info) => {
                     const perms = roles?.[info.role] ?? [];
                     return (
                       <TableRow key={info.role}>
@@ -143,11 +161,13 @@ const Roles: React.FC = () => {
                           </Typography>
                         </TableCell>
                         <TableCell>
+                          {/* The count is the number of permissions the app honours, so it
+                              matches what the Users page counts for the same role (BUG-0787). */}
                           <Chip
-                            label={info.editable ? perms.length : 'All'}
+                            label={info.editable ? knownPermissions(perms).length : 'All'}
                             size="small"
                             sx={{ bgcolor: P.hoverBg, color: P.textSecondary, fontWeight: 600 }}
-                            title={perms.join(', ')}
+                            title={knownPermissions(perms).join(', ')}
                           />
                         </TableCell>
                         <TableCell>{users.filter((u) => u.role === info.role).length}</TableCell>
@@ -170,7 +190,6 @@ const Roles: React.FC = () => {
             </TableContainer>
           </CardContent>
         </Card>
-      )}
 
       <StyledDialog open={editing !== null} onClose={handleCloseDialog} maxWidth="md" fullWidth>
         <DialogTitle>
@@ -195,6 +214,14 @@ const Roles: React.FC = () => {
             />
 
             <Divider />
+
+            {editing?.editable && unknownPermissions(roles?.[editing.role]).length > 0 && (
+              <Alert severity="info" icon={false}>
+                {unknownPermissions(roles?.[editing.role]).length} stored permission(s) are not used by
+                the app and are not shown here: {unknownPermissions(roles?.[editing.role]).join(', ')}.
+                They gate nothing, and saving this role removes them.
+              </Alert>
+            )}
 
             {editing?.editable ? (
               <Box>

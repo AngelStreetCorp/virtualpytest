@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily VirtualPyTest CI runner retention
+
+[Timer]
+# Never inside the CI Night-gate window (00:00-07:00 UTC, suite runs): the old
+# 03:30 CET slot was 02:30Z and the cleanup raced the nightly jobs (BUG-0903).
+# UTC is explicit so the slot does not move with the VM's timezone or DST.
+OnCalendar=*-*-* 08:30:00 UTC
+RandomizedDelaySec=300
+Persistent=true
+
+[Install]
+WantedBy=timers.target

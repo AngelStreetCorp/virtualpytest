@@ -10,6 +10,8 @@ import {
   Tooltip,
   Typography,
   CircularProgress,
+  ToggleButton,
+  ToggleButtonGroup,
 } from '@mui/material';
 import React, { useState, useCallback, useRef } from 'react';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
@@ -24,8 +26,13 @@ import { buildVerificationResultUrl } from '../../utils/buildUrlUtils';
 
 import { VerificationImageComparisonDialog } from './VerificationImageComparisonDialog';
 import { VerificationItem } from './VerificationItem';
+import { ReferenceImagePreview } from './ReferenceImagePreview';
 import { VerificationControlsLinkProps } from './VerificationControls';
 import { VerificationTextComparisonDialog } from './VerificationTextComparisonDialog';
+import { AppIcon } from '../../constants/icons';
+import { TYPOGRAPHY } from '../../constants/typography';
+import { CompactListRow, humanizeCommand } from '../common/CompactListRow';
+import { segmentedSx } from '../common/PageChrome';
 
 export interface VerificationsListProps {
   verifications: Verification[];
@@ -71,6 +78,10 @@ export interface VerificationsListProps {
   // Used by the TestCase builder inline editor (single verification); undefined
   // in the navigation Node/Edge dialogs.
   linkProps?: VerificationControlsLinkProps;
+  // Compact rows (Edit node / Edit edge dialogs): each verification is one
+  // summary line (reference · timeout · threshold · area) that opens its
+  // editor on click; Add + Any/All sit in one footer line.
+  compact?: boolean;
 }
 
 export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
@@ -101,6 +112,7 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
     onRecaptureReference,
     recapturingIndex = null,
     linkProps,
+    compact = false,
   }) => {
   const P = useAgentChatPalette();
 
@@ -220,6 +232,16 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
     }, [onPassConditionChange]);
     
     const [collapsed, setCollapsed] = useState<boolean>(false);
+    // Compact mode: which rows are open. A row without a command is always open.
+    const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+    const toggleRow = useCallback((index: number) => {
+      setExpandedRows((prev) => {
+        const next = new Set(prev);
+        if (next.has(index)) next.delete(index);
+        else next.add(index);
+        return next;
+      });
+    }, []);
     const [imageComparisonDialog, setImageComparisonDialog] = useState<{
       open: boolean;
       sourceUrl: string;
@@ -346,6 +368,7 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
     const removeVerification = useCallback(
       (index: number) => {
         const newVerifications = verifications.filter((_, i) => i !== index);
+        setExpandedRows(new Set());
         onVerificationsChange(newVerifications);
       },
       [verifications, onVerificationsChange],
@@ -624,6 +647,123 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
 
     const content = (
       <Box sx={{ overflow: 'visible', position: 'relative' }}>
+        {compact ? (
+          <Box sx={{ border: `1px solid ${P.borderColor}`, borderRadius: 1, overflow: 'visible' }}>
+            {verifications.map((verification, index) => {
+              const params: any = verification.params || {};
+              const ref = params.reference_name ? modelReferences[params.reference_name] : undefined;
+              // R2 keys are resolved (signed) by ReferenceImagePreview, same as the editor's own preview.
+              const thumb = ref && ref.type === 'image' && ref.url ? ref.url : null;
+              const area = params.area;
+              const meta = [
+                params.timeout ? `${Math.round(params.timeout / 100) / 10} s` : null,
+                params.threshold != null ? `≥ ${Number(params.threshold).toFixed(2)}` : null,
+                verification.verification_type === 'text' && params.text ? `"${params.text}"` : null,
+                area && area.width ? `${Math.round(area.width)}×${Math.round(area.height)} @ ${Math.round(area.x)},${Math.round(area.y)}` : null,
+              ]
+                .filter(Boolean)
+                .join(' · ');
+              const refName = ref?.name || params.reference_name || params.icon || params.search_term || params.title || '';
+              return (
+                <CompactListRow
+                  key={index}
+                  first={index === 0}
+                  title={
+                    verification.command
+                      ? `${humanizeCommand(verification.command)}${refName ? ` · ${refName}` : ''}`
+                      : 'New verification'
+                  }
+                  meta={meta || undefined}
+                  leading={
+                    thumb ? (
+                      <Box onClick={(e) => e.stopPropagation()}>
+                        <ReferenceImagePreview
+                          referenceUrl={thumb}
+                          thumbnail
+                          thumbnailMaxWidth={44}
+                          thumbnailMaxHeight={26}
+                        />
+                      </Box>
+                    ) : /^wait_?for_?image/i.test(verification.command || '') ? (
+                      <Box
+                        sx={{ width: 44, height: 26, borderRadius: 0.5, bgcolor: P.hoverBg, color: P.textSecondary, display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <AppIcon name="image" />
+                      </Box>
+                    ) : undefined
+                  }
+                  expanded={!verification.command || expandedRows.has(index)}
+                  onToggle={() => toggleRow(index)}
+                  onRun={onRunVerification ? () => onRunVerification(index) : undefined}
+                  canRun={Boolean(verification.command) && !runDisabled && !loading}
+                  isRunning={runningVerificationIndex === index}
+                  onRemove={() => removeVerification(index)}
+                  disabled={isInteractionDisabled}
+                >
+    <VerificationItem
+                      bare
+                  verification={verification}
+                  index={index}
+                  availableVerifications={mergedAvailableVerifications}
+                  modelReferences={modelReferences}
+                  referencesLoading={referencesLoading}
+                  testResult={testResults[index]}
+                  onVerificationSelect={handleVerificationSelect}
+                  onReferenceSelect={handleReferenceSelect}
+                  onImageFilterChange={handleImageFilterChange}
+                  onTextFilterChange={handleTextFilterChange}
+                  onUpdateVerification={updateVerification}
+                  onRemoveVerification={removeVerification}
+                  onImageClick={handleImageClick}
+                  onSourceImageClick={handleTextSourceImageClick}
+                  processImageUrl={processImageUrl}
+                  getCacheBustedUrl={getCacheBustedUrl}
+                  onMoveUp={moveVerificationUp}
+                  onMoveDown={moveVerificationDown}
+                  canMoveUp={index > 0}
+                  canMoveDown={index < verifications.length - 1}
+                  onRun={onRunVerification}
+                  canRun={Boolean(verification.command) && !runDisabled && !loading}
+                  isRunning={runningVerificationIndex === index}
+                  disabled={isInteractionDisabled}
+                  onTextChange={handleTextChange}
+                  referenceReadOnly={referenceReadOnly}
+                  allowReferenceEdit={allowReferenceEdit}
+                  onRecaptureReference={onRecaptureReference}
+                  isRecapturing={recapturingIndex === index}
+                  recaptureDisabled={recapturingIndex !== null}
+                  linkProps={linkProps}
+                />
+                </CompactListRow>
+              );
+            })}
+            <Box sx={{ borderTop: verifications.length ? `1px solid ${P.borderColor}` : 'none', display: 'flex', alignItems: 'center', gap: 1, px: 0.5, py: 0.25 }}>
+              <Button
+                size="small"
+                startIcon={<AddIcon />}
+                onClick={addVerification}
+                disabled={isInteractionDisabled}
+                sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textSecondary, textTransform: 'none' }}
+              >
+                Add verification
+              </Button>
+              <Box sx={{ flex: 1 }} />
+              {verifications.length > 1 && (
+                <ToggleButtonGroup
+                  exclusive
+                  size="small"
+                  value={passCondition}
+                  onChange={(_, v) => v && handlePassConditionChange(v)}
+                  disabled={isInteractionDisabled}
+                  sx={segmentedSx(P, 'sm')}
+                >
+                  <ToggleButton value="any">Any passes</ToggleButton>
+                  <ToggleButton value="all">All pass</ToggleButton>
+                </ToggleButtonGroup>
+              )}
+            </Box>
+          </Box>
+        ) : (
         <Box sx={{ mb: 0.5, overflow: 'visible' }}>
           {verifications.map((verification, index) => (
             <VerificationItem
@@ -662,7 +802,9 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
             />
           ))}
         </Box>
+        )}
 
+        {!compact && (
         <Box sx={{ display: 'flex', justifyContent: 'flex-end', alignItems: 'center', mt: 0.5, gap: 1 }}>
           {onSharedChange && (
             <Tooltip
@@ -683,7 +825,7 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
                 label="Shared"
                 sx={{
                   m: 0,
-                  '& .MuiFormControlLabel-label': { fontSize: '0.75rem' },
+                  '& .MuiFormControlLabel-label': { fontSize: TYPOGRAPHY.caption.size },
                 }}
               />
             </Tooltip>
@@ -695,17 +837,17 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
               size="small"
               disabled={isInteractionDisabled}
               sx={{
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 height: '28px',
                 '& .MuiSelect-select': {
                   padding: '4px 8px',
                 },
               }}
             >
-              <MenuItem value="all" sx={{ fontSize: '0.75rem' }}>
+              <MenuItem value="all" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                 All must pass
               </MenuItem>
-              <MenuItem value="any" sx={{ fontSize: '0.75rem' }}>
+              <MenuItem value="any" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                 Any can pass
               </MenuItem>
             </Select>
@@ -717,7 +859,7 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
             startIcon={<AddIcon />}
             onClick={addVerification}
             disabled={isInteractionDisabled}
-            sx={{ minWidth: 'auto', fontSize: '0.75rem', py: 0.25 }}
+            sx={{ minWidth: 'auto', fontSize: TYPOGRAPHY.caption.size, py: 0.25 }}
           >
             Add
           </Button>
@@ -736,7 +878,7 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
               }
               sx={{
                 minWidth: 'auto',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 py: 0.25,
                 backgroundColor: P.accent,
                 '&:hover': {
@@ -748,6 +890,7 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
             </Button>
           )}
         </Box>
+        )}
 
         {/* Final Result indicator */}
         {testResults.length > 0 && (
@@ -780,7 +923,7 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
             <Typography
               sx={{
                 fontWeight: 'bold',
-                fontSize: '0.8rem',
+                fontSize: TYPOGRAPHY.body.size,
                 color:
                   passCondition === 'all'
                     ? testResults.every((result) => result.success)
@@ -851,9 +994,9 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
               onClick={() => setCollapsed(!collapsed)}
               sx={{ p: 0.125, minWidth: 'auto' }}
             >
-              {collapsed ? '▶' : '▼'}
+              <AppIcon name={collapsed ? 'chevron' : 'expand'} />
             </Button>
-            <Typography variant="subtitle2" sx={{ fontSize: '0.8rem', fontWeight: 600 }}>
+            <Typography variant="subtitle2" sx={{ fontSize: TYPOGRAPHY.body.size, fontWeight: 600 }}>
               {title}
             </Typography>
           </Box>
@@ -865,25 +1008,25 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
                 overflow: 'visible',
                 position: 'relative',
                 '& .MuiTypography-subtitle2': {
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
                 '& .MuiButton-root': {
-                  fontSize: '0.7rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
                 '& .MuiTextField-root': {
                   '& .MuiInputLabel-root': {
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                   '& .MuiInputBase-input': {
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 },
                 '& .MuiSelect-root': {
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
                 '& .MuiFormControl-root': {
                   '& .MuiInputLabel-root': {
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 },
               }}
@@ -966,6 +1109,7 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
     const runningVerificationIndexChanged =
       prevProps.runningVerificationIndex !== nextProps.runningVerificationIndex;
     const disabledChanged = prevProps.disabled !== nextProps.disabled;
+    const compactChanged = prevProps.compact !== nextProps.compact;
     const referenceReadOnlyChanged =
       prevProps.referenceReadOnly !== nextProps.referenceReadOnly;
     const allowReferenceEditChanged =
@@ -1019,7 +1163,8 @@ export const VerificationsList: React.FC<VerificationsListProps> = React.memo(
       onReferenceSelectedChanged ||
       onPassConditionChangeChanged ||
       onRunVerificationChanged ||
-      linkPropsChanged;
+      linkPropsChanged ||
+      compactChanged;
 
     // Reduce logging frequency to avoid console spam
     if (shouldRerender && verificationsChanged) {

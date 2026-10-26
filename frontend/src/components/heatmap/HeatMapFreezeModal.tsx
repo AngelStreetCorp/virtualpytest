@@ -3,6 +3,7 @@ import { Modal, Box, IconButton, Typography } from '@mui/material';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import React, { useMemo } from 'react';
 import { useR2UrlsBatch } from '../../hooks/storage/useR2Url';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface HeatMapFreezeModalProps {
   freezeModalOpen: boolean;
@@ -60,16 +61,16 @@ export const HeatMapFreezeModal: React.FC<HeatMapFreezeModalProps> = ({
             display: 'flex',
             justifyContent: 'flex-end',
             p: 0.5,
-            bgcolor: 'rgba(0,0,0,0.8)',
+            bgcolor: P.surfaceSolid,
           }}
         >
           <IconButton
             onClick={onClose}
             aria-label="Close"
             sx={{
-              color: 'white',
-              '&:hover': { bgcolor: 'rgba(255,255,255,0.1)', color: P.accent },
-              '& .MuiSvgIcon-root': { fontSize: 26 },
+              color: P.textPrimary,
+              '&:hover': { bgcolor: P.hoverBg, color: P.accent },
+              '& .MuiSvgIcon-root': { fontSize: TYPOGRAPHY.kpiValue.size },
             }}
           >
             <CloseIcon />
@@ -83,14 +84,14 @@ export const HeatMapFreezeModal: React.FC<HeatMapFreezeModalProps> = ({
             flexDirection: 'column',
             alignItems: 'center',
             p: 1,
-            bgcolor: 'rgba(0,0,0,0.8)',
-            borderBottom: '1px solid rgba(255,255,255,0.1)',
+            bgcolor: P.surfaceSolid,
+            borderBottom: `1px solid ${P.borderColor}`,
           }}
         >
           <Typography
             variant="h6"
             sx={{
-              color: 'white',
+              color: P.textPrimary,
               fontWeight: 'bold',
               mb: 0.5,
             }}
@@ -101,8 +102,8 @@ export const HeatMapFreezeModal: React.FC<HeatMapFreezeModalProps> = ({
             <Typography
               variant="body2"
               sx={{
-                color: 'rgba(255,255,255,0.8)',
-                fontSize: '0.875rem',
+                color: P.textSecondary,
+                fontSize: TYPOGRAPHY.body.size,
               }}
             >
               {new Date(timestamp).toLocaleString()}
@@ -111,8 +112,8 @@ export const HeatMapFreezeModal: React.FC<HeatMapFreezeModalProps> = ({
           <Typography
             variant="caption"
             sx={{
-              color: 'rgba(255,255,255,0.6)',
-              fontSize: '0.75rem',
+              color: P.textMuted,
+              fontSize: TYPOGRAPHY.caption.size,
               mt: 0.5,
             }}
           >
@@ -147,7 +148,7 @@ export const HeatMapFreezeModal: React.FC<HeatMapFreezeModalProps> = ({
                       textAlign: 'center',
                       p: 0.5,
                       bgcolor: 'rgba(0,0,0,0.7)',
-                      fontSize: '0.75rem',
+                      fontSize: TYPOGRAPHY.caption.size,
                     }}
                   >
                     {frameLabels[index]} - Diff ({diff !== undefined ? diff.toFixed(1) : 'N/A'})

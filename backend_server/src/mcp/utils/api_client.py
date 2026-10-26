@@ -20,6 +20,13 @@ class MCPAPIClient:
         # Set SERVER_BASE_URL env var to override (e.g., for remote backend_server)
         self.base_url = os.getenv('SERVER_BASE_URL', 'http://localhost:5109')
         self.timeout = 30
+        # Per-request headers forwarded by the MCP tool layer. The frontend
+        # uses the top-bar `ProjectSelector` to pick a project; the Atlas
+        # agent and the `/server/mcp/*` proxy set `X-Project-Id` so the
+        # backend can scope the request (TASK-65 G5). Tools call
+        # `set_header('X-Project-Id', project_id)` and every subsequent
+        # `get()` / `post()` until the next `clear_headers()` carries it.
+        self.headers: Dict[str, str] = {}
     
     def resolve_userinterface_name(self, userinterface_name: str, team_id: str) -> tuple:
         """
@@ -97,7 +104,7 @@ class MCPAPIClient:
         return device_model, None
     
     def post(self, endpoint: str, data: Dict[str, Any] = None, params: Dict[str, Any] = None,
-             timeout: Optional[float] = None) -> Dict[str, Any]:
+             timeout: Optional[float] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         POST request to backend_server API
         
@@ -113,11 +120,12 @@ class MCPAPIClient:
         """
         url = f"{self.base_url}{endpoint}"
         read_timeout = timeout or self.timeout
-        
+        merged_headers = {**server_auth_headers(), **self.headers, **(headers or {})}
+
         try:
             response = requests.post(
                 url,
-                headers=server_auth_headers(),
+                headers=merged_headers,
                 json=data or {},
                 params=params or {},
                 timeout=read_timeout
@@ -245,7 +253,7 @@ class MCPAPIClient:
                 'network_error': True
             }
     
-    def get(self, endpoint: str, params: Dict[str, Any] = None) -> Dict[str, Any]:
+    def get(self, endpoint: str, params: Dict[str, Any] = None, headers: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
         """
         GET request to backend_server API
         
@@ -257,11 +265,12 @@ class MCPAPIClient:
             Raw API response dict
         """
         url = f"{self.base_url}{endpoint}"
-        
+        merged_headers = {**server_auth_headers(), **self.headers, **(headers or {})}
+
         try:
             response = requests.get(
                 url,
-                headers=server_auth_headers(),
+                headers=merged_headers,
                 params=params or {},
                 timeout=self.timeout
             )

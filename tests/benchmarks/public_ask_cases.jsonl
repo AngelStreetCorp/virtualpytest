@@ -1,0 +1,27 @@
+{"id": "fx-en", "kind": "faq", "lang": "en", "question": "how is fixnet working", "expect_any": ["modem", "line"]}
+{"id": "fx-en2", "kind": "faq", "lang": "en", "question": "What is Fixnet for?", "expect_any": ["modem", "line"]}
+{"id": "fx-fr", "kind": "faq", "lang": "fr", "question": "comment fonctionne fixnet", "expect_any": ["modem", "ligne"]}
+{"id": "chip-ir", "kind": "faq", "lang": "en", "question": "Does it work with IR remotes?", "expect_any": ["infrared", "IR"]}
+{"id": "chip-price", "kind": "faq", "lang": "en", "question": "How is it priced?", "expect_any": ["free", "AGPL"]}
+{"id": "chip-devices", "kind": "faq", "lang": "en", "question": "Which devices are supported?", "expect_any": ["Android", "set-top"]}
+{"id": "price-fr", "kind": "faq", "lang": "fr", "question": "Combien ça coûte ?", "expect_any": ["gratuit", "AGPL"]}
+{"id": "what-is", "kind": "faq", "lang": "en", "question": "What is VirtualPyTest?", "expect_any": ["test", "monitor"]}
+{"id": "navtree", "kind": "faq", "lang": "en", "question": "What is a navigation tree?", "expect_any": ["screens", "map"]}
+{"id": "doc-localize", "kind": "docs", "lang": "en", "question": "What is Localize and how accurate is it?", "expect_any": ["screen", "node", "Localize"]}
+{"id": "doc-reports-fr", "kind": "docs", "lang": "en", "question": "Can the test reports be read in French?", "expect_any": ["French", "language"]}
+{"id": "doc-phone", "kind": "docs", "lang": "en", "question": "Can a phone be used as a test device?", "expect_any": ["phone", "pair"]}
+{"id": "doc-mcp", "kind": "docs", "lang": "en", "question": "Does VirtualPyTest have an MCP server for AI assistants?", "expect_any": ["MCP"]}
+{"id": "doc-ci", "kind": "docs", "lang": "en", "question": "Can I run tests on a schedule?", "expect_any": ["schedule", "periodic", "deployment"]}
+{"id": "doc-ir-key", "kind": "docs", "lang": "en", "question": "How do I add a new IR key for my set-top box?", "expect_any": ["ir_conf", "waveform", "learn", "key"]}
+{"id": "doc-fx-nodial", "kind": "docs", "lang": "en", "question": "Why does my Fixnet modem report NO DIALTONE?", "expect_any": ["line", "cable", "RJ11", "FXS"]}
+{"id": "doc-avq", "kind": "docs", "lang": "en", "question": "Does it measure audio and video quality?", "expect_any": ["quality", "audio", "video"]}
+{"id": "doc-vnc", "kind": "docs", "lang": "en", "question": "Can I control a Windows PC remotely?", "expect_any": ["Windows", "VNC", "desktop"]}
+{"id": "doc-wake", "kind": "docs", "lang": "en", "question": "How do I wake up a PC over the LAN?", "expect_any": ["Wake", "magic", "WoL"]}
+{"id": "off-capital", "kind": "offtopic", "lang": "en", "question": "What is the capital of France?"}
+{"id": "off-poem", "kind": "offtopic", "lang": "en", "question": "Write me a poem about the sea"}
+{"id": "off-fr", "kind": "offtopic", "lang": "fr", "question": "Quelle est la meilleure pizza à Paris ?"}
+{"id": "chip-fr-price", "kind": "faq", "lang": "fr", "question": "Quels sont les tarifs ?", "expect_any": ["gratuit", "AGPL"]}
+{"id": "chip-fr-ir", "kind": "faq", "lang": "fr", "question": "Est-ce compatible avec les télécommandes IR ?", "expect_any": ["infrarouge", "IR"]}
+{"id": "chip-fr-devices", "kind": "faq", "lang": "fr", "question": "Quels appareils sont pris en charge ?", "expect_any": ["Android", "décodeur"]}
+{"id": "chip-de-price", "kind": "faq", "lang": "de", "question": "Wie ist der Preis?", "expect_any": ["kostenlos", "AGPL"]}
+{"id": "chip-es-devices", "kind": "faq", "lang": "es", "question": "¿Qué dispositivos son compatibles?", "expect_any": ["Android", "decodificador"]}

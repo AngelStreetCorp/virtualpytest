@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low                                                          |
 | Area      | infra / deployment · dashboard host card                    |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---
@@ -18,7 +18,7 @@
 
 On the Dashboard (`https://virtualpytest.angelstreet.io/`), the host card for **`vpt-windows`**
 renders its System Stats header as **"Linux (x86_64)"**, although the physical machine is a
-Windows PC (`192.168.1.70`, login user `pcuser` — the WoL/LM-Studio box described in
+Windows PC (`192.168.x.70`, login user `pcuser` — the WoL/LM-Studio box described in
 `docs/agent/devices/WAKE_ON_LAN.md`).
 
 Two corroborating oddities on the same card, both impossible on a native Windows host:
@@ -54,7 +54,7 @@ Evidence gathered 2026-10-12:
    `platform=Linux`, `architecture=x86_64`. The host has **never once** reported `Windows`.
 
 4. **The decisive evidence — it is a Docker container.** `GET /host/system/checkStorage`
-   against `http://192.168.1.70:6109` returns:
+   against `http://192.168.x.70:6109` returns:
    ```json
    {"host":"8e20da5d30d8","rows":[{"filesystem":"root","mountpoint":"/",
      "size":1081101176832,"use_pct":2.0,"used":21270036480}],"success":true}
@@ -65,7 +65,7 @@ Evidence gathered 2026-10-12:
    `platform.node()` returning the container ID is the same story.
 
 5. The deployment is reachable only over the **container** port `6109`; SSH to
-   `192.168.1.70:22` times out from both the Mac and vpt-pi4, so the Windows OpenSSH server is
+   `192.168.x.70:22` times out from both the Mac and vpt-pi4, so the Windows OpenSSH server is
    not currently serving the VPT role either.
 
 So: the physical box is Windows, but `vpt-host` runs Linux — almost certainly the Docker
@@ -144,6 +144,6 @@ End-to-end after deploy (the card updates on the next host ping, ≤60s):
 
 ```bash
 # the host itself now reports the machine underneath
-curl -s -H "X-API-Key: $API_KEY" http://192.168.1.70:6109/host/system/checkStorage
+curl -s -H "X-API-Key: $API_KEY" http://192.168.x.70:6109/host/system/checkStorage
 # still a POSIX "/" row + container-id hostname == still the Docker path
 ```

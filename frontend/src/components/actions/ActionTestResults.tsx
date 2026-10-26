@@ -2,7 +2,9 @@ import { Box, Typography } from '@mui/material';
 import React from 'react';
 
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { AppIcon } from '../../constants/icons';
 import type { EdgeAction } from '../../types/controller/Action_Types';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface ActionTestResultsProps {
   testResult: EdgeAction;
@@ -26,11 +28,11 @@ export const ActionTestResults: React.FC<ActionTestResultsProps> = ({ testResult
 
   const getResultIcon = () => {
     if (testResult.success || testResult.resultType === 'SUCCESS') {
-      return '✅';
+      return 'success' as const;
     } else if (testResult.resultType === 'ERROR') {
-      return '⚠️';
+      return 'warning' as const;
     } else {
-      return '❌';
+      return 'error' as const;
     }
   };
 
@@ -57,10 +59,10 @@ export const ActionTestResults: React.FC<ActionTestResultsProps> = ({ testResult
       }}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-        <Typography sx={{ fontSize: '0.75rem' }}>{getResultIcon()}</Typography>
+        <AppIcon name={getResultIcon()} />
         <Typography
           sx={{
-            fontSize: '0.75rem',
+            fontSize: TYPOGRAPHY.caption.size,
             color: getResultColor(),
             fontWeight: 500,
           }}
@@ -72,7 +74,7 @@ export const ActionTestResults: React.FC<ActionTestResultsProps> = ({ testResult
       {testResult.executionTime && (
         <Typography
           sx={{
-            fontSize: '0.65rem',
+            fontSize: TYPOGRAPHY.microMeta.size,
             color: 'text.secondary',
             mt: 0.25,
           }}
@@ -84,7 +86,7 @@ export const ActionTestResults: React.FC<ActionTestResultsProps> = ({ testResult
       {testResult.executedAt && (
         <Typography
           sx={{
-            fontSize: '0.65rem',
+            fontSize: TYPOGRAPHY.microMeta.size,
             color: 'text.secondary',
             mt: 0.25,
           }}

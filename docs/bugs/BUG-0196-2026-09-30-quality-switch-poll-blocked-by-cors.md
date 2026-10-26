@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                                         |
 | Severity  | Medium (every LOW / SD / HD switch in the stream modal waited out its timeouts; a spurious error, and a second FFmpeg restart) |
 | Area      | `frontend/src/utils/buildUrlUtils.ts` (`getStreamMediaSequence`, `pollForFreshStream`)          |
-| Fixed in  | Unreleased                                                                                     |
+| Fixed in  | build 90145 |
 | Commit    | `459b0e1a8`                                                                                    |
 
 ---

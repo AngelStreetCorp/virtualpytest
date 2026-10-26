@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy; migration applied to node1 + QualiAI) |
 | Severity  | Medium — wrong waits and misleading labels, no data loss      |
 | Area      | backend_host / frontend / db / verification                  |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `a757ca11b`                                                  |
 
 ---

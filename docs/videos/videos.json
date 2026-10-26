@@ -1,0 +1,301 @@
+{
+  "default": "RBgS376Blvo",
+  "categories": {
+    "device": "Device",
+    "ai": "AI",
+    "test": "Test",
+    "scripts": "Scripts",
+    "stream": "Stream"
+  },
+  "videos": [
+    {
+      "id": "YWJ1uz8KHCo",
+      "title": "Fly a drone from the Device page, with live video | VirtualPyTest",
+      "summary": "Live view, remote, take-off and landing of a Tello from the Device page",
+      "thumb": "frontend/public/readme/videos/32_drone_remote.jpg",
+      "added": "2026-10-14",
+      "categories": [
+        "device"
+      ],
+      "tags": [
+        "drone",
+        "tello",
+        "fly",
+        "flying",
+        "pilote",
+        "pilot",
+        "remote",
+        "device-control",
+        "device-page",
+        "live-view",
+        "takeoff",
+        "landing",
+        "rc"
+      ]
+    },
+    {
+      "id": "Pt384v3ucDA",
+      "title": "Group control: one remote drives two phones at once | VirtualPyTest",
+      "summary": "One remote drives several devices at once",
+      "thumb": "frontend/public/readme/videos/25b_group_control.jpg",
+      "added": "2026-10-13",
+      "categories": [
+        "device"
+      ]
+    },
+    {
+      "id": "Sj9kyKj98s8",
+      "title": "Device view showing from 1 to 48 devices | VirtualPyTest",
+      "summary": "Grid, side by side, 2×2 or one stream: the layout that fits",
+      "thumb": "frontend/public/readme/videos/25a_device_layouts.jpg",
+      "added": "2026-10-13",
+      "categories": [
+        "device"
+      ]
+    },
+    {
+      "id": "Dvd5CpA2SwU",
+      "title": "Now compatible: Nintendo Switch and Fire TV Vega OS | VirtualPyTest",
+      "summary": "Now compatible: a Switch game console and Fire TV on Vega OS",
+      "thumb": "frontend/public/readme/videos/24_switch_firetv.jpg",
+      "added": "2026-10-06",
+      "categories": [
+        "device"
+      ]
+    },
+    {
+      "id": "qAm6YmmvU5g",
+      "title": "Localize your screen with Fingerprint: no more image or text references",
+      "summary": "Which screen is it on? One click, no references to maintain",
+      "thumb": "frontend/public/readme/videos/23_fingerprint.jpg",
+      "added": "2026-10-06",
+      "categories": [
+        "test"
+      ]
+    },
+    {
+      "id": "03jh3MMb6PM",
+      "title": "Automatic Subtitle Analysis: compare displayed subtitles against the source",
+      "summary": "Subtitles a device displays, checked against the source",
+      "thumb": "frontend/public/readme/videos/21_subtitle_qa.jpg",
+      "added": "2026-10-06",
+      "categories": [
+        "test"
+      ]
+    },
+    {
+      "id": "IP7rehiSBo4",
+      "title": "What's new in VirtualPyTest: new look, 3 languages, shareable reports, analytics",
+      "summary": "A new look, EN/FR/DE, shareable reports, analytics",
+      "thumb": "frontend/public/readme/videos/22_whats_new.jpg",
+      "added": "2026-10-06",
+      "categories": [
+        "test"
+      ]
+    },
+    {
+      "id": "pSYvpoRfTIM",
+      "title": "Claude Code drives real devices over MCP",
+      "summary": "Claude Code drives a real device through VirtualPyTest's MCP server",
+      "thumb": "frontend/public/readme/videos/19_mcp.jpg",
+      "added": "2026-10-06",
+      "categories": [
+        "ai",
+        "device"
+      ]
+    },
+    {
+      "id": "ujmCqAn-RvE",
+      "title": "Ask Atlas to generate a Grafana dashboard",
+      "summary": "One sentence to Atlas, a Grafana dashboard filtered to your device",
+      "thumb": "frontend/public/readme/videos/20_atlas_grafana.jpg",
+      "added": "2026-10-06",
+      "categories": [
+        "ai",
+        "stream"
+      ]
+    },
+    {
+      "id": "x0ghHYXUFeI",
+      "title": "Write a test script in the browser and run it on a real device",
+      "summary": "Paste a test, save it, run it on a real device",
+      "thumb": "frontend/public/readme/videos/18_virtual_script.jpg",
+      "added": "2026-10-06",
+      "categories": [
+        "scripts",
+        "device"
+      ]
+    },
+    {
+      "id": "ehsC4x7_5KQ",
+      "title": "AI Test Prompting: natural language to a test, replay without AI",
+      "summary": "Natural language to a test, save, replay without AI",
+      "thumb": "frontend/public/readme/videos/17_test_prompt.jpg",
+      "added": "2026-10-06",
+      "categories": [
+        "ai",
+        "test"
+      ]
+    },
+    {
+      "id": "sDkJ3U14mlE",
+      "title": "Map an Android app automatically on a real phone, then test every path",
+      "summary": "Every screen of an Android app found and tested on a real phone",
+      "thumb": "frontend/public/readme/videos/14_ai_map.jpg",
+      "added": "2026-10-07",
+      "categories": [
+        "test",
+        "device"
+      ]
+    },
+    {
+      "id": "RdMTfT4MjAM",
+      "title": "Create and run a test campaign in seconds, no scripting",
+      "summary": "Pick the tests, save, run: one report for the whole campaign",
+      "thumb": "frontend/public/readme/videos/11_campaign.jpg",
+      "added": "2026-10-07",
+      "categories": [
+        "scripts",
+        "test"
+      ]
+    },
+    {
+      "id": "HF2Kuiw8zaE",
+      "title": "Ask your test data in plain words: AI charts",
+      "summary": "Plain questions to Atlas, real charts from your test runs",
+      "thumb": "frontend/public/readme/videos/16_atlas.jpg",
+      "added": "2026-10-06",
+      "categories": [
+        "ai",
+        "test"
+      ]
+    },
+    {
+      "id": "hdcoyhftNEs",
+      "title": "24 video streams monitored 24/7 on one small host",
+      "summary": "HLS, RTSP or file streams monitored 24/7 before they reach a device",
+      "thumb": "frontend/public/readme/videos/15_streams.jpg",
+      "added": "2026-10-06",
+      "categories": [
+        "stream"
+      ]
+    },
+    {
+      "id": "YlOJau8WPqE",
+      "title": "Audio Video Quality, 24/7, no scripts",
+      "summary": "A/V quality metrics collected for you 24/7, no scripts",
+      "thumb": "frontend/public/readme/videos/13_avq.jpg",
+      "added": "2026-10-07",
+      "categories": [
+        "stream",
+        "test"
+      ]
+    },
+    {
+      "id": "hHnKrb9vIc0",
+      "title": "Real devices driven by Agentic AI: 2048 on mobile and web at once",
+      "summary": "2048 played by the same AI on a phone and in a browser, at the same time",
+      "thumb": "frontend/public/readme/videos/12_2048.jpg",
+      "added": "2026-10-04",
+      "categories": [
+        "ai",
+        "device"
+      ]
+    },
+    {
+      "id": "xWZyBp7Npck",
+      "title": "QuickTest Builder: no code, just steps. Press CH+, check the picture moves",
+      "summary": "No code, just steps: press CH+, check the picture moves, run",
+      "thumb": "frontend/public/readme/videos/10_quicktest.jpg",
+      "added": "2026-09-29",
+      "categories": [
+        "scripts",
+        "test"
+      ]
+    },
+    {
+      "id": "DR8IX3Y_rCs",
+      "title": "Automatic incident detection + 24 h review buffer on every device",
+      "summary": "Freezes caught on their own, and a 24 h review buffer on every device, no script",
+      "thumb": "frontend/public/readme/videos/09_monitoring.jpg",
+      "added": "2026-09-29",
+      "categories": [
+        "stream",
+        "test"
+      ]
+    },
+    {
+      "id": "9cjzYpDVROs",
+      "title": "Automatic zap detection: zap with the remote, no code to write",
+      "summary": "Zap with the remote: the backend detects and times it, no code to write",
+      "thumb": "frontend/public/readme/videos/07_zap.jpg",
+      "added": "2026-09-28",
+      "categories": [
+        "test",
+        "stream"
+      ]
+    },
+    {
+      "id": "TcRkqETFlco",
+      "title": "Why did it fail? Reference, screen and diff, side by side",
+      "summary": "Reference, screen and pixel diff, side by side, from a failed step",
+      "thumb": "frontend/public/readme/videos/06_comparison.jpg",
+      "added": "2026-09-28",
+      "categories": [
+        "test"
+      ]
+    },
+    {
+      "id": "rFkZxSoK0zM",
+      "title": "Every navigation timed, automatically: KPI measurement in VirtualPyTest",
+      "summary": "A KPI on every run, measured from the frames, with its report",
+      "thumb": "frontend/public/readme/videos/05_kpi.jpg",
+      "added": "2026-09-28",
+      "categories": [
+        "test"
+      ]
+    },
+    {
+      "id": "prG2eqnbjfs",
+      "title": "Ask the AI, it acts: driving real devices from a chat with VirtualPyTest",
+      "summary": "Answers from the docs, then runs a script on a device from the chat",
+      "thumb": "frontend/public/readme/videos/04_ai_agent.jpg",
+      "added": "2026-09-29",
+      "categories": [
+        "ai"
+      ]
+    },
+    {
+      "id": "bBheQqaRIQM",
+      "title": "Proof, not a checkmark: what every VirtualPyTest run leaves behind",
+      "summary": "Every step with its screenshot, verification and evidence",
+      "thumb": "frontend/public/readme/videos/03_evidence.jpg",
+      "added": "2026-09-27",
+      "categories": [
+        "test"
+      ]
+    },
+    {
+      "id": "_CP29LQe0xQ",
+      "title": "Map your app once, test it everywhere: navigation trees in VirtualPyTest",
+      "summary": "Screens as nodes, actions as edges, one goto that drives a real browser",
+      "thumb": "frontend/public/readme/videos/02_navigation.jpg",
+      "added": "2026-09-27",
+      "categories": [
+        "test",
+        "scripts"
+      ]
+    },
+    {
+      "id": "RBgS376Blvo",
+      "title": "VirtualPyTest in 60 seconds: automated testing for TV, STB, mobile and web",
+      "summary": "Dashboard, devices, heatmap, a test run, its report and the KPI it measured.",
+      "thumb": "frontend/public/readme/videos/01_promo.jpg",
+      "added": "2026-09-27",
+      "categories": [
+        "test",
+        "device"
+      ]
+    }
+  ]
+}

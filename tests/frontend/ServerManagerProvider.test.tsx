@@ -31,13 +31,13 @@ vi.mock('../../frontend/src/utils/apiClient', () => ({
 }));
 
 vi.mock('../../frontend/src/utils/serverSocket', () => ({
-  createServerSocket: () => ({
+  createServerSocket: vi.fn(() => ({
     on: vi.fn(),
     off: vi.fn(),
     emit: vi.fn(),
     disconnect: vi.fn(),
     connected: false,
-  }),
+  })),
 }));
 
 vi.mock('../../frontend/src/lib/supabase', () => ({
@@ -71,8 +71,10 @@ vi.mock('../../frontend/src/contexts/auth/AuthContext', () => ({
 import { ServerManagerContext } from '../../frontend/src/contexts/ServerManagerContext';
 import { ServerManagerProvider } from '../../frontend/src/contexts/ServerManagerProvider';
 import { apiClient } from '../../frontend/src/utils/apiClient';
+import { createServerSocket } from '../../frontend/src/utils/serverSocket';
 
 const apiClientMock = vi.mocked(apiClient);
+const createServerSocketMock = vi.mocked(createServerSocket);
 
 /** A server that answers with one host. */
 const hostsResponse = (serverName: string, hostName: string) => ({
@@ -97,6 +99,7 @@ const Probe: React.FC = () => {
       </span>
       <span data-testid="loading">{String(context.isLoading)}</span>
       <span data-testid="failed">{[...context.failedServers].join(',')}</span>
+      <span data-testid="selected">{context.selectedServer}</span>
     </div>
   );
 };
@@ -196,5 +199,84 @@ describe('ServerManagerProvider — per-server failure isolation', () => {
 
     // ...and the first-configured one still takes its configured place once it lands.
     await waitFor(() => expect(screen.getByTestId('servers')).toHaveTextContent('Fast,Slow'));
+  });
+});
+
+/**
+ * T16 rehydration canary — the `selectedServer` slot must accept the
+ * ALL_SERVERS_SENTINEL value verbatim. The previous rehydration
+ * `availableServers.includes(saved)` check rejected any string that
+ * was not a configured URL, so reloading the page while the user had
+ * "All servers" picked would silently flip the picker back to the
+ * first configured server.
+ */
+describe('ServerManagerProvider — ALL-scope rehydration (T16)', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    apiClientMock.mockReset();
+    identity.states.clear();
+    identity.known.clear();
+    identity.discover.mockReset();
+  });
+
+  it('persists and rehydrates the ALL scope across reloads', async () => {
+    localStorage.setItem('selectedServer', '__all__');
+    apiClientMock.mockImplementation(async () => hostsResponse('Fast', 'host-a') as any);
+
+    renderProvider();
+
+    // The Probe prints `selectedServer`. The sentinel is the
+    // literal string `__all__` — the rehydration must NOT coerce it
+    // back to a configured URL.
+    await waitFor(() => {
+      expect(screen.getByTestId('selected').textContent).toBe('__all__');
+    });
+  });
+
+  it('does not route the system socket to `__all__` when the sentinel is picked', async () => {
+    // The previous bug: the system socket was created with
+    // `createServerSocket(selectedServer, ...)` which, when
+    // `selectedServer === '__all__'`, would route a socket to the
+    // literal origin `__all__` and a network request to
+    // `https://<host>/__all__/server/agent/sessions` (404). On every
+    // reconnect cycle the browser logged
+    //   WebSocket connection to 'wss://__all__/socket.io/?EIO=4&transport=websocket' failed
+    // and the page felt slow while the user picked "All servers"
+    // (BUG-0577). Pin the fix: in ALL mode the effect must short-circuit
+    // before `createServerSocket` is invoked.
+    createServerSocketMock.mockClear();
+    localStorage.setItem('selectedServer', '__all__');
+    apiClientMock.mockImplementation(async () => hostsResponse('Fast', 'host-a') as any);
+
+    renderProvider();
+    await waitFor(() => {
+      expect(screen.getByTestId('selected').textContent).toBe('__all__');
+    });
+
+    // No socket to the literal `__all__` origin (or anywhere else — the
+    // effect should be a no-op while ALL is picked, since the
+    // /system namespace is single-server by design).
+    expect(createServerSocketMock).not.toHaveBeenCalled();
+    for (const call of createServerSocketMock.mock.calls) {
+      expect(call[0]).not.toBe('__all__');
+    }
+  });
+
+  it('opens the system socket normally when a configured URL is picked', async () => {
+    // Sibling of the previous case, to prove the ALL-mode short-circuit
+    // is exactly scoped to the sentinel — a real URL must still open
+    // the socket so host_registered / host_unregistered events land.
+    createServerSocketMock.mockClear();
+    apiClientMock.mockImplementation(async () => hostsResponse('Fast', 'host-a') as any);
+
+    renderProvider();
+    await waitFor(() => {
+      expect(screen.getByTestId('servers')).toHaveTextContent('Fast');
+    });
+
+    expect(createServerSocketMock).toHaveBeenCalled();
+    const args = createServerSocketMock.mock.calls[0];
+    expect(args[0]).toBe(urls.FAST);
+    expect(args[1]).toBe('/system');
   });
 });

@@ -1,0 +1,8 @@
+[Unit]
+Description=VirtualPyTest CI runner retention check (every 15 minutes)
+
+[Timer]
+OnUnitActiveSec=15min
+
+[Install]
+WantedBy=timers.target

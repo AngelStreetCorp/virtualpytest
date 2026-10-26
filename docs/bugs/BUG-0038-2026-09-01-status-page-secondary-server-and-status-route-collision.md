@@ -38,7 +38,7 @@ whichever server is currently selected in the server picker (`localStorage['sele
 not necessarily the primary server. Tested both registered servers directly and matched the
 customer's exact wording:
 
-| Check | primary (`virtualpytest.angelstreet.io`) | secondary (`rpitest.angelstreet.io`) |
+| Check | primary (`virtualpytest.angelstreet.io`) | secondary (`<pi-server-host>`) |
 |---|---|---|
 | `/server/health` | 200 OK, redis+supabase connected (0.5s) | **times out, no response (12s+)** |
 | `/server/storage/health` | ok, r2_configured (0.5s) | ok, r2_configured (0.2s) |
@@ -72,6 +72,6 @@ distinct from the frontend routing bug.
 
 ## Follow-up (not fixed here)
 
-`rpitest.angelstreet.io`'s own `/server/health` route hangs to a full timeout (12s+, no response)
+`<pi-server-host>`'s own `/server/health` route hangs to a full timeout (12s+, no response)
 while its sibling endpoints on the same host answer in ~0.2-0.3s — a real, host-specific bug worth
 investigating on that server independently of the frontend routing fix above.

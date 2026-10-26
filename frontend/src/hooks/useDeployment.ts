@@ -2,6 +2,7 @@ import { useCallback } from 'react';
 import { buildServerUrl } from '../utils/buildUrlUtils';
 import { api } from '../utils/apiClient';
 import { useAsyncRequest } from './shared/useAsyncRequest';
+import { useHostScopedUrl } from './allServer/useRowServerUrl';
 
 export interface Deployment {
   id: string;
@@ -98,10 +99,11 @@ export interface RecentDeploymentExecutionsResponse {
 
 export const useDeployment = () => {
   const { execute, loading } = useAsyncRequest();
+  const hostScopedUrl = useHostScopedUrl();
 
   const createDeployment = useCallback(async (data: Partial<Deployment>) => {
-    return execute(() => api.post(buildServerUrl('/server/deployment/create'), data));
-  }, [execute]);
+    return execute(() => api.post(hostScopedUrl(data.host_name, '/server/deployment/create'), data));
+  }, [execute, hostScopedUrl]);
 
   const listDeployments = useCallback(async () => {
     return api.get(buildServerUrl('/server/deployment/list'), { cache: 'no-store' });

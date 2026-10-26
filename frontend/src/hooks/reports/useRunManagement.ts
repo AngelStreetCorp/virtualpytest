@@ -12,6 +12,7 @@ import { useMemo } from 'react';
 import { useWorkspaceContext } from '../../contexts/workspace/WorkspaceContext';
 import { useServerManager } from '../useServerManager';
 import { usePermissions } from '../auth/usePermissions';
+import { ALL_SERVERS_SENTINEL } from '../../lib/allServer/scope';
 import {
   REPORT_PERMISSIONS,
   type BatchAssignmentInput,
@@ -34,6 +35,15 @@ const ROOT = 'run-management';
 /**
  * The active workspace scope: its `host:device_id` keys (device_filter) and their host
  * names (host_filter). Endpoints that scope by host only ignore the device keys.
+ *
+ * TASK-113: when the picker is in ALL mode (`selectedServer ===
+ * ALL_SERVERS_SENTINEL), the scope's `serverKey` becomes the literal
+ * `'*'`. React Query keys still pass `'*'` through; per-server fetches
+ * are not done by this hook — the consumer (e.g. `useRunSummary`)
+ * fans out per eligible server using `queryScope` (PR-B) and the
+ * individual results land in the React Query cache under their own
+ * per-server key. `'*'` is a SCOPE marker for the workspace, not a
+ * substitute for `serverId` in a cache key.
  */
 export const useReportScope = (): ReportScope => {
   const { activeWorkspace } = useWorkspaceContext();
@@ -44,7 +54,12 @@ export const useReportScope = (): ReportScope => {
     const hostFilter = deviceFilter
       ? Array.from(new Set(deviceFilter.map((entry) => entry.split(':')[0]).filter(Boolean))).sort()
       : undefined;
-    return { hostFilter, deviceFilter, serverKey: String(selectedServer ?? '') };
+    const isAllMode = selectedServer === ALL_SERVERS_SENTINEL;
+    return {
+      hostFilter,
+      deviceFilter,
+      serverKey: isAllMode ? '*' : String(selectedServer ?? ''),
+    };
   }, [activeWorkspace, selectedServer]);
 };
 

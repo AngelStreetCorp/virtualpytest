@@ -1,3 +1,4 @@
+import { AppIcon } from '../../constants/icons';
 import React, { useState, useEffect } from 'react';
 import { Handle, Position, NodeProps, useReactFlow } from 'reactflow';
 
@@ -11,6 +12,7 @@ import { useMetrics } from '../../hooks/navigation/useMetrics';
 import type { UINavigationNode as UINavigationNodeType, UINavigationEdge } from '../../types/pages/Navigation_Types';
 import { getZIndex } from '../../utils/zIndexUtils';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>> = ({
   data,
@@ -103,7 +105,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
           alignItems: 'center',
           justifyContent: 'center',
           color: entryColors.textColor,
-          fontSize: '16px',
+          fontSize: TYPOGRAPHY.navbarItem.size,
           fontWeight: 'bold',
           position: 'relative',
           cursor: 'pointer',
@@ -115,7 +117,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
             : 'Entry Point - Click to edit entry method'
         }
       >
-        ⚡{/* Single source handle for outgoing connections */}
+        <AppIcon name="fast" />{/* Single source handle for outgoing connections */}
         <Handle
           type="source"
           position={Position.Right}
@@ -127,7 +129,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
             background: entryColors.border,
             width: '8px',
             height: '8px',
-            border: `2px solid ${P.surface}`,
+            border: `2px solid ${P.surfaceSolid}`,
             borderRadius: '50%',
             right: -4,
             top: '50%',
@@ -182,7 +184,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
     <>
       <div
         style={{
-          background: P.surface,
+          background: P.surfaceSolid,
           border: isCurrentPosition
             ? currentPositionStyle.border // Gold border for current position (highest priority)
             : `1px solid ${nodeColors.border}`, // Use validation colors for border (includes verification results)
@@ -192,7 +194,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
           minWidth: '200px',
           maxWidth: '200px',
           minHeight: '180px',
-          fontSize: '12px',
+          fontSize: TYPOGRAPHY.caption.size,
           color: P.textPrimary,
           boxShadow: 'none !important', // Remove all shadows
           WebkitBoxShadow: 'none !important',
@@ -218,7 +220,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
             left: '4px', // Always stay in top-left position
             backgroundColor: UI_BADGE_COLORS.root.background,
             color: UI_BADGE_COLORS.root.textColor,
-            fontSize: '10px',
+            fontSize: TYPOGRAPHY.microMeta.size,
             fontWeight: 'bold',
             padding: '2px 6px',
             borderRadius: '4px',
@@ -238,7 +240,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
             right: '4px',
             backgroundColor: UI_BADGE_COLORS.menu.background,
             color: UI_BADGE_COLORS.menu.textColor,
-            fontSize: '10px',
+            fontSize: TYPOGRAPHY.microMeta.size,
             fontWeight: 'bold',
             padding: '2px 6px',
             borderRadius: '4px',
@@ -260,7 +262,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
             right: isMenuNode ? '52px' : '4px',
             backgroundColor: P.series[1],
             color: '#fff',
-            fontSize: '10px',
+            fontSize: TYPOGRAPHY.microMeta.size,
             fontWeight: 'bold',
             padding: '2px 6px',
             borderRadius: '4px',
@@ -284,7 +286,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
         isConnectableEnd={!isRootNode}
         style={{
           background: data.is_root ? P.accent : P.series[1],
-          border: `2px solid ${P.surface}`,
+          border: `2px solid ${P.surfaceSolid}`,
           width: '16px',
           height: '16px',
           borderRadius: '50%',
@@ -306,7 +308,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
         isConnectableEnd={false}
         style={{
           background: P.series[3],
-          border: `2px solid ${P.surface}`,
+          border: `2px solid ${P.surfaceSolid}`,
           width: '16px',
           height: '16px',
           borderRadius: '50%',
@@ -330,7 +332,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
         isConnectableEnd={false}
         style={{
           background: P.series[1],
-          border: `2px solid ${P.surface}`,
+          border: `2px solid ${P.surfaceSolid}`,
           width: '16px',
           height: '16px',
           borderRadius: '50%',
@@ -352,7 +354,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
         isConnectableEnd={true}
         style={{
           background: P.series[3],
-          border: `2px solid ${P.surface}`,
+          border: `2px solid ${P.surfaceSolid}`,
           width: '16px',
           height: '16px',
           borderRadius: '50%',
@@ -386,7 +388,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
           top: -7,
           cursor: 'crosshair',
           zIndex: 10,
-          boxShadow: `0 0 0 2px ${P.surface}`,
+          boxShadow: `0 0 0 2px ${P.surfaceSolid}`,
         }}
       />
 
@@ -410,7 +412,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
           cursor: 'crosshair',
           zIndex: getZIndex('NAVIGATION_NODE_HANDLES'),
           opacity: 0,
-          boxShadow: `0 0 0 2px ${P.surface}`,
+          boxShadow: `0 0 0 2px ${P.surfaceSolid}`,
         }}
       />
 
@@ -434,7 +436,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
           bottom: -7,
           cursor: 'crosshair',
           zIndex: getZIndex('NAVIGATION_NODE_HANDLES'),
-          boxShadow: `0 0 0 2px ${P.surface}`,
+          boxShadow: `0 0 0 2px ${P.surfaceSolid}`,
         }}
       />
 
@@ -458,7 +460,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
           cursor: 'crosshair',
           zIndex: 10,
           opacity: 0,
-          boxShadow: `0 0 0 2px ${P.surface}`,
+          boxShadow: `0 0 0 2px ${P.surfaceSolid}`,
         }}
       />
 
@@ -482,7 +484,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
             whiteSpace: 'nowrap',
             color: isRootNode ? P.error : P.textPrimary,
             marginBottom: '0px',
-            fontSize: '18px',
+            fontSize: TYPOGRAPHY.cardTitle.size,
           }}
         >
           {data.label}
@@ -516,7 +518,7 @@ export const UINavigationNode: React.FC<NodeProps<UINavigationNodeType['data']>>
         {!screenshotUrl && (
           <div
             style={{
-              fontSize: '11px',
+              fontSize: TYPOGRAPHY.microMeta.size,
               color: P.textMuted,
               textAlign: 'center',
             }}

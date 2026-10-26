@@ -107,9 +107,9 @@ Most components run as Windows services managed by NSSM.
 | Name | Type | Description | Port |
 |------|------|-------------|------|
 | `vpt-host` | Scheduled Task | Host API Server (interactive) | 6109 |
-| `vpt-monitor` | Service (NSSM) | Capture Monitor | - |
+| `vpt-monitor-img` | Service (NSSM) | Capture Monitor | - |
 | `vpt-archiver` | Service (NSSM) | Hot/Cold Archiver | - |
-| `vpt-transcript` | Service (NSSM) | Audio Transcript | - |
+| `vpt-monitor-audio` | Service (NSSM) | Audio Transcript | - |
 | `vpt-vnc` | Service (NSSM) | VNC Server | 5900 |
 | `vpt-websockify` | Service (NSSM) | noVNC WebSocket Proxy | 6080 |
 | `vpt-stream` | Scheduled Task | FFmpeg capture (interactive session) | - |
@@ -199,14 +199,14 @@ Get-Content C:\virtualpytest\logs\host.log -Tail 100
 Get-Content C:\virtualpytest\logs\host_error.log -Tail 100
 
 # Start background services + interactive tasks
-Start-Service vpt-monitor, vpt-archiver, vpt-transcript
+Start-Service vpt-monitor-img, vpt-archiver, vpt-monitor-audio
 Start-ScheduledTask vpt-host
 Start-ScheduledTask vpt-stream
 
 # Stop background services + interactive tasks
 Stop-ScheduledTask vpt-host
 Stop-ScheduledTask vpt-stream
-Stop-Service vpt-monitor, vpt-archiver, vpt-transcript
+Stop-Service vpt-monitor-img, vpt-archiver, vpt-monitor-audio
 ```
 
 ## Device Detection

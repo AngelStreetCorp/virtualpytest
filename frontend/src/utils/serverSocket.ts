@@ -22,7 +22,7 @@ import { getEnv } from '../config/constants';
 import { getAutoSignHeaderToken } from '../lib/autoSign';
 import { getAccessTokenForServer } from '../lib/serverIdentity';
 
-type SocketOptions = Parameters<typeof io>[1];
+export type SocketOptions = Parameters<typeof io>[1];
 
 export const buildSocketAuth = (serverBaseUrl: string) => {
   // socket.io-client sends one CONNECT packet per callback invocation. If the engine

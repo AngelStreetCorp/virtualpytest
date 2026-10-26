@@ -3,13 +3,51 @@
 # computation. NEVER deploys: the script is cut just before its first real step ("Restart-only mode"), a state
 # line is appended, and it runs with HOME pointing at a temp dir whose ~/bin/vpt-lease is the real registry CLI
 # on a temp lease dir.
-#   VPT_LEASE_BIN=/path/to/vpt-lease  (default ~/.claude/skills/deploy/vpt-lease; the test skips if absent)
+#   VPT_LEASE_BIN=/path/to/vpt-lease  (optional override; the default is the frozen copy in fixtures/,
+#       then the operator's own ~/.claude/skills/deploy/vpt-lease)
 #   UPDATE_CORE=/path/to/update_core.sh  (default: the one next to this file; point it at a live copy to check it)
+#
+# This harness NEVER skips in CI. It used to skip when the lease CLI was absent — and in CI the CLI
+# was never present, so the whole harness was a green run that tested nothing. That is the hole this
+# harness exists to close, so it now uses the frozen copy in fixtures/ and, if no CLI can be found at
+# all, FAILS when CI is set and says SKIP loudly otherwise.
 set -uo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 UC="${UPDATE_CORE:-${here}/update_core.sh}"
-LEASE_BIN="${VPT_LEASE_BIN:-${HOME}/.claude/skills/deploy/vpt-lease}"
-[[ -f "${LEASE_BIN}" ]] || { echo "SKIP: no vpt-lease at ${LEASE_BIN}"; exit 0; }
+
+# ---- which lease CLI this run uses ------------------------------------------------------
+# The dry check needs a CLI that keeps its registry in a local directory (VPT_LEASE_DIR), so the
+# fake leases below never reach the shared registry. The current central CLI talks to the shared
+# lease service instead and ignores VPT_LEASE_DIR: running it here creates REAL leases (fake host
+# names, but `kind=server` leases on node1-vpt that block the node's server deploys until they
+# expire). Refuse such a CLI instead of polluting.
+#
+# Resolution order:
+#   1. $VPT_LEASE_BIN — an explicit choice. Missing or unusable is a FAIL: quietly testing with a
+#      different CLI than the one that was asked for is worse than not testing at all.
+#   2. fixtures/vpt-lease — the frozen copy in this repo. It is in the checkout, so the harness has
+#      an oracle in CI and never has to skip for want of a tool.
+#   3. ~/.claude/skills/deploy/vpt-lease — the operator's own copy.
+FIXTURE_LEASE_BIN="${here}/fixtures/vpt-lease"
+usable_lease_cli() { [[ -f "$1" ]] && grep -q "VPT_LEASE_DIR" "$1" 2>/dev/null; }
+if [[ -n "${VPT_LEASE_BIN:-}" ]]; then
+  [[ -f "${VPT_LEASE_BIN}" ]] || { echo "FAIL: VPT_LEASE_BIN=${VPT_LEASE_BIN} does not exist"; exit 1; }
+  usable_lease_cli "${VPT_LEASE_BIN}" || { echo "FAIL: ${VPT_LEASE_BIN} has no VPT_LEASE_DIR support — it writes to the shared lease service, and this dry check would create real leases there."; exit 1; }
+  LEASE_BIN="${VPT_LEASE_BIN}"
+else
+  for cand in "${FIXTURE_LEASE_BIN}" "${HOME:-}/.claude/skills/deploy/vpt-lease"; do
+    if usable_lease_cli "${cand}"; then LEASE_BIN="${cand}"; break; fi
+  done
+  if [[ -z "${LEASE_BIN:-}" ]]; then
+    if [[ "${CI:-}" == "true" || "${GITHUB_ACTIONS:-}" == "true" ]]; then
+      echo "FAIL: no lease CLI found (looked at ${FIXTURE_LEASE_BIN} and ${HOME:-}/.claude/skills/deploy/vpt-lease). This harness must not skip in CI: a skipped check is a green run that tested nothing."
+      exit 1
+    fi
+    echo "SKIP: no lease CLI found (looked at ${FIXTURE_LEASE_BIN} and ${HOME:-}/.claude/skills/deploy/vpt-lease). Not CI, so this is a skip, not a pass."
+    exit 0
+  fi
+fi
+echo "lease CLI: ${LEASE_BIN}"
 
 tmp="$(mktemp -d)"; trap 'rm -rf "${tmp}"' EXIT
 mkdir -p "${tmp}/home/bin" "${tmp}/leases"
@@ -24,7 +62,7 @@ exit 0
 TAIL
 V=(python3 "${LEASE_BIN}")
 fails=0
-run() { OUT="$(LEASE_ENV=node1-vpt HOME="${tmp}/home" VPT_LEASE_AGENT=update_core:test bash "${tmp}/uc.sh" "$@" 2>&1)"; RC=$?; }
+run() { OUT="$(LEASE_ENV=node1-vpt VPT_SKIP_PROBE=1 HOME="${tmp}/home" VPT_LEASE_AGENT=update_core:test bash "${tmp}/uc.sh" "$@" 2>&1)"; RC=$?; }
 reset() { rm -f "${tmp}"/leases/*.json "${tmp}"/leases/*.jsonl; }
 ok() { # ok <name> <rc> <pattern that must match OUT> [more patterns...]
   local name="$1" rc="$2"; shift 2
@@ -44,8 +82,21 @@ reset; run --skip-hosts host-b
 ok "--skip-hosts drops (case-insensitive)" 0 'HOST_IPS=host-a,vpt-c ' 'Hosts: skipping host-b'
 reset; run --hosts vpt-c,host-a
 ok "--hosts: only those, host scope" 0 'server=false frontend=false hosts=true HOST_IPS=host-a,vpt-c' 'RES=host-a vpt-c$'
+# A name this node does not know (a typo, or a host that was retired) is DROPPED with a WARNING and
+# the other hosts still deploy: one stale name used to abort the whole deploy (2026-10-23). The
+# request itself is still guarded: it aborts when EVERY name is unknown, or when it names no host.
 reset; run --hosts nope
-ok "--hosts unknown name aborts" 1 'ABORT: --hosts names not in'
+ok "--hosts: every name unknown aborts" 1 'ABORT: --hosts names not in'
+reset; run --hosts host-a,ghost-x
+ok "--hosts: an unknown name is dropped, the other hosts deploy" 0 \
+  'WARNING: --hosts names not in' 'STATE server=false frontend=false hosts=true HOST_IPS=host-a ' '!SKIPPED_HOSTS='
+reset; run --hosts host-a,ghost-x,vpt-c
+ok "--hosts: only the unknown name is dropped" 0 \
+  'WARNING: --hosts names not in' 'HOST_IPS=host-a,vpt-c' '!SKIPPED_HOSTS='
+reset; run --hosts ghost-x,ghost-y
+ok "--hosts: every name unknown aborts the deploy" 1 'ABORT: --hosts names not in' '!SKIPPED_HOSTS='
+reset; run --hosts ,
+ok "--hosts: an empty list aborts instead of deploying nothing" 1 'ABORT: --hosts names not in'
 reset; run --server --hosts host-a
 ok "--hosts with --server keeps both" 0 'server=true .*HOST_IPS=host-a ' 'RES=\*$'
 
@@ -53,24 +104,33 @@ ok "--hosts with --server keeps both" 0 'server=true .*HOST_IPS=host-a ' 'RES=\*
 reset; "${V[@]}" claim e2 x --agent z >/dev/null; run --skip-leased
 ok "skip-leased, nothing leased here: no skip" 0 'HOST_IPS=host-a,Host-B,vpt-c' '!SKIPPED'
 reset; "${V[@]}" claim node1-vpt host-a --agent mac:m --kind host >/dev/null; run --skip-leased
-ok "skip-leased: host-kind lease skipped, server goes ahead" 0 'SKIPPED \(leased by mac:m\): host-a' 'HOST_IPS=Host-B,vpt-c ' 'FREE'
+# TASK-129 P1f (ff3073ca5): a host of this run's host list that another agent leases is no
+# longer dropped — its code is synced without a lease and its vpt-host restart is deferred
+# to the catch-up deploy ("SYNC ONLY"). Only a leased host that is NOT part of this run
+# (a Windows host, a secondary server) is dropped and reported as SKIPPED.
+ok "skip-leased: a host lease syncs the host without a lease, server goes ahead" 0 \
+  'SYNC ONLY \(leased by mac:m\): host-a' 'HOST_IPS=host-a,Host-B,vpt-c ' 'FREE' 'RES=Host-B vpt-c frontend'
 reset; "${V[@]}" claim node1-vpt host-a --agent mac:m --kind maintenance >/dev/null; run --skip-leased
-ok "old alias maintenance: skip-leased: host-kind lease skipped, server goes ahead" 0 'SKIPPED \(leased by mac:m\): host-a' 'HOST_IPS=Host-B,vpt-c ' 'FREE'
-last_is "STATE server=true frontend=true hosts=true HOST_IPS=Host-B,vpt-c RES=Host-B vpt-c frontend" || true
+ok "old alias maintenance: skip-leased: a host lease syncs the host, server goes ahead" 0 \
+  'SYNC ONLY \(leased by mac:m\): host-a' 'HOST_IPS=host-a,Host-B,vpt-c ' 'FREE' 'RES=Host-B vpt-c frontend'
+last_is "STATE server=true frontend=true hosts=true HOST_IPS=host-a,Host-B,vpt-c RES=Host-B vpt-c frontend" || true
 reset; "${V[@]}" claim node1-vpt vpt-c/stb1 --agent mac:m --kind host >/dev/null; run --skip-leased
-ok "skip-leased: a device lease under a host skips the host" 0 'SKIPPED \(leased by mac:m\): vpt-c' 'HOST_IPS=host-a,Host-B '
+ok "skip-leased: a device lease under a host syncs that host without a lease" 0 \
+  'SYNC ONLY \(leased by mac:m\): vpt-c' 'HOST_IPS=host-a,Host-B,vpt-c ' 'RES=host-a Host-B frontend'
 reset; "${V[@]}" claim node1-vpt host-a --agent mac:m --kind server >/dev/null; run --skip-leased
-ok "skip-leased: a run lease still blocks the server" 3 'SKIPPED \(leased by mac:m\): host-a' 'ABORT: agents are using' '!SKIPPED_HOSTS='
+ok "skip-leased: a server lease still blocks the server" 3 'BUSY' 'ABORT: agents are using' '!SKIPPED_HOSTS='
 reset; "${V[@]}" claim node1-vpt '*' --agent mac:m --kind host >/dev/null; run --skip-leased
 ok "skip-leased: an env-wide lease blocks" 3 'ABORT'
 reset; "${V[@]}" claim node1-vpt host-a --agent mac:m --kind server >/dev/null; run --host --skip-leased
-ok "skip-leased --host: run lease on a host is just skipped" 0 'SKIPPED \(leased by mac:m\): host-a' 'HOST_IPS=Host-B,vpt-c ' 'server=false'
+ok "skip-leased --host: a server lease on a host does not block the host-only deploy" 0 \
+  'SYNC ONLY \(leased by mac:m\): host-a' 'HOST_IPS=host-a,Host-B,vpt-c ' 'server=false' 'RES=Host-B vpt-c'
 reset; "${V[@]}" claim node1-vpt host-a --agent mac:m >/dev/null; run --host --hosts host-a --skip-leased
-ok "skip-leased: everything leased -> nothing to deploy, exit 0" 0 'Nothing left to deploy' 'SKIPPED \(leased by mac:m\): host-a' '!STATE'
-last_is "SKIPPED_HOSTS=host-a" && echo "ok   SKIPPED_HOSTS is the last line (all leased)" || { echo "FAIL last line: $(tail -n1 <<< "${OUT}")"; fails=$((fails+1)); }
+ok "skip-leased: everything leased -> nothing to deploy, exit 0" 0 \
+  'every requested host is leased by another agent' 'SYNC ONLY \(leased by mac:m\): host-a'
+last_is "STATE server=false frontend=false hosts=true HOST_IPS=host-a RES=" && echo "ok   last line is the state line (nothing was skipped, only synced)" || { echo "FAIL last line: $(tail -n1 <<< "${OUT}")"; fails=$((fails+1)); }
 reset; "${V[@]}" claim node1-vpt host-a vpt-c --agent mac:m --kind host >/dev/null; run --skip-leased
-[[ "$(grep -c '^SKIPPED_HOSTS=' <<< "${OUT}")" == 1 ]] && echo "ok   exactly one SKIPPED_HOSTS line" || { echo "FAIL SKIPPED_HOSTS count"; fails=$((fails+1)); }
-ok "skip-leased: two hosts" 0 'SKIPPED_HOSTS=host-a,vpt-c|SKIPPED_HOSTS=vpt-c,host-a|STATE'
+[[ "$(grep -c '^SKIPPED_HOSTS=' <<< "${OUT}")" == 0 ]] && echo "ok   no SKIPPED_HOSTS line: leased hosts are synced, not skipped" || { echo "FAIL SKIPPED_HOSTS count"; fails=$((fails+1)); }
+ok "skip-leased: two hosts" 0 'SYNC ONLY \(leased by mac:m\): host-a' 'SYNC ONLY \(leased by mac:m\): vpt-c'
 reset; "${V[@]}" claim node1-vpt host-a --agent mac:m --kind server >/dev/null; run --frontend --skip-leased
 ok "skip-leased --frontend: host leases irrelevant" 0 'server=false frontend=true hosts=false' '!SKIPPED'
 reset; "${V[@]}" claim node1-vpt host-a --agent mac:m >/dev/null; run
@@ -123,6 +183,12 @@ got="$(last)"; [[ "${got}" == *"server=FAILED"* && "${got}" == *"h2=FAILED"* ]] 
 reset
 led 0 'DEPLOY_OK_ROLE=(server:s1 frontend:f1 host:h1 host:h2 host:h3)'
 got="$(last)"; [[ "${got}" == "frontend=done h1=done h2=done h3=done server=done" ]] && echo "ok   ledger: clean run all done" || { echo "FAIL ledger clean: '${got}'"; fails=$((fails+1)); }
+# a host dropped because the node does not know it (a retired host) is in the NOTE, never in
+# skippedHosts: a skipped host queues a catch-up deploy, which for a retired host never ends
+reset
+led 0 'DROPPED_HOSTS=(ghost-x); DEPLOY_OK_ROLE=(host:host-a)'
+grep -q 'dropped (unknown host): ghost-x' "${VPT_LEASE_DIR}/deploys.jsonl" && echo "ok   ledger: the dropped host name is in the deploy note" || { echo "FAIL ledger: the dropped host name is not in the note"; fails=$((fails+1)); }
+grep -q 'skippedHosts' "${VPT_LEASE_DIR}/deploys.jsonl" && { echo "FAIL ledger: the dropped host name went into skippedHosts (it would queue a catch-up deploy)"; fails=$((fails+1)); } || echo "ok   ledger: the dropped host name is not in skippedHosts"
 fi
 
 echo

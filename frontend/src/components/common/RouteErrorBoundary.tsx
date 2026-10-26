@@ -19,8 +19,13 @@ interface State {
   error: Error | null;
 }
 
-class RouteErrorBoundaryImpl extends React.Component<{ children: React.ReactNode }, State> {
+class RouteErrorBoundaryImpl extends React.Component<{ children: React.ReactNode; resetKey: string }, State> {
   state: State = { error: null };
+
+  componentDidUpdate(prev: { resetKey: string }) {
+    // Same instance across the pages of one area (see below): leaving a crashed page still clears the error.
+    if (prev.resetKey !== this.props.resetKey && this.state.error) this.setState({ error: null });
+  }
 
   static getDerivedStateFromError(error: Error): State {
     return { error };
@@ -51,5 +56,9 @@ class RouteErrorBoundaryImpl extends React.Component<{ children: React.ReactNode
 
 export function RouteErrorBoundary({ children }: { children: React.ReactNode }) {
   const { pathname } = useLocation();
-  return <RouteErrorBoundaryImpl key={pathname}>{children}</RouteErrorBoundaryImpl>;
+  // Every route remounts a clean boundary (and so its whole page) on navigation, EXCEPT the docs pages: they are
+  // one persistent shell (rails, header, card) whose content changes, so remounting it on each click made the
+  // rails, the outline and the text flash. For docs the boundary keeps its instance and just clears its error.
+  const key = /^\/docs(\/|$)/.test(pathname) ? '/docs' : pathname;
+  return <RouteErrorBoundaryImpl key={key} resetKey={pathname}>{children}</RouteErrorBoundaryImpl>;
 }

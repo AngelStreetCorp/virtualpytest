@@ -32,6 +32,30 @@ export interface PhoneAgentStatus {
 }
 
 /**
+ * One drone the phone carries (TASK-167 / TASK-173).
+ *
+ * The label is the stable name: the drone's address changes whenever the hotspot
+ * hands it a new lease, and the host's configuration names the label.
+ */
+export interface DroneEntry {
+  label: string;
+  ip: string;
+  /** Is the drone answering on the hotspot right now? */
+  present?: boolean;
+}
+
+/** The drone link's state: the phone's hotspot and the drones on it. */
+export interface DroneBridgeStatus {
+  /** The link is open (the phone is the radio end of the drone). */
+  active: boolean;
+  /** The phone's hotspot is on - without it the drones cannot be reached. */
+  hotspot: boolean;
+  /** The subnet the hotspot hands out on. */
+  hotspotSubnet?: string;
+  drones: DroneEntry[];
+}
+
+/**
  * The installed APK against the one published for download (the `<apk>.json` sidecar, fetched
  * natively so the APK's cross-site origin needs no CORS on the download server).
  */
@@ -62,6 +86,14 @@ export interface PhoneAgentPlugin {
   reloadApp(): Promise<void>;
   setActionOverlay(options: { enabled: boolean }): Promise<PhoneAgentStatus>;
   checkUpdate(): Promise<AppUpdateInfo>;
+  // The drone link (TASK-167 / TASK-173): the phone is the radio end of a remote
+  // Tello. The link comes up with the phone agent; these drive it by hand.
+  startDroneBridge(): Promise<DroneBridgeStatus>;
+  stopDroneBridge(): Promise<DroneBridgeStatus>;
+  discoverDrones(): Promise<DroneBridgeStatus>;
+  getDroneStatus(): Promise<DroneBridgeStatus>;
+  setDrones(opts: { drones: DroneEntry[] }): Promise<DroneBridgeStatus>;
+  labelDrone(opts: { ip: string; label: string }): Promise<DroneBridgeStatus>;
   openUpdate(): Promise<void>; // hands the APK URL to the browser, which downloads it
   addListener(eventName: 'statusChanged', cb: (s: PhoneAgentStatus) => void): Promise<{ remove: () => void }>;
 }
@@ -100,6 +132,13 @@ export const isPhoneAgentAvailable = (): boolean => {
   }
 };
 
+const EMPTY_DRONE_STATUS: DroneBridgeStatus = {
+  active: false,
+  hotspot: false,
+  hotspotSubnet: '',
+  drones: [],
+};
+
 const nativePlugin = (): PhoneAgentPlugin | null => {
   try {
     return (window.Capacitor?.Plugins?.PhoneAgent as PhoneAgentPlugin | undefined) ?? null;
@@ -125,6 +164,12 @@ export const phoneAgent: PhoneAgentPlugin = {
   reloadApp: () => nativePlugin()?.reloadApp() ?? unavailable(),
   setActionOverlay: (options) => nativePlugin()?.setActionOverlay(options) ?? unavailable(),
   checkUpdate: () => nativePlugin()?.checkUpdate() ?? unavailable(),
+  startDroneBridge: () => nativePlugin()?.startDroneBridge() ?? unavailable(),
+  stopDroneBridge: () => nativePlugin()?.stopDroneBridge() ?? unavailable(),
+  discoverDrones: () => nativePlugin()?.discoverDrones() ?? unavailable(),
+  getDroneStatus: () => nativePlugin()?.getDroneStatus() ?? Promise.resolve(EMPTY_DRONE_STATUS),
+  setDrones: (opts) => nativePlugin()?.setDrones(opts) ?? unavailable(),
+  labelDrone: (opts) => nativePlugin()?.labelDrone(opts) ?? unavailable(),
   openUpdate: () => nativePlugin()?.openUpdate() ?? unavailable(),
   // Verified live on a real Capacitor Android bridge (CDP inspection, TASK-17): despite the
   // @capacitor/core web fallback and the TS types both promising Promise<{remove}>, the actual

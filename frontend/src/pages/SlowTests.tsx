@@ -57,9 +57,11 @@ const SlowTests: React.FC = () => {
         <EmptyState message="No test has enough successful attempts in this window to report a duration." />
       ) : (
         <TableContainer component={Paper} variant="outlined" sx={{ maxWidth: '100%', overflowX: 'auto' }}>
-          <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 760 }}>
+          {/* Same as the flaky table: the Test column needs its own width, or it
+              collapses on a phone (BUG-0794). */}
+          <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 950 }}>
             <colgroup>
-              <col /><col style={{ width: 150 }} /><col style={{ width: 100 }} /><col style={{ width: 140 }} />
+              <col style={{ width: 220 }} /><col style={{ width: 150 }} /><col style={{ width: 100 }} /><col style={{ width: 140 }} />
               <col style={{ width: 80 }} /><col style={{ width: 80 }} /><col style={{ width: 80 }} /><col style={{ width: 100 }} />
             </colgroup>
             <TableHead>

@@ -27,11 +27,19 @@ import time
 from typing import Any, Callable, Optional
 
 from . import budgets, call_log, router, tracing, usages
+from .budgets import CallerContext
+from . import caller as ai_caller
 from .config import get_preset
 from .usages import UnknownUsageError
 
 EMPTY_RETRIES = 2
 RETRY_SLEEP_S = 3
+# A free model that the provider rate-limits (HTTP 429) is worth waiting for: the request was refused, so nothing
+# was billed, and the next attempt costs nothing either. The account behind the free plan is shared with the paid
+# models of the same provider, so a burst elsewhere can throttle it for minutes (2026-10-23: every Flash call
+# answered 429 for an hour). A metered model is never waited for: the caller moves on to its fallback chain.
+RATE_LIMIT_RETRIES = int(os.environ.get("AI_RATE_LIMIT_RETRIES", "2"))
+RATE_LIMIT_BACKOFF_S = tuple(float(x) for x in os.environ.get("AI_RATE_LIMIT_BACKOFF_S", "5,20").split(",") if x)
 # Hosts shrink frames before upload so the JSON body stays well under proxy limits
 # (nginx default client_max_body_size is 1 MB; a 1920px JPEG is ~200-400 KB).
 HOST_UPLOAD_MAX_EDGE = 1920
@@ -96,18 +104,27 @@ def _semaphore(hop: router.Hop) -> Optional[threading.BoundedSemaphore]:
         return _semaphores[key]
 
 
+def _usage_dict(tokens: tuple[int, int], used: Any = None) -> dict:
+    """The result's ``usage``: ``prompt_tokens`` is the whole prompt; the cache_* counts are the part of it
+    read from / written to the prompt cache (priced apart, see ``prices.compute``)."""
+    return {
+        "prompt_tokens": tokens[0],
+        "completion_tokens": tokens[1],
+        "total_tokens": tokens[0] + tokens[1],
+        "cache_read_tokens": int(getattr(used, "cache_read", 0) or 0),
+        "cache_write_tokens": int(getattr(used, "cache_write", 0) or 0),
+    }
+
+
 def _result(ok: bool, *, content: str = "", error: str = "", hop: Optional[router.Hop] = None,
             resolution: Optional[router.Resolution] = None, tokens: tuple[int, int] = (0, 0),
-            fallback_used: bool = False, sources: Optional[list] = None, busy: bool = False) -> dict:
+            fallback_used: bool = False, sources: Optional[list] = None, busy: bool = False,
+            used: Any = None) -> dict:
     return {
         "success": ok,
         "content": content,
         "error": error,
-        "usage": {
-            "prompt_tokens": tokens[0],
-            "completion_tokens": tokens[1],
-            "total_tokens": tokens[0] + tokens[1],
-        },
+        "usage": _usage_dict(tokens, used),
         "provider_used": hop.preset if hop else "none",
         "model": hop.model if hop else None,
         "profile": hop.profile_name if hop else None,
@@ -121,6 +138,28 @@ def _result(ok: bool, *, content: str = "", error: str = "", hop: Optional[route
         # model is saturated, not broken — callers with a budget back off and retry later.
         "busy": busy,
     }
+
+
+def _budget_blocked(resolution: router.Resolution) -> bool:
+    """Walk every AI budget bucket that may apply to this call (TASK-87 phase 5 / BUG-0559).
+
+    The resolution has the team_id, usage, primary hop's model + endpoint. The X-VPT-Caller
+    context (when bound) adds user_id and project_id. The resolver picks the most-specific
+    matching bucket and refuses the call if any block bucket is over its limit."""
+    try:
+        hop = resolution.primary
+        caller_ctx = ai_caller.current() or {}
+        ctx = CallerContext(
+            team_id=resolution.team_id,
+            user_id=caller_ctx.get('user_id') or None,
+            usage_key=resolution.usage,
+            model=(hop.model if hop else None),
+            endpoint=((hop.endpoint or {}).get('name') or (hop.endpoint or {}).get('id')) if hop else None,
+            project_id=caller_ctx.get('project_id') or None,
+        )
+        return budgets.blocked(ctx)
+    except Exception:
+        return budgets.blocked_team(resolution.team_id)
 
 
 def _is_timeout(exc: BaseException) -> bool:
@@ -169,7 +208,8 @@ def _call_hop(hop: router.Hop, usage: str, prompt: str, image_b64: Optional[str]
     client = hop.client(timeout=timeout_s) if timeout_s else hop.client()
     web = web_mechanism(hop) if needs_web(usage) else None
     tokens = (0, 0)
-    for attempt in range(EMPTY_RETRIES + 1):
+    retries = 0 if hop.preset == "minimax_vlm" else EMPTY_RETRIES  # BUG-0515: the same image answers empty again
+    for attempt in range(retries + 1):
         attempt_started = time.time()
         resp = raise_on_refusal(single_completion(
             client,
@@ -190,10 +230,12 @@ def _call_hop(hop: router.Hop, usage: str, prompt: str, image_b64: Optional[str]
                        normalize_stop_reason(resp))
         if text:
             return text, tokens, response_sources(resp)
-        if attempt < EMPTY_RETRIES:
+        if attempt < retries and not router.breaker_open_for(usage, hop):
             print(f"[AI_GATEWAY] {usage}: empty answer from {hop.profile_name} "
-                  f"(attempt {attempt + 1}/{EMPTY_RETRIES + 1}) - retrying")
+                  f"(attempt {attempt + 1}/{retries + 1}) - retrying")
             time.sleep(RETRY_SLEEP_S)
+        elif attempt < retries:
+            break  # best-effort usage: the breaker opened on this empty answer, no more paid retries
     return "", tokens, []
 
 
@@ -221,8 +263,9 @@ def execute(resolution: router.Resolution, prompt: str, *, image_b64: Optional[s
     route hands those to the host instead. Every call is traced to Langfuse (one trace,
     one generation per attempted hop).
     """
-    if budgets.blocked(resolution.team_id):
-        # A team over its blocking monthly budget gets no model call (TASK-87 phase 4).
+    if _budget_blocked(resolution):
+        # A team (or finer bucket — usage / model / endpoint / user / project) over its blocking
+        # monthly budget gets no model call (TASK-87 phase 4 + BUG-0559 phase 5).
         return {**_result(False, error=budgets.BLOCKED_MESSAGE, resolution=resolution), "budget_blocked": True}
     attempts: list[tracing.Attempt] = []
     result = _execute_hops(resolution, prompt, attempts, image_b64=image_b64, media_type=media_type,
@@ -260,6 +303,7 @@ def _execute_hops(resolution: router.Resolution, prompt: str, attempts: list, *,
     last_hop: Optional[router.Hop] = None
     busy = False
     web = needs_web(resolution.usage)
+    limited = False  # an earlier hop answered HTTP 429 (best-effort usages stop there, see skip_after_rate_limit)
     billed = [0]  # billed requests so far in this call (attempt_index of the next one)
     image_extra = ({"images": 1, "image_bytes": len(image_b64) * 3 // 4} if image_b64 is not None else {})
     for index, hop in enumerate(resolution.hops[start:], start=start):
@@ -277,6 +321,13 @@ def _execute_hops(resolution: router.Resolution, prompt: str, attempts: list, *,
             continue
         if router.skip_paused(resolution, hop, errors, fallback=fallback, attempt_index=billed[0]):
             # No request is made, so nothing is billed: the 402 that started the pause was.
+            continue
+        if router.skip_down(resolution, hop, errors, fallback=fallback, attempt_index=billed[0]):
+            continue
+        if router.skip_after_rate_limit(resolution, hop, errors, fallback=fallback, limited=limited,
+                                        attempt_index=billed[0]):
+            continue
+        if router.skip_breaker(resolution, hop, errors, fallback=fallback, attempt_index=billed[0]):
             continue
         last_hop = hop
         attempt = tracing.Attempt(hop)
@@ -299,6 +350,7 @@ def _execute_hops(resolution: router.Resolution, prompt: str, attempts: list, *,
         def _on_attempt(answered: bool, ms: int, call_usage: Any, text: str, stop_reason: Optional[str], _hop=hop,
                         _fb=fallback, _rec=recorded) -> None:
             _rec[0] += 1
+            router.note_empty(resolution.usage, _hop, answered)
             attempt.usage = call_usage
             extra = {**image_extra, "parse_ok": call_log.parse_ok_for(resolution.usage, text, answered),
                      "stop_reason": stop_reason}
@@ -307,35 +359,72 @@ def _execute_hops(resolution: router.Resolution, prompt: str, attempts: list, *,
                           error_type=None if answered else "empty_answer", attempt_index=billed[0], extra=extra)
             billed[0] += 1
 
+        # A free model that the provider throttles is waited for (see RATE_LIMIT_RETRIES): the request was
+        # refused, so nothing was billed and the next attempt is free too.
+        from . import prices as _prices
+        rate_limit_retries = RATE_LIMIT_RETRIES if _prices.is_free(hop) else 0
+        failed = False
         try:
-            text, tokens, sources = _call_hop(hop, resolution.usage, prompt, image_b64, media_type, system,
-                                              max_tokens, temperature, timeout_s, on_attempt=_on_attempt)
-        except Exception as e:
-            from .provider_client import classify_error, is_connection_error, response_usage
-            ms = int((time.time() - started) * 1000)
-            # A refusal is a billed response: keep its tokens.
-            refused = getattr(e, "response", None) if type(e).__name__ == "ModelRefusal" else None
-            router.record(resolution, hop, ok=False, ms=ms, fallback=fallback,
-                          usage=response_usage(refused) if refused is not None else None,
-                          tokens_in=response_usage(refused).tokens_in if refused is not None else 0,
-                          tokens_out=response_usage(refused).tokens_out if refused is not None else 0,
-                          error_type=classify_error(e), attempt_index=billed[0], extra=image_extra)
-            billed[0] += 1
-            if is_connection_error(e):
-                router.mark_down(hop)
-            elif timeout_s and _is_timeout(e):
-                busy = True
-            errors.append(_format_error(hop, e))
-            attempt.finish(ok=False, error=errors[-1])
-            continue
+            while True:
+                try:
+                    text, tokens, sources = _call_hop(hop, resolution.usage, prompt, image_b64, media_type, system,
+                                                      max_tokens, temperature, timeout_s, on_attempt=_on_attempt)
+                    break
+                except Exception as e:
+                    from .provider_client import RequestNotSent, classify_error, is_connection_error, response_usage
+                    ms = int((time.time() - started) * 1000)
+                    if (classify_error(e) == "rate_limit" and rate_limit_retries > 0
+                            and not isinstance(e, RequestNotSent)):
+                        # The provider refused the request (HTTP 429): nothing was billed. The model is free, so
+                        # waiting for the next slot costs nothing: try this same hop again. The refused request
+                        # is logged like any other request (it was made, it was not billed).
+                        router.record(resolution, hop, ok=False, ms=ms, fallback=fallback,
+                                      error_type="rate_limit", attempt_index=billed[0], extra=image_extra)
+                        billed[0] += 1
+                        rate_limit_retries -= 1
+                        index = min(RATE_LIMIT_RETRIES - rate_limit_retries - 1, len(RATE_LIMIT_BACKOFF_S) - 1)
+                        delay = RATE_LIMIT_BACKOFF_S[index]
+                        errors.append(f"{hop.endpoint_name}: rate limited (HTTP 429), retrying in {delay:.0f}s")
+                        print(f"[AI] rate limited on {hop.endpoint_name}/{hop.model}: retrying in {delay:.0f}s "
+                              f"({rate_limit_retries} left)")
+                        time.sleep(delay)
+                        continue
+                    if isinstance(e, RequestNotSent):  # refused by our own client: no request left, nothing billed
+                        errors.append(_format_error(hop, e))
+                        router.record(resolution, hop, ok=False, ms=0, fallback=fallback, outcome="skipped",
+                                      error_type=classify_error(e), attempt_index=billed[0],
+                                      extra={"stop_reason": "not_sent"})
+                        attempt.finish(ok=False, error=errors[-1])
+                        failed = True
+                        break
+                    # A refusal is a billed response: keep its tokens.
+                    refused = getattr(e, "response", None) if type(e).__name__ == "ModelRefusal" else None
+                    router.record(resolution, hop, ok=False, ms=ms, fallback=fallback,
+                                  usage=response_usage(refused) if refused is not None else None,
+                                  tokens_in=response_usage(refused).tokens_in if refused is not None else 0,
+                                  tokens_out=response_usage(refused).tokens_out if refused is not None else 0,
+                                  error_type=classify_error(e), attempt_index=billed[0], extra=image_extra)
+                    billed[0] += 1
+                    if classify_error(e) == "rate_limit":
+                        limited = True
+                    if is_connection_error(e):
+                        router.mark_down(hop)
+                    elif timeout_s and _is_timeout(e):
+                        busy = True
+                    errors.append(_format_error(hop, e))
+                    attempt.finish(ok=False, error=errors[-1])
+                    failed = True
+                    break
         finally:
             if sem:
                 sem.release()
+        if failed:
+            continue
         router.mark_up(hop)
         if text:
             attempt.finish(ok=True, output=text, tokens=tokens)
             return _result(True, content=text, hop=hop, resolution=resolution, tokens=tokens,
-                           fallback_used=fallback, sources=sources)
+                           fallback_used=fallback, sources=sources, used=attempt.usage)
         errors.append(f"{hop.endpoint_name}: empty answer from '{hop.model}'")
         attempt.finish(ok=False, error=errors[-1], tokens=tokens)
     return _result(False, error="; ".join(errors) or "no usable AI profile", hop=last_hop,
@@ -441,6 +530,46 @@ def report_direct_call(usage: str, team_id: Optional[str], hop_info: dict, *, sp
         print(f"[AI_GATEWAY] stats report failed: {e}")
 
 
+def _load_server_env() -> None:
+    """SERVER_URL / API_KEY for a plain script (Mac bench, LoL relay) from the main checkout's .env, if unset.
+    Only those two keys are read; nothing is printed or exported beyond this process."""
+    if os.environ.get("SERVER_URL") and os.environ.get("API_KEY"):
+        return
+    here = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", ".."))
+    for path in (os.path.expanduser("~/virtualpytest/.env"), os.path.join(here, ".env")):
+        if not os.path.exists(path):
+            continue
+        for line in open(path, encoding="utf-8", errors="ignore"):
+            k, _, v = line.strip().partition("=")
+            if k in ("SERVER_URL", "API_KEY") and v and not os.environ.get(k):
+                os.environ[k] = v.strip().strip("'\"")
+        return
+
+
+def report_external_call(usage: str, *, endpoint: str, model: str, call_usage: Any, ok: bool, ms: int,
+                         script: str, error_type: Optional[str] = None, team_id: Optional[str] = None) -> None:
+    """Log a call a script made with its own client (a bench, the LoL relay, a Mac-side review) in ``ai_calls``.
+
+    Prefer ``gateway.complete``; this is for callers that must hit a provider themselves (a pinned model, a body the
+    gateway does not build). ``usage`` is the stats label (``external:<what>``), ``endpoint`` the ai_endpoints name
+    whose price applies (``anthropic``, ``openrouter``, ``minimax``), ``call_usage`` a ``CallUsage``
+    (``anthropic_call_usage`` / ``openai_call_usage``). The row goes through ``POST /server/ai/stats`` with
+    ``origin=script`` and ``script_name``. Never raises."""
+    try:
+        _load_server_env()
+        with ai_caller.bound(origin="script", script_name=script):
+            _server_post("/server/ai/stats", {
+                "usage": usage, "team_id": team_id, "profile": f"external:{script}", "endpoint": endpoint,
+                "model": model, "ok": ok, "ms": ms, "fallback": False, "error_type": error_type,
+                "tokens_in": call_usage.tokens_in, "tokens_out": call_usage.tokens_out,
+                "tokens_cache_read": call_usage.cache_read, "tokens_cache_write": call_usage.cache_write,
+                "tokens_reasoning": call_usage.reasoning, "web_searches": call_usage.web_searches,
+                "cost": call_usage.cost,
+            }, 10)
+    except Exception as e:  # noqa: BLE001 - logging never breaks the caller
+        print(f"[AI_GATEWAY] external call report failed: {e}")
+
+
 def _call_direct(direct: dict, usage: str, payload: dict, team_id: Optional[str]) -> dict:
     """Call a keyless host-reach endpoint described by the server. Reports stats back."""
     from .provider_client import (CallUsage, classify_error, create_client, raise_on_refusal, response_text,
@@ -481,7 +610,7 @@ def _call_direct(direct: dict, usage: str, payload: dict, team_id: Optional[str]
         "success": bool(text),
         "content": text,
         "error": error,
-        "usage": {"prompt_tokens": tokens[0], "completion_tokens": tokens[1], "total_tokens": sum(tokens)},
+        "usage": _usage_dict(tokens, used),
         "provider_used": hop_info["preset"],
         "model": hop_info["model"],
         "profile": hop_info["profile"],

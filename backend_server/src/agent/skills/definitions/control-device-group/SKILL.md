@@ -2,11 +2,16 @@
 name: control-device-group
 description: Send the same remote keys to several devices at once — devices of one model on the same remote (IR, BLE, ADB, Vega). Use when the user asks to act on all / every / several boxes together.
 timeout_seconds: 600
+think_budget_seconds: 120
+max_tool_calls: 40
 requires_device: false
 tools:
   - list_device_groups
   - list_actions
   - execute_group_action
+  - take_control
+  - release_control
+  - execute_device_action
   - capture_screenshot
 triggers:
   - all devices
@@ -17,6 +22,13 @@ triggers:
   - same model
   - group control
   - on all
+  - take control
+  - release all
+  - wake them
+  - asleep
+  - awake
+  - which stb
+  - all phone
   - together
   - multi device
   - several devices
@@ -80,6 +92,19 @@ Rules:
   `fire_tv_fireos` and `fire_tv_vega` group together as the `android_tv`
   family. The list returns one entry per `(family, displayed_profile)` pair.
 
+## "Take control of all X" / "release all X"
+
+`take_control` and `release_control` are **tools**, never an action command: putting
+`{"command": "take_control"}` in `actions` fails with `unknown command`. For "take control of all
+<model>" (and "wake them up if asleep"):
+
+1. `list_device_groups(device_model)` (or `get_device_info`) → the online devices of that model. One
+   device is not a group: use `execute_device_action` on it.
+2. `take_control(host_name, device_id)` once per device. A device someone else holds is reported
+   and **skipped, never taken over**; name it in the answer.
+3. Wake: `capture_screenshot` per device, POWER only on the asleep ones (see below), then check again.
+4. "Release all": `release_control` once per device you hold.
+
 ## Workflow
 
 1. `list_device_groups(device_model?)` → pick the group (ask only if two groups fit equally).
@@ -102,3 +127,12 @@ Rules:
 - 2 to 6 devices per call.
 - Remote keys only (`press_key` and the controller's own commands from `list_actions`); no
   click_element / web actions — use the control-device skill per device for those.
+
+## Set-top box asleep? (read `docs/agent/devices/STB_STANDBY.md`)
+
+A dark capture means the box is asleep, not broken; never blame the box.
+- Asleep = SMPTE colour bars, or near-black with a tiny identical file size. Garbled frames while waking are normal.
+- IR box: POWER once, wait 60 s; a first press that does nothing is normal; second POWER 60 s later. POWER and HOME toggle: never twice in a row.
+- BLE box, active standby: poll `get_pairing_status`; the link returns by itself in about 30 s.
+- BLE box, deep standby (link still down after ~30 s, `resume_state: failed`): send `cold_wake` (action `ble_cold_wake`, WoBLE). It is NOT pairing. Poll `get_pairing_status` about 25 s, then capture until a real picture.
+- Never Start Pairing, in particular never after a reboot. Still dark after two POWER presses or two `cold_wake`: report `env: no signal` and stop.

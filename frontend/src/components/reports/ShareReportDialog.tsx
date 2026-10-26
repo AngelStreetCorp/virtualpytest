@@ -1,4 +1,5 @@
 import { ContentCopy as CopyIcon } from '@mui/icons-material';
+import SettingRow from '../common/SettingRow';
 import {
   Alert,
   Box,
@@ -8,13 +9,11 @@ import {
   DialogContent,
   DialogTitle,
   FormControl,
-  FormControlLabel,
   IconButton,
   InputAdornment,
   InputLabel,
   MenuItem,
   Select,
-  Switch,
   TextField,
   Tooltip,
   Typography,
@@ -28,6 +27,8 @@ import {
 } from '../../hooks/useReportSnapshots';
 import { getServerBaseUrl } from '../../utils/buildUrlUtils';
 import { StyledDialog } from '../common/StyledDialog';
+import { dangerButtonSx } from '../common/PageChrome';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 interface ShareReportDialogProps {
   open: boolean;
@@ -78,6 +79,7 @@ export const ShareReportDialog: React.FC<ShareReportDialogProps> = ({
   scriptResultId,
   scriptName,
 }) => {
+  const P = useAgentChatPalette();
   const { getConfig, createSnapshot, listSnapshots, revokeSnapshot } = useReportSnapshots();
 
   const [configLoading, setConfigLoading] = useState(true);
@@ -259,12 +261,7 @@ export const ShareReportDialog: React.FC<ShareReportDialogProps> = ({
                 ))}
               </Select>
             </FormControl>
-            <FormControlLabel
-              control={
-                <Switch checked={usePassword} onChange={(e) => setUsePassword(e.target.checked)} />
-              }
-              label="Protect with a password"
-            />
+            <SettingRow title="Protect with a password" checked={usePassword} onChange={setUsePassword} />
             {usePassword && (
               <TextField
                 label="Password"
@@ -278,12 +275,7 @@ export const ShareReportDialog: React.FC<ShareReportDialogProps> = ({
                 autoComplete="new-password"
               />
             )}
-            <FormControlLabel
-              control={
-                <Switch checked={includeVideo} onChange={(e) => setIncludeVideo(e.target.checked)} />
-              }
-              label="Include video"
-            />
+            <SettingRow title="Include video" checked={includeVideo} onChange={setIncludeVideo} />
           </Box>
         )}
 
@@ -311,10 +303,10 @@ export const ShareReportDialog: React.FC<ShareReportDialogProps> = ({
                   <>
                     <Button
                       size="small"
-                      color="error"
                       variant="contained"
                       disabled={revokingId === s.id}
                       onClick={() => handleRevoke(s.id)}
+                      sx={dangerButtonSx(P)}
                     >
                       Confirm revoke
                     </Button>
@@ -323,7 +315,7 @@ export const ShareReportDialog: React.FC<ShareReportDialogProps> = ({
                     </Button>
                   </>
                 ) : (
-                  <Button size="small" color="error" onClick={() => setConfirmId(s.id)}>
+                  <Button size="small" onClick={() => setConfirmId(s.id)} sx={dangerButtonSx(P)}>
                     Revoke
                   </Button>
                 )}

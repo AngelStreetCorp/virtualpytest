@@ -1,0 +1,11 @@
+[Unit]
+# Nightly at 03:40, after the capture archive's night hours and before the 07:00 fleet health report.
+Description=VPT Localize accuracy benchmark nightly (TASK-107)
+
+[Timer]
+OnCalendar=*-*-* 03:40:00
+Persistent=true
+Unit=vpt-localize-bench.service
+
+[Install]
+WantedBy=timers.target

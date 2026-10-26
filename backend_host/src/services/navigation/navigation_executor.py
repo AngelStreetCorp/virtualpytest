@@ -40,6 +40,11 @@ from backend_host.src.services.navigation.navigation_executor_tree_manager impor
     build_unified_tree_data as tree_manager_build_unified_tree_data
 )
 from shared.src.lib.utils import cv2_io
+from shared.src.lib.utils.localize_verdict import (
+    MOTION_FRAMES, MOTION_RETRIES, MOTION_RETRY_GAP_S, after_match, common_signal_state, find_live_node,
+    grab_distinct_frames, measure_motion, verdict_before_match, verdict_from_match)
+from shared.src.lib.utils.localize_identity import (
+    identity_kind, identity_verdict, match_identity, node_identity)
 
 
 # Auto-mode verification: skip a step's verification iff BOTH the edge's
@@ -143,7 +148,7 @@ def forget_position_verification(nav_context: Optional[Dict[str, Any]], reason: 
 # deliberately NOT logged here -- it is the abstain-door input TASK-68 row 7 owns.
 #
 # monitor_localize.py carries the same two helpers verbatim: the standalone
-# vpt-monitor process must not import this module (it would drag the whole
+# vpt-monitor-img process must not import this module (it would drag the whole
 # navigation stack into the capture loop), so the small formatter is duplicated
 # rather than shared. Keep the two copies in step.
 # --------------------------------------------------------------------------
@@ -189,6 +194,89 @@ def run_identify_screen(helpers, img, node_fps: List[Dict[str, Any]], site: str)
                       f"{identify_screen_detail(result)} site={site}")
     except Exception:
         pass
+    return result
+
+
+def run_localize_cascade(helpers, frames: List[Any], node_fps: List[Dict[str, Any]],
+                         live_node: Optional[Dict[str, Any]], *, match_fps: Optional[List[Dict[str, Any]]] = None,
+                         team_id: Optional[str] = None, userinterface_name: Optional[str] = None,
+                         tree_id: Optional[str] = None, known_lookup=None):
+    """The v3 cascade on grabbed frames (shared/src/lib/utils/localize_verdict.py): signal, live,
+    the fingerprint matcher (+ Jev confirm), then overlay / known screen on an abstain.
+
+    The ONE implementation behind NavigationExecutor.localize and the accuracy benchmark
+    (scripts/localize/bench.py, TASK-107 goal 1), so the benchmark measures the deployed code.
+    `match_fps` narrows the matcher (a shared device identity); `team_id=None` turns Jev off.
+    Returns (result, verdict, motion); the LAST frame is the one identified.
+    """
+    match_fps = node_fps if match_fps is None else match_fps
+    img = frames[-1]
+    motion = measure_motion(frames)
+    # Signal only when every frame shows it: a zap or a fade ENDS on black.
+    state = common_signal_state([helpers.classify_special_state(f) for f in frames])
+    verdict = verdict_before_match(state, helpers.SPECIAL_STATE_LABELS.get(state), motion, live_node)
+    if verdict:
+        # Same result shape the matcher returns, so every caller of `candidates` / `state`
+        # (localize_check, goto, the popover) reads the live node or the signal state.
+        result = {'candidates': [], 'excluded_count': 0, 'total': len(node_fps)}
+        if verdict['node_id']:
+            result['candidates'] = [{'node_id': verdict['node_id'], 'label': verdict['label'],
+                                     'confidence': verdict['confidence']}]
+        if state:
+            result.update({'state': state, 'state_label': helpers.SPECIAL_STATE_LABELS.get(state),
+                           'state_hint': helpers.SPECIAL_STATE_HINTS.get(state)})
+        result['success'] = True
+    elif not node_fps:
+        # No fingerprinted node: the matcher has nothing to rank, but an overlay or a screen
+        # the device's memory knows can still answer (steps 4-5 below).
+        result = {'success': True, 'candidates': [], 'excluded_count': 0, 'total': 0,
+                  'reason': 'no fingerprinted nodes for this interface — capture screenshots first'}
+        verdict = verdict_from_match(result)
+    else:
+        # Identify the screen — the SINGLE shared Localize implementation (dHash+focus match →
+        # title disambiguation → dHash fallback narrowing → capture-state fallback). The monitor
+        # overlay calls the SAME method. Timed as its own phase (TASK-68 row 6), logged BEFORE
+        # confirm_low_confidence / shadow so the window is the matcher alone.
+        result = run_identify_screen(helpers, img, match_fps, 'mcp')
+        result['success'] = True
+        # A low-confidence single answer is kept only when Jev confirms it, else "unknown" (TASK-47 G13);
+        # the monitor calls the same function, so both give the same verdict.
+        from backend_host.src.controllers.verification.jev_second_opinion import (
+            confirm_low_confidence, localize_shadow)
+        confirm_low_confidence(helpers, img, match_fps, result, team_id=team_id, cache_key=userinterface_name)
+        # Shadow second opinion (TASK-47 G13): ties / abstain only, background, logged,
+        # never changes `result` and never waits. No-op when Jev is off.
+        localize_shadow(helpers, img, node_fps, result, team_id=team_id,
+                        userinterface_name=userinterface_name, tree_id=tree_id)
+        verdict = verdict_from_match(result)
+    # Steps 4-5b: an overlay plate over a node match or on an abstain (with the node under it),
+    # then screen memory and a slow live scene on an abstain.
+    if verdict['kind'] in ('node', 'unknown'):
+        verdict = after_match(verdict, img, node_fps, helpers, known_lookup, motion=motion, live_node=live_node)
+    if verdict['kind'] == 'unknown' and motion:
+        verdict.setdefault('evidence', {})['motion'] = motion
+    return result, verdict, motion
+
+
+def attach_unknown_fingerprint(result: Dict[str, Any], img, helpers) -> Dict[str, Any]:
+    """Attach the complete v6 fingerprint when the matcher abstained.
+
+    G2: a live unknown screen must keep the full fingerprint (dhash, regions,
+    crop, focus and the OCR title/text), not just a dhash. This is the only
+    path that can register a screen, and it already costs a model call later,
+    so the extra OCR is paid once per abstention, not per localize.
+
+    Non-fatal: a fingerprint failure leaves the result unchanged.
+    """
+    try:
+        verdict = result.get('verdict') or {}
+        if verdict.get('kind') not in ('unknown', 'low_confidence'):
+            return result
+        fingerprint = helpers.compute_fingerprint(img)
+        if fingerprint:
+            result['fingerprint'] = fingerprint
+    except Exception as e:
+        print(f"[@navigation_executor:localize] unknown fingerprint failed (non-fatal): {e}")
     return result
 
 
@@ -254,6 +342,25 @@ class NavigationExecutor:
         # Async execution tracking (for navigation polling)
         self._executions: Dict[str, Dict[str, Any]] = {}  # execution_id -> execution state
         self._lock = threading.Lock()
+        # Stop (TASK-140 G7): set by request_cancel; checked before each edge.
+        self._cancel_event = threading.Event()
+
+    def request_cancel(self, execution_id: str) -> Dict[str, Any]:
+        """Ask the running execution to stop before its next edge (an edge already running finishes)."""
+        with self._lock:
+            execution = self._executions.get(execution_id)
+            if execution is None:
+                return {'success': False, 'error': f'Execution {execution_id} not found'}
+            if execution['status'] != 'running':
+                return {'success': True, 'cancelled': False, 'status': execution['status'],
+                        'message': 'Execution already finished'}
+            execution['cancel_requested'] = True
+            self._cancel_event.set()
+        return {'success': True, 'cancelled': True, 'status': 'running',
+                'message': 'Cancel requested; the current edge finishes, no new edge starts'}
+
+    def clear_cancel(self) -> None:
+        self._cancel_event.clear()
 
     def _mark_position_verified(self, node_id: str) -> None:
         """`node_id`'s own verifications just ran and passed on the live screen (BUG-0195)."""
@@ -318,7 +425,8 @@ class NavigationExecutor:
             self.unified_graph = cached
         return cached
 
-    def localize(self, team_id: str, userinterface_name: str, tree_id: str = None) -> Dict[str, Any]:
+    def localize(self, team_id: str, userinterface_name: str, tree_id: str = None,
+                 motion: bool = True) -> Dict[str, Any]:
         """Identify which node the live device screen matches (Localize).
 
         Captures the current frame, fingerprints it (dHash + focus), and ranks it
@@ -328,9 +436,24 @@ class NavigationExecutor:
         `device.navigation_context['variant']`, so scripts/goto/MCP all localize in
         the same scope they execute in. tree_id is resolved from userinterface_name
         when not supplied (device-control has only the UI name, not a tree id).
+
+        `verdict` is the v3 answer (TASK-104, shared/src/lib/utils/localize_verdict.py):
+        {kind: signal|live|node|unknown, node_id, label, confidence, evidence}. A signal
+        state or full-frame motion answers before the matcher runs; a live verdict also
+        lists the tree's live node (data.live = true) as the single candidate.
+        Refused (`localize_off: true`) on a device whose monitoring profile runs no image
+        monitor (owner rule, TASK-104 §4a).
+        `motion=False` grabs one frame and skips the live step (no ~1 s wait): for callers
+        that only ask "is this node on screen?" (localize_check).
         """
         import cv2
         from backend_host.src.controllers.verification.image_helpers import ImageHelpers
+        from backend_host.src.lib.utils.monitor_profile import localize_off_reason
+
+        # No image monitor, no Localize (owner, 2026-10-14): refused before any capture.
+        off = localize_off_reason(self.device_id)
+        if off:
+            return {'success': False, 'localize_off': True, 'error': off, 'candidates': [], 'verdict': None}
 
         variant = (getattr(self.device, 'navigation_context', None) or {}).get('variant')
 
@@ -362,16 +485,33 @@ class NavigationExecutor:
             fp = data.get('__fingerprint')
             if fp and fp.get('dhash'):
                 node_fps.append({'node_id': node_id, 'label': data.get('label', node_id), 'fingerprint': fp})
-        if not node_fps:
-            return {'success': False, 'variant': variant, 'candidates': [], 'total': 0,
-                    'error': 'No fingerprinted nodes for this interface — capture screenshots first'}
-
-        # 3. Capture the live frame
+        # 2b. Device identity first (TASK-107 goal 4): an android phone / tablet names its activity,
+        #     a web page its URL. One node at that place answers kind=node with no pixels; several
+        #     narrow the pixel matcher to them; none (or no identity) leaves the pixels to decide.
+        id_match, live_identity = self._identity_match(node_fps)
+        decided = (id_match or {}).get('decided')
+        match_fps = (id_match or {}).get('candidates') if (id_match or {}).get('candidates') and not decided else node_fps
         av_controller = self.device._get_controller('av')
         if not av_controller:
+            if decided:
+                verdict = identity_verdict(id_match, live_identity)
+                print(f"[@navigation_executor:localize] identity kind=node node={verdict['node_id']} by={verdict['evidence'].get('by')}")
+                return {'success': True, 'variant': variant, 'frame_url': None, 'verdict': verdict,
+                        'candidates': [{'node_id': verdict['node_id'], 'label': verdict['label'],
+                                        'confidence': verdict['confidence']}],
+                        'excluded_count': len(node_fps) - 1, 'total': len(node_fps), 'live_identity': live_identity,
+                        'nodes': sorted(({'node_id': nf['node_id'], 'label': nf['label']} for nf in node_fps),
+                                        key=lambda n: str(n['label']).lower())}
             return {'success': False, 'error': 'No AV controller for device', 'candidates': []}
-        frame_path = av_controller.take_screenshot()
-        img = cv2_io.imread(frame_path) if frame_path else None
+        # 3. Capture MOTION_FRAMES distinct capture files: Localize measures motion itself
+        #    (TASK-104) instead of trusting the monitor's JSON, which can be a second old and
+        #    does not exist on a device without a monitor. The LAST frame is the one every
+        #    later step identifies.
+        grabbed = grab_distinct_frames(av_controller.take_screenshot,
+                                       lambda p: cv2_io.imread(p) if p else None,
+                                       time.sleep, time.monotonic, MOTION_FRAMES if motion and not decided else 1)
+        frames = [f for _, f in grabbed]
+        frame_path, img = grabbed[-1] if grabbed else (None, None)
         if img is None:
             return {'success': False, 'error': 'Failed to capture current frame', 'candidates': []}
 
@@ -380,32 +520,54 @@ class NavigationExecutor:
         # button uses. Non-fatal: a URL-build failure must never break localize.
         frame_url = self._frame_url_from_path(frame_path)
 
-        # 4. Identify the screen — the SINGLE shared Localize implementation
-        #    (dHash+focus match → title disambiguation → dHash fallback narrowing →
-        #    capture-state fallback). The monitor overlay calls the SAME method, so
-        #    both produce identical results from the same frame + node set. No
-        #    confidence floor (whatever match_fingerprint returns), no graph-based
-        #    child-priority (best candidate by confidence) — see identify_screen.
+        # 4. The v3 cascade (shared/src/lib/utils/localize_verdict.py): signal, then live,
+        #    then the fingerprint matcher. The first two answer without running the matcher.
         helpers = ImageHelpers(None, av_controller)
-        # Timed as its own phase (TASK-68 row 6): this is the number a model call is
-        # compared against, and nav.hop.verify_destination cannot separate it from
-        # frame capture / OCR. Logged BEFORE confirm_low_confidence / shadow so the
-        # window is the matcher alone.
-        result = run_identify_screen(helpers, img, node_fps, 'mcp')
-        result.update({'success': True, 'variant': variant, 'frame_url': frame_url})
+        if decided:
+            motion = measure_motion(frames)
+            verdict = identity_verdict(id_match, live_identity)
+            result = {'success': True, 'excluded_count': len(node_fps) - 1, 'total': len(node_fps),
+                      'candidates': [{'node_id': verdict['node_id'], 'label': verdict['label'],
+                                      'confidence': verdict['confidence']}]}
+        else:
+            from shared.src.lib.database.screen_fingerprints_db import known_screen_lookup
+            result, verdict, motion = run_localize_cascade(
+                helpers, frames, node_fps, self._live_node(graph), match_fps=match_fps, team_id=team_id,
+                userinterface_name=userinterface_name, tree_id=tree_id,
+                known_lookup=known_screen_lookup(team_id, f"{self.host_name}/{self.device_id}"))
+            # A channel zap (stb4: the window straddles the zap or the ~3 s programme banner over a held
+            # picture) can abstain with the picture still or half-measured: look again, up to
+            # MOTION_RETRIES fresh windows ~1 s apart, and take one only when it reads live. Only a tree
+            # with a live node, and only on an abstain (a named screen never gets here).
+            live_node = self._live_node(graph)
+            if motion and live_node:
+                for _ in range(MOTION_RETRIES):
+                    if verdict['kind'] != 'unknown':
+                        break
+                    time.sleep(MOTION_RETRY_GAP_S)
+                    again = [f for _, f in grab_distinct_frames(
+                        av_controller.take_screenshot, lambda p: cv2_io.imread(p) if p else None,
+                        time.sleep, time.monotonic, MOTION_FRAMES)]
+                    if len(again) > 1:
+                        result2, verdict2, motion2 = run_localize_cascade(
+                            helpers, again, node_fps, live_node, match_fps=match_fps, team_id=team_id,
+                            userinterface_name=userinterface_name, tree_id=tree_id,
+                            known_lookup=known_screen_lookup(team_id, f"{self.host_name}/{self.device_id}"))
+                        if verdict2['kind'] == 'live':
+                            result, verdict, motion = result2, verdict2, motion2
+        result.update({'variant': variant, 'frame_url': frame_url})
+        if live_identity:
+            result['live_identity'] = live_identity
+            if id_match and not decided:
+                verdict.setdefault('evidence', {})['identity'] = {'by': id_match.get('reason'),
+                                                                  'narrowed_to': [n['node_id'] for n in match_fps]
+                                                                  if match_fps is not node_fps else None}
+        result['verdict'] = verdict
+        # G2: keep the complete v6 fingerprint on an abstention (the only path
+        # that can register an unknown screen). Known/live/signal frames skip it.
+        attach_unknown_fingerprint(result, img, helpers)
 
-        # A low-confidence single answer is kept only when Jev confirms it, else "unknown" (TASK-47 G13);
-        # the monitor calls the same function, so both give the same verdict.
-        from backend_host.src.controllers.verification.jev_second_opinion import (
-            confirm_low_confidence, localize_shadow)
-        confirm_low_confidence(helpers, img, node_fps, result, team_id=team_id, cache_key=userinterface_name)
-
-        # Shadow second opinion (TASK-47 G13): ties / abstain only, background, logged,
-        # never changes `result` and never waits. No-op when Jev is off.
-        localize_shadow(helpers, img, node_fps, result, team_id=team_id,
-                        userinterface_name=userinterface_name, tree_id=tree_id)
-
-        print(f"[@navigation_executor:localize] variant={variant or 'base'} "
+        print(f"[@navigation_executor:localize] variant={variant or 'base'} kind={verdict['kind']} "
               f"candidates={[c['node_id'] for c in (result.get('candidates') or [])[:5]]} "
               f"excluded={result.get('excluded_count', 0)}/{result.get('total', 0)}"
               f"{' state=' + result['state'] if result.get('state') else ''}")
@@ -419,7 +581,10 @@ class NavigationExecutor:
         #    is bounded by the worker's poll interval (~1s). Fully non-fatal: a missing
         #    JSON or a parse error leaves `classifier_diagnostics=None` so the matcher
         #    verdict is unchanged.
-        result['classifier_diagnostics'] = self._read_classifier_diagnostics(frame_path)
+        diagnostics = self._read_classifier_diagnostics(frame_path) or {}
+        if motion:
+            diagnostics['motion'] = motion       # this call's own measurement, not the monitor's
+        result['classifier_diagnostics'] = diagnostics or None
 
         # 7. The two fingerprints behind the verdict, for the popover's Copy rows (TASK-88 row 9):
         #    the live frame's (same layers as compute_fingerprint, minus the OCR ones, so no extra
@@ -437,6 +602,33 @@ class NavigationExecutor:
         result['nodes'] = sorted(({'node_id': nf['node_id'], 'label': nf['label']} for nf in node_fps),
                                  key=lambda n: str(n['label']).lower())
         return result
+
+    def _identity_match(self, node_fps: List[Dict[str, Any]]):
+        """(match, live_identity) for an android / web device whose nodes carry an identity, else
+        (None, None). The UI dump (~1-2 s) is read only when two nodes share the activity."""
+        if not identity_kind(getattr(self, 'device_model', None)) or not any(node_identity(n['fingerprint']) for n in node_fps):
+            return None, None
+        from backend_host.src.lib.utils.device_identity import android_texts, read_identity
+        live = read_identity(self.device)
+        if not live:
+            return None, None
+        match = match_identity(live, node_fps)
+        if not match['decided'] and len(match['candidates']) > 1 and live['kind'] == 'android':
+            texts = android_texts(self.device)
+            if texts:
+                live['texts'] = texts
+                match = match_identity(live, node_fps)
+        print(f"[@navigation_executor:localize] identity {live.get('activity') or live.get('url')} -> "
+              f"{(match['decided'] or {}).get('node_id') or match['reason']}")
+        return match, live
+
+    @staticmethod
+    def _live_node(graph) -> Optional[Dict[str, Any]]:
+        """The active node named `live` (TASK-104), or None."""
+        return find_live_node(
+            {'node_id': nid, 'label': d.get('label', nid)}
+            for nid, d in graph.nodes(data=True)
+            if (d.get('variant_state') or {}).get('active') is not False)
 
     def _capture_folder(self) -> Optional[str]:
         """Map this device to its capture folder (e.g. 'capture3' for 'device3').
@@ -599,10 +791,17 @@ class NavigationExecutor:
         # Pass the tree through when the caller has it: without it localize takes
         # the `if not tree_id` branch and reloads the whole tree via TreeManager on
         # every single call, warm cache included — three extra DB round trips for a
-        # tree the caller already identified (BUG-0200).
-        result = self.localize(team_id, userinterface_name, tree_id=tree_id)
+        # tree the caller already identified (BUG-0200). motion=False: this cross-check asks
+        # whether THIS node is on screen, one frame answers it without the ~1 s motion grab.
+        result = self.localize(team_id, userinterface_name, tree_id=tree_id, motion=False)
         block = {
             'focus': result.get('live_focus'),
+            # G2: the complete v6 fingerprint, when localize computed one on an
+            # abstention. Carried so the unknown-screen bump can persist it.
+            'fingerprint': result.get('fingerprint'),
+            # Live frame fingerprint with regions: stored on the match_runs row for "Wrong screen?"
+            # (popped again in _record_match_run_for_verify so the verify payload stays small).
+            'live_fingerprint': result.get('live_fingerprint'),
             'excluded_count': result.get('excluded_count', 0),
             'total': result.get('total', 0),
             'candidates': result.get('candidates', []),
@@ -1011,6 +1210,8 @@ class NavigationExecutor:
             variant=variant,
             is_test=is_test,
         )
+        if success:
+            self._store_verified_frame(verify_result, node_id, tree_id, team_id)
 
         # Independent Localize cross-check: does the fingerprint agree we're on
         # this node? Surfaced under verify_result['localize'] (true/false/unknown
@@ -1022,7 +1223,81 @@ class NavigationExecutor:
         except Exception as loc_err:
             print(f"[@navigation_executor] localize_check failed (non-fatal): {loc_err}")
 
+        # Matcher history (TASK-115): every verify produces a localize_check,
+        # which is a matcher run.  Log it to match_runs so the operator can
+        # see "what was the runner-up when this verify failed?" and the
+        # scheduler can build a transition matrix.  Best-effort — never
+        # fail verification on the writer.
+        try:
+            self._record_match_run_for_verify(
+                verify_result, team_id, tree_id, userinterface_name, node_id, variant
+            )
+        except Exception as mr_err:
+            print(f"[@navigation_executor] match_runs write failed (non-fatal): {mr_err}")
+
         return verify_result
+
+    def _record_match_run_for_verify(self, verify_result: Dict[str, Any], team_id: str,
+                                      tree_id: Optional[str], userinterface_name: str,
+                                      node_id: str, variant: Optional[str]) -> None:
+        """One match_runs row per verify, sourced from the localize_check payload.
+
+        The localize block already carries the candidates, the frame_url, and
+        the live focus.  We pass it straight to record_match_run, which
+        extracts the top-3 and applies the confidence floor.  If the matcher
+        abstained and the frame matches a screen the monitor already registered, count
+        a sighting on it (TASK-159: only Localize in the monitor creates screen rows).
+        """
+        from shared.src.lib.database.match_runs_db import record_match_run
+
+        localize = verify_result.get('localize') or {}
+        if not localize:
+            return
+        device_id = getattr(self.device, 'device_id', None) if self.device else None
+        device_name = getattr(self.device, 'device_name', None) if self.device else None
+        device_model = self.device_model
+
+        # Compute the dhash of the live frame for the match run;
+        # id of the frame is kept on the match run.
+        dhash_int = None
+        try:
+            import hashlib
+            live = localize.get('focus') or {}
+            sample = live.get('dhash') if isinstance(live, dict) else None
+            if sample:
+                dhash_int = int(hashlib.sha256(sample.encode('utf-8')).hexdigest()[:15], 16)
+        except Exception:
+            dhash_int = None
+
+        started = self._now_iso()
+        outcome = record_match_run(
+            team_id=team_id, host_name=self.host_name,
+            userinterface_name=userinterface_name, source='localize_check',
+            result=localize, device_id=device_id, device_name=device_name,
+            device_model=device_model, tree_id=tree_id, variant=variant,
+            source_ref={'node_id': node_id, 'verify_result_id': verify_result.get('id')},
+            dhash=dhash_int, frame_url=localize.get('frame_url'),
+            started_at=started, completed_at=started, elapsed_ms=0,
+        )
+        localize.pop('live_fingerprint', None)
+        if not outcome.get('success'):
+            print(f"[@navigation_executor:match_runs] {outcome.get('error')}")
+            return
+        # A sighting is counted only on a screen the monitor's Localize already registered; this path creates nothing.
+        fp = localize.get('fingerprint') if isinstance(localize.get('fingerprint'), dict) else None
+        if outcome.get('verdict') in ('unknown', 'low_confidence'):
+            from shared.src.lib.database.screen_fingerprints_db import count_screen_sighting, fp_from_blob
+            blob = fp_from_blob(fp)
+            if blob:
+                count_screen_sighting(team_id, f"{self.host_name}/{device_id or 'unknown'}", blob)
+
+
+    @staticmethod
+    def _now_iso() -> str:
+        """ISO-8601 UTC with explicit timezone; match_runs.candidates_top_3 sort is
+        by started_at DESC, so all writers must agree on the format."""
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).isoformat()
 
     def _attach_verification_to_step(self, step_result, verification_result, context):
         """Surface the verify_node result on an 'already at destination' step.
@@ -1089,6 +1364,20 @@ class NavigationExecutor:
             print(f"[@navigation_executor:training] no screen groups (label kept per node): {e}")
             return None
 
+    def _store_verified_frame(self, verification_result: Dict[str, Any], node_id: str,
+                              tree_id: str, team_id: str) -> None:
+        """Keep the frame a passing real run verified `node_id` on (one object per
+        node+variant in the bucket, throttled). Never raises, never blocks the run."""
+        try:
+            from shared.src.lib.utils.node_verified_frame import maybe_store_verified_frame
+            nav_context = getattr(self.device, 'navigation_context', {}) or {}
+            maybe_store_verified_frame(
+                self._verified_frame_path(verification_result), team_id, tree_id,
+                nav_context.get('variant'), node_id,
+                is_test=bool(nav_context.get('is_test', False)))
+        except Exception as e:
+            print(f"[@navigation_executor:verified_frame] skipped (non-fatal): {e}")
+
     def _record_training_samples(self, verification_result: Dict[str, Any], node_id: str,
                                  node_label: Optional[str], tree_id: str, team_id: str,
                                  userinterface_name: str, edge_id: Optional[str] = None,
@@ -1101,6 +1390,7 @@ class NavigationExecutor:
         else — frame lookup, focus signature (OCR), upload — runs in a daemon thread.
         Never raises and never delays or fails navigation. `runner` is injectable
         for tests (default: a daemon thread)."""
+        self._store_verified_frame(verification_result, node_id, tree_id, team_id)
         try:
             from shared.src.lib.ai import training_samples
             if not training_samples.enabled():
@@ -2044,6 +2334,15 @@ class NavigationExecutor:
             print(f"[@navigation_executor:execute_navigation] verification_mode={verification_mode}")
 
             for i, step in enumerate(navigation_path):
+                if self._cancel_event.is_set():
+                    print(f"[@navigation_executor:execute_navigation] Cancelled before step {i + 1}/{len(navigation_path)}")
+                    self.clear_current_position()
+                    _record_recovery_summary(False, 'Navigation cancelled')
+                    return self._build_result(
+                        False, f"Navigation cancelled before step {i + 1}/{len(navigation_path)}",
+                        tree_id, target_node_id, current_node_id, start_time,
+                        cancelled=True, transitions_executed=transitions_executed,
+                        total_transitions=len(navigation_path), cancelled_at_step=i + 1)
                 step_num = i + 1
                 from_node = step.get('from_node_label', 'unknown')
                 to_node = step.get('to_node_label', 'unknown')
@@ -2129,6 +2428,12 @@ class NavigationExecutor:
                     # Use orchestrator for unified logging
                     from backend_host.src.orchestrator import ExecutionOrchestrator
                     action_call_start = time.time()
+                    # The before-action frame is read by exactly one consumer: the KPI
+                    # request this step queues (below, only when the action set carries
+                    # KPI references or use_verifications_for_kpi). A step with neither
+                    # would pay a full screenshot per hop and throw it away — on a web
+                    # host that is a 20 s page-screenshot timeout on every navigation.
+                    step_wants_kpi = bool(self._resolve_kpi_references(step))
                     result = await ExecutionOrchestrator.execute_actions(
                         device=self.device,
                         actions=actions,
@@ -2137,6 +2442,7 @@ class NavigationExecutor:
                         team_id=team_id,
                         context=context,
                         userinterface_name=userinterface_name,
+                        capture_before_action_screenshot=step_wants_kpi,
                     )
                     action_total_ms += int((time.time() - action_call_start) * 1000)
                     _log_duration('nav.hop.actions', (time.time() - action_call_start) * 1000,
@@ -3061,7 +3367,7 @@ class NavigationExecutor:
             {
                 'success': bool,
                 'execution_id': str,
-                'status': 'running' | 'completed' | 'error',
+                'status': 'running' | 'completed' | 'error' | 'cancelled',
                 'result': dict (if completed),
                 'error': str (if error),
                 'progress': int,
@@ -3085,6 +3391,7 @@ class NavigationExecutor:
             'error': execution.get('error'),
             'progress': execution.get('progress', 0),
             'message': execution.get('message', ''),
+            'cancel_requested': bool(execution.get('cancel_requested')),
             'tree_id': execution.get('tree_id'),
             'target_node_id': execution.get('target_node_id'),
             'elapsed_time_ms': int((time.time() - execution['start_time']) * 1000)
@@ -3562,6 +3869,10 @@ class NavigationExecutor:
         """
         if os.getenv('HOST_PROFILE', '').strip().lower() == 'lite':
             # Lite hosts (TASK-83) run no vpt-kpi: a request file would never be consumed.
+            return
+        from shared.src.lib.utils.monitor_profile import device_index_from_id, profile_services, resolve_monitor_profile
+        if not profile_services(resolve_monitor_profile(device_index_from_id(self.device_id))).get('kpi', True):
+            # A profile that switches the KPI scan off (tv_lite, TASK-95): nothing would consume the request.
             return
         try:
             target_tree_id = step.get('to_tree_id')

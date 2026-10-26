@@ -35,7 +35,8 @@ also off when `decisions.enabled()` says so (JEV_ENABLED / JEV_DISABLED_USAGES).
 per process lifetime.
 
 Screen memory (TASK-84, ALERT_SCREEN_MEMORY = off | dryrun | on, default off): the host stamps a freeze
-alert of a device with no userinterface with `metadata.screen_id` (a row of `screen_fingerprints`). The worker
+alert of any device with `metadata.screen_id` (a row of `screen_fingerprints`), and in mode `on` no longer opens a freeze
+on a screen already trusted as expected (incident_manager). The worker
 records each model verdict on that row; a screen the model judged harmless `ALERT_SCREEN_AI_VOTES` (2) times, or a
 person did once, is trusted: its later alerts are discarded with check_type='fingerprint' and no model call, except
 every `ALERT_SCREEN_AUDIT_EVERY`th (20) sighting, which still goes to the model. `dryrun` only logs what `on` would do.
@@ -60,7 +61,9 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
+from backend_server.src.agent.core import incident_probe
 from shared.src.lib import screen_memory
+from shared.src.lib.utils.last_key import last_key_event
 from shared.src.lib.database import screen_fingerprints_db
 from shared.src.lib.utils.supabase_utils import get_supabase_client
 
@@ -69,6 +72,7 @@ VERDICT_DISCARD = {"real": False, "expected": True, "false_alarm": True}
 SKIP_CHECK_TYPE = "ai_strategy_skip"
 AI_CHECK_TYPE = "ai"
 FINGERPRINT_CHECK_TYPE = "fingerprint"
+PROBE_CHECK_TYPE = "probe"
 BACKOFF_START_S, BACKOFF_MAX_S = 60, 3600
 ALERT_COLUMNS = ("id,host_name,device_id,device_name,incident_type,status,consecutive_count,"
                  "start_time,end_time,metadata,check_type,discard,discard_comment,created_at")
@@ -125,6 +129,27 @@ def _device_kind(alert: Dict[str, Any]) -> str:
     return "a TV device (set-top box / streaming stick) on HDMI capture"
 
 
+def standby_after_s() -> int:
+    return _env_int("ALERT_STANDBY_AFTER_S", 1800, 60)
+
+
+def last_key_lines(alert: Dict[str, Any]) -> List[str]:
+    """Facts for the prompt: when a key last reached the device (TASK-158)."""
+    meta = _metadata(alert)
+    seconds = meta.get("seconds_since_last_key")
+    if seconds is None:
+        return []
+    source = meta.get("last_key_source") or "unknown"
+    line = f"Last key sent to this device: {int(seconds) // 60} min {int(seconds) % 60} s before the alert ({source})"
+    kind = alert.get("incident_type")
+    if kind in ("blackscreen", "no_signal") and seconds >= standby_after_s() and _device_kind(alert).startswith("a TV"):
+        line += (f"; nobody touched it for {int(seconds) // 60} min, so black / no signal is most likely standby or off "
+                 "(expected-candidate)")
+    elif kind == "freeze" and seconds < 120:
+        line += "; a freeze right after a key is more likely a real fault than an idle screen"
+    return [line]
+
+
 def build_facts(alert: Dict[str, Any], repeats_24h: int, now: datetime) -> str:
     meta = _metadata(alert)
     kind = alert.get("incident_type")
@@ -142,6 +167,7 @@ def build_facts(alert: Dict[str, Any], repeats_24h: int, now: datetime) -> str:
     elif start:
         lines.append(f"Alert still active, open for {int((now - start).total_seconds())} s")
     lines.append(f"Same alert type on this device in the previous 24 h: {repeats_24h}")
+    lines.extend(last_key_lines(alert))
     motion = meta.get("motion") or {}
     if motion.get("state"):
         lines.append(f"Motion detector state: {motion.get('state')} ({motion.get('pct', '?')}% of the picture moving)")
@@ -178,6 +204,8 @@ How to judge (most alerts in this lab are noise, but a missed real incident is w
   or went silent is "real", also when it lasts long; a stuck device is a real incident.
 - An alert that repeats all day on the same device usually means its normal screen is a still menu or
   idle screen; use it only when the image agrees.
+- When the facts say nobody touched a TV device for a long time and the picture is black or "no signal", that is
+  standby or off -> "expected" (a person can overrule). A freeze seconds after a key press is "real".
 - If you cannot tell, answer "real" (a human will look).
 
 Reply with JSON only: {{"verdict": "real|expected|false_alarm", "reason": "<max 25 words>"}}"""
@@ -219,6 +247,29 @@ def load_image(path: Optional[str]) -> Optional[bytes]:
         return None
 
 
+def _alert_ref(alert: Dict[str, Any]) -> Dict[str, Any]:
+    """Which alert a triage call judged: stored on the call (``ai_calls.ref_*``) so the usage page can group by
+    incident type and link to the incident."""
+    return {"ref_type": "alert", "ref_id": alert.get("id"), "ref_kind": alert.get("incident_type")}
+
+
+BLANK_FRAME_SPREAD = 6  # a frame whose brightest and darkest pixel differ by less than this shows nothing to judge
+
+
+def is_blank_frame(image: Optional[bytes]) -> bool:
+    """True for a flat (all-black / all-one-colour) frame: the vision model answers it with nothing, every time
+    (BUG-0515: 40 empty answers on a 750-byte frame, 0 saved by a retry). Unreadable images are not blank."""
+    if not image:
+        return False
+    try:
+        import cv2
+        import numpy as np
+        pixels = cv2.imdecode(np.frombuffer(image, np.uint8), cv2.IMREAD_GRAYSCALE)
+        return pixels is not None and int(pixels.max()) - int(pixels.min()) < BLANK_FRAME_SPREAD
+    except Exception:  # noqa: BLE001 - no decoder: let the model look
+        return False
+
+
 def classify(alert: Dict[str, Any], repeats_24h: int, now: Optional[datetime] = None,
              resolution=None) -> Dict[str, Any]:
     """Run the model on one alert. ``resolution`` pins a profile (evaluation); None = routed usage."""
@@ -227,12 +278,17 @@ def classify(alert: Dict[str, Any], repeats_24h: int, now: Optional[datetime] = 
 
     now = now or datetime.now(timezone.utc)
     image = load_image(alert_image_path(alert))
+    if is_blank_frame(image):  # no model call: nothing in the frame to judge
+        from shared.src.lib.ai import router as ai_router
+        ai_router.record_avoided(USAGE, context={"host_name": alert.get("host_name")}, reason="blank_frame")
+        return {"success": False, "blank": True, "verdict": None, "has_image": True, "ms": 0, "tokens": {},
+                "model": None, "raw": "", "reason": "the frame is blank (one flat colour): nothing for the vision model to judge"}
     prompt = build_prompt(alert, repeats_24h, image is not None, now)
     image_b64 = base64.b64encode(image).decode() if image else None
     started = time.time()
     from shared.src.lib.ai import caller as ai_caller
     with ai_caller.bound(origin="monitoring", job="alert_triage", host_name=alert.get("host_name"),
-                         device_id=alert.get("device_id")):
+                         device_id=alert.get("device_id"), **_alert_ref(alert)):
         if resolution is not None:
             result = gateway.execute(resolution, prompt, image_b64=image_b64, max_tokens=120, temperature=0.0)
         else:
@@ -327,7 +383,7 @@ class NightwatchHandler:
         """The triage rule `rule` saved a model call: log it as an avoided call (TASK-87)."""
         from shared.src.lib.ai import caller as ai_caller, router
         with ai_caller.bound(origin="monitoring", job="alert_triage", host_name=alert.get("host_name"),
-                             device_id=alert.get("device_id")):
+                             device_id=alert.get("device_id"), **_alert_ref(alert)):
             router.record_avoided(USAGE, None, {"host_name": alert.get("host_name")}, reason=rule)
 
     def _write(self, alert_id: str, fields: Dict[str, Any]) -> bool:
@@ -339,6 +395,122 @@ class NightwatchHandler:
     def _skip(self, alert: Dict[str, Any], rule: str, detail: str) -> None:
         self._write(alert["id"], {"check_type": SKIP_CHECK_TYPE,
                                   "discard_comment": f"[SKIP:{rule}] {detail}"[:500]})
+
+    # ---- last key (TASK-158) and wake probe ------------------------------------------------
+    CONTROL_SOURCES = {"manual_control": "take_control", "script_execution": "script", "deployment_execution": "script"}
+
+    def _stamp_key(self, alert: Dict[str, Any]) -> None:
+        """Store `seconds_since_last_key` / `last_key_source` (and the actor and key) on the alert's metadata, once.
+        The host stamped `metadata.last_key`; a control session open at that moment names the source (take_control /
+        script) and the actor. Never raises: no stamp = triage as before."""
+        try:
+            meta = _metadata(alert)
+            if "seconds_since_last_key" in meta:
+                return
+            event = last_key_event(alert)
+            if not event:
+                return
+            source, actor = event["source"], event["actor"]
+            if source != "probe":
+                rows = (self.db.table("device_control_sessions").select("owner_type,owner_user_id,started_at,ended_at")
+                        .eq("host_name", alert["host_name"]).eq("device_id", alert["device_id"])
+                        .lte("started_at", event["at"]).order("started_at", desc=True).limit(3).execute().data or [])
+                for row in rows:
+                    if not row.get("ended_at") or str(row["ended_at"]) >= str(event["at"]):
+                        source = self.CONTROL_SOURCES.get(row.get("owner_type"), source)
+                        actor = row.get("owner_user_id") or actor
+                        break
+            fields = {"seconds_since_last_key": event["seconds_before_alert"], "last_key_source": source,
+                      "last_key_actor": actor, "last_key_name": event.get("key")}
+            merged = {**meta, **fields}
+            self.db.table("alerts").update({"metadata": merged}).eq("id", alert["id"]).execute()
+            alert["metadata"] = merged
+        except Exception as e:  # noqa: BLE001
+            print(f"[{self.nickname}] last-key stamp failed for {alert.get('id')}: {e}")
+
+    def _recent_probes(self, now: datetime) -> List[Dict[str, Any]]:
+        since = (now - timedelta(hours=1)).isoformat()
+        rows = (self.db.table("alerts").select("metadata").in_("check_type", [PROBE_CHECK_TYPE, SKIP_CHECK_TYPE])
+                .gte("updated_at", since).limit(500).execute().data or [])
+        return [_metadata(r).get("probe") for r in rows if isinstance(_metadata(r).get("probe"), dict)]
+
+    def _device_busy(self, alert: Dict[str, Any]) -> bool:
+        rows = (self.db.table("device_control_sessions").select("id,ended_at").eq("host_name", alert["host_name"])
+                .eq("device_id", alert["device_id"]).is_("ended_at", "null").limit(1).execute().data or [])
+        return incident_probe.device_busy(rows)
+
+    @staticmethod
+    def _send_key(host_name: str, device_id: str, key: str) -> Tuple[bool, str]:
+        from backend_server.src.lib.utils.server_utils import get_host_manager
+        from shared.src.lib.utils.build_url_utils import call_host
+        host = get_host_manager().get_host(host_name)
+        if not host:
+            return False, f"host {host_name} not registered"
+        body, status = call_host(host, "/host/remote/executeCommand", data={
+            "device_id": device_id, "command": "press_key", "params": {"key": key}, "source": "probe"}, timeout=20)
+        ok = status == 200 and isinstance(body, dict) and bool(body.get("success"))
+        return ok, "" if ok else str((body or {}).get("error") or (body or {}).get("message") or f"HTTP {status}")[:150]
+
+    @staticmethod
+    def _capture(host_name: str, device_id: str) -> Optional[bytes]:
+        from urllib.parse import urlparse
+        from backend_server.src.lib.utils.server_utils import get_host_manager
+        from shared.src.lib.utils.build_url_utils import call_host
+        host = get_host_manager().get_host(host_name)
+        if not host:
+            return None
+        body, status = call_host(host, "/host/av/takeScreenshot", data={"device_id": device_id, "fast": True}, timeout=30)
+        url = body.get("screenshot_url") if status == 200 and isinstance(body, dict) else None
+        if not url:
+            return None
+        content, status = call_host(host, urlparse(url).path, method="GET", raw_response=True, timeout=20)
+        return content if status == 200 and isinstance(content, bytes) else None
+
+    def _try_probe(self, alert: Dict[str, Any], rule: str, detail: str, screen: Optional[Dict[str, Any]],
+                   now: datetime) -> bool:
+        """Wake probe for an alert triage cannot conclude on. True when the alert was written here (discarded, or
+        skipped with the probe's finding in the comment); False when no probe applied and the caller skips as before."""
+        cfg = incident_probe.load_config()
+        key = incident_probe.candidate(alert, rule, cfg)
+        if not key:
+            return False
+        where = f"{alert['host_name']}/{alert['device_id']}"
+        if self._device_busy(alert):
+            print(f"[{self.nickname}] probe {where}: not sent, device is held")
+            return False
+        limited = incident_probe.rate_limited(self._recent_probes(now), alert, cfg, now)
+        if limited:
+            print(f"[{self.nickname}] probe {where}: not sent, {limited}")
+            return False
+        before = load_image(alert_image_path(alert))
+        result = incident_probe.run_probe(alert, key, cfg, before=before, is_blank=is_blank_frame,
+                                          send_key=self._send_key, capture=self._capture, now=now)
+        try:
+            from shared.src.lib.database import audit_events_db
+            audit_events_db.record(category="control", action="control.probe", actor_kind="system", actor_id="nightwatch",
+                                   target=where, outcome="ok" if result.outcome not in ("send_failed", "no_frame") else "error",
+                                   meta={"alert_id": alert["id"], "key": result.key, "outcome": result.outcome, "mode": cfg.mode})
+        except Exception:  # noqa: BLE001
+            pass
+        probe_meta = {**_metadata(alert), "probe": result.as_metadata(where)}
+        comment = result.comment()
+        if result.discards and cfg.mode == "on":
+            ok = self._write(alert["id"], {"checked": True, "check_type": PROBE_CHECK_TYPE, "discard": True,
+                                           "discard_type": "expected", "discard_comment": f"{comment} (was {rule})"[:500],
+                                           "metadata": probe_meta})
+            if ok:
+                self._learn(screen, "expected")
+                print(f"[{self.nickname}] discard {where}: {comment}")
+            return ok
+        ok = self._write(alert["id"], {"check_type": SKIP_CHECK_TYPE, "discard_comment": f"[SKIP:{rule}] {comment}"[:500],
+                                       "metadata": probe_meta})
+        print(f"[{self.nickname}] skip {where}: {comment}")
+        return ok
+
+    def _skip_or_probe(self, alert: Dict[str, Any], rule: str, detail: str, screen: Optional[Dict[str, Any]],
+                       now: datetime) -> None:
+        if not self._try_probe(alert, rule, detail, screen, now):
+            self._skip(alert, rule, detail)
 
     # ---- rules ----------------------------------------------------------------------
     def decide(self, alert: Dict[str, Any], last: Dict[Tuple[str, str, str], Dict[str, Any]],
@@ -419,8 +591,9 @@ class NightwatchHandler:
     def _learning(self, alert: Dict[str, Any], screen: Optional[Dict[str, Any]]) -> bool:
         """True when this alert must reach the model for the screen memory's sake, so it skips `short` and `repeat`:
 
-        - it teaches: its screen is stamped, not yet trusted, not bad and not set by a person (a flapping desktop is
-          then judged ~ai_votes_needed times per screen instead of never), or
+        - it teaches: its screen is stamped, recurring (seen ``ALERT_SCREEN_KEEP_MIN_SEEN`` times), not yet trusted,
+          not bad and not set by a person (a flapping desktop is then judged ~ai_votes_needed times per screen instead
+          of never; a screen seen once or twice is random and keeps the cost rules), or
         - it audits: its screen is trusted and this is the audit sighting (``ALERT_SCREEN_AUDIT_EVERY``). Without this
           the audit of a flapping desktop, whose alerts are all short, would be skipped before the model sees it.
 
@@ -431,7 +604,8 @@ class NightwatchHandler:
             return False
         if screen_memory.is_trusted_expected(screen):
             return screen_memory.should_audit(screen, _metadata(alert).get("screen_seen"))
-        return screen.get("verdict") != "bad" and screen.get("source") != "human"
+        return (screen_memory.is_recurring(screen, _metadata(alert).get("screen_seen"))
+                and screen.get("verdict") != "bad" and screen.get("source") != "human")
 
     def _screen_for(self, alert: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """The `screen_fingerprints` row the host stamped on this alert, when screen memory is on."""
@@ -454,6 +628,10 @@ class NightwatchHandler:
             self._day = day
             self._failed_today = 0
             self.day_stats = {k: 0 for k in self.day_stats}
+            if self.screen_mode != "off":
+                pruned = screen_fingerprints_db.prune_rare()
+                print(f"[{self.nickname}] screen memory: pruned {pruned} rare screen(s) "
+                      f"(< {screen_memory.keep_min_seen()} sightings, unseen {screen_memory.prune_after_days()} d)")
 
     def _model_blocked(self) -> bool:
         return time.time() < self._blocked_until
@@ -509,6 +687,7 @@ class NightwatchHandler:
             if self._awaiting_jev_facts(alert, now):
                 continue  # next cycle: its host facts are probably still being written
             self._jev_shadow(alert)  # sees every freeze alert with facts, whatever a cost rule does next
+            self._stamp_key(alert)
             screen = self._screen_for(alert)
             skip = self.decide(alert, last, calls_today, screen)
             where = f"{alert['id']} {alert['host_name']}/{alert['device_id']} {alert['incident_type']}"
@@ -536,6 +715,12 @@ class NightwatchHandler:
             if screen_memory.is_trusted_expected(screen) and screen_memory.should_audit(screen, _metadata(alert).get("screen_seen")):
                 cycle["audit"] += 1
             result = classify(alert, self._repeats_24h(alert), now)
+            if result.get("blank"):
+                self._skip_or_probe(alert, "blank_frame", result["reason"], screen, now)
+                print(f"[{self.nickname}] skip {where}: blank_frame — {result['reason']}")
+                cycle["avoided"] += 1
+                handled += 1
+                continue
             calls_today += 1
             cycle["calls"] += 1
             tokens = result.get("tokens") or {}
@@ -550,7 +735,8 @@ class NightwatchHandler:
                     n = self._content_fails[alert["id"]] = self._content_fails.get(alert["id"], 0) + 1
                     print(f"[{self.nickname}] model gave no usable answer for {alert['id']} ({n}/2): {result['reason']}")
                     if n >= 2:
-                        self._skip(alert, "model_empty", f"model gave no usable answer twice: {result['reason']}"[:300])
+                        self._skip_or_probe(alert, "model_empty",
+                                            f"model gave no usable answer twice: {result['reason']}"[:300], screen, now)
                         self._content_fails.pop(alert["id"], None)
                         handled += 1
                     continue

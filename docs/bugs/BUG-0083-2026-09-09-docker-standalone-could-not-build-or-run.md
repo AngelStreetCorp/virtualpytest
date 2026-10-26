@@ -52,7 +52,7 @@ it read `detect_platform.sh`'s coloured human-readable banner as the platform na
 own "Unsupported platform" branch.
 
 Smaller defects in the same tree: `setup/docker/.env.docker` used `NEXT_PUBLIC_SUPABASE_*`
-names nothing reads and carried an internal `192.168.1.103`; the Grafana compose set an
+names nothing reads and carried an internal `192.168.x.103`; the Grafana compose set an
 entrypoint it never mounted; the frontend port was mapped to a container port with no listener
 (`5073:80` / `5073:8080`, image serves 5073); `frontend/Dockerfile` had no `ARG VITE_*` and no
 `.dockerignore` (copied `node_modules`, `dist`, `.env`); no CI job built any image.

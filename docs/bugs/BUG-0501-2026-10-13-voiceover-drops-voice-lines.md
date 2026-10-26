@@ -9,7 +9,7 @@
 | Status    | Closed                                                       |
 | Severity  | Medium                                                       |
 | Area      | scripts/promo (product videos)                               |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `fccac0c78`, `6ca0ff1f3`                                     |
 
 ---

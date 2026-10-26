@@ -19,6 +19,7 @@
 #     infra/monitoring/grafana/dashboards/…
 #     backend_host/src/.env.example    device config (launch.sh copies it to .env)
 #     test_scripts/ test_campaign/     the shipped tests
+#     frontend/public/docs/…  the user documentation the frontend serves at /docs
 #     README.md               three commands
 #
 # Deliberately excluded: setup/docker/.env (secrets, per install), hetzner_custom (a
@@ -50,7 +51,8 @@ ROOT="$STAGE/$NAME"
 echo "📦 building $NAME"
 
 # --- the paths the compose files actually mount -----------------------------------
-mkdir -p "$ROOT/setup/docker" "$ROOT/backend_host/src" "$ROOT/infra/monitoring/grafana"
+mkdir -p "$ROOT/setup/docker" "$ROOT/backend_host/src" "$ROOT/infra/monitoring/grafana" \
+         "$ROOT/frontend/public"
 
 # setup/docker, minus the live .env and the legacy dev variant
 for item in docker-compose.yml docker-compose.linux.yml docker-compose.macos.yml \
@@ -65,6 +67,12 @@ cp -R "$PROJECT_ROOT/infra/monitoring/grafana/dashboards" "$ROOT/infra/monitorin
 cp "$PROJECT_ROOT/backend_host/src/.env.example" "$ROOT/backend_host/src/.env.example"
 cp -R "$PROJECT_ROOT/test_scripts" "$ROOT/"
 cp -R "$PROJECT_ROOT/test_campaign" "$ROOT/"
+
+# The frontend mounts its /docs tree (docker-compose.yml, service `frontend`). It is the
+# bulk of the archive — ~17 MB of markdown and rendered OpenAPI, ~4.9 MB gzipped — and it
+# is what the bundle's size comment above has to mean now. Still ~50x smaller than the
+# clone, and a user running the bundle must get the docs the image serves.
+cp -R "$PROJECT_ROOT/frontend/public/docs" "$ROOT/frontend/public/"
 
 # Nothing generated or secret travels with the bundle.
 find "$ROOT" -name '.env' -delete

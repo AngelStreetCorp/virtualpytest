@@ -260,6 +260,31 @@ def propose_name(dom: Dict[str, Any], screen_type: Optional[str]) -> str:
     return body or prefix or 'unknown_screen'
 
 
+def classify_with_vision_dom(local_path: str, team_id: str) -> Dict[str, Any]:
+    """Module-level wrapper around the LLM-driven screen classifier.
+
+    Returns the full vision.dom dict (screen_type, screen_summary, labels,
+    regions, ...).  Used by both this CLI scan and the auto-classify
+    scheduler (backend_server/scripts/auto_classify_unknowns.py) so a
+    propose-name call has exactly one definition.
+
+    The model's profile/timing metadata is stripped (`_dom_meta`) — that
+    is bookkeeping, not screen identity — so the stored `dom` column on
+    userinterface_unknown_screens contains the screen description only.
+    """
+    from backend_host.src.services.ai_exploration.dom_generator import generate_dom
+    try:
+        dom = generate_dom(local_path, team_id=team_id)
+        dom.pop('_dom_meta', None)
+        return dom
+    except Exception as exc:
+        # Never raise: the scheduler's call site needs to keep going
+        # through every candidate even if one image fails to load.
+        print(f'[unknown_screen_scan.classify_with_vision_dom] {local_path}: {exc}')
+        return {'screen_type': None, 'screen_summary': '', 'labels': [],
+                'error': str(exc)}
+
+
 class UnknownScreenScan:
     def __init__(self, args):
         self.args = args

@@ -4,9 +4,12 @@ description: Execute a test prompt on an Android TV device — navigate via D-pa
 platform: mobile  # Android TV runs Android; the schema only allows mobile/web/stb so we classify it under mobile (the route resolver picks the correct skill via device_model)
 requires_device: true
 timeout_seconds: 300
+think_budget_seconds: 120
+max_tool_calls: 40
 tools:
   - execute_device_action
   - navigate_to_node
+  - localize
   - verify_node
 triggers:
   - test prompt android tv
@@ -23,6 +26,8 @@ You receive a **test prompt** (what to do) and **acceptance criteria** (how to c
 **action_type:** `android_tv`
 
 Screenshots are captured automatically — you don't need to take them.
+
+**Where am I? — `localize` first (TASK-107).** After a step (an OK, a goto, a failed goto) call `localize(host_name, device_id, userinterface_name)`: it answers in one line, with no image — `node` (which saved screen), `live`, `signal`, `overlay`, `known_screen` or `unknown`. `navigate_to_node` already appends that verdict and attaches a screenshot only when it does not confirm the target. Take a screenshot only when the verdict is `unknown`, `overlay` or `known_screen`, or when you need to read text on the screen.
 
 **Important:** This is a 10-foot UI navigated by **D-pad and remote keys**, not touch. There is no `dump_elements` and no `swipe`. You navigate by pressing direction keys.
 

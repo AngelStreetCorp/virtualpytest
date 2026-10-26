@@ -9,7 +9,7 @@
 | Status    | Fixed — deployed and verified 2026-10-01                     |
 | Severity  | Medium — Run graph never replays a saved testcase: every run regenerates (an AI call) and each save adds another testcase |
 | Area      | `features/ai-test/backend_server/server_testprompt_routes.py`, `backend_host/src/routes/host_testcase_routes.py` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

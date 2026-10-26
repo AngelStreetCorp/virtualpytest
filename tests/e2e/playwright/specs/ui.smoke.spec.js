@@ -5,9 +5,12 @@ test.describe('UI Smoke - Critical Pages', () => {
   test('1. Dashboard displays core server summary', async ({ page }) => {
     await gotoWithAutoSign(page, '/');
     await expect(page.getByRole('heading', { name: 'Dashboard' })).toBeVisible();
-    // Dashboard renders system-stats tiles (System Stats / Devices / Services / Hosts)
-    // — at least one of the tile group names should be visible after the heading.
-    await expect(page.getByText('System Stats', { exact: true }).first()).toBeVisible();
+    // After the Dashboard Tabs refactor (8a/9a area: feat(dashboard): page-tab cards),
+    // the page opens straight on the Overview tab whose KPI tiles ("Pass rate",
+    // "Running now", "Devices up", "Failures") are the core server summary now. Assert
+    // one of them instead of the retired "System Stats" string, which lives only as a
+    // stale i18n key on a code path the page no longer renders.
+    await expect(page.getByText('Pass rate', { exact: true }).first()).toBeVisible();
   });
 
   test('2. Device Control displays host/device controls', async ({ page }) => {
@@ -45,15 +48,20 @@ test.describe('UI Smoke - Critical Pages', () => {
 
   test('6. User Interface page loads correctly', async ({ page }) => {
     await gotoWithAutoSign(page, '/configuration/interface');
-    // Verify the page heading is visible (page title is "Interface") - use exact to avoid strict mode violation
-    await expect(page.getByRole('heading', { name: 'Interface', exact: true })).toBeVisible();
+    // The page heading is `Interface (N)` (the count of registered UIs in the team),
+    // not the bare "Interface" — match a regex so the spec survives the count changing.
+    await expect(page.getByRole('heading', { name: /^Interface(\s*\(\d+\))?$/ })).toBeVisible();
     // Verify the Add UI button is visible (page is functional)
     await expect(page.getByRole('button', { name: 'Add UI' })).toBeVisible();
   });
 
   test('7. API docs page displays interactive docs controls', async ({ page }) => {
     await gotoWithAutoSign(page, '/docs/api');
-    await expect(page.getByRole('heading', { name: /API Documentation/i })).toBeVisible();
+    // After 568ffd069 + 09a6ef471 the page paint is owned by Documentation.tsx (the docs
+    // shell renders ApiDocsView inside its card). The header bar reads the first H1 from
+    // docs/api/README.md, which is "API Reference"; the previous text "API Documentation"
+    // came from the removed standalone ApiDocumentation page.
+    await expect(page.getByRole('heading', { name: /API Reference/i })).toBeVisible();
     // Page uses a dropdown selector, not tabs - verify the dropdown is present (use first() to avoid strict mode)
     await expect(page.locator('#doc-select').first()).toBeVisible();
     await expect(page.locator('iframe[title*="SERVER"], iframe[title*="APIs"], iframe').first()).toBeVisible();

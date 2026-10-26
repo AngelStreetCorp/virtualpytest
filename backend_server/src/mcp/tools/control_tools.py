@@ -103,6 +103,7 @@ class ControlTools:
                     'requested_by_session': session_id,
                     'stop_running_execution': True,
                     'reason': 'mcp_takeover',
+                    'protect_live_execution': True,
                     'userinterface_name': userinterface_name,
                 }
                 result = self.api.post(

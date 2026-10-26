@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — a created edge did not reach home, and the next item's validation started on the wrong screen |
 | Area      | `backend_host/src/services/ai_exploration/phases/validation_runner.py` (`verify_mobile_web`) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

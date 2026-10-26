@@ -9,7 +9,7 @@
 | Status    | Fixed                                                        |
 | Severity  | Medium                                                       |
 | Area      | backend_host / server / frontend — host registration        |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | TBD (branch `feature/auto-detect-grabber-audio`)             |
 
 ---
@@ -45,7 +45,7 @@ A second issue surfaced during the fix: the bash script silently fails when
 the user running it is not in the `video` group (every `v4l2-ctl` returns
 "Permission denied", the loop's `caps` variable stays empty, and the script
 prints an empty `VIDEO` table with no hint why). On vpt-mf1 this bit the lab
-operator `jndoye` on 2026-10-11; the script was only producing the BLUETOOTH
+operator `<operator>` on 2026-10-11; the script was only producing the BLUETOOTH
 and INFRARED sections. The fix surfaces the empty-grabber case in the UI so
 the operator sees the count and a hint about group membership.
 

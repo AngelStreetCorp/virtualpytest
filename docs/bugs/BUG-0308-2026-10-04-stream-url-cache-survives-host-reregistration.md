@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — live streams unwatchable until a server restart     |
 | Area      | `backend_server/src/routes/auto_proxy.py`, `server_system_routes.py::register_host` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `d5cc241570`                                                 |
 
 ---

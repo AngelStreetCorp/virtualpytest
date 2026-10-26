@@ -286,7 +286,8 @@ def freeze_eval(team_id: str, family: str, version: str) -> int:
         return 0
 
 
-def list_for_report(team_id: Optional[str], all_teams: bool = False, limit: int = 20000) -> List[Dict[str, Any]]:
+def list_for_report(team_id: Optional[str], all_teams: bool = False, limit: int = 20000,
+                    since: Optional[str] = None) -> List[Dict[str, Any]]:
     """Light columns of the team's samples (newest first) for the AI usage page's training panel."""
     rows: List[Dict[str, Any]] = []
     offset, page = 0, 1000
@@ -296,6 +297,8 @@ def list_for_report(team_id: Optional[str], all_teams: bool = False, limit: int 
                  .order('created_at', desc=True))
         if not all_teams:
             query = query.eq('team_id', team_id)
+        if since:
+            query = query.gte('created_at', since)
         batch = query.range(offset, offset + page - 1).execute().data or []
         rows.extend(_parse_row(r) if 'source_ref' in r else r for r in batch)
         if len(batch) < page:

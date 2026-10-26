@@ -26,6 +26,7 @@ import { getErrorMessage } from '../../../utils/testcase/testCaseHelpers';
 import { TestCaseSelector } from '../TestCaseSelector';
 import { StyledDialog } from '../../common/StyledDialog';
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { neutralButtonSx } from '../../common/PageChrome';
 
 interface Folder {
   folder_id: number;
@@ -491,8 +492,7 @@ export const TestCaseBuilderDialogs: React.FC<TestCaseBuilderDialogsProps> = ({
             </Button>
             <Button 
               onClick={handleConfirmAIGenerate} 
-              variant="contained" 
-              color="warning"
+              variant="contained" sx={neutralButtonSx(P)}
             >
               Continue & Replace
             </Button>

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — the created edges went back home by restarting the app (~9 s), or had no way back |
 | Area      | `backend_host/src/services/ai_exploration/phases/validation_runner.py` (`smart_backward`) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

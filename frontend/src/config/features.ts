@@ -12,6 +12,7 @@ import type { ComponentType, ReactElement, ReactNode } from 'react';
 import { matchPath } from 'react-router-dom';
 import { features as loaded } from 'virtual:vpt-features';
 
+import { registerCatalogLoader } from '../i18n';
 import type { ModDefinition } from '../mods/core/types';
 
 export interface FeatureRoute {
@@ -41,6 +42,7 @@ export type FeatureNavSection =
   | 'test-report'
   | 'monitoring'
   | 'docs'
+  | 'plugins'
   | 'settings';
 
 export interface FeatureNavItem {
@@ -49,6 +51,17 @@ export interface FeatureNavItem {
   label: string;
   path: string;
   icon?: ReactNode;
+  /**
+   * Makes the row an ACTION instead of a link: choosing it calls this and the app does not
+   * navigate. `path` is then only the row's key (the page-visibility key, so give it a unique
+   * pseudo path such as `/action/my-thing`), and no route needs to exist for it.
+   */
+  onSelect?: () => void;
+  /**
+   * Runtime gate, read each time the dropdown renders; return false to hide the row. For a feature
+   * that can be switched off at runtime (its state lives on the server, not in the build).
+   */
+  isVisible?: () => boolean;
 }
 
 /** Per-device shortcut rendered next to each device row on the Dashboard. */
@@ -130,6 +143,25 @@ export interface FeatureVideoOverlay {
  */
 export type FeatureSettingsNotice = ComponentType;
 
+/**
+ * A row a feature adds to Settings -> Features -> "Feature Toggles" (its runtime on/off switch).
+ * Core renders every registered one at the end of that list. The component renders ONE `<SettingRow>`
+ * (`components/common/SettingRow`) itself and owns reading and writing its state. Takes no props.
+ */
+export type FeatureSettingsToggle = ComponentType;
+
+/**
+ * A component mounted once for the whole app, inside the Router, auth, toast and server providers
+ * and next to the page (not in it). For things a feature opens from anywhere - a dialog started by
+ * a `nav.onSelect` - without core knowing about them. Takes no props.
+ */
+export type FeatureAppOverlay = ComponentType;
+
+/** fr/de strings of a feature, loaded with the app's own catalog so they are only bundled with it. */
+export type FeatureTranslations = Partial<
+  Record<'fr' | 'de', () => Promise<{ default: Record<string, string | Record<string, string>> }>>
+>;
+
 export interface FeatureDefinition {
   routes?: FeatureRoute[];
   nav?: FeatureNavItem[];
@@ -138,6 +170,10 @@ export interface FeatureDefinition {
   targetReadiness?: FeatureTargetReadiness[];
   videoOverlays?: FeatureVideoOverlay[];
   settingsNotices?: FeatureSettingsNotice[];
+  settingsToggles?: FeatureSettingsToggle[];
+  appOverlays?: FeatureAppOverlay[];
+  /** Catalogs merged into fr/de. English is the key, so there is no `en`. */
+  translations?: FeatureTranslations;
   /** Mods (TASK-77, docs/agent/platform/MODS.md): each user turns them on or off on the Mods page. */
   mods?: ModDefinition[];
 }
@@ -148,6 +184,13 @@ export interface LoadedFeature {
 }
 
 const FEATURES: LoadedFeature[] = loaded;
+
+// Feature catalogs join the app's own at load time. Registered here, at module evaluation, which
+// happens before main.tsx calls initI18n().
+FEATURES.forEach((f) => {
+  const loaders = f.entry.translations;
+  if (loaders) registerCatalogLoader(async (code) => (code === 'fr' || code === 'de' ? (await loaders[code]?.())?.default : undefined) ?? {});
+});
 
 /** Names of the features compiled into this bundle. */
 export function enabledFeatures(): string[] {
@@ -198,9 +241,19 @@ export function featureVideoOverlays(): FeatureVideoOverlay[] {
   return FEATURES.flatMap((f) => f.entry.videoOverlays ?? []);
 }
 
+/** Every component a feature mounts once for the whole app, in a stable order. */
+export function featureAppOverlays(): FeatureAppOverlay[] {
+  return FEATURES.flatMap((f) => f.entry.appOverlays ?? []);
+}
+
 /** Every notice a feature shows at the top of Settings, in a stable order. */
 export function featureSettingsNotices(): FeatureSettingsNotice[] {
   return FEATURES.flatMap((f) => f.entry.settingsNotices ?? []);
+}
+
+/** Every row a feature adds to the Settings "Feature Toggles" table, in a stable order. */
+export function featureSettingsToggles(): FeatureSettingsToggle[] {
+  return FEATURES.flatMap((f) => f.entry.settingsToggles ?? []);
 }
 
 /** True when `pathname` matches a feature route carrying the given flag. */

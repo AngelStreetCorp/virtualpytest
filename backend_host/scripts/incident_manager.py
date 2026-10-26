@@ -69,6 +69,12 @@ def _lazy_import_db():
 # Use same logger as capture_monitor
 logger = logging.getLogger('capture_monitor')
 
+
+def _is_check_violation(error):
+    """The database refused the row because of a CHECK constraint (alerts_incident_type_check lists only the types it was built with)."""
+    e = str(error or '').lower()
+    return 'check constraint' in e or 'incident_type_check' in e
+
 # Simple states
 NORMAL = 0
 INCIDENT = 1
@@ -76,10 +82,17 @@ INCIDENT = 1
 # TASK-27 step 4f: incident types whose frames can show the fault, so they become
 # ``av-fault`` training samples. These are every visual type process_detection emits;
 # audio_loss (and any other audio type) cannot be seen in a frame and is never recorded.
-VISUAL_INCIDENT_TYPES = frozenset({'blackscreen', 'freeze', 'macroblocks'})
+# BUG-0504: `no_signal` added — a no-HDMI-input capture (SMPTE colour bars / totally
+# black with no incoming feed) is a real visual fault and takes priority over freeze.
+VISUAL_INCIDENT_TYPES = frozenset({'blackscreen', 'no_signal', 'freeze', 'macroblocks'})
+
+# Incident types the tv_app profile declares (in code, not in its manifest). Other profiles declare theirs in YAML.
+TV_INCIDENT_TYPES = frozenset({'blackscreen', 'no_signal', 'freeze', 'errors', 'audio_loss', 'macroblocks'})   # no_signal: BUG-0504
+
 
 class IncidentManager:
     def __init__(self, skip_startup_cleanup=False):
+        self._device_profiles = {}   # device_id -> (profile name, allowed incident types); unknown device = tv_app
         self.device_states = {}  # {device_id: {state: int, active_incidents: {type: incident_id}, pending_incidents: {type: timestamp}}}
         self.INCIDENT_REPORT_DELAY = 30  # Only report to DB after 30 seconds of continuous detection
         self.MAX_ACTIVE_INCIDENTS = 3  # Maximum 3 open incidents per device
@@ -97,6 +110,9 @@ class IncidentManager:
         # Wait this long before retrying a create_incident that failed, so a persistent DB
         # error costs one upload per minute instead of one per detection tick (BUG-0109).
         self.CREATE_RETRY_BACKOFF = 60.0
+        # A CHECK violation is not a transient error: the same insert fails until a migration is applied. Say so once per device and type, keep
+        # the incident pending, and try again only this rarely (so applying the migration needs no restart, and nothing spams meanwhile).
+        self.CHECK_BLOCK_BACKOFF = 3600.0
         self._io_pool = ThreadPoolExecutor(max_workers=3, thread_name_prefix='incident-io')
         self._last_states_cleanup = 0  # Track last cleanup time
         self.STATES_CLEANUP_INTERVAL = 3600  # Clean device_states every hour
@@ -105,6 +121,14 @@ class IncidentManager:
         if not skip_startup_cleanup:
             self._resolve_all_incidents_on_startup()
         
+    def set_profile(self, device_id, profile_name, incident_types):
+        """The monitor profile a device runs, and the incident types it declares."""
+        self._device_profiles[device_id] = (profile_name, frozenset(incident_types))
+
+    def profile_of(self, device_id):
+        """(profile name, allowed incident types) of a device."""
+        return self._device_profiles.get(device_id, ('tv_app', TV_INCIDENT_TYPES))
+
     def get_device_state(self, device_id):
         """Get current state for device"""
         if device_id not in self.device_states:
@@ -301,6 +325,12 @@ class IncidentManager:
             device_name = device_info['device_name']
             capture_path = device_info.get('capture_path', capture_folder)  # Use capture folder name
 
+            profile_name, allowed_types = self.profile_of(device_id)
+            # tv_app keeps its behaviour exactly (any type the detectors raise); only other profiles are held to their declared types
+            if profile_name != 'tv_app' and issue_type not in allowed_types:
+                logger.error(f"[{capture_folder}] Incident type {issue_type!r} is not declared by profile {profile_name!r}; not creating it")
+                return None
+
             # ✅ CHECK INCIDENT LIMITS BEFORE CREATING
             device_state = self.get_device_state(device_id)
             active_incidents = device_state.get('active_incidents', {})
@@ -327,6 +357,12 @@ class IncidentManager:
             # Add specific metadata based on incident type (SAME AS ORIGINAL)
             if issue_type == 'blackscreen':
                 enhanced_metadata['blackscreen_percentage'] = analysis_result.get('blackscreen_percentage', 0)
+            elif issue_type == 'no_signal':
+                # BUG-0504: same surface as blackscreen on the incidents page (single
+                # start thumbnail + optional closure) so an operator sees a real image
+                # of the no-input capture instead of an empty card.
+                enhanced_metadata['no_signal'] = analysis_result.get('no_signal', False)
+                enhanced_metadata['blackscreen_percentage'] = analysis_result.get('blackscreen_percentage', 0)
             elif issue_type == 'freeze':
                 enhanced_metadata['freeze_diffs'] = analysis_result.get('freeze_diffs', [])
             elif issue_type == 'macroblocks':
@@ -335,6 +371,15 @@ class IncidentManager:
                 enhanced_metadata['volume_percentage'] = analysis_result.get('volume_percentage', 0)
                 enhanced_metadata['mean_volume_db'] = analysis_result.get('mean_volume_db', -100)
             
+            # TASK-158: the key sent to the device last, as of now: lets triage tell standby from a fault
+            try:
+                from shared.src.lib.utils.last_key import read_last_key
+                last_key = read_last_key(capture_folder)
+                if last_key:
+                    enhanced_metadata['last_key'] = last_key
+            except Exception as e:  # noqa: BLE001 - a missing key never blocks an incident
+                logger.debug(f"[{capture_folder}] last key unreadable: {e}")
+
             # Add frame information and R2 URLs (uploaded immediately by capture_monitor)
             if 'last_3_filenames' in analysis_result:
                 enhanced_metadata['last_3_filenames'] = analysis_result['last_3_filenames']
@@ -365,9 +410,6 @@ class IncidentManager:
                     if issue_type == 'freeze':
                         logger.warning(f"[{capture_folder}] ⚠️  NO r2_images in analysis_result for {issue_type} incident!")
             
-            if issue_type == 'freeze':
-                self._stamp_screen_id(enhanced_metadata, host_name, device_id, capture_folder)
-
             # Call database exactly as before
             result = create_alert_safe(
                 host_name=host_name,
@@ -375,7 +417,8 @@ class IncidentManager:
                 incident_type=issue_type,
                 consecutive_count=1,
                 metadata=enhanced_metadata,
-                device_name=device_name
+                device_name=device_name,
+                profile=profile_name
             )
             
             if result.get('success'):
@@ -393,7 +436,19 @@ class IncidentManager:
                                                  device_info.get('device_model'), capture_folder)
                 return alert_id
             else:
-                logger.error(f"[{capture_folder}] DB INSERT FAILED: {result.get('error')}")
+                err = result.get('error')
+                if _is_check_violation(err):
+                    device_state[f'{issue_type}_check_blocked'] = True
+                    if not device_state.get(f'{issue_type}_check_warned'):
+                        device_state[f'{issue_type}_check_warned'] = True
+                        logger.warning(f"[{capture_folder}] the database refuses {issue_type!r} alerts (CHECK on alerts.incident_type: {str(err)[:140]}). "
+                                       f"Apply migration 20261013b or 20261013c; the incident stays pending and is retried every "
+                                       f"{self.CHECK_BLOCK_BACKOFF / 3600:.0f} h, silently")
+                    else:
+                        logger.debug(f"[{capture_folder}] {issue_type} still refused by the alerts CHECK")
+                else:
+                    device_state.pop(f'{issue_type}_check_blocked', None)
+                    logger.error(f"[{capture_folder}] DB INSERT FAILED: {err}")
                 return None
             
         except Exception as e:
@@ -401,41 +456,79 @@ class IncidentManager:
             return None
     
     @staticmethod
-    def _stamp_screen_id(metadata, host_name, device_id, capture_folder):
-        """TASK-84: put ``screen_id`` (+ match distance) on a freeze alert's metadata before it is created.
+    def _localize_screen_id(frame_path):
+        """The ``screen_id`` Localize wrote in the per-frame JSON next to ``frame_path`` (``captures/x.jpg`` ->
+        ``metadata/x.json``), or None."""
+        try:
+            import json
+            folder, name = os.path.split(frame_path)
+            meta = os.path.join(os.path.dirname(folder), 'metadata', os.path.splitext(name)[0] + '.json')
+            with open(meta, encoding='utf-8') as fh:
+                loc = json.load(fh).get('localize') or {}
+            ev = (loc.get('verdict') or loc).get('evidence') or {}
+            return ev.get('screen_id') or None
+        except Exception:
+            return None
 
-        Only for the host VNC desktop (device 'host' with no HOST_USERINTERFACE) and only when ALERT_SCREEN_MEMORY is dryrun/on. The host is the only
-        writer of screen rows; the server worker reads the stamp. Never raises: no stamp = triage as before.
+    @staticmethod
+    def _freeze_screen(metadata, host_name, device_id, capture_folder):
+        """TASK-84: the screen-memory row of a freeze about to be reported, stamped on ``metadata``.
+
+        Counts one sighting and puts ``screen_id`` / ``screen_dist`` /
+        ``screen_seen`` on the metadata, so the triage worker records its verdict on that row. Every device, with or
+        without a userinterface: the scope is ``host_name/device_id``, the same one Localize reads. Returns the hit
+        (``{'id', 'dist', 'verdict', ...}``) or None (memory off, frame not keyable, candidate not promoted yet).
+        Never raises: no stamp = triage as before.
         """
         try:
             import cv2
             from shared.src.lib import screen_memory
             if screen_memory.mode() == 'off':
-                return
-            # Host VNC desktop only (TASK-84 review): a real set-top box hung on a still menu looks like a menu
-            # that is legitimately still, so its screens must never be learned as "expected".
-            if device_id != 'host' or (os.environ.get('HOST_USERINTERFACE') or '').strip():
-                return
+                return None
             from shared.src.lib.ai.freeze_strip import select_frames
             from shared.src.lib.database import screen_fingerprints_db
+            from shared.src.lib.utils.app_utils import DEFAULT_TEAM_ID
             from shared.src.lib.utils.storage_path_utils import get_device_fps
             picked, _t = select_frames(metadata, fps=get_device_fps(capture_folder))
             if not picked:
-                return
+                return None
             path = picked[-1][0]
-            fp = screen_memory.fingerprint_frame(cv2_io.imread(path, cv2.IMREAD_COLOR))
+            frame = cv2_io.imread(path, cv2.IMREAD_COLOR)
+            fp = screen_memory.fingerprint_frame(frame)
             if not fp:
                 logger.info(f"[{capture_folder}] screen memory: frame not keyable (flat or unreadable)")
-                return
-            hit = screen_fingerprints_db.resolve_or_create(f'{host_name}/{device_id}', 'freeze', fp, path)
+                return None
+            # TASK-159: the freeze never names a screen. It takes the id Localize published on the frame; only when
+            # Localize gave none does it register the frozen frame through the same function (fuzzy identity).
+            sid = IncidentManager._localize_screen_id(path)
+            # TASK-162: the frame's v6 fingerprint, the same blob the Localize monitor stores. Without it a row
+            # registered from a freeze was born with fingerprint = NULL -- the same hole BUG-0847 closed for the
+            # monitor, on this second registration path. Computed without OCR, so it costs no tesseract pass.
+            v6 = None
+            try:
+                from backend_host.src.controllers.verification.image_helpers import ImageHelpers
+                v6 = ImageHelpers(None, None).compute_fingerprint(frame, ocr=False)
+            except Exception as e:  # noqa: BLE001
+                logger.debug(f"[{capture_folder}] screen memory: v6 fingerprint failed ({e}); identity only")
+            hit = screen_fingerprints_db.count_sighting_by_id(DEFAULT_TEAM_ID, sid, frame=frame,
+                                                             fingerprint=v6) if sid else None
+            if not hit:
+                # a durable thumbnail, not the host path: that file rotates away within minutes and a row with no
+                # picture can never be named by the AI (no_sample every hour)
+                from shared.src.lib.database.screen_fingerprints_bump import _thumb_uri
+                hit = screen_fingerprints_db.register_screen(DEFAULT_TEAM_ID, f'{host_name}/{device_id}', fp,
+                                                             fingerprint=v6,
+                                                             sample_image_path=_thumb_uri(frame) or path)
             if hit:
                 metadata['screen_id'] = hit['id']
                 metadata['screen_dist'] = hit['dist']
                 metadata['screen_seen'] = hit['seen']  # this alert's own sighting number: the audit gate counts on it
                 logger.info(f"[{capture_folder}] screen memory: screen {hit['id']} "
                             f"({'new' if hit['is_new'] else 'seen'}, dist {hit['dist']}, verdict {hit['verdict']})")
+            return hit
         except Exception as e:
-            logger.warning(f"[{capture_folder}] screen memory stamp failed: {e}")
+            logger.warning(f"[{capture_folder}] screen memory lookup failed: {e}")
+            return None
 
     def _record_training_frames(self, alert_id, issue_type, frame_paths, device_model, label=''):
         """TASK-27 step 3a: keep the alert frames as pending ``av-fault`` training samples.
@@ -702,17 +795,37 @@ class IncidentManager:
         issue_types = []
         if 'blackscreen' in detection_result:
             issue_types.append('blackscreen')
+        if 'no_signal' in detection_result:
+            issue_types.append('no_signal')
         if 'freeze' in detection_result:
             issue_types.append('freeze')
         if 'macroblocks' in detection_result:
             issue_types.append('macroblocks')
         if 'audio' in detection_result:
             issue_types.append('audio_loss')
+
+        # TASK-90: a non-tv_app profile's analyzer evaluates its incidents ({name: {active, value}}); the ones its manifest declares
+        # go through the same pending / create / resolve state machine as the TV types, with the current frame as the alert's picture.
+        profile_name, allowed_types = self.profile_of(device_id)
+        profile_incidents = {}
+        if profile_name != 'tv_app':
+            profile_incidents = {n: v for n, v in (detection_result.get('incidents') or {}).items()
+                                 if n in allowed_types and isinstance(v, dict)}
+            issue_types.extend(profile_incidents)
         
         # PRIORITY HANDLING: Blackscreen > Freeze > Macroblocks > Audio Loss
-        # Priority 1: Blackscreen clears freeze, macroblocks, and audio_loss
+        # BUG-0504: no_signal added at the top tier alongside blackscreen. A frame
+        # that is a "no signal" capture (or a near-black one) is almost never a real
+        # user-facing freeze — the source fault is "the device has no input". If we
+        # raise freeze as a separate incident in parallel, two near-identical alerts
+        # confuse operators and inflate the freeze counter. Suppression covers the
+        # active_incidents / pending_incidents both.
+        # Priority 1: Blackscreen OR no_signal clear freeze, macroblocks, and audio_loss
+        higher_priority_fired = bool(
+            detection_result.get('blackscreen', False) or detection_result.get('no_signal', False)
+        )
         if detection_result.get('blackscreen', False):
-            for suppressed_type in ['freeze', 'macroblocks', 'audio_loss']:
+            for suppressed_type in ['no_signal', 'freeze', 'macroblocks', 'audio_loss']:
                 if suppressed_type in active_incidents:
                     incident_id = active_incidents[suppressed_type]
                     logger.info(f"[{capture_folder}] 🔄 Blackscreen detected - auto-resolving active {suppressed_type} incident {incident_id}")
@@ -721,12 +834,29 @@ class IncidentManager:
                     if not active_incidents:
                         device_state['state'] = NORMAL
                     transitions[suppressed_type] = 'cleared_by_blackscreen'
-                
+
                 if suppressed_type in pending_incidents:
                     logger.debug(f"[{capture_folder}] Blackscreen detected - clearing pending {suppressed_type} incident")
                     del pending_incidents[suppressed_type]
                     transitions[suppressed_type] = 'cleared_by_blackscreen'
-        
+        elif detection_result.get('no_signal', False):
+            # BUG-0504: no_signal clears the lower-priority incidents even when
+            # blackscreen is NOT in this frame.
+            for suppressed_type in ['freeze', 'macroblocks', 'audio_loss']:
+                if suppressed_type in active_incidents:
+                    incident_id = active_incidents[suppressed_type]
+                    logger.info(f"[{capture_folder}] 🔄 No-signal detected - auto-resolving active {suppressed_type} incident {incident_id}")
+                    self.resolve_incident(device_id, incident_id, suppressed_type)
+                    del active_incidents[suppressed_type]
+                    if not active_incidents:
+                        device_state['state'] = NORMAL
+                    transitions[suppressed_type] = 'cleared_by_no_signal'
+
+                if suppressed_type in pending_incidents:
+                    logger.debug(f"[{capture_folder}] No-signal detected - clearing pending {suppressed_type} incident")
+                    del pending_incidents[suppressed_type]
+                    transitions[suppressed_type] = 'cleared_by_no_signal'
+
         # Priority 2: Freeze clears macroblocks and audio_loss
         if detection_result.get('freeze', False):
             for suppressed_type in ['macroblocks', 'audio_loss']:
@@ -753,6 +883,8 @@ class IncidentManager:
                 # device has no audio stream (e.g. video-only/VNC capture) → N/A, not
                 # an incident; audio=True means audio is present.
                 is_detected = detection_result.get('audio') is False
+            elif issue_type in profile_incidents:
+                is_detected = bool(profile_incidents[issue_type].get('active'))
             else:
                 is_detected = detection_result.get(issue_type, False)
             
@@ -791,8 +923,34 @@ class IncidentManager:
                         # orphan objects that nothing ever reads. See BUG-0109.
                         retry_key = f'{issue_type}_create_retry_ts'
                         last_failed_ts = device_state.get(retry_key)
-                        if last_failed_ts is not None and (current_time - last_failed_ts) < self.CREATE_RETRY_BACKOFF:
+                        backoff = self.CHECK_BLOCK_BACKOFF if device_state.get(f'{issue_type}_check_blocked') else self.CREATE_RETRY_BACKOFF
+                        if last_failed_ts is not None and (current_time - last_failed_ts) < backoff:
                             continue
+
+                        # A freeze on a screen already judged expected (a menu, a home screen, the host desktop) is
+                        # not an incident: never open it. Looked up once per freeze episode (one sighting), kept until
+                        # the freeze ends; a retried create reuses the stamp.
+                        if issue_type == 'freeze':
+                            if 'freeze_screen' not in device_state:
+                                device_state['freeze_screen'] = self._freeze_screen(
+                                    detection_result, host_name,
+                                    get_device_info_from_capture_folder(capture_folder).get('device_id', capture_folder),
+                                    capture_folder) or {}
+                                hit = device_state['freeze_screen']
+                                if hit.get('verdict') == 'expected':
+                                    from shared.src.lib import screen_memory
+                                    if screen_memory.mode() == 'on':
+                                        hit['suppressed'] = True
+                                        logger.info(f"[{capture_folder}] freeze NOT reported: screen {hit['id']} is known "
+                                                    f"and judged expected (seen {hit.get('seen')}x)")
+                                    else:
+                                        logger.info(f"[{capture_folder}] DRYRUN freeze would not be reported: "
+                                                    f"screen {hit['id']} judged expected")
+                            hit = device_state['freeze_screen']
+                            if hit.get('suppressed'):
+                                continue
+                            if hit.get('id'):
+                                detection_result.update(screen_id=hit['id'], screen_dist=hit['dist'], screen_seen=hit['seen'])
 
                         # Issue has persisted for threshold duration, report to DB
                         logger.info(f"[{capture_folder}] ⏰ {issue_type} persisted for {elapsed_time:.1f}s, reporting to DB NOW")
@@ -810,7 +968,10 @@ class IncidentManager:
                                 has_r2_images = True
                                 logger.info(f"[{capture_folder}] Reusing R2 images from previous {issue_type} attempt")
 
-                        if not has_r2_images and issue_type in ['blackscreen', 'freeze', 'macroblocks', 'audio_loss']:
+                        # no_signal is uploaded like blackscreen from its cold start frame (capture_monitor stores no_signal_start_thumbnail_cold at
+                        # its START); without it in this list a no_signal alert never found a frame and was never created (found in the TASK-90 merge)
+                        if not has_r2_images and (issue_type in ['blackscreen', 'no_signal', 'freeze', 'macroblocks', 'audio_loss']
+                                                  or issue_type in profile_incidents):
                             # Missing R2 images - upload them NOW before DB insert
                             logger.info(f"[{capture_folder}] Uploading {issue_type} start images to R2 before DB insert...")
                             from datetime import datetime
@@ -895,6 +1056,9 @@ class IncidentManager:
                             device_state.pop(f'{issue_type}_clear_candidate_ts', None)
                             device_state.pop(retry_key, None)
                             device_state.pop(f'{issue_type}_pending_r2', None)
+                            device_state.pop(f'{issue_type}_check_blocked', None)
+                            device_state.pop(f'{issue_type}_check_warned', None)
+                            device_state.pop(f'{issue_type}_screen', None)
                             # Remove from pending since it's now active
                             del pending_incidents[issue_type]
                             logger.info(f"[{capture_folder}] ✅ Incident {incident_id} created and moved to active")
@@ -905,7 +1069,10 @@ class IncidentManager:
                             device_state[retry_key] = current_time
                             if detection_result.get('r2_images'):
                                 device_state[f'{issue_type}_pending_r2'] = detection_result['r2_images']
-                            logger.error(f"[{capture_folder}] ❌ create_incident returned None - incident creation FAILED (retry in {self.CREATE_RETRY_BACKOFF:.0f}s)")
+                            if device_state.get(f'{issue_type}_check_blocked'):
+                                logger.debug(f"[{capture_folder}] {issue_type}: alert refused by the database CHECK (retry in {self.CHECK_BLOCK_BACKOFF:.0f}s)")
+                            else:
+                                logger.error(f"[{capture_folder}] ❌ create_incident returned None - incident creation FAILED (retry in {self.CREATE_RETRY_BACKOFF:.0f}s)")
                     else:
                         # Still waiting for 5 minutes
                         remaining_time = self.INCIDENT_REPORT_DELAY - elapsed_time
@@ -1009,7 +1176,7 @@ class IncidentManager:
                     transitions[issue_type] = 'cleared'  # Mark transition
                     
                     # Cleanup: Remove cold copy for visual incidents (won't be uploaded to R2)
-                    if issue_type in ['blackscreen', 'macroblocks', 'audio_loss']:
+                    if issue_type in ['blackscreen', 'no_signal', 'macroblocks', 'audio_loss']:
                         cold_path_key = f'{issue_type}_start_thumbnail_cold'
                         if cold_path_key in device_state:
                             cold_path = device_state[cold_path_key]
@@ -1023,6 +1190,8 @@ class IncidentManager:
 
                     device_state.pop(f'{issue_type}_create_retry_ts', None)
                     device_state.pop(f'{issue_type}_pending_r2', None)
+                    device_state.pop(f'{issue_type}_check_blocked', None)
+                    device_state.pop(f'{issue_type}_screen', None)
                     del pending_incidents[issue_type]
         
         return transitions  # Return all transitions that occurred
@@ -1206,13 +1375,13 @@ class IncidentManager:
             logger.error(f"[{capture_folder}] Error deleting R2 freeze images: {e}")
     
     def upload_incident_frame_to_r2(self, thumbnail_path, device_id, time_key, incident_type, stage='start'):
-        """Upload single incident frame to R2 storage (for blackscreen/macroblocks)
-        
+        """Upload single incident frame to R2 storage (for blackscreen / no_signal / macroblocks)
+
         Args:
             thumbnail_path: Path to thumbnail image
             device_id: Device identifier (capture folder name)
             time_key: Unique timestamp key (e.g., "20251012_183705" for 2025-10-12 18:37:05)
-            incident_type: Type of incident ('blackscreen', 'macroblocks')
+            incident_type: Type of incident ('blackscreen', 'no_signal', 'macroblocks')
             stage: 'start' or 'end' for naming
         
         Returns:

@@ -7,6 +7,7 @@ to the appropriate device's NavigationExecutor.
 
 import time
 import threading
+from typing import Any, Dict, Optional
 from flask import Blueprint, request, jsonify, current_app
 from backend_host.src.lib.utils.route_decorators import route_exception_handler
 from backend_host.src.lib.utils.execution_event_utils import emit_execution_event
@@ -134,6 +135,8 @@ def navigation_execute(tree_id):
         device.navigation_executor._executions = {}
         device.navigation_executor._lock = threading.Lock()
     
+    if hasattr(device.navigation_executor, 'clear_cancel'):
+        device.navigation_executor.clear_cancel()
     with device.navigation_executor._lock:
         device.navigation_executor._executions[execution_id] = {
             'execution_id': execution_id,
@@ -185,6 +188,22 @@ def navigation_execute(tree_id):
                         result=result,
                         progress=100,
                         message=result.get('message', 'Navigation completed'),
+                    )
+                elif result.get('cancelled'):
+                    # Stopped by the user before the next edge (TASK-140 G7)
+                    device.navigation_executor._executions[execution_id]['status'] = 'cancelled'
+                    device.navigation_executor._executions[execution_id]['result'] = result
+                    device.navigation_executor._executions[execution_id]['progress'] = 100
+                    device.navigation_executor._executions[execution_id]['message'] = result.get('error', 'Navigation cancelled')
+                    emit_execution_event(
+                        'navigation',
+                        execution_id,
+                        'cancelled',
+                        device_id=device_id,
+                        team_id=team_id,
+                        result=result,
+                        progress=100,
+                        message='Navigation cancelled',
                     )
                 else:
                     # Navigation failed - set status to error
@@ -271,6 +290,23 @@ def navigation_execution_status(execution_id):
     status = device.navigation_executor.get_execution_status(execution_id)
     return jsonify(status)
     
+@host_navigation_bp.route('/execution/<execution_id>/cancel', methods=['POST'])
+@route_exception_handler()
+def navigation_execution_cancel(execution_id):
+    """Stop a running navigation before its next edge (TASK-140 G7). The edge in flight finishes."""
+    data = request.get_json(silent=True) or {}
+    device_id = request.args.get('device_id') or data.get('device_id') or 'device1'
+    host_devices = getattr(current_app, 'host_devices', {})
+    if device_id not in host_devices:
+        return jsonify({'success': False, 'error': f'Device {device_id} not found in host'}), 404
+    executor = getattr(host_devices[device_id], 'navigation_executor', None)
+    if not executor:
+        return jsonify({'success': False,
+                        'error': f'Device {device_id} does not have NavigationExecutor initialized'}), 500
+    result = executor.request_cancel(execution_id)
+    return jsonify(result), (200 if result.get('success') else 404)
+
+
 @host_navigation_bp.route('/preview/<tree_id>/<target_node_id>', methods=['GET'])
 @route_exception_handler()
 def navigation_preview(tree_id, target_node_id):
@@ -941,4 +977,113 @@ def navigation_localize():
         return jsonify({'success': False, 'error': f'Device {device_id} has no NavigationExecutor'}), 500
 
     result = device.navigation_executor.localize(team_id, userinterface_name)
+
+    # Matcher history (TASK-115): every Localize button press logs to match_runs.
+    # Best-effort — never fail the button on the writer.  If the matcher
+    # abstained and the frame has a dhash, also bump the unknown counter so
+    # the auto-classify scheduler picks it up.
+    try:
+        _record_localize_match_run(result, team_id, device_id, userinterface_name,
+                                    variant=variant)
+    except Exception as mr_err:
+        print(f"[@route:host_navigation:localize] match_runs write failed (non-fatal): {mr_err}")
+
     return jsonify(result)
+
+
+def _record_localize_match_run(result: Dict[str, Any], team_id: str, device_id: str,
+                                userinterface_name: str, variant: Optional[str] = None) -> None:
+    """Shared writer for both the Localize button and any future host caller
+    (the vpt-monitor-img bridge, when it ships).  Pulls the candidates out
+    of the matcher result and lets record_match_run compute the top-3 and
+    the runner-up margin.  Side-effect: bumps the unknown screen counter
+    when the matcher abstained."""
+    from shared.src.lib.database.match_runs_db import record_match_run
+    import hashlib
+    import os
+
+    if not isinstance(result, dict):
+        return
+    host_name = os.environ.get('HOST_NAME', 'unknown')
+    cands = result.get('candidates') or []
+    dhash_int = None
+    try:
+        live = result.get('live_focus') or {}
+        sample = live.get('dhash') if isinstance(live, dict) else None
+        if sample:
+            dhash_int = int(hashlib.sha256(str(sample).encode('utf-8')).hexdigest()[:15], 16)
+    except Exception:
+        dhash_int = None
+
+    outcome = record_match_run(
+        team_id=team_id, host_name=host_name, userinterface_name=userinterface_name,
+        source='localize_button', result=result, device_id=device_id,
+        variant=variant, source_ref={'caller': 'localize_button'},
+        dhash=dhash_int, frame_url=result.get('frame_url'),
+    )
+    if not outcome.get('success'):
+        print(f"[@route:host_navigation:_record_localize_match_run] {outcome.get('error')}")
+        return
+    fp = result.get('fingerprint') if isinstance(result.get('fingerprint'), dict) else None
+    if outcome.get('verdict') in ('unknown', 'low_confidence'):
+        # TASK-159: count a sighting on a screen Localize already registered; this route creates nothing.
+        from shared.src.lib.database.screen_fingerprints_db import count_screen_sighting, fp_from_blob
+        blob = fp_from_blob(fp)
+        if blob:
+            count_screen_sighting(team_id, f"{host_name}/{device_id}", blob)
+
+
+@host_navigation_bp.route('/match_run', methods=['POST'])
+@route_exception_handler()
+def record_match_run_route():
+    """POST /api/host/match_run — the vpt-monitor-img bridge (TASK-115 follow-up).
+
+    The standalone monitor process has no DB client by design; this endpoint
+    is the place it pushes to when the operator turns the bridge on.  The
+    body shape mirrors what NavigationExecutor.localize returns so the host
+    side can just forward its result.
+
+    Body: {team_id, device_id, userinterface_name, variant?, result, dhash?, frame_url?}
+    Returns: {success, id, verdict, floor_hit} or 4xx with {success: False, error}.
+    """
+    from shared.src.lib.database.match_runs_db import record_match_run
+    import hashlib
+    import os
+
+    data = request.get_json(silent=True) or {}
+    team_id = data.get('team_id')
+    device_id = data.get('device_id', 'device1')
+    userinterface_name = data.get('userinterface_name')
+    variant = data.get('variant')
+    result = data.get('result')
+    frame_url = data.get('frame_url')
+
+    if not team_id or not userinterface_name or not isinstance(result, dict):
+        return jsonify({'success': False, 'error': 'team_id, userinterface_name, result are required'}), 400
+
+    host_name = os.environ.get('HOST_NAME', 'unknown')
+    dhash_int = data.get('dhash')
+    if dhash_int is None:
+        try:
+            live = result.get('live_focus') or {}
+            sample = live.get('dhash') if isinstance(live, dict) else None
+            if sample:
+                dhash_int = int(hashlib.sha256(str(sample).encode('utf-8')).hexdigest()[:15], 16)
+        except Exception:
+            dhash_int = None
+
+    outcome = record_match_run(
+        team_id=team_id, host_name=host_name, userinterface_name=userinterface_name,
+        source='monitor_localize', result=result, device_id=device_id, variant=variant,
+        source_ref={'caller': 'vpt-monitor-img'},
+        dhash=dhash_int, frame_url=frame_url,
+    )
+    if not outcome.get('success'):
+        return jsonify({'success': False, 'error': outcome.get('error')}), 500
+    if outcome.get('verdict') in ('unknown', 'low_confidence'):
+        # TASK-159: this route creates no screen row; it counts a sighting on one Localize registered.
+        from shared.src.lib.database.screen_fingerprints_db import count_screen_sighting, fp_from_blob
+        blob = fp_from_blob(result.get('fingerprint') if isinstance(result.get('fingerprint'), dict) else None)
+        if blob:
+            count_screen_sighting(team_id, f"{host_name}/{device_id}", blob)
+    return jsonify(outcome)

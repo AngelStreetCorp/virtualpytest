@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low — wrong/empty values, no crash                           |
 | Area      | `backend_server/src/lib/analytics/catalog.py` (network sources) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `8ee5bd2bc`                                                       |
 
 ---

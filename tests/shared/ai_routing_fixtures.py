@@ -71,7 +71,35 @@ def install_routing(monkeypatch, answer='{"ok": true}', snapshot=None):
     monkeypatch.setattr(router, "record", lambda *a, **k: None)
     monkeypatch.setattr(gateway, "_local_routing", True)
     monkeypatch.setattr(gateway, "RETRY_SLEEP_S", 0)
+    monkeypatch.setattr(gateway, "RATE_LIMIT_BACKOFF_S", (0, 0, 0))   # the 429 backoff costs no time in a test
+    _freeze_snapshot(monkeypatch)
     return calls
+
+
+def _freeze_snapshot(monkeypatch):
+    """Make the installed test snapshot immune to the clock.
+
+    The resolver caches the routing for ``CACHE_TTL_S`` and reloads it from the DB when that looks expired.
+    A test that fakes ``router.time.time`` to make an endpoint's down-pause expire (the "the PC is back"
+    step of the endpoint-failover test) also makes the cache look expired -- and the reload then replaces
+    the test's profiles with the LIVE ones from the database, so the test asserts against a real profile
+    name and fails.
+
+    That made the suite order-dependent: it passed on its own and failed once another test file had
+    already loaded a snapshot from the database, because the reload only succeeds when the DB is
+    reachable. The test snapshot is served as long as one is installed, whatever the clock says; once
+    ``clear_routing()`` removes it, the real loader takes over again.
+    """
+    real_get = router._snapshot.get
+
+    def _get():
+        with router._snapshot._lock:
+            installed = router._snapshot._data
+        if installed is not None:
+            return installed
+        return real_get()
+
+    monkeypatch.setattr(router._snapshot, "get", _get)
 
 
 def clear_routing():

@@ -51,7 +51,7 @@ if [ -n "$HOST_CAPTURE_PATH" ]; then
 fi
 
 # Check for regular devices (dynamically detect up to 100)
-for i in {1..30}; do
+for i in $(seq 1 "${MAX_DEVICES:-99}"); do  # DEVICE1..DEVICE99 by default (MAX_DEVICES overrides)
     DEVICE_NAME=$(grep "^DEVICE${i}_NAME=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f 2- | tr -d '"' | tr -d "'" | sed 's/[[:space:]]*#.*$//' | xargs)
     VIDEO_CAPTURE_PATH=$(grep "^DEVICE${i}_VIDEO_CAPTURE_PATH=" "$ENV_FILE" 2>/dev/null | cut -d '=' -f 2- | tr -d '"' | tr -d "'" | sed 's/[[:space:]]*#.*$//' | xargs)
     

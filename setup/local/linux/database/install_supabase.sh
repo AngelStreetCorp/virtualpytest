@@ -207,23 +207,19 @@ install_nodejs() {
     echo "📦 Installing Node.js (optional)..."
 
     NODE_MAJOR=22
-    if ! command -v node &> /dev/null; then
-        # Install Node.js 22.x LTS
-        curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | $SUDO bash -
-        $SUDO apt-get install -y nodejs
-        echo "✅ Node.js $(node --version) installed"
+
+    # Load the Node.js version guard (CVE-2026-111497)
+    if [ -f "$SCRIPT_DIR/../shared/ensure_node.sh" ]; then
+        source "$SCRIPT_DIR/../shared/ensure_node.sh"
     else
-        CURRENT_NODE_MAJOR=$(node --version | sed 's/^v//' | cut -d. -f1)
-        if [ "$CURRENT_NODE_MAJOR" -lt "$NODE_MAJOR" ]; then
-            echo "🔧 Upgrading Node.js to ${NODE_MAJOR} (current: $(node --version))..."
-            $SUDO apt-get remove -y nodejs npm
-            curl -fsSL "https://deb.nodesource.com/setup_${NODE_MAJOR}.x" | $SUDO bash -
-            $SUDO apt-get install -y nodejs
-            echo "✅ Node.js $(node --version) installed"
-        else
-            echo "✅ Node.js $(node --version) already installed"
-        fi
+        echo "❌ Shared Node.js version guard not found at $SCRIPT_DIR/../shared/ensure_node.sh"
+        return 1
     fi
+
+    # Node.js vendors a Brotli decoder with an out-of-bounds write
+    # (CVE-2026-111497). The fixed builds are 22.23.4 / 24.22.1 / 26.12.1;
+    # Node 18, 20, 23 and 25 are EOL and get no fix.
+    ensure_patched_node "$NODE_MAJOR" "$SUDO" || return 1
 }
 
 # Function to install Supabase CLI

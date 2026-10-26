@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy) |
 | Severity  | High — disk-full failures return |
 | Area      | CI runner VMs |
-| Fixed in  | Unreleased |
+| Fixed in  | build 90145 |
 | Commit    | this commit |
 
 ---
@@ -24,7 +24,7 @@ VM 163 has a 31 GB root (164 has 82 GB). One Docker stack job puts about 11 GB o
 
 ## Fix
 
-Freed 7 GB on 163 (npm cache files older than 12 h, dangling images, build cache older than 1 h, journal to 200 MB: 96 % to 78 %). `ci-runner-retention.sh` on both VMs now (1) prunes dangling images and build cache older than 1 h when the disk is over 80 % even though jobs run (tagged images stay), (2) shortens the cache age to 12 h over the threshold and also covers `/home/jndoye/runners/cache`, (3) logs a line on every threshold check. The npm cache of 163 now lives on the runners disk (`cache=/home/jndoye/runners/cache/npm` in `~/.npmrc`). The Docker data root was not moved: 163's runners disk (40 GB, 18 GB used) cannot take 14 GB of Docker data without crossing 80 %.
+Freed 7 GB on 163 (npm cache files older than 12 h, dangling images, build cache older than 1 h, journal to 200 MB: 96 % to 78 %). `ci-runner-retention.sh` on both VMs now (1) prunes dangling images and build cache older than 1 h when the disk is over 80 % even though jobs run (tagged images stay), (2) shortens the cache age to 12 h over the threshold and also covers `/home/<operator>/runners/cache`, (3) logs a line on every threshold check. The npm cache of 163 now lives on the runners disk (`cache=/home/<operator>/runners/cache/npm` in `~/.npmrc`). The Docker data root was not moved: 163's runners disk (40 GB, 18 GB used) cannot take 14 GB of Docker data without crossing 80 %.
 
 ## Verification
 

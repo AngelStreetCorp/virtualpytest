@@ -1,8 +1,9 @@
 /**
  * Training sample review hook (TASK-27 step 4).
  *
- * Wraps the admin-only /server/training-samples routes: list (filtered, signed
- * image URLs, `proposed_label` already in the family's label shape), label, freeze.
+ * Wraps the admin-only /server/training-samples routes: list (filtered, the path
+ * of the screenshot the server serves, `proposed_label` already in the family's label
+ * shape), label, freeze.
  * Step 4d: the "Confusable pairs" filter (`label_conflict=true`) and `conflict_partner`.
  * Step 4f: `total` is the count matching the filters at the last (re)load only, and
  * `loadOfftreeLabels` gives the "Screen not in the tree" suggestions.
@@ -73,7 +74,8 @@ export interface TrainingSample {
   eval_version: string | null;
   source_ref: Record<string, unknown> | null;
   created_at: string;
-  image_url: string | null;
+  /** The app route that serves the screenshot (the server reads it from the training bucket). */
+  image_path: string | null;
   /** Step 4i triage record; absent when the feature migration is not applied. */
   triage?: TriageRecord | null;
 }

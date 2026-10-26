@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import SettingRow from '../../common/SettingRow';
 import {
   DialogTitle,
   DialogContent,
@@ -14,8 +15,6 @@ import {
   Chip,
   CircularProgress,
   Alert,
-  Switch,
-  FormControlLabel,
   Accordion,
   AccordionSummary,
   AccordionDetails,
@@ -24,6 +23,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import { StyledDialog } from '../../common/StyledDialog';
 import { buildServerUrl } from '../../../utils/buildUrlUtils';
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface ApiCallConfigModalProps {
   open: boolean;
@@ -359,7 +359,7 @@ export const ApiCallConfigModal: React.FC<ApiCallConfigModalProps> = ({
                         label={req.method}
                         size="small"
                         color={getMethodColor(req.method)}
-                        sx={{ fontFamily: 'monospace', fontSize: '0.7rem', minWidth: 50, height: 20 }}
+                        sx={{ fontFamily: 'monospace', fontSize: TYPOGRAPHY.caption.size, minWidth: 50, height: 20 }}
                       />
                       <Box sx={{ flex: 1, minWidth: 0 }}>
                         <Typography variant="body2" noWrap>{req.name}</Typography>
@@ -405,11 +405,11 @@ export const ApiCallConfigModal: React.FC<ApiCallConfigModalProps> = ({
           {selectedRequest && (
             <Box sx={{ 
               p: 2, 
-              bgcolor: P.surface, 
+              bgcolor: P.surfaceSolid, 
               color: P.textPrimary,
               borderRadius: 1,
               fontFamily: 'monospace',
-              fontSize: '0.875rem'
+              fontSize: TYPOGRAPHY.body.size
             }}>
               <Typography variant="subtitle2" sx={{ mb: 1, color: P.textMuted }}>
                 Request Preview
@@ -466,14 +466,10 @@ export const ApiCallConfigModal: React.FC<ApiCallConfigModalProps> = ({
                   fullWidth
                 />
                 
-                <FormControlLabel
-                  control={
-                    <Switch
-                      checked={failOnError}
-                      onChange={(e) => setFailOnError(e.target.checked)}
-                    />
-                  }
-                  label="Fail on HTTP error (status >= 400)"
+                <SettingRow
+                  title="Fail on HTTP error (status >= 400)"
+                  checked={failOnError}
+                  onChange={setFailOnError}
                 />
                 
                 <TextField

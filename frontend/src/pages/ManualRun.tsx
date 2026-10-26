@@ -49,6 +49,11 @@ import {
 } from '../hooks/reports/runManagementApi';
 import { useReportPermissions, useReportScope } from '../hooks/reports/useRunManagement';
 import { useI18n } from '../i18n/useI18n';
+import { DeviceFavoriteStar, ExecutableFavoriteStar } from '../components/common/DeviceFavoriteStar';
+import { DeviceMaintenanceBadge } from '../components/common/DeviceMaintenanceBadge';
+import { useDeviceFavorites } from '../hooks/useDeviceFavorites';
+import { useExecutableFavorites } from '../hooks/useExecutableFavorites';
+import { useMaintenanceGuard } from '../hooks/platformUpdate/useMaintenanceGuard';
 import {
   MANUAL_STEP_OUTCOMES,
   REPORT_ROUTES,
@@ -133,6 +138,13 @@ const ManualStart: React.FC = () => {
   const { canRunManual } = useReportPermissions();
   const { user } = useAuth();
   const targets = useManualTargets();
+  const favorites = useDeviceFavorites();
+  // Favorites first (TASK-99); the groups only show once the user has a favorite here.
+  const isFavoriteTarget = (d: DeviceTarget) => favorites.isFavorite(d.host_name, d.device_id);
+  const hasFavoriteTarget = targets.some(isFavoriteTarget);
+  const orderedTargets = [...targets].sort((a, b) => Number(isFavoriteTarget(b)) - Number(isFavoriteTarget(a)));
+  const executableFavorites = useExecutableFavorites();
+  const { guard, guardDialog } = useMaintenanceGuard();
   const sessions = useQuery({
     queryKey: ['run-management', 'manual-sessions', scope.serverKey, scope.deviceFilter],
     queryFn: () => fetchManualSessions(scope),
@@ -142,6 +154,11 @@ const ManualStart: React.FC = () => {
     queryFn: fetchTestcases,
     enabled: canRunManual,
   });
+  // Test cases starred by the user come first (TASK-100).
+  const isFavoriteTestcase = (tc: { testcase_id: string }) => executableFavorites.isFavorite('testcase', tc.testcase_id);
+  const testcaseOptions = testcases.data?.testcases ?? [];
+  const hasFavoriteTestcase = testcaseOptions.some(isFavoriteTestcase);
+  const orderedTestcases = [...testcaseOptions].sort((a, b) => Number(isFavoriteTestcase(b)) - Number(isFavoriteTestcase(a)));
   const [testcase, setTestcase] = useState<{ testcase_id: string; testcase_name: string } | null>(null);
   const [target, setTarget] = useState<DeviceTarget | null>(null);
   const startKeyRef = useRef<string | null>(null);
@@ -179,11 +196,23 @@ const ManualStart: React.FC = () => {
               <Autocomplete
                 size="small"
                 sx={{ flex: '1 1 260px', minWidth: 0 }}
-                options={testcases.data?.testcases ?? []}
+                options={orderedTestcases}
+                groupBy={hasFavoriteTestcase ? (option) => (isFavoriteTestcase(option) ? t('Favorites') : t('All items')) : undefined}
                 loading={testcases.isLoading}
                 value={testcase}
                 isOptionEqualToValue={(a, b) => a.testcase_id === b.testcase_id}
                 getOptionLabel={(option) => option.testcase_name}
+                renderOption={(optionProps, option) => {
+                  const { key, ...rest } = optionProps as React.HTMLAttributes<HTMLLIElement> & { key: string };
+                  return (
+                    <li key={key} {...rest}>
+                      {option.testcase_name}
+                      <span style={{ marginLeft: 'auto', display: 'flex' }}>
+                        <ExecutableFavoriteStar kind="testcase" itemId={option.testcase_id} />
+                      </span>
+                    </li>
+                  );
+                }}
                 onChange={(_e, value) => {
                   startKeyRef.current = null;
                   setTestcase(value);
@@ -193,11 +222,24 @@ const ManualStart: React.FC = () => {
               <Autocomplete
                 size="small"
                 sx={{ flex: '1 1 220px', minWidth: 0 }}
-                options={targets}
+                options={orderedTargets}
+                groupBy={hasFavoriteTarget ? (option) => (isFavoriteTarget(option) ? t('Favorites') : t('All devices')) : undefined}
                 value={target}
                 isOptionEqualToValue={(a, b) => a.host_name === b.host_name && a.device_id === b.device_id}
                 getOptionLabel={(option) => `${option.host_name} · ${option.device_name}`}
                 noOptionsText="No device of this server in your workspace"
+                renderOption={(optionProps, option) => {
+                  const { key, ...rest } = optionProps as React.HTMLAttributes<HTMLLIElement> & { key: string };
+                  return (
+                    <li key={key} {...rest}>
+                      {`${option.host_name} · ${option.device_name}`}
+                      <DeviceMaintenanceBadge hostName={option.host_name} deviceId={option.device_id} size={14} />
+                      <span style={{ marginLeft: 'auto', display: 'flex' }}>
+                        <DeviceFavoriteStar hostName={option.host_name} deviceId={option.device_id} />
+                      </span>
+                    </li>
+                  );
+                }}
                 onChange={(_e, value) => {
                   startKeyRef.current = null;
                   setTarget(value);
@@ -209,7 +251,13 @@ const ManualStart: React.FC = () => {
               <Button
                 variant="contained"
                 disabled={!testcase || !target || start.isPending}
-                onClick={() => testcase && target && start.mutate({ testcaseId: testcase.testcase_id, device: target })}
+                onClick={() =>
+                  testcase &&
+                  target &&
+                  guard(target.host_name, target.device_id, () =>
+                    start.mutate({ testcaseId: testcase.testcase_id, device: target }),
+                  )
+                }
               >
                 Start
               </Button>
@@ -222,6 +270,7 @@ const ManualStart: React.FC = () => {
           )}
         </CardContent>
       </Card>
+      {guardDialog}
       <Typography variant="subtitle1" sx={{ mb: 1 }}>
         In-progress sessions
       </Typography>

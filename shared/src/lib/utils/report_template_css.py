@@ -173,6 +173,48 @@ body {{
     white-space: nowrap;
 }}
 
+/* Project badge — TASK-65 G7.
+   Sits next to the header title so an outside viewer can see which project a
+   run belongs to without opening the app. Default look is the gold chip from
+   the active theme; a project can override its colour by setting
+   `projects.color`, in which case the background is that colour and the
+   foreground is the contrasting readable colour computed in the template. */
+.project-badge {{
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 0.78em;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    background: var(--primary);
+    color: var(--text-on-accent, #1a1a1a);
+    border: 1px solid color-mix(in srgb, var(--primary) 75%, #000 25%);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.08);
+    white-space: nowrap;
+    max-width: 280px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}}
+
+.project-badge::before {{
+    content: "";
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.45;
+    flex-shrink: 0;
+}}
+
+.project-badge-label {{
+    opacity: 0.7;
+    font-weight: 500;
+    margin-right: 4px;
+}}
+
 .header-controls {{
     display: flex;
     align-items: center;
@@ -1065,6 +1107,39 @@ body {{
     background: var(--bg-secondary);
     border-radius: 8px;
     margin: 10px 0;
+}}
+
+/* A step's own table of evidence (e.g. the audio level of every second). */
+.details-table {{
+    width: 100%;
+    border-collapse: collapse;
+    margin: 8px 0 12px 0;
+    background: var(--bg-primary);
+    border: 1px solid var(--border-light);
+    border-radius: 6px;
+    overflow: hidden;
+}}
+
+.details-table th,
+.details-table td {{
+    padding: 5px 10px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-light);
+    font-size: 12.5px;
+}}
+
+.details-table th {{
+    background: var(--bg-tertiary);
+    font-weight: 600;
+    color: var(--text-primary);
+}}
+
+.details-table tbody tr:last-child td {{
+    border-bottom: none;
+}}
+
+.details-table tbody tr:hover {{
+    background: var(--bg-secondary);
 }}
 
 .zap-summary-table {{

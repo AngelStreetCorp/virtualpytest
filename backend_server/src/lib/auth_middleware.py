@@ -12,6 +12,7 @@ DO NOT confuse with:
 This is for USER authentication: Frontend → Backend Server
 """
 
+import logging
 import os
 import time
 import jwt
@@ -266,6 +267,39 @@ def _is_truthy_env(value: Optional[str]) -> bool:
     if value is None:
         return False
     return value.strip().lower() in {'1', 'true', 'yes', 'on', 'enabled', 'required'}
+
+
+_refusal_log = logging.getLogger(__name__)
+
+
+def _log_refusal(kind: str, wanted) -> None:
+    """One warning line per 403 from require_role / require_permission (BUG-0786).
+
+    Not behind AUTH_TRACE: a refusal is an event an operator must be able to find. Ids and names
+    only, never a token or header.
+    """
+    _refusal_log.warning(
+        "[@auth_middleware] %s refused: user=%s role=%s wanted=%s path=%s",
+        kind,
+        getattr(request, 'user_id', None) or 'unknown',
+        getattr(request, 'user_role', None) or 'unknown',
+        wanted,
+        request.path,
+    )
+
+
+def _auth_trace_enabled() -> bool:
+    """Print the per-request auth checks ("role check passed", "permission check passed").
+
+    Off by default (BUG-0786). Those two lines were two thirds of what an operator
+    read in the server log during an incident, and they carried no information: the
+    check passing is the normal case, and the activity audit trail already records
+    what each request was allowed to do. The refusals stay logged — they are events.
+
+    AUTH_TRACE=1 turns the two lines back on for somebody chasing an auth problem.
+    Read per request, so the Settings page can switch it on without a restart.
+    """
+    return _is_truthy_env(os.getenv('AUTH_TRACE'))
 
 
 def is_frontend_jwt_required() -> bool:
@@ -547,12 +581,35 @@ VIEWER_WRITE_EXEMPT_PREFIXES: tuple = (
     # Structured run-report queries (TASK-42): POST only because the validated filter
     # model travels as JSON. They read script_results and return rows/CSV, write nothing.
     '/server/run-management/query',
+    # Per-user stars (TASK-99). The handler stamps `request.user_id` onto the row —
+    # the caller's verified principal, never the request body — so a viewer can only
+    # star / unstar for themselves; the table holds no shared state. Read the handler
+    # in server_device_favorites_routes.py:list_favorites / upsert / delete to confirm.
+    '/server/device-favorites',
+    '/server/executable-favorites',
+    # Per-user notification rows (TASK-145). The handler writes the caller's own row from the verified
+    # principal; team / workspace / project rows and `locked` are refused for non-admins in
+    # server_notification_prefs_routes.upsert_pref.
+    '/server/notification-prefs',
+    # Notification history (TASK-145): each handler reads and writes only the caller's own rows.
+    '/server/notifications',
 )
 
 
 def _requested_team_id() -> str:
-    """The team_id the caller is asking for, from the query string or a JSON body."""
+    """The team_id the caller is asking for, from any of the four sources the routes use:
+    query string, JSON body, URL kwargs, or the ``X-Team-Id`` header (BUG-0561). The global
+    guard runs on every /server/* request, so widening this widens defense-in-depth for
+    every team-scoped route at once — no per-route decorator sweep required.
+    """
     tid = (request.args.get('team_id') or '').strip()
+    if tid:
+        return tid
+    view_args = getattr(request, 'view_args', None) or {}
+    tid = (view_args.get('team_id') or '').strip()
+    if tid:
+        return tid
+    tid = (request.headers.get('X-Team-Id') or '').strip()
     if tid:
         return tid
     if request.method in READ_ONLY_METHODS:
@@ -748,7 +805,21 @@ def enforce_team_scope():
         return None
 
     if requested in _caller_team_ids():
-        return None
+        # Membership OK. Now verify the team's tenant_id is in the caller's tenant
+        # set (BUG-0561): a route that takes team_id from URL kwargs, the X-Team-Id
+        # header, or any other source the per-route decorator sweep would have to
+        # cover is now defended by this global guard.
+        team_tenant_id = _team_tenant_id_from_db(requested)
+        if team_tenant_id is None:
+            return None  # route's own 404 will apply
+        if team_tenant_id in _caller_tenant_ids():
+            return None
+        print(f"[@auth_middleware] \u26d4 tenant scope: {getattr(request, 'user_email', '?')} "
+              f"asked for team {requested} (tenant {team_tenant_id}) on {request.method} {request.path}")
+        return jsonify({
+            'error': 'Forbidden',
+            'message': 'You do not belong to the tenant that owns this team.',
+        }), 403
 
     print(f"[@auth_middleware] \u26d4 team scope: {getattr(request, 'user_email', '?')} "
           f"asked for team {requested} on {request.method} {request.path}")
@@ -963,13 +1034,15 @@ def require_role(*allowed_roles: str) -> Callable:
             
             # Check if user has one of the allowed roles
             if user_role not in allowed_roles:
+                _log_refusal('Role check', ','.join(allowed_roles))
                 return jsonify({
                     'error': 'Forbidden',
                     'message': f'This endpoint requires one of these roles: {", ".join(allowed_roles)}',
                     'user_role': user_role
                 }), 403
             
-            print(f"[@auth_middleware] ✅ Role check passed: {user_role} in {allowed_roles}")
+            if _auth_trace_enabled():
+                print(f"[@auth_middleware] ✅ Role check passed: {user_role} in {allowed_roles}")
             return f(*args, **kwargs)
         
         return decorated_function
@@ -1161,6 +1234,7 @@ def require_permission(permission: str) -> Callable:
             user_role = request.user_role
 
             if not principal_holds_permission(permission):
+                _log_refusal('Permission check', permission)
                 if permission in set(getattr(request, 'user_denied_permissions', []) or []):
                     return jsonify({
                         'error': 'Forbidden',
@@ -1173,7 +1247,8 @@ def require_permission(permission: str) -> Callable:
                     'user_role': user_role
                 }), 403
 
-            print(f"[@auth_middleware] ✅ Permission check passed: {permission}")
+            if _auth_trace_enabled():
+                print(f"[@auth_middleware] ✅ Permission check passed: {permission}")
             return f(*args, **kwargs)
 
         return decorated_function

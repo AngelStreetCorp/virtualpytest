@@ -1,6 +1,6 @@
 """Read the device's live transcript: the lines spoken in the last few minutes.
 
-The transcript accumulator (vpt-transcript, ENABLE_TRANSCRIPTION) merges each transcribed minute
+The transcript accumulator (vpt-monitor-audio, ENABLE_TRANSCRIPTION) merges each transcribed minute
 into ``<capture>/transcript/<hour>/chunk_10min_<index>.json``. A segment's ``start`` is in seconds
 from the chunk's start (hour:index*10, local time). The live feed lags ~60-90 s behind the picture.
 """

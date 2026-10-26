@@ -1,0 +1,16 @@
+# caption_playback (TASK-103): the device is watched `delay_s` behind live with the transcript of its own audio as captions.
+# Whisper transcribes THIS device's 1-minute audio (no other device on the host is transcribed); minutes in which the
+# broadcaster's subtitles are on screen (services.subtitle -> has_subtitles) are not transcribed. Machine text is marked as such.
+# `language` pins Whisper's language (auto-detect was wrong in 8 % of minutes); override per device with DEVICE<N>_CAPTION_LANGUAGE (code or auto).
+# delay_s 150 holds for tiny with 4 devices and base with 3 on a Pi 5; base with 4 needs 180.
+# See docs/tasks/TASK-103-caption-playback.md and docs/agent/devices/MONITOR_PROFILES.md.
+name: caption_playback
+services: { img: true, audio: true, subtitle: true }
+captions:
+  delay_s: 150
+  whisper_model: tiny
+  # language: de
+img:
+  runtime: edge
+  analyzers:
+    - type: tv_app

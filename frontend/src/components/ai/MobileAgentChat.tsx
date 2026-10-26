@@ -17,10 +17,13 @@
 
 import React, { useEffect, useRef } from 'react';
 import { Box, Paper, TextField, IconButton, Typography, CircularProgress, Alert } from '@mui/material';
-import { ArrowUpward as SendIcon, AutoAwesome as SparkleIcon } from '@mui/icons-material';
+import { ArrowBack as BackIcon, ArrowUpward as SendIcon, AutoAwesome as SparkleIcon } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
 import { useAgentChatContext } from '../../contexts/AgentChatContext';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { useI18n } from '../../i18n/useI18n';
 import { MessageFeedbackBar, FeedbackSubmitter } from '../agent-chat/MessageFeedbackBar';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export interface MobileAgentChatProps {
   /** Current rating per chat message id (1 = down, 5 = up). */
@@ -34,8 +37,26 @@ export const MobileAgentChat: React.FC<MobileAgentChatProps> = ({
   submitMessageFeedback,
 }) => {
   const P = useAgentChatPalette();
+  const { t } = useI18n();
+  const navigate = useNavigate();
   const { status, messages, input, setInput, sendMessage, isProcessing, error, session } = useAgentChatContext();
   const listEndRef = useRef<HTMLDivElement>(null);
+
+  /**
+   * BUG-0776: on a phone this chat is the whole page — the bottom navigation is hidden
+   * on /ai-agent — so the user had no way to leave it (a dead end in the native app,
+   * which has no browser chrome). The arrow goes back to where the chat was opened
+   * from; when the app was launched straight onto the chat there is nothing to go back
+   * to, and the dashboard is where the user lands instead.
+   */
+  const handleBack = () => {
+    const idx = (window.history.state as { idx?: number } | null)?.idx;
+    if (typeof idx === 'number' && idx > 0) {
+      navigate(-1);
+      return;
+    }
+    navigate('/');
+  };
 
   // Keep the latest message in view as the conversation grows.
   useEffect(() => {
@@ -58,6 +79,27 @@ export const MobileAgentChat: React.FC<MobileAgentChatProps> = ({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      {/* BUG-0776: the way out of the chat. */}
+      <Box
+        sx={{
+          flexShrink: 0,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.5,
+          px: 0.5,
+          py: 0.5,
+          borderBottom: '1px solid',
+          borderColor: 'divider',
+        }}
+      >
+        <IconButton onClick={handleBack} aria-label={t('Back')} size="small" sx={{ color: P.textPrimary }}>
+          <BackIcon fontSize="small" />
+        </IconButton>
+        <Typography sx={{ fontSize: TYPOGRAPHY.cardTitle.size, fontWeight: TYPOGRAPHY.cardTitle.weight, color: P.textPrimary }}>
+          {t('AI Agent')}
+        </Typography>
+      </Box>
+
       {/* Message list */}
       <Box
         sx={{
@@ -93,7 +135,7 @@ export const MobileAgentChat: React.FC<MobileAgentChatProps> = ({
 
         {status === 'ready' && messages.length === 0 && (
           <Box sx={{ textAlign: 'center', color: 'text.secondary', mt: 4, px: 2 }}>
-            <SparkleIcon sx={{ fontSize: 32, mb: 1, opacity: 0.6 }} />
+            <SparkleIcon sx={{ fontSize: TYPOGRAPHY.kpiValue.size, mb: 1, opacity: 0.6 }} />
             <Typography variant="body2">Ask the AI agent anything to get started.</Typography>
           </Box>
         )}

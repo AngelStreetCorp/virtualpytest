@@ -367,7 +367,7 @@ def load_and_downscale_image(image_path: str, target_size: Tuple[int, int] = (32
         return None
 
 
-def analyze_blackscreen(image_path: str, threshold: int = 10, downscaled_img=None) -> Tuple[bool, float]:
+def analyze_blackscreen(image_path: str, threshold: int = 20, downscaled_img=None) -> Tuple[bool, float]:
     """
     Detect if image is mostly black - OPTIMIZED with optional downscaled input
     

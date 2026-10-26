@@ -74,10 +74,55 @@ def test_choose_posts_the_decisions_api_and_returns_the_choice(jev):
     assert recorded[0]["ok"] is True and recorded[0]["tokens_in"] == 441
 
 
-def test_a_chat_profile_is_refused(jev):
+@pytest.fixture
+def chat(jev, monkeypatch):
+    """The `default` chat profile answers through gateway.execute (faked): returns (calls, replies)."""
+    from shared.src.lib.ai import gateway
+    calls, replies = [], []
+    monkeypatch.setattr(gateway, "execute", lambda res, prompt, **kw: calls.append((res, prompt, kw)) or replies.pop(0))
+    return calls, replies
+
+
+def _reply(content, ok=True):
+    return {"success": ok, "content": content, "error": "" if ok else "boom",
+            "usage": {"prompt_tokens": 90, "completion_tokens": 30}}
+
+
+def test_a_chat_profile_answers_a_choice_as_json(jev, chat):
     posts, _, _ = jev
+    calls, replies = chat
+    replies.append(_reply('```json\n{"choice": {"probabilities": {"home": 1, "live": 3}}}\n```'))
     out = decisions.choose(router.resolve_profile("default", "text.decision"), "s", _options(), instructions="?")
-    assert not out["success"] and "not a decision profile" in out["error"] and posts == []
+    assert out["success"] and out["choice"] == "live" and out["confidence"] == 0.75
+    assert out["probabilities"] == {"home": 0.25, "live": 0.75} and out["usage"] == {"input_tokens": 90, "output_tokens": 30}
+    assert posts == [] and len(calls) == 1 and calls[0][0].hops[0].profile_name == "default"
+    assert "Home, tabs on top" in calls[0][1]
+
+
+def test_a_chat_profile_answers_a_noul(jev, chat):
+    _, replies = chat[0], chat[1]
+    replies.append(_reply('{"ui": {"p": 0.8}}'))
+    out = decisions.decide(router.resolve_profile("default", "text.decision"), "s",
+                           {"ui": {"type": "noul", "instructions": "?", "criteria": {"true": "a", "false": "b"}}})
+    assert out["success"] and out["answers"]["ui"] == {"type": "noul", "noul": 0.8}
+
+
+def test_a_chat_answer_that_is_not_json_fails(jev, chat):
+    chat[1].append(_reply("I think it is live."))
+    out = decisions.choose(router.resolve_profile("default", "text.decision"), "s", _options(), instructions="?")
+    assert not out["success"] and out["choice"] is None and "not JSON" in out["error"]
+
+
+def test_a_chat_gateway_failure_is_a_failed_result(jev, chat):
+    chat[1].append(_reply("", ok=False))
+    out = decisions.choose(router.resolve_profile("default", "text.decision"), "s", _options(), instructions="?")
+    assert not out["success"] and "boom" in out["error"]
+
+
+def test_score_questions_need_a_decision_profile(jev, chat):
+    out = decisions.decide(router.resolve_profile("default", "text.decision"), "s",
+                           {"q": {"type": "score", "instructions": "?", "criteria": ["low", "high"]}})
+    assert not out["success"] and "score" in out["error"] and chat[0] == []
 
 
 def test_an_answer_outside_the_options_fails(jev):
@@ -401,3 +446,54 @@ def test_credits_route_reports_balance_and_key_limit(monkeypatch):
     monkeypatch.setattr(routes.requests, "get", lambda *a, **k: (_ for _ in ()).throw(ConnectionError("down")))
     e = app.test_client().get("/server/ai/credits").get_json()["endpoints"][0]
     assert "credits_error" in e and "key_error" in e                              # reported, never raised
+
+
+# --- TASK-143: the decisions API is called by hand, so it was counted but never traced.
+@pytest.fixture
+def traced(monkeypatch):
+    """Capture the Langfuse trace a decision call sends (nothing leaves the process)."""
+    calls = []
+    monkeypatch.setattr(decisions.tracing, "trace_call", lambda **kw: calls.append(kw))
+    return calls
+
+
+def test_a_decision_call_is_traced_to_langfuse(jev, traced):
+    resolution = router.resolve_profile("jev", "text.decision")
+    out = decisions.choose(resolution, "OCR: BBC One 15:00", _options(),
+                           instructions="Which screen is this?")
+    assert out["success"] and out["choice"] == "live"
+    assert len(traced) == 1
+    t = traced[0]
+    # the trace label is the call-log label, so a trace and its ai_calls row always agree
+    # (a pinned profile is a scoring call, hence the "eval:" prefix)
+    assert t["usage"] == resolution.stats_label == "eval:text.decision"
+    assert t["name"] == f"AI {resolution.stats_label}"
+    assert t["ok"] is True and t["team_id"] == resolution.team_id
+    assert t["input"]["state"] == "OCR: BBC One 15:00" and "questions" in t["input"]
+    assert t["output"]["choice"]["choice"] == "live"
+    assert len(t["attempts"]) == 1 and t["attempts"][0].ok is True
+    assert t["attempts"][0].tokens == (441, 48)
+
+
+def test_a_failed_decision_call_is_traced_too(jev, monkeypatch, traced):
+    import requests
+    monkeypatch.setattr(requests, "post", lambda url, **kw: FakeResponse({"error": "402"}, status=402))
+    out = decisions.decide(router.resolve_profile("jev", "text.decision"), "s",
+                           {"choice": {"type": "choice", "instructions": "?",
+                                       "criteria": {"home": "Home", "live": "Live"}}})
+    assert not out["success"]
+    assert len(traced) == 1
+    assert traced[0]["ok"] is False and traced[0]["error"]
+    assert len(traced[0]["attempts"]) == 1 and traced[0]["attempts"][0].ok is False
+
+
+def test_a_chat_profile_decision_is_traced_once_by_the_gateway(jev, monkeypatch, traced):
+    """The chat fallback goes through gateway.execute, which traces it itself -- not twice."""
+    from shared.src.lib.ai import gateway
+    replies = [{"success": True, "content": '{"choice": {"probabilities": {"home": 0.2, "live": 0.8}}}',
+                "usage": {"prompt_tokens": 10, "output_tokens": 5}}]
+    monkeypatch.setattr(gateway, "execute", lambda res, prompt, **kw: replies.pop(0))
+    out = decisions.choose(router.resolve_profile("default", "text.decision"), "s",
+                           _options(), instructions="?")
+    assert out["success"] and out["choice"] == "live"
+    assert traced == []          # gateway.execute owns that trace, not this module

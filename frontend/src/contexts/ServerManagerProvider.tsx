@@ -8,6 +8,7 @@ import { getAllServerUrls, buildServerUrlForServer } from '../utils/buildUrlUtil
 import { CACHE_CONFIG, STORAGE_KEYS } from '../config/constants';
 import { apiClient } from '../utils/apiClient';
 import { isAuthEnabled } from '../lib/supabase';
+import { ALL_SERVERS_SENTINEL, isAllServersSentinel } from '../lib/allServer/scope';
 import {
   discoverServerIdentity,
   getServerAuthInfo,
@@ -83,10 +84,16 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
   // Get all configured server URLs from environment
   const availableServers = useMemo(() => getAllServerUrls(), []);
 
-  // Selected server state with localStorage persistence
+  // Selected server state with localStorage persistence. The sentinel
+  // ALL_SERVERS_SENTINEL is also a valid value (it is the "All servers"
+  // row in the picker) — availableServers does NOT list it, so the
+  // membership check has to special-case the sentinel. Without this,
+  // reloading the page while ALL is selected would silently flip the
+  // picker back to the first configured server.
   const [selectedServer, setSelectedServerState] = useState<string>(() => {
     try {
       const saved = localStorage.getItem('selectedServer');
+      if (saved === ALL_SERVERS_SENTINEL) return ALL_SERVERS_SENTINEL;
       return saved && availableServers.includes(saved) ? saved : availableServers[0] || '';
     } catch {
       return availableServers[0] || '';
@@ -151,6 +158,8 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
   // Ref to prevent duplicate API calls
   // Keep serverHostsData in a stable ref so fetchServerData doesn't recreate on every fetch.
   const serverHostsDataRef = useRef<ServerHostData[]>(serverHostsData);
+  const selectedServerRef = useRef<string>(selectedServer);
+  selectedServerRef.current = selectedServer;
   serverHostsDataRef.current = serverHostsData;
 
   const isRequestInProgress = useRef(false);
@@ -381,7 +390,14 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
             `/server/system/getAllHosts?include_actions=false&include_system_stats=${includeSystemStats ? 'true' : 'false'}&force_refresh=${forceRefresh ? 'true' : 'false'}`
           ),
           {
-          signal: AbortSignal.timeout(10000) // Increased to 10s
+          // Every caller of this function awaits the same shared round, so the round lasts
+          // as long as its slowest server. Only the selected server gets the long budget;
+          // a slow side server (e.g. a Pi on a weak link) must not hold the others for 10 s.
+          signal: AbortSignal.timeout(
+            isAllServersSentinel(selectedServerRef.current) || serverUrl === selectedServerRef.current
+              ? 10000
+              : 4000,
+          )
           }
         );
         
@@ -531,6 +547,22 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
         systemSocketRef.current.disconnect();
         systemSocketRef.current = null;
       }
+      return;
+    }
+
+    // TASK-113 PR-C: when the user picks "All servers", the picker's
+    // value is the `ALL_SERVERS_SENTINEL` literal, not a real URL. The
+    // system socket is a per-server stream — there is no `wss://__all__`
+    // origin to connect to. Earlier this fell through to
+    // `createServerSocket('__all__', '/system', ...)` and the browser
+    // spammed `WebSocket connection to 'wss://__all__/...' failed`
+    // on every reconnect cycle while the page was visibly slow and
+    // devices showed empty (BUG-0571-edge). Skip the effect entirely
+    // in ALL mode; the cached `serverHostsData` (refreshed every
+    // 30 s, force-refreshed by manual `refreshServerData()`) is the
+    // source of truth while there. Per-server sockets in ALL mode is
+    // PR-E's job.
+    if (isAllServersSentinel(selectedServer) || selectedServer === '') {
       return;
     }
 

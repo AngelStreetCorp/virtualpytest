@@ -80,6 +80,46 @@ def get_tools() -> List[Dict[str, Any]]:
         }
     },
     {
+        "name": "localize",
+        "description": "Where is the device now? Reads the live screen and returns ONE verdict, the same answer as the Localize button: kind = signal (black screen / no signal), live (video playing; node_id = the tree's live node when one is flagged), node (a saved screen, with node_id and confidence), overlay (a popup / keyboard / notification; node_id = the screen under it when recognised), known_screen (not in the tree, but this device has shown it before) or unknown. Use it before navigating from an unknown position, or to check a step landed. Refused on a device whose monitoring profile runs no image monitor (lite). Example: localize(host_name='host1', device_id='device1', userinterface_name='stb_tv')",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "host_name": {
+                    "type": "string",
+                    "description": "host where device is connected"
+                },
+                "device_id": {
+                    "type": "string",
+                    "description": "device identifier"
+                },
+                "userinterface_name": {
+                    "type": "string",
+                    "description": "UI whose navigation tree the screen is matched against"
+                }
+            },
+            "required": [
+                "host_name",
+                "device_id",
+                "userinterface_name"
+            ]
+        }
+    },
+    {
+        "name": "localize_coverage",
+        "description": "How much of each navigation tree can Localize name? Per userinterface: screen nodes, % with a pixel fingerprint, % with a device identity (android activity / web URL), the live node (or none), fingerprint age in days and active Wrong-screen corrections. Use it before relying on localize for a tree: an interface at 0% answers only signal / live / unknown. Example: localize_coverage(userinterface_name='stb_tv')",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "userinterface_name": {
+                    "type": "string",
+                    "description": "One interface; every interface of the team when omitted"
+                }
+            },
+            "required": []
+        }
+    },
+    {
         "name": "navigate_to_node",
         "description": "Navigate to target node using pathfinding. Automatically acquires and releases device lock. Navigation cache is populated automatically if needed. tree_id auto-resolved from userinterface_name. MCP-formatted response with navigation result\n\nExample: navigate_to_node(host_name='host1', device_id='device1', userinterface_name='google_tv', target_node_label='shop')",
         "inputSchema": {
@@ -103,7 +143,7 @@ def get_tools() -> List[Dict[str, Any]]:
                 },
                 "force_unlock": {
                     "type": "boolean",
-                    "description": "stop a running script/testcase/deployment holding the device; another user's take-control is never taken"
+                    "description": "clears a STALE script/testcase/deployment lock (or your own) only; it never aborts another caller's live run (you get a device_busy refusal: wait or queue) and never takes another user's take-control"
                 },
                 "session_id": {
                     "type": "string",
@@ -111,7 +151,7 @@ def get_tools() -> List[Dict[str, Any]]:
                 },
                 "include_screenshot": {
                     "type": "boolean",
-                    "description": "include a device screenshot of the resulting screen in the response, default true"
+                    "description": "true = always attach a screenshot of the resulting screen, false = never. Omit it: the response says where the device is (Localize verdict) and attaches a screenshot only when Localize cannot confirm the target"
                 }
             },
             "required": [

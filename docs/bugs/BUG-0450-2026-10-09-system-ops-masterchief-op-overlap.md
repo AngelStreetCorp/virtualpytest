@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High                                                        |
 | Area      | backend                                                     |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `ebdca9ad6` (merge: `fix/system-ops-dedupe`)                 |
 
 ## Symptom

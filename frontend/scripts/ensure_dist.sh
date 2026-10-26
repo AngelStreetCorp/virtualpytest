@@ -18,6 +18,16 @@
 #     bundle is never a possible outcome.
 #   - staging + swap — the build writes dist.new and only then replaces dist, so
 #     a failed or killed build leaves the live bundle untouched.
+#
+# IMPORTANT — VPT_FORCE_BUILD:
+# The hash-skip is safe ONLY when the caller knows the source on disk is the
+# source that was just deployed (i.e. the systemd ExecStartPre, where a hot
+# restart arrives after a deploy build). A fresh rsync that brings the same
+# source bytes twice — or a commit that only touched docs/ — would otherwise
+# silently keep the OLD bundle, which is exactly what bit the live two-server
+# PoC at /tmp/t113-poc.js in 2026-10. The deploy script in
+# setup/proxmox/node/update_core.sh passes VPT_FORCE_BUILD=1 unconditionally;
+# the unit file does not. Do not let the unit file gain VPT_FORCE_BUILD.
 
 set -uo pipefail
 

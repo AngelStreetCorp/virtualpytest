@@ -9,7 +9,7 @@
 | Status    | Fixed                                                        |
 | Severity  | High - the saved test did not do what the exploration did, and failed on replay |
 | Area      | `features/ai-test/backend_server/server_testprompt_routes.py` (`_trace_to_graph`, `to-graph`, explore trace) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `065b8ae9df`                                                 |
 
 ---

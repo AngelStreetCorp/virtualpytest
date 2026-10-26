@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Low — cosmetic / usability                                   |
 | Area      | `frontend/src/components/agent-chat/AnalyticsArtifactViewer.tsx`, `analyticsExport.ts` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

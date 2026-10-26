@@ -26,11 +26,14 @@ from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _auto_sign import auto_sign_token, redact
 from _server_url import server_public_url
+
+# The auto-sign token is a team-admin credential: read it at runtime, never store it.
+AUTO_SIGN = auto_sign_token()
 
 
 def main():
-    AUTO_SIGN = "1f36fe19e305f9b83fd97596296e2dfaa17f982b04407f2ba31f96777cad4f47"
     # The host_session authorize gate is bypassed for browser flows via the
     # auto-signed Supabase session. We do NOT pass X-API-Key — we want a real
     # browser session so the auth_request returns 200 the same way it does
@@ -47,10 +50,10 @@ def main():
         page = ctx.new_page()
 
         # Forward console for debugging
-        page.on("console", lambda msg: print(f"  [console.{msg.type}] {msg.text}", file=sys.stderr) if msg.type in ("error", "warning") else None)
-        page.on("pageerror", lambda e: print(f"  [pageerror] {e}", file=sys.stderr))
+        page.on("console", lambda msg: print(f"  [console.{msg.type}] {redact(msg.text, AUTO_SIGN)}", file=sys.stderr) if msg.type in ("error", "warning") else None)
+        page.on("pageerror", lambda e: print(f"  [pageerror] {redact(e, AUTO_SIGN)}", file=sys.stderr))
 
-        print(f"Loading {PAGE} ...", file=sys.stderr)
+        print(redact(f"Loading {PAGE} ...", AUTO_SIGN), file=sys.stderr)
         page.goto(PAGE, wait_until="domcontentloaded", timeout=20000)
         # Let the auto-sign + Supabase + host-session bootstrap settle
         page.wait_for_timeout(3000)
@@ -59,17 +62,17 @@ def main():
         # Query the device list to find capture1's URL
         # The server exposes /server/system/getAllHosts. We can hit it from the
         # browser context so cookies/host session are sent.
-        hosts_info = page.evaluate("""async () => {
-            const r = await fetch('/server/system/getAllHosts', { credentials: 'include', headers: { 'X-Auto-Sign': '1f36fe19e305f9b83fd97596296e2dfaa17f982b04407f2ba31f96777cad4f47' } });
+        hosts_info = page.evaluate("""async (token) => {
+            const r = await fetch('/server/system/getAllHosts', { credentials: 'include', headers: { 'X-Auto-Sign': token } });
             if (!r.ok) return { error: 'getAllHosts ' + r.status };
             const j = await r.json();
             return j;
-        }""")
+        }""", AUTO_SIGN)
         print(f"hosts_info keys: {list(hosts_info.keys()) if isinstance(hosts_info, dict) else type(hosts_info)}", file=sys.stderr)
 
         # Find a host named vpt-pi3 with a capture1 device
-        target = page.evaluate("""async () => {
-            const r = await fetch('/server/system/getAllHosts', { credentials: 'include', headers: { 'X-Auto-Sign': '1f36fe19e305f9b83fd97596296e2dfaa17f982b04407f2ba31f96777cad4f47' } });
+        target = page.evaluate("""async (token) => {
+            const r = await fetch('/server/system/getAllHosts', { credentials: 'include', headers: { 'X-Auto-Sign': token } });
             const j = await r.json();
             for (const h of (j.hosts || [])) {
                 if (h.host_name !== 'vpt-pi3') continue;
@@ -90,7 +93,7 @@ def main():
 
         # Navigate to the device control page
         device_url = f"{BASE}/device-control?auto_signed={AUTO_SIGN}&host={target['host_name']}&device={target['device_id']}"
-        print(f"Loading {device_url} ...", file=sys.stderr)
+        print(redact(f"Loading {device_url} ...", AUTO_SIGN), file=sys.stderr)
         page.goto(device_url, wait_until="domcontentloaded", timeout=20000)
         # Wait for the HLS player to start
         page.wait_for_timeout(15000)
@@ -184,4 +187,11 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as exc:
+        # A traceback would carry the ?auto_signed= URL of the page that failed.
+        print(redact(f"{type(exc).__name__}: {exc}", AUTO_SIGN), file=sys.stderr)
+        sys.exit(1)

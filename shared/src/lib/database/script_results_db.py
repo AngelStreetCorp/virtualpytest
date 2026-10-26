@@ -11,6 +11,7 @@ from uuid import uuid4
 
 from shared.src.lib.utils.supabase_utils import get_supabase_client
 from shared.src.lib.database.in_filter import chunked_in
+from shared.src.lib.utils.script_skipped import derive_skipped
 
 def get_supabase():
     """Get the Supabase client instance."""
@@ -114,6 +115,11 @@ def update_script_execution_result(
             'completed_at': datetime.now(timezone.utc).isoformat(),
             'updated_at': datetime.now(timezone.utc).isoformat()
         }
+
+        # A run that never executed because it was not configured did not find a
+        # failure, so its row is skipped rather than failed. The flag comes from
+        # the run's own outcome metadata, never from the error text.
+        update_data['skipped'] = derive_skipped(success, metadata)
         
         if execution_time_ms is not None:
             update_data['execution_time_ms'] = execution_time_ms
@@ -243,6 +249,86 @@ def _attach_labels(supabase, team_id: str, rows: List[Dict]) -> None:
         row['labels'] = sorted(by_id.get(str(row.get('id')), []), key=lambda l: (str(l['name']).lower(), l['id']))
 
 
+def _attach_projects(supabase, team_id: str, rows: List[Dict]) -> None:
+    """Set row['projects'] for a page of results — TASK-65 G7.
+
+    The mapping is:
+            ``script_results.script_name``  →  ``executable_tags.executable_id``
+                                          (where ``executable_type = 'script'``)
+                                          →  ``projects_tags.tag_id``
+                                          →  ``projects_tags.project_id``
+                                          →  ``projects(id, name, color)``
+
+    A row with no project tag gets an empty ``projects`` list. The `team_id`
+    filter on ``projects`` is enforced inside the `is_admin()` RLS policy; the
+    client-side guard mirrors it for the service-role path.
+    """
+    by_name: Dict[str, List[Dict]] = {row.get('script_name'): [] for row in rows if row.get('script_name')}
+    if not by_name:
+        for row in rows:
+            row['projects'] = []
+            row['project_ids'] = []
+        return
+
+    # Step 1: executable_tags for these script names.
+    # NB: `executable_tags` has no `team_id` column — it is shared across
+    # teams. The team scope is enforced at the projects_tags → projects link
+    # (step 2 below), where the inner join already filters on
+    # `projects.team_id`.
+    et_rows = chunked_in(
+        lambda chunk: supabase.table('executable_tags')
+        .select('executable_id, tag_id')
+        .eq('executable_type', 'script')
+        .in_('executable_id', chunk),
+        list(by_name.keys())
+    )
+    name_to_tag: Dict[str, List[str]] = {}
+    all_tag_ids: List[str] = []
+    for et in et_rows:
+        name = str(et.get('executable_id') or '')
+        tag_id = str(et.get('tag_id') or '')
+        if name and tag_id:
+            name_to_tag.setdefault(name, []).append(tag_id)
+            all_tag_ids.append(tag_id)
+
+    # Step 2: projects_tags + projects (one query, joined client-side).
+    tag_to_project: Dict[str, Dict] = {}
+    if all_tag_ids:
+        pt_rows = chunked_in(
+            lambda chunk: supabase.table('projects_tags')
+            .select('tag_id, project_id, projects!inner(id, team_id, name, color)')
+            .eq('projects.team_id', team_id)
+            .in_('tag_id', chunk),
+            list(set(all_tag_ids))
+        )
+        for pt in pt_rows:
+            proj = pt.get('projects')
+            if isinstance(proj, list):
+                proj = proj[0] if proj else None
+            if not proj:
+                continue
+            if str(proj.get('team_id') or '') != team_id:
+                continue
+            tag_to_project[str(pt.get('tag_id') or '')] = {
+                'id': str(proj.get('id')),
+                'name': proj.get('name'),
+                'color': proj.get('color'),
+            }
+
+    # Step 3: project ids + rows back into the result.
+    for row in rows:
+        name = row.get('script_name')
+        projects: List[Dict] = []
+        seen: set = set()
+        for tag_id in name_to_tag.get(name, []):
+            proj = tag_to_project.get(tag_id)
+            if proj and proj['id'] not in seen:
+                seen.add(proj['id'])
+                projects.append(proj)
+        row['projects'] = projects
+        row['project_ids'] = [p['id'] for p in projects]
+
+
 def get_script_results(
     team_id: str,
     script_name: Optional[str] = None,
@@ -256,6 +342,8 @@ def get_script_results(
     milestone_id: Optional[str] = None,
     run_group_id: Optional[str] = None,
     label_id: Optional[str] = None,
+    success: Optional[bool] = None,
+    since: Optional[str] = None,
 ) -> Dict:
     """Get script results with filtering.
 
@@ -275,6 +363,9 @@ def get_script_results(
     an inner join within the team). Applied before the limit, like the host scopes.
     Each returned row carries ``labels`` ([{id, name, color}]), read with one
     batched query for the page.
+
+    success / since (dashboard deep links, TASK-123): restrict to one verdict and to rows started at or after the
+    ISO timestamp ``since`` (``created_at``, the column the dashboard counts on). Applied before the limit, like the host scopes.
     """
     try:
         print(f"[@db:script_results:get_script_results] Getting script results:")
@@ -332,6 +423,10 @@ def get_script_results(
             query = query.in_('host_name', host_filter)
         if not include_discarded:
             query = query.eq('discard', False)
+        if success is not None:
+            query = query.eq('success', success)
+        if since:
+            query = query.gte('created_at', since)
 
         # Execute query with ordering and limit
         result = query.order('created_at', desc=True).limit(limit).execute()
@@ -340,6 +435,7 @@ def get_script_results(
         for row in rows:
             row.pop('script_result_labels', None)
         _attach_labels(supabase, team_id, rows)
+        _attach_projects(supabase, team_id, rows)
 
         print(f"[@db:script_results:get_script_results] Found {len(rows)} script results")
         return {
@@ -361,15 +457,21 @@ def get_script_history(team_id: str, script_name: str, script_type: str, limit: 
     """Get execution history for a specific script."""
     try:
         print(f"[@db:script_results:get_script_history] Getting history for {script_name} ({script_type})")
-        
+
         supabase = get_supabase()
         result = supabase.table('script_results').select('*').eq('team_id', team_id).eq('script_name', script_name).eq('script_type', script_type).eq('discard', False).order('created_at', desc=True).limit(limit).execute()
-        
-        print(f"[@db:script_results:get_script_history] Found {len(result.data)} history entries")
+
+        rows = [_flatten_rerun_payload(row) for row in (result.data or [])]
+        # History is one-script-per-call so the project list collapses to at most
+        # one entry; keep the same row shape the frontend expects from
+        # `get_script_results` so callers can use one renderer.
+        _attach_projects(supabase, team_id, rows)
+
+        print(f"[@db:script_results:get_script_history] Found {len(rows)} history entries")
         return {
             'success': True,
-            'history': result.data,
-            'count': len(result.data)
+            'history': rows,
+            'count': len(rows)
         }
         
     except Exception as e:

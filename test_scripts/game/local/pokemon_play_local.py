@@ -54,6 +54,14 @@ class PageIO:
     def save_state(self):
         return self.page.evaluate("() => vptGB.saveState()")
 
+    def reboot(self):
+        """BUG-0875: restart the emulator in the page (the ROM is loaded again, and the save with it)."""
+        try:
+            booted = self.page.evaluate("() => vptGB.boot()")
+        except Exception:                      # noqa: BLE001 - a page that does not answer is gone
+            return False
+        return bool(isinstance(booted, dict) and booted.get("loaded"))
+
 
 def bridge(cmd):
     """The AI bridge on the server (jev_bridge.py): returns (choose, complete)."""

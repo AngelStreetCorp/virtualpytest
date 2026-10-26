@@ -18,6 +18,7 @@ import React, { useCallback, useState } from 'react';
 
 import { useUserInterfaceVariants } from '../../hooks/userinterface/useUserInterfaceVariants';
 import { canonicalVariantName, parseVariantList } from '../../utils/navigation/variantResolver';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface NavigationViewingScopeChipProps {
   /** Userinterface ID — drives the variant list. Pass null/undefined to disable the dropdown. */
@@ -119,7 +120,7 @@ export const NavigationViewingScopeChip: React.FC<NavigationViewingScopeChipProp
           height: 32,
           justifyContent: 'space-between',
           whiteSpace: 'nowrap',
-          fontSize: '0.75rem',
+          fontSize: TYPOGRAPHY.caption.size,
           textTransform: 'none',
           px: 1,
           cursor: hasVariants ? 'pointer' : 'default',
@@ -146,7 +147,7 @@ export const NavigationViewingScopeChip: React.FC<NavigationViewingScopeChipProp
         <MenuItem
           selected={selected.length === 0}
           onClick={handlePickBase}
-          sx={{ fontSize: '0.75rem' }}
+          sx={{ fontSize: TYPOGRAPHY.caption.size }}
         >
           {BASE_LABEL}
         </MenuItem>
@@ -157,7 +158,7 @@ export const NavigationViewingScopeChip: React.FC<NavigationViewingScopeChipProp
             selected={selectedSet.has(v.name)}
             onClick={() => handleToggleVariant(v.name)}
             title={v.name}
-            sx={{ fontSize: '0.75rem', py: 0 }}
+            sx={{ fontSize: TYPOGRAPHY.caption.size, py: 0 }}
           >
             <Checkbox
               size="small"

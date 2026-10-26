@@ -25,6 +25,9 @@ changes up within the TTL.
 from __future__ import annotations
 
 import hashlib
+import json
+import os
+import tempfile
 import threading
 import time
 import uuid
@@ -37,6 +40,20 @@ from .secrets_store import get_secret
 
 CACHE_TTL_S = 30
 MAX_CHAIN = 3
+# A stored fallback chain may be longer than MAX_CHAIN: disabled hops are stepped over, and the router keeps the
+# first MAX_CHAIN usable ones (e.g. AngelStreet key -> Individual key (off) -> MiniMax M3 -> MiniMax on OpenRouter).
+MAX_STORED_CHAIN = 6
+
+# An Anthropic user key (``sk-ant-usr…``) is either scoped to one workspace (works as is) or to the whole organisation
+# (every request then needs the ``anthropic-workspace-id`` header, stored as the secret ``<endpoint secret_name>-workspace``).
+# Which one cannot be read from the key, so the header is sent when that secret exists and the API's answer decides.
+WORKSPACE_SECRET_SUFFIX = "-workspace"
+
+
+def needs_workspace(key: Optional[str]) -> bool:
+    """Kept for callers: an organisation-scoped user key needs the header, a workspace-scoped one does not, and the
+    key text does not say which. Credentials are therefore never refused for a missing workspace id."""
+    return False
 # After a connection failure an endpoint is skipped for this long (its fallback serves
 # instead), then tried again. Per process: the server and the discard worker each learn it.
 DOWN_FOR_S = 60
@@ -45,6 +62,11 @@ DOWN_FOR_S = 60
 # 5 -> 15 -> 60 min and a non-shadow call is the probe (BUG-0492, BUG-0497). Per process, like DOWN_FOR_S.
 NO_CREDIT_STEPS_S = (300, 900, 3600)
 NO_CREDIT_START_S, NO_CREDIT_MAX_S = NO_CREDIT_STEPS_S[0], NO_CREDIT_STEPS_S[-1]
+DOWN_REASON = "endpoint_down"  # stop_reason of a call skipped because its endpoint is unreachable
+BREAKER_REASON = "empty_breaker"  # stop_reason of a best-effort call skipped: its endpoint keeps answering empty
+RATE_LIMIT_REASON = "rate_limited_no_paid_fallback"  # a best-effort usage never pays for the hop after a 429
+BREAKER_EMPTY_TRIP = 3  # consecutive empty (billed) answers of a usage on an endpoint that open the breaker
+BREAKER_COOLDOWN_S = 900
 PAUSED_REASON = "provider_paused"  # stop_reason of a call skipped because its provider is paused
 _SCOPE_COLUMNS = ("host_name", "device_model", "userinterface_name")
 
@@ -92,14 +114,25 @@ class Hop:
         return get_preset(self.preset).supports_prompt_caching
 
     def has_credentials(self) -> bool:
-        return not get_preset(self.preset).needs_key or bool(get_secret(self.endpoint.get("secret_name")))
+        if not get_preset(self.preset).needs_key:
+            return True
+        key = get_secret(self.endpoint.get("secret_name"))
+        return bool(key) and (not needs_workspace(key) or bool(self.workspace_id))
+
+    @property
+    def workspace_id(self) -> Optional[str]:
+        """Anthropic workspace of a user key (``sk-ant-usr…``): secret ``<secret_name>-workspace``."""
+        name = self.endpoint.get("secret_name")
+        return get_secret(f"{name}{WORKSPACE_SECRET_SUFFIX}") if name else None
 
     def client(self, timeout: Optional[int] = None):
         """Provider client; ``timeout`` (a caller's budget) can only shorten the endpoint's."""
         from .provider_client import create_client
+        workspace = self.workspace_id if self.preset == "anthropic" else None
         return create_client(self.preset, get_secret(self.endpoint.get("secret_name")),
                              base_url=self.endpoint.get("base_url"),
-                             timeout=min(self.timeout, timeout) if timeout else self.timeout)
+                             timeout=min(self.timeout, timeout) if timeout else self.timeout,
+                             headers={"anthropic-workspace-id": workspace} if workspace else None)
 
     # --- per-call parameters -------------------------------------------------------
     def max_tokens(self, requested: int) -> int:
@@ -121,6 +154,10 @@ class Hop:
 
     def extra_body(self, usage_key: str) -> dict[str, Any]:
         extra = dict(self.profile.get("extra") or {})
+        # OpenRouter reasoning models (MiniMax M3) spend the whole max_tokens on thinking and answer empty
+        # (2026-10-22: 1999 of 2000 tokens reasoning): best-effort usages (caption translation) ask OpenRouter for none.
+        if self.preset == "openrouter" and usages.is_best_effort(usage_key):
+            extra.setdefault("reasoning", {"enabled": False})
         # Qwen3 hybrids and other chat-template reasoning models on vLLM / LM Studio /
         # llama.cpp: switch thinking off where the caller parses raw JSON.
         if self.preset == "openai_compatible" and self.thinking(usage_key) == "off":
@@ -172,6 +209,13 @@ class Resolution:
 
     def is_fallback(self, hop: Hop) -> bool:
         return str(hop.profile["id"]) != self.route_profile_id
+
+    def hop_index(self, hop: Hop) -> int:
+        """Position of ``hop`` in the chain (0 = the route's profile): ai_calls.hop_index says which hop served."""
+        for i, h in enumerate(self.hops):
+            if h.profile.get("id") == hop.profile.get("id"):
+                return i
+        return 0
 
     @property
     def primary(self) -> Hop:
@@ -250,6 +294,18 @@ def _endpoint_allowed(endpoint: dict, team_id: Optional[str]) -> bool:
     return not allowed or (team_id is not None and team_id in allowed)
 
 
+def is_claude_model(model: Optional[str]) -> bool:
+    """A Claude model id, in Anthropic (``claude-…``) or OpenRouter (``anthropic/…``) spelling."""
+    m = (model or "").strip().lower()
+    return m.startswith("claude") or m.startswith("anthropic/") or "/claude" in m
+
+
+def claude_off_anthropic(profile: dict, endpoint: dict) -> bool:
+    """Claude runs only on the owner's Anthropic keys (owner rule 2026-10-20): never through OpenRouter or any
+    other reseller. Such a profile is treated as disabled, so no call can reach it."""
+    return is_claude_model(profile.get("model")) and endpoint.get("preset") != "anthropic"
+
+
 def _usable_hop(data: dict, profile_id: Optional[str], team_id: Optional[str]) -> Optional[Hop]:
     profile = data["profiles"].get(profile_id) if profile_id else None
     if not profile or not profile.get("enabled", True):
@@ -257,20 +313,25 @@ def _usable_hop(data: dict, profile_id: Optional[str], team_id: Optional[str]) -
     endpoint = data["endpoints"].get(profile["endpoint_id"])
     if not endpoint or not endpoint.get("enabled", True) or not _endpoint_allowed(endpoint, team_id):
         return None
+    if claude_off_anthropic(profile, endpoint):
+        return None
     return Hop(profile=profile, endpoint=endpoint)
 
 
 def _chain(data: dict, first: Hop, team_id: Optional[str]) -> list[Hop]:
+    """``first`` and its fallbacks. A disabled hop (profile, endpoint, team not allowed) is stepped over, not the
+    end of the chain: AngelStreet key -> Individual key (disabled until its workspace id is set) -> MiniMax M3 still
+    reaches MiniMax. At most ``MAX_CHAIN`` usable hops; cycles are cut."""
     hops = [first]
     seen = {first.profile["id"]}
     next_id = first.profile.get("fallback_profile_id")
     while next_id and len(hops) < MAX_CHAIN and next_id not in seen:
         seen.add(next_id)
         hop = _usable_hop(data, next_id, team_id)
-        if hop is None:
-            break
-        hops.append(hop)
-        next_id = hop.profile.get("fallback_profile_id")
+        if hop is not None:
+            hops.append(hop)
+        profile = data["profiles"].get(next_id) or {}
+        next_id = profile.get("fallback_profile_id")
     return hops
 
 
@@ -300,6 +361,48 @@ def endpoint_down_for(endpoint_id: str) -> int:
 _no_credit: dict[str, tuple[float, int]] = {}  # endpoint id -> (paused until, current back-off s)
 _no_credit_since: dict[str, float] = {}  # endpoint id -> when this pause started
 
+# The pause is shared by every process on the machine (server, discard worker, monitor...) through this file,
+# so each process does not have to find out by its own paid 402 (BUG-0514). ``None`` = memory only.
+_PAUSE_FILE: Optional[str] = os.environ.get("VPT_AI_PAUSE_FILE") or os.path.join(tempfile.gettempdir(), "vpt_ai_no_credit.json")
+_pause_file_stamp = 0
+
+
+def _sync_pause() -> None:
+    """Adopt the pause state another process wrote (call with ``_down_lock`` held)."""
+    global _pause_file_stamp
+    if not _PAUSE_FILE:
+        return
+    try:
+        stamp = os.stat(_PAUSE_FILE).st_mtime_ns
+        if stamp == _pause_file_stamp:
+            return
+        with open(_PAUSE_FILE) as handle:
+            data = json.load(handle)
+        entries = {str(k): (float(v[0]), int(v[1])) for k, v in (data.get("paused") or {}).items()}
+        since = {str(k): float(v) for k, v in (data.get("since") or {}).items()}
+    except (OSError, ValueError, KeyError, TypeError, IndexError):
+        return  # no file / unreadable: keep what this process knows
+    _no_credit.clear()
+    _no_credit.update(entries)
+    _no_credit_since.clear()
+    _no_credit_since.update(since)
+    _pause_file_stamp = stamp
+
+
+def _save_pause() -> None:
+    """Publish this process' pause state to the others (call with ``_down_lock`` held). Never raises."""
+    global _pause_file_stamp
+    if not _PAUSE_FILE:
+        return
+    tmp = f"{_PAUSE_FILE}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w") as handle:
+            json.dump({"paused": {k: list(v) for k, v in _no_credit.items()}, "since": _no_credit_since}, handle)
+        os.replace(tmp, _PAUSE_FILE)
+        _pause_file_stamp = os.stat(_PAUSE_FILE).st_mtime_ns
+    except OSError as e:
+        print(f"[AI_ROUTER] pause state not shared: {e}")
+
 
 def _next_backoff(current: int) -> int:
     return next((step for step in NO_CREDIT_STEPS_S if step > current), NO_CREDIT_STEPS_S[-1])
@@ -309,9 +412,11 @@ def _note_credit(hop: Hop, ok: bool, error_type: Optional[str]) -> None:
     """A 402 pauses ``hop``'s endpoint (growing back-off); an answered call ends the pause."""
     endpoint_id = str(hop.endpoint.get("id"))
     with _down_lock:
+        _sync_pause()
         if ok:
             _no_credit_since.pop(endpoint_id, None)
             if _no_credit.pop(endpoint_id, None):
+                _save_pause()
                 print(f"[AI_ROUTER] endpoint {hop.endpoint_name} has credit again: calls resume")
             return
         if error_type != "no_credit":
@@ -319,12 +424,14 @@ def _note_credit(hop: Hop, ok: bool, error_type: Optional[str]) -> None:
         backoff = _next_backoff(_no_credit.get(endpoint_id, (0, 0))[1])
         _no_credit[endpoint_id] = (time.time() + backoff, backoff)
         _no_credit_since.setdefault(endpoint_id, time.time())
+        _save_pause()
     print(f"[AI_ROUTER] endpoint {hop.endpoint_name} has no credit (HTTP 402): no call to it for {backoff}s")
 
 
 def no_credit_for(endpoint_id: str) -> int:
     """Seconds left in an endpoint's no-credit pause (0 = it may be called)."""
     with _down_lock:
+        _sync_pause()
         remaining = _no_credit.get(str(endpoint_id), (0, 0))[0] - time.time()
     return max(0, int(remaining))
 
@@ -349,32 +456,41 @@ def credit_available(hop: Hop) -> Optional[bool]:
 def no_credit_error(hop: Hop, probe: bool = True) -> Optional[str]:
     """The skip reason for a hop whose endpoint is paused for no credit, else None.
 
-    When the wait is over the pause ends by a free credit check: credit back -> resume; still none ->
-    the wait grows with no request sent; balance unreadable -> a call is the probe, but only when
-    ``probe`` is true (shadow / background usages never are: they wait for the pause to end)."""
+    When the wait is over the pause ends by a free credit check: still no credit -> the wait grows with no
+    request sent. Otherwise (credit back, or the balance unreadable) ONE call is let through as the probe: the
+    pause is re-armed for the same back-off before it goes out, so concurrent callers and other processes
+    skip, and only a 402 grows the wait while only an answer ends the pause (the balance can read positive
+    while a call still 402s: account positive, key limit or ``max_tokens`` unaffordable). A balance that cannot
+    be read gives no probe to a shadow / background usage: it waits for the pause to end (``probe`` false)."""
     endpoint_id = str(hop.endpoint.get("id"))
     with _down_lock:
+        _sync_pause()
         entry = _no_credit.get(endpoint_id)
     if entry is None:
         return None
     left = no_credit_for(endpoint_id)
     if not left:
         credit = credit_available(hop)
-        if credit:
-            with _down_lock:
-                _no_credit.pop(endpoint_id, None)
-                _no_credit_since.pop(endpoint_id, None)
-            print(f"[AI_ROUTER] endpoint {hop.endpoint_name} has credit again (credit check): calls resume")
-            return None
         if credit is False:
             with _down_lock:
                 backoff = _next_backoff(entry[1])
                 _no_credit[endpoint_id] = (time.time() + backoff, backoff)
+                _save_pause()
             left = backoff
-        elif probe:
-            return None
-    return f"{hop.endpoint_name}: no credit (HTTP 402), paused {left}s more" if left else \
-        f"{hop.endpoint_name}: no credit (HTTP 402), waiting for the account to be topped up"
+        elif credit is None and not probe:
+            return f"{hop.endpoint_name}: no credit (HTTP 402), waiting for the account to be topped up"
+        else:
+            with _down_lock:
+                _sync_pause()
+                current = _no_credit.get(endpoint_id)
+                if current is None:
+                    return None
+                if current[0] <= time.time():  # nobody claimed the probe first
+                    _no_credit[endpoint_id] = (time.time() + current[1], current[1])
+                    _save_pause()
+                    return None
+            left = no_credit_for(endpoint_id)
+    return f"{hop.endpoint_name}: no credit (HTTP 402), paused {left}s more"
 
 
 def skip_paused(resolution: Resolution, hop: Hop, errors: list, *, fallback: bool, attempt_index: int = 0) -> bool:
@@ -389,6 +505,109 @@ def skip_paused(resolution: Resolution, hop: Hop, errors: list, *, fallback: boo
     if shadow:
         record(resolution, hop, ok=False, ms=0, fallback=fallback, outcome="skipped", error_type="no_credit",
                attempt_index=attempt_index, extra={"stop_reason": PAUSED_REASON})
+    return True
+
+
+def skip_down(resolution: Resolution, hop: Hop, errors: list, *, fallback: bool, attempt_index: int = 0) -> bool:
+    """True when ``hop``'s endpoint was just found unreachable and its wait is not over: no request is sent
+    (a down LAN endpoint cost 5 s per call). The wait ends after ``DOWN_FOR_S``, the next call is the probe."""
+    left = endpoint_down_for(hop.endpoint["id"])
+    if not left:
+        return False
+    errors.append(f"{hop.endpoint_name}: unreachable, not tried for {left}s more")
+    record(resolution, hop, ok=False, ms=0, fallback=fallback, outcome="skipped", error_type="connection",
+           attempt_index=attempt_index, extra={"stop_reason": DOWN_REASON})
+    return True
+
+
+_breaker: dict[str, tuple[int, float]] = {}  # "usage|endpoint id" -> (consecutive empties, open until)
+_BREAKER_FILE: Optional[str] = os.environ.get("VPT_AI_BREAKER_FILE") or os.path.join(tempfile.gettempdir(), "vpt_ai_breaker.json")
+
+
+def _breaker_load() -> None:
+    """Adopt the breaker state other processes wrote (call with ``_down_lock`` held)."""
+    if not _BREAKER_FILE:
+        return
+    try:
+        with open(_BREAKER_FILE) as handle:
+            data = json.load(handle)
+        loaded = {str(k): (int(v[0]), float(v[1])) for k, v in data.items()}
+    except (OSError, ValueError, TypeError, IndexError):
+        return
+    _breaker.clear()
+    _breaker.update(loaded)
+
+
+def _breaker_save() -> None:
+    if not _BREAKER_FILE:
+        return
+    tmp = f"{_BREAKER_FILE}.{os.getpid()}.tmp"
+    try:
+        with open(tmp, "w") as handle:
+            json.dump({k: list(v) for k, v in _breaker.items()}, handle)
+        os.replace(tmp, _BREAKER_FILE)
+    except OSError as e:
+        print(f"[AI_ROUTER] breaker state not shared: {e}")
+
+
+def note_empty(usage: str, hop: Hop, answered: bool) -> None:
+    """Best-effort usages only: count consecutive empty answers of ``usage`` on ``hop``'s endpoint; the
+    ``BREAKER_EMPTY_TRIP``-th opens the breaker for ``BREAKER_COOLDOWN_S`` (shared by all processes)."""
+    if not usages.is_best_effort(usage):
+        return
+    key = f"{usage}|{hop.endpoint['id']}"
+    with _down_lock:
+        _breaker_load()
+        count = 0 if answered else _breaker.get(key, (0, 0.0))[0] + 1
+        if answered:
+            if _breaker.pop(key, None) is None:
+                return
+        elif count >= BREAKER_EMPTY_TRIP:
+            _breaker[key] = (count, time.time() + BREAKER_COOLDOWN_S)
+            print(f"[AI_ROUTER] {usage} on {hop.endpoint_name}: {count} empty answers in a row, not tried for {BREAKER_COOLDOWN_S}s")
+        else:
+            _breaker[key] = (count, 0.0)
+        _breaker_save()
+
+
+def breaker_open_for(usage: str, hop: Hop) -> int:
+    """Seconds left of the empty-answer breaker for ``usage`` on ``hop``'s endpoint (0 = closed). When the wait is
+    over the next call is the probe: one more empty answer opens it again."""
+    if not usages.is_best_effort(usage):
+        return 0
+    key = f"{usage}|{hop.endpoint['id']}"
+    with _down_lock:
+        _breaker_load()
+        count, until = _breaker.get(key, (0, 0.0))
+        left = until - time.time()
+        if left > 0:
+            return int(left) + 1
+        if until:  # cool-down over: half-open, a single empty answer trips it again
+            _breaker[key] = (BREAKER_EMPTY_TRIP - 1, 0.0)
+            _breaker_save()
+    return 0
+
+
+def skip_breaker(resolution: Resolution, hop: Hop, errors: list, *, fallback: bool, attempt_index: int = 0) -> bool:
+    """True when a best-effort usage's endpoint keeps answering empty and its cool-down is not over: no request."""
+    left = breaker_open_for(resolution.usage, hop)
+    if not left:
+        return False
+    errors.append(f"{hop.endpoint_name}: empty answers in a row, not tried for {left}s more")
+    record(resolution, hop, ok=False, ms=0, fallback=fallback, outcome="skipped", error_type="empty_answer",
+           attempt_index=attempt_index, extra={"stop_reason": BREAKER_REASON})
+    return True
+
+
+def skip_after_rate_limit(resolution: Resolution, hop: Hop, errors: list, *, fallback: bool, limited: bool,
+                          attempt_index: int = 0) -> bool:
+    """True when a best-effort usage's earlier hop was rate limited (HTTP 429): the fallback hop is a paid one, the
+    answer is not worth it, the caller keeps its source text. Recorded ``skipped``, nothing billed."""
+    if not (limited and fallback and usages.is_best_effort(resolution.usage)):
+        return False
+    errors.append(f"{hop.endpoint_name}: not tried, the flat-rate hop is rate limited")
+    record(resolution, hop, ok=False, ms=0, fallback=fallback, outcome="skipped", error_type="rate_limit",
+           attempt_index=attempt_index, extra={"stop_reason": RATE_LIMIT_REASON})
     return True
 
 
@@ -561,12 +780,21 @@ def record_avoided(usage_key: str, team_id: Optional[str] = None, context: Optio
 
 
 def reset_health_for_tests() -> None:
+    global _PAUSE_FILE, _BREAKER_FILE
     with _down_lock:
         _down_until.clear()
         _no_credit.clear()
         _no_credit_since.clear()
+        _breaker.clear()
+    _BREAKER_FILE = None
+    _PAUSE_FILE = None  # tests never share a pause with a real process on the machine
 
 
 def set_snapshot_for_tests(data: Optional[dict]) -> None:
     """Install a fixed working set (``{"endpoints": {id: row}, "profiles": {...}, "routes": [...]}``)."""
     _snapshot.set_for_tests(data)
+
+
+def share_pause_for_tests(path: str) -> None:
+    global _PAUSE_FILE, _pause_file_stamp
+    _PAUSE_FILE, _pause_file_stamp = path, 0

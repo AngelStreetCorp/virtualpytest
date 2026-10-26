@@ -1,3 +1,4 @@
+import { AppIcon } from '../constants/icons';
 import {
   ArrowBack as ArrowBackIcon,
   History as HistoryIcon,
@@ -9,7 +10,6 @@ import {
   Card,
   CardContent,
   Chip,
-  CircularProgress,
   IconButton,
   InputAdornment,
   MenuItem,
@@ -34,6 +34,8 @@ import {
   useUserInterfaceReferences,
 } from '../hooks/pages/useUserInterfaceReferences';
 import { invalidateSignedUrl } from '../utils/infrastructure/cloudflareUtils';
+import { TYPOGRAPHY } from '../constants/typography';
+import { TableRowsSkeleton } from '../components/common/ReportSkeleton';
 
 type TypeFilter = 'all' | 'image' | 'text';
 
@@ -134,6 +136,48 @@ const UserInterfaceReferencesPage: React.FC = () => {
     return { total: references.length, images, texts };
   }, [references]);
 
+  // The header, shared by the live table and the loading placeholder, so the loading state
+  // reserves the real layout and the columns cannot shift when rows arrive.
+  //
+  // Deliberately NOT a <Table>: 57f6cdac9 hoisted the whole <Table> as `referencesShell` and
+  // the <TableBody> that followed was left as a sibling of it inside the <TableContainer>,
+  // i.e. `div > table > thead` next to `div > tbody`. The orphaned body became its own
+  // content-laid-out, shrink-to-fit table, so every column drifted from its header and the rows
+  // lost the `py: 0.5` override scoped to the header's <Table>. See BUG-0768.
+  const referencesHead = (
+    <TableHead>
+      <TableRow>
+        <TableCell align="center" sx={{ width: '5%' }}><strong>Type</strong></TableCell>
+        <TableCell sx={{ width: '19%' }}><strong>Name</strong></TableCell>
+        <TableCell sx={{ width: '22%' }}><strong>Preview</strong></TableCell>
+        <TableCell sx={{ width: '15%' }}><strong>Area</strong></TableCell>
+        <TableCell align="center" sx={{ width: '7%' }}><strong>Shared</strong></TableCell>
+        <TableCell sx={{ width: '11%' }}><strong>Created</strong></TableCell>
+        <TableCell sx={{ width: '11%' }}><strong>Updated</strong></TableCell>
+        <TableCell align="center" sx={{ width: '10%' }}><strong>History</strong></TableCell>
+      </TableRow>
+    </TableHead>
+  );
+
+  // Head and body assembled into ONE table, body passed in as an argument so the <tbody> is
+  // lexically inside the <table> that closes it. Same shape as `interfaceTable` and
+  // `modelsTable`.
+  const referencesTable = (body: React.ReactNode) => (
+    <Table
+      size="small"
+      sx={{
+        tableLayout: 'fixed',
+        '& .MuiTableCell-root': { py: 0.5, px: 1 },
+        '& .MuiTableRow-root:hover': {
+          backgroundColor: 'transparent !important',
+        },
+      }}
+    >
+      {referencesHead}
+      {body}
+    </Table>
+  );
+
   const renderTableBody = () => {
     if (references.length === 0) {
       return (
@@ -168,53 +212,13 @@ const UserInterfaceReferencesPage: React.FC = () => {
 
     return (
       <TableContainer component={Paper} variant="outlined" sx={{ boxShadow: 'none' }}>
-        <Table
-          size="small"
-          sx={{
-            tableLayout: 'fixed',
-            '& .MuiTableCell-root': { py: 0.5, px: 1 },
-            '& .MuiTableBody-root .MuiTableRow-root:hover': {
-              backgroundColor: 'transparent !important',
-            },
-            '& .MuiTableHead-root .MuiTableRow-root:hover': {
-              backgroundColor: 'transparent !important',
-            },
-          }}
-        >
-          <TableHead>
-            <TableRow>
-              <TableCell align="center" sx={{ width: '5%' }}>
-                <strong>Type</strong>
-              </TableCell>
-              <TableCell sx={{ width: '19%' }}>
-                <strong>Name</strong>
-              </TableCell>
-              <TableCell sx={{ width: '22%' }}>
-                <strong>Preview</strong>
-              </TableCell>
-              <TableCell sx={{ width: '15%' }}>
-                <strong>Area</strong>
-              </TableCell>
-              <TableCell align="center" sx={{ width: '7%' }}>
-                <strong>Shared</strong>
-              </TableCell>
-              <TableCell sx={{ width: '11%' }}>
-                <strong>Created</strong>
-              </TableCell>
-              <TableCell sx={{ width: '11%' }}>
-                <strong>Updated</strong>
-              </TableCell>
-              <TableCell align="center" sx={{ width: '10%' }}>
-                <strong>History</strong>
-              </TableCell>
-            </TableRow>
-          </TableHead>
+        {referencesTable(
           <TableBody>
             {filtered.map((ref) => (
               <TableRow key={ref.id}>
                 <TableCell align="center">
-                  <Typography component="span" sx={{ fontSize: '1rem' }}>
-                    {ref.type === 'image' ? '🖼️' : '📝'}
+                  <Typography component="span" sx={{ fontSize: TYPOGRAPHY.navbarItem.size }}>
+                    {ref.type === 'image' ? <AppIcon name="image" /> : <AppIcon name="edit" />}
                   </Typography>
                 </TableCell>
                 <TableCell sx={{ wordBreak: 'break-word' }}>{ref.name || '—'}</TableCell>
@@ -248,7 +252,7 @@ const UserInterfaceReferencesPage: React.FC = () => {
                   )}
                 </TableCell>
                 <TableCell
-                  sx={{ fontFamily: 'monospace', fontSize: '0.75rem', whiteSpace: 'pre' }}
+                  sx={{ fontFamily: 'monospace', fontSize: TYPOGRAPHY.caption.size, whiteSpace: 'pre' }}
                 >
                   <Box>{formatArea(ref.area)}</Box>
                   {formatFuzzy(ref.area) !== '—' && (
@@ -260,8 +264,8 @@ const UserInterfaceReferencesPage: React.FC = () => {
                 <TableCell align="center">
                   {ref.shared ? <Chip size="small" label="Shared" /> : null}
                 </TableCell>
-                <TableCell sx={{ fontSize: '0.75rem' }}>{formatDate(ref.created_at)}</TableCell>
-                <TableCell sx={{ fontSize: '0.75rem' }}>{formatDate(ref.updated_at)}</TableCell>
+                <TableCell sx={{ fontSize: TYPOGRAPHY.caption.size }}>{formatDate(ref.created_at)}</TableCell>
+                <TableCell sx={{ fontSize: TYPOGRAPHY.caption.size }}>{formatDate(ref.updated_at)}</TableCell>
                 <TableCell align="center">
                   <IconButton
                     size="small"
@@ -273,8 +277,8 @@ const UserInterfaceReferencesPage: React.FC = () => {
                 </TableCell>
               </TableRow>
             ))}
-          </TableBody>
-        </Table>
+          </TableBody>,
+        )}
       </TableContainer>
     );
   };
@@ -336,26 +340,25 @@ const UserInterfaceReferencesPage: React.FC = () => {
               sx={{ minWidth: 140 }}
             >
               <MenuItem value="all">All types</MenuItem>
-              <MenuItem value="image">🖼️ Image</MenuItem>
-              <MenuItem value="text">📝 Text</MenuItem>
+              <MenuItem value="image"><AppIcon name="image" /> Image</MenuItem>
+              <MenuItem value="text"><AppIcon name="edit" /> Text</MenuItem>
             </Select>
           </Box>
 
           {loading ? (
-            <Box
-              sx={{
-                display: 'flex',
-                flexDirection: 'column',
-                alignItems: 'center',
-                justifyContent: 'center',
-                py: 8,
-              }}
-            >
-              <CircularProgress size={40} sx={{ mb: 2 }} />
-              <Typography variant="h6" color="text.secondary">
-                Loading references…
-              </Typography>
-            </Box>
+            /* The real header and column widths with placeholder rows behind them — the centred
+               spinner this replaces reserved nothing. */
+            <TableContainer component={Paper} variant="outlined" sx={{ boxShadow: 'none' }}>
+              {referencesTable(
+                <TableBody>
+                  <TableRowsSkeleton
+                    rows={6}
+                    widths={[null, '82%', null, '70%', null, '78%', '78%', null]}
+                    rowHeight={56}
+                  />
+                </TableBody>,
+              )}
+            </TableContainer>
           ) : (
             renderTableBody()
           )}

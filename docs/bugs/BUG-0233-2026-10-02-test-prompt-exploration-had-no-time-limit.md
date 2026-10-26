@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High — an agent that keeps trying never ends: the device stays busy, and a run started meanwhile shares it |
 | Area      | `features/ai-test/backend_server/server_testprompt_routes.py` (`_start_exploration`) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

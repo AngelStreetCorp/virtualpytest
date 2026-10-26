@@ -7,6 +7,7 @@
  * - Quick access to testcases
  */
 
+import { AppIcon } from '../../constants/icons';
 import React, { useState, useEffect } from 'react';
 import {
   DialogTitle,
@@ -40,6 +41,9 @@ import { RequirementCoverage } from '../../hooks/pages/useRequirements';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { StyledDialog } from '../common/StyledDialog';
 import { ConfirmDialog } from '../common/ConfirmDialog';
+import { dangerIconSx } from '../common/PageChrome';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface RequirementCoverageModalProps {
   open: boolean;
@@ -64,6 +68,7 @@ export const RequirementCoverageModal: React.FC<RequirementCoverageModalProps> =
   onOpenLinkDialog,
   onNavigateToTestcase,
 }) => {
+  const P = useAgentChatPalette();
   const [coverage, setCoverage] = useState<RequirementCoverage | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -237,7 +242,7 @@ export const RequirementCoverageModal: React.FC<RequirementCoverageModalProps> =
                             {script.script_name}
                           </Typography>
                           <Box display="flex" gap={2} mt={0.25}>
-                            <Chip label={script.coverage_type} size="small" variant="outlined" sx={{ height: 16, fontSize: '0.6rem' }} />
+                            <Chip label={script.coverage_type} size="small" variant="outlined" sx={{ height: 16, fontSize: TYPOGRAPHY.microMeta.size }} />
                             {script.execution_count > 0 ? (
                               <Typography variant="caption" color="textSecondary">
                                 {script.pass_count}/{script.execution_count} runs passed
@@ -315,7 +320,7 @@ export const RequirementCoverageModal: React.FC<RequirementCoverageModalProps> =
                                 </Typography>
                                 {tc.last_execution && (
                                   <Typography variant="caption" color="textSecondary">
-                                    Last: {tc.last_execution.success ? '✅' : '❌'} {formatTimeAgo(tc.last_execution.started_at)}
+                                    Last: {tc.last_execution.success ? <AppIcon name="success" /> : <AppIcon name="error" />} {formatTimeAgo(tc.last_execution.started_at)}
                                   </Typography>
                                 )}
                               </Box>
@@ -327,7 +332,7 @@ export const RequirementCoverageModal: React.FC<RequirementCoverageModalProps> =
                                 </IconButton>
                               </Tooltip>
                               <Tooltip title="Unlink">
-                                <IconButton size="small" onClick={() => handleUnlink(tc.testcase_id)} color="error">
+                                <IconButton size="small" onClick={() => handleUnlink(tc.testcase_id)} sx={dangerIconSx(P)}>
                                   <UnlinkIcon fontSize="small" />
                                 </IconButton>
                               </Tooltip>

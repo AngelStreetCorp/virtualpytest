@@ -14,14 +14,12 @@ import {
   Box,
   Button,
   ButtonGroup,
-  Checkbox,
   Chip,
   CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
-  FormControlLabel,
   Grid,
   IconButton,
   MenuItem,
@@ -38,10 +36,12 @@ import React, { useState } from 'react';
 
 import { useConfirmDialog } from '../../../hooks/useConfirmDialog';
 import { ConfirmDialog } from '../../common/ConfirmDialog';
+import SettingRow from '../../common/SettingRow';
 import type { AiTabContext } from '../AiRoutingSettings';
 
 import { aiApi, errorMessage, numOrNull, type ProfilePayload } from './api';
 import type { AiProfile, ProfileTestResult, Thinking } from './types';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface ProfileForm {
   name: string;
@@ -292,7 +292,7 @@ export const ProfilesTab: React.FC<{ ctx: AiTabContext }> = ({ ctx }) => {
                     {!profile.enabled && <Chip size="small" label="disabled" sx={{ ml: 1 }} />}
                   </TableCell>
                   <TableCell>{endpointById.get(profile.endpoint_id)?.name || '—'}</TableCell>
-                  <TableCell sx={{ fontFamily: 'monospace', fontSize: 12 }}>{profile.model}</TableCell>
+                  <TableCell sx={{ fontFamily: 'monospace', fontSize: TYPOGRAPHY.caption.size }}>{profile.model}</TableCell>
                   <TableCell>
                     <Typography variant="caption">{params.join(' · ') || 'defaults'}</Typography>
                   </TableCell>
@@ -514,14 +514,11 @@ export const ProfilesTab: React.FC<{ ctx: AiTabContext }> = ({ ctx }) => {
                 minRows={3}
                 fullWidth
                 size="small"
-                InputProps={{ sx: { fontFamily: 'monospace', fontSize: 12 } }}
+                InputProps={{ sx: { fontFamily: 'monospace', fontSize: TYPOGRAPHY.caption.size } }}
               />
             </Grid>
             <Grid item xs={12}>
-              <FormControlLabel
-                control={<Checkbox checked={form.enabled} onChange={(e) => set('enabled', e.target.checked)} />}
-                label="Enabled"
-              />
+<SettingRow title="Enabled" checked={form.enabled} onChange={(on) => set('enabled', on)} />
             </Grid>
           </Grid>
           {dialogError && (

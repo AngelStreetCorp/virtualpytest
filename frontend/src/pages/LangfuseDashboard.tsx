@@ -3,6 +3,7 @@ import { OpenInNew, Insights as LangfuseIcon } from '@mui/icons-material';
 import React from 'react';
 import { getEnv } from '../config/constants';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../constants/typography';
 
 const LangfuseDashboard: React.FC = () => {
   const P = useAgentChatPalette();
@@ -15,7 +16,7 @@ const LangfuseDashboard: React.FC = () => {
     padding: 8,
     borderRadius: 4,
     marginTop: 4,
-    fontSize: 12,
+    fontSize: TYPOGRAPHY.caption.size,
   };
 
   if (!langfuseEnabled) {
@@ -29,7 +30,7 @@ const LangfuseDashboard: React.FC = () => {
         gap: 2,
         p: 2,
       }}>
-        <LangfuseIcon sx={{ fontSize: 64, color: 'text.secondary' }} />
+        <LangfuseIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: 'text.secondary' }} />
         <Typography variant="h4">
           Langfuse LLM Observability
         </Typography>

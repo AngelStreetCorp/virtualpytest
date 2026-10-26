@@ -5,8 +5,9 @@
  * level above allows (team ∩ role for a user); devices outside it cannot be picked. A device
  * limit filters what people see in the app — it is not an authorization boundary.
  */
+import SettingRow from '../common/SettingRow';
 import React from 'react';
-import { Alert, Box, FormControlLabel, Switch, Typography } from '@mui/material';
+import { Alert, Box, Typography } from '@mui/material';
 import { useServerManager } from '../../hooks/useServerManager';
 import { TargetPanel } from '../common/TargetPanel';
 
@@ -65,22 +66,19 @@ export const DeviceScopePicker: React.FC<DeviceScopePickerProps> = ({
 
   return (
     <Box>
-      <FormControlLabel
-        control={
-          <Switch
-            checked={value === null}
-            disabled={disabled}
-            // Turning the limit on starts from what the parent allows (or nothing).
-            onChange={(e) => onChange(e.target.checked ? null : [...(limit ?? [])])}
-          />
-        }
-        label={
+      <SettingRow
+        title="No limit"
+        description={
           value === null
             ? limit === null
-              ? 'No limit: every device'
+              ? 'Every device'
               : `No limit of its own: the ${limitLabel} limit applies (${limit.length} devices)`
             : `${value.length} device${value.length !== 1 ? 's' : ''} allowed`
         }
+        checked={value === null}
+        disabled={disabled}
+        // Turning the limit on starts from what the parent allows (or nothing).
+        onChange={(on) => onChange(on ? null : [...(limit ?? [])])}
       />
       <Typography variant="body2" color="text.secondary" sx={{ mb: 1 }}>
         Filters which devices appear in the app. It does not block device control or runs started

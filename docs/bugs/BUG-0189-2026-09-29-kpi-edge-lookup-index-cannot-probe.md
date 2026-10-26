@@ -9,7 +9,7 @@
 | Status    | Fixed — migration applied on every database (customer, node1, node3)                     |
 | Severity  | High — Navigation editor loads blank, no metrics, intermittent 500s                      |
 | Area      | db (`get_tree_metrics_optimized`) / frontend (`useNavigationEditor`)                     |
-| Fixed in  | Unreleased                                                                               |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                                              |
 
 ---
@@ -138,7 +138,7 @@ the lab's 48 URLs above.
 
 Neither node3 nor node1 had `idx_execution_results_kpi_edge_lookup`: `20260715` was only ever run
 on the customer DB, so the "fix" for BUG-0001 existed on exactly one database — and did not work
-there. The node1 server (`SUPABASE_URL=http://192.168.0.102:54321`) is backed by the same DB the
+there. The node1 server (`SUPABASE_URL=http://192.168.x.102:54321`) is backed by the same DB the
 verification above was run on, so there is no fourth database left to apply this to.
 
 Frontend: with the server forced to fail, the editor now shows the load error instead of

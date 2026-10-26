@@ -67,7 +67,7 @@ const TestPromptContent: React.FC = () => {
   }, [hookData.savedPrompts, search]);
 
   return (
-    <Box sx={{ display: 'flex', height: '100%', bgcolor: P.background, color: P.textPrimary }}>
+    <Box sx={{ display: 'flex', height: '100%', color: P.textPrimary }}>
       {/* Sidebar */}
       <Box
         sx={{

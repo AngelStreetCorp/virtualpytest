@@ -1,15 +1,16 @@
-import { Box, Button } from '@mui/material';
 import React from 'react';
 
-import { goldButtonSx } from '../../common/PageChrome';
-import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { useI18n } from '../../../i18n/useI18n';
+import { ModeBar, ModeBarActions } from '../ModeBar';
 import type { GroupCandidate } from '../../../types/pages/groupControl.types';
 
 import { GroupModelBadgeRow, type GroupModelBadge } from './GroupModelBadgeRow';
 
 interface GroupSelectBarProps {
   count: number;
+  /** Size of the pool "Select all" acts on. */
+  total: number;
+  onSelectAll: () => void;
   canStart: boolean;
   /** Per-model membership of the current group selection, sorted by
    *  model name. Drives the chip strip that lets the operator add /
@@ -26,7 +27,7 @@ interface GroupSelectBarProps {
 }
 
 /**
- * Sticky bar under the device grid while group control picks devices (TASK-76).
+ * Bar above the device grid (same slot as the Edit-tags bar) while group control picks devices (TASK-76).
  *
  * A single chip strip — one chip per model currently in the pool — is the
  * whole operator surface here: clicking a chip adds every candidate of
@@ -35,6 +36,8 @@ interface GroupSelectBarProps {
  */
 export const GroupSelectBar: React.FC<GroupSelectBarProps> = ({
   count,
+  total,
+  onSelectAll,
   canStart,
   selectedByModel,
   poolByModel,
@@ -42,7 +45,6 @@ export const GroupSelectBar: React.FC<GroupSelectBarProps> = ({
   onClear,
   onStart,
 }) => {
-  const P = useAgentChatPalette();
   const { t } = useI18n();
 
   // One chip per model currently in the pool — "in the group" is the
@@ -67,37 +69,7 @@ export const GroupSelectBar: React.FC<GroupSelectBarProps> = ({
   }, [poolByModel, selectedByModel]);
 
   return (
-    <Box
-      sx={{
-        position: 'sticky',
-        bottom: 8,
-        zIndex: 2,
-        mt: 2,
-        display: 'flex',
-        alignItems: 'center',
-        gap: 1.5,
-        // Bar is one line, no matter what — the operator asked for
-        // that explicitly. When the chip strip overflows, the strip
-        // itself becomes a horizontal scroller (set inside
-        // GroupModelBadgeRow); the action buttons stay pinned to the
-        // right of the row.
-        flexWrap: 'nowrap',
-        px: 1.5,
-        py: 1,
-        bgcolor: P.surface,
-        border: `1px solid ${P.borderColor}`,
-        borderRadius: 1,
-        overflow: 'hidden',
-        // iOS / Android long-press triggers a system text-selection
-        // overlay on any selectable text inside the bar (the "flash
-        // effect" the operator complained about). The bar only carries
-        // labels and counts that nobody needs to copy, so suppress
-        // selection across the whole row.
-        userSelect: 'none',
-        WebkitUserSelect: 'none',
-        WebkitTouchCallout: 'none',
-      }}
-    >
+    <ModeBar>
       {badges.length > 0 && (
         <GroupModelBadgeRow
           badges={badges}
@@ -106,12 +78,16 @@ export const GroupSelectBar: React.FC<GroupSelectBarProps> = ({
           caption={t('Models')}
         />
       )}
-      <Button size="small" onClick={onClear} disabled={count === 0} sx={{ textTransform: 'none', color: P.accentText, flexShrink: 0 }}>
-        {t('Clear')}
-      </Button>
-      <Button size="small" variant="contained" onClick={onStart} disabled={!canStart} sx={{ ...goldButtonSx(P), flexShrink: 0 }}>
-        {t('Control {count} devices', { count })}
-      </Button>
-    </Box>
+      <ModeBarActions
+        count={count}
+        total={total}
+        onSelectAll={onSelectAll}
+        selectAllDisabled={total === 0 || count >= total}
+        onClear={onClear}
+        actionLabel={t('Control {count} devices', { count })}
+        onAction={onStart}
+        actionDisabled={!canStart}
+      />
+    </ModeBar>
   );
 };

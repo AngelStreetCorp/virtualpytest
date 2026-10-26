@@ -378,15 +378,7 @@ def build_event_json(data: Dict[str, Any], events: List[Dict[str, Any]]) -> str:
             "cycles_completed", "attack_attempted", "account_warning_seen",
             "stop_reason", "actions_fired", "guard_scan_count",
             "no_observation_cycles", "transition_cycles",
-            "buy_surface_refused", "idle_seconds",
-            # §81.1.10
-            "tutorial_dialogs_seen", "tutorial_complete")},
-        "tutorial": {
-            "complete": bool(data.get("tutorial_complete", False)),
-            "current_step": data.get("tutorial_current_step", ""),
-            "past_steps": list(data.get("tutorial_past_steps", []) or []),
-            "dialogs_seen": int(data.get("tutorial_dialogs_seen", 0) or 0),
-        },
+            "buy_surface_refused", "idle_seconds")},
         "event_log": events,
     }
     if data.get("run_video_path"):

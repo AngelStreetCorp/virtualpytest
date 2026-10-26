@@ -7,6 +7,7 @@ import {
   Cancel as CancelIcon,
   WarningAmber as WarningAmberIcon,
 } from '@mui/icons-material';
+import { AppIcon } from '../../constants/icons';
 import {
   Box,
   FormControl,
@@ -27,6 +28,7 @@ import { useDeviceData } from '../../contexts/device/DeviceDataContext';
 import { useNavigationOptional } from '../../contexts/navigation/NavigationContext';
 import { SearchableSelect, SearchableSelectOption } from '../common/SearchableSelect';
 import { RepeatControl } from './RepeatControl';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface ActionItemProps {
   action: Action;
@@ -44,6 +46,9 @@ interface ActionItemProps {
   disabled?: boolean;
   canMoveUp: boolean;
   canMoveDown: boolean;
+  // Rendered inside a CompactListRow: no own border, and Run / Remove live on
+  // the row summary instead of here.
+  bare?: boolean;
 }
 
 export const ActionItem: React.FC<ActionItemProps> = ({
@@ -62,6 +67,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
   disabled = false,
   canMoveUp,
   canMoveDown,
+  bare = false,
 }) => {
   // Get device data context for model references
   const { getModelReferences, references, availableVerificationTypes, userinterfaceName: deviceUserinterfaceName } = useDeviceData();
@@ -96,7 +102,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
       .map(([internalKey, ref]: [string, any]) => ({
         value: internalKey,
         label: ref.name || internalKey,
-        icon: type === 'text' ? '📝' : '🖼️',
+        icon: <AppIcon name={type === 'text' ? 'text' : 'image'} />,
       }));
   const textReferenceOptions = React.useMemo(
     () => buildReferenceOptions('text'),
@@ -186,7 +192,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
           width: 120,
           '& .MuiInputBase-input': {
             padding: '3px 6px',
-            fontSize: '0.75rem',
+            fontSize: TYPOGRAPHY.caption.size,
           },
         }}
       />,
@@ -223,7 +229,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 size="small"
                 sx={{ padding: '2px' }}
               />
-              <Box sx={{ fontSize: '0.7rem', color: 'text.secondary', whiteSpace: 'nowrap' }}>
+              <Box sx={{ fontSize: TYPOGRAPHY.caption.size, color: 'text.secondary', whiteSpace: 'nowrap' }}>
                 Optional
               </Box>
             </Box>
@@ -263,7 +269,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 onChange={(key) => safeHandleParamChange('key', key)}
                 options={options.map((option: string) => ({ value: option, label: option }))}
                 sx={{ width: 150 }}
-                inputSx={{ padding: '3px 6px', fontSize: '0.75rem' }}
+                inputSx={{ padding: '3px 6px', fontSize: TYPOGRAPHY.caption.size }}
               />,
             );
           } else {
@@ -281,7 +287,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                   width: 150,
                   '& .MuiInputBase-input': {
                     padding: '3px 6px',
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 }}
               />,
@@ -308,7 +314,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                   width: 150,
                   '& .MuiInputBase-input': {
                     padding: '3px 6px',
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 }}
               />,
@@ -324,7 +330,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                   width: 150,
                   '& .MuiInputBase-input': {
                     padding: '3px 6px',
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 }}
               />,
@@ -344,7 +350,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                   width: 220,
                   '& .MuiInputBase-input': {
                     padding: '3px 6px',
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 }}
               />,
@@ -369,7 +375,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 width: 220,
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
               }}
             />,
@@ -393,7 +399,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 width: 220,
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
               }}
             />,
@@ -417,7 +423,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 width: 220,
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
               }}
             />,
@@ -442,7 +448,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 alignSelf: 'flex-start',
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
                 '& .MuiInputLabel-root': {
                   transform: 'translate(14px, 4px) scale(1)',
@@ -472,7 +478,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                   width: 70,
                   '& .MuiInputBase-input': {
                     padding: '3px 6px',
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 }}
               />
@@ -487,7 +493,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                   width: 70,
                   '& .MuiInputBase-input': {
                     padding: '3px 6px',
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 }}
               />
@@ -510,7 +516,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -526,7 +532,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -542,7 +548,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -558,7 +564,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -575,7 +581,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 100,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -596,7 +602,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -612,7 +618,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -628,7 +634,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -644,7 +650,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -661,7 +667,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 100,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -682,7 +688,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -698,7 +704,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -714,7 +720,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -730,7 +736,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -747,7 +753,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 100,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -768,7 +774,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -784,7 +790,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -800,7 +806,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -816,7 +822,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -833,7 +839,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 100,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -854,7 +860,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -870,7 +876,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -886,7 +892,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -902,7 +908,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 70,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -919,7 +925,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 100,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -943,7 +949,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 width: 220,
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
               }}
             />,
@@ -966,7 +972,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 100,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -993,7 +999,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 120,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -1009,7 +1015,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
               width: 180,
               '& .MuiInputBase-input': {
                 padding: '3px 6px',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               },
             }}
           />,
@@ -1168,7 +1174,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 width: 250,
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
               }}
             />,
@@ -1197,7 +1203,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                   width: 70,
                   '& .MuiInputBase-input': {
                     padding: '3px 6px',
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 }}
               />
@@ -1212,7 +1218,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                   width: 70,
                   '& .MuiInputBase-input': {
                     padding: '3px 6px',
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 }}
               />
@@ -1236,7 +1242,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 onChange={(key) => safeHandleParamChange('key', key)}
                 options={options.map((option: string) => ({ value: option, label: option }))}
                 sx={{ width: 150 }}
-                inputSx={{ padding: '3px 6px', fontSize: '0.75rem' }}
+                inputSx={{ padding: '3px 6px', fontSize: TYPOGRAPHY.caption.size }}
               />,
             );
           } else {
@@ -1254,7 +1260,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                   width: 150,
                   '& .MuiInputBase-input': {
                     padding: '3px 6px',
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 }}
               />
@@ -1278,7 +1284,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 width: 200,
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
               }}
             />,
@@ -1302,7 +1308,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 width: 120,
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
               }}
             />,
@@ -1326,7 +1332,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 width: 250,
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
               }}
             />,
@@ -1349,7 +1355,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 width: 180,
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
               }}
             />,
@@ -1372,7 +1378,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 width: 300,
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
               }}
             />,
@@ -1396,7 +1402,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 width: 250,
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
               }}
             />,
@@ -1419,7 +1425,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 width: 180,
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
               }}
             />,
@@ -1435,7 +1441,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 width: 100,
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
               }}
             />,
@@ -1459,7 +1465,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                   width: 70,
                   '& .MuiInputBase-input': {
                     padding: '3px 6px',
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 }}
               />
@@ -1474,7 +1480,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                   width: 70,
                   '& .MuiInputBase-input': {
                     padding: '3px 6px',
-                    fontSize: '0.75rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                   },
                 }}
               />
@@ -1498,7 +1504,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 width: 300,
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
               }}
             />,
@@ -1521,7 +1527,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 width: 300,
                 '& .MuiInputBase-input': {
                   padding: '3px 6px',
-                  fontSize: '0.75rem',
+                  fontSize: TYPOGRAPHY.caption.size,
                 },
               }}
             />,
@@ -1556,14 +1562,18 @@ export const ActionItem: React.FC<ActionItemProps> = ({
 
   return (
     <Box
-      sx={{
-        mb: 0.5,
-        px: 0.5,
-        py: 0.5,
-        border: '1px solid',
-        borderColor: 'divider',
-        borderRadius: 1,
-      }}
+      sx={
+        bare
+          ? { pt: 0.5 }
+          : {
+              mb: 0.5,
+              px: 0.5,
+              py: 0.5,
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: 1,
+            }
+      }
     >
       {/* Line 1: Action command dropdown */}
       <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mb: 0.5 }}>
@@ -1616,7 +1626,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
             disabled={disabled}
             sx={{
               '& .MuiSelect-select': {
-                fontSize: '0.8rem',
+                fontSize: TYPOGRAPHY.body.size,
                 py: 0.5,
               },
               '& .MuiInputBase-root': {
@@ -1660,7 +1670,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 <MenuItem
                   key={`header-${category}`}
                   disabled
-                  sx={{ fontWeight: 'bold', fontSize: '0.65rem', minHeight: '20px' }}
+                  sx={{ fontWeight: 'bold', fontSize: TYPOGRAPHY.microMeta.size, minHeight: '20px' }}
                 >
                   {category.replace(/_/g, ' ').toUpperCase()}
                 </MenuItem>,
@@ -1668,7 +1678,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                   <MenuItem
                     key={actionDef.id}
                     value={actionDef.id}
-                    sx={{ pl: 3, fontSize: '0.7rem', minHeight: '20px' }}
+                    sx={{ pl: 3, fontSize: TYPOGRAPHY.caption.size, minHeight: '20px' }}
                   >
                     {actionDef.label}
                   </MenuItem>
@@ -1699,7 +1709,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
         })()}
 
         {/* Run single action button */}
-        {onRun && (
+        {onRun && !bare && (
           <Tooltip title="Run this action">
             <span>
               <IconButton
@@ -1711,11 +1721,11 @@ export const ActionItem: React.FC<ActionItemProps> = ({
                 {isRunning ? (
                   <CircularProgress size={14} />
                 ) : runStatus === 'success' ? (
-                  <CheckCircleIcon sx={{ fontSize: '1rem', color: 'success.main' }} />
+                  <CheckCircleIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size, color: 'success.main' }} />
                 ) : runStatus === 'failure' ? (
-                  <CancelIcon sx={{ fontSize: '1rem', color: 'error.main' }} />
+                  <CancelIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size, color: 'error.main' }} />
                 ) : (
-                  <PlayArrowIcon sx={{ fontSize: '1rem' }} />
+                  <PlayArrowIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
                 )}
               </IconButton>
             </span>
@@ -1730,7 +1740,7 @@ export const ActionItem: React.FC<ActionItemProps> = ({
             disabled={!canMoveUp || disabled}
             sx={{ p: 0.5, minWidth: 24, width: 24, height: 20 }}
           >
-            <KeyboardArrowUpIcon sx={{ fontSize: '1rem' }} />
+            <KeyboardArrowUpIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
           </IconButton>
           <IconButton
             size="small"
@@ -1738,19 +1748,21 @@ export const ActionItem: React.FC<ActionItemProps> = ({
             disabled={!canMoveDown || disabled}
             sx={{ p: 0.5, minWidth: 24, width: 24, height: 20 }}
           >
-            <KeyboardArrowDownIcon sx={{ fontSize: '1rem' }} />
+            <KeyboardArrowDownIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
           </IconButton>
         </Box>
 
         {/* Remove button */}
+        {!bare && (
         <IconButton
           size="small"
           onClick={() => onRemoveAction(index)}
           disabled={disabled}
           sx={{ p: 0.5, minWidth: 24, width: 24, height: 24, ml: 0.5 }}
         >
-          <CloseIcon sx={{ fontSize: '1rem' }} />
+          <CloseIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
         </IconButton>
+        )}
       </Box>
 
       {/* Parameter fields section - organized by count */}

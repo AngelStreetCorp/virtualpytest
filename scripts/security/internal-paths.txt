@@ -39,6 +39,8 @@
 docs/tasks/
 docs/_drafts/
 docs/agent/release/
+docs/agent/devices/STB_UI_OPERATOR.md
+docs/agent/devices/WEB_UI_ORCHTNET.md
 security_report/
 docs/security/*.json
 .claude/
@@ -50,6 +52,18 @@ tests/backend_server/.env.test.jwt
 # Regression CI, its runner access, and its credentials belong to virtualpytest-internal.
 # The public snapshot keeps release-images.yml for release artifact publishing only.
 .github/workflows/regression.yml
+
+# The deploy-harness CI gate: the local-only update_core harnesses, on every push and every PR.
+# Internal CI like the regression workflow above. It must not run in the public snapshot, where
+# the frozen lease-CLI fixture it needs does not exist and the skip-leased harness would fail for
+# want of it.
+.github/workflows/deploy-harness.yml
+
+# The lease CLI is internal fleet-coordination tooling: it drives the shared lease registry and the
+# deploy queue. The skip-leased harness uses a FROZEN COPY of it as its test double, so the harness
+# has an oracle in CI and the fake leases it creates never reach the real registry. The copy is
+# internal too, and never publishes.
+setup/proxmox/node/fixtures/
 
 # --- product screenshots, until they are re-shot on anonymised fixtures -------------------
 # A pre-publication audit read the images, which no text scanner ever has: device watermarks
@@ -138,3 +152,38 @@ claude-mods/
 # Generated index of internal research loops; it is keyed to docs/agent/research/LOOP.md
 # and carries our task names and run metrics. Regenerate with scripts/research/gen_index.py.
 docs/research/
+
+# Internal model benchmark (TASK-98): the helper writes into docs/agent/ai/benchmarks/ and the player
+# logs our own model trials. Both live in scripts/, which is on the public allow-list, so they are
+# listed here so publish_public.sh and the customer bundle drop them with the data they write.
+scripts/benchmark_log.py
+scripts/bench_tree_build.py
+scripts/coc_llm_player.py
+
+# CoC vision-LLM player (TASK-100): the script, its budget/loop/report modules and tests. The script imports the
+# internal model benchmark helper and the budget design is internal; docs/agent/ai/COC_LLM_BUDGET.md is already stripped.
+test_scripts/game/game_clashofclans_llm.py
+shared/src/lib/game/clashofclans/llm_budget.py
+shared/src/lib/game/clashofclans/llm_player.py
+shared/src/lib/game/clashofclans/llm_report.py
+tests/shared/test_clashofclans_llm.py
+
+# Release cut 2026-10-26 (build 90144 export dry-run): tracked files that were on neither list.
+# Internal benchmark / audit reports and client patch scripts (process: docs/agent/release/PATCHES.md).
+reports/
+patch/
+# Local Windows / emulator scratch committed by accident on 2026-10-16 (d04b1fcf8); kept in the
+# internal repo, never published.
+.vite/
+Pixel_6_Pro_Container.ini
+Pixel_6_Pro_Container_config.ini
+budtmo_patched_emulator.py
+empty_docker_config.json
+no_creds_docker_config.json
+wincred_docker_config.json
+flip-to-docker.bat
+flip-to-emulator.bat
+start-native-emulator.bat
+start_emulator.sh
+install_host_windows_ascii.ps1
+install_host_windows_fixed.ps1

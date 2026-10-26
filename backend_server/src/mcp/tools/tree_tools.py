@@ -374,15 +374,25 @@ class TreeTools:
             
             # Build node data for backend (same format as frontend saveNodeWithStateUpdate)
             # Uses same endpoint as frontend: POST /server/navigationTrees/{treeId}/nodes
+            # A node given without its position or with a partial data dict keeps what is stored: the model
+            # rarely echoes position_x/y or data.screenshot, and defaulting them stacked every edited node at
+            # (0, 0) and dropped its screenshot (TASK-135).
+            stored_node = {}
+            if 'position_x' not in node or 'position_y' not in node or 'data' not in node or \
+                    not isinstance(node.get('data'), dict) or 'screenshot' not in node.get('data', {}):
+                stored = self.api_client.get(f'/server/navigationTrees/{tree_id}/nodes/{node_id}',
+                                             params={'team_id': team_id})
+                stored_node = (stored.get('node') or {}) if stored.get('success') else {}
+            data = {**(stored_node.get('data') or {}), **(node.get('data') or {})}
             node_data = {
                 'node_id': node_id,
-                'label': node.get('label'),
-                'node_type': node.get('type', 'screen'),
-                'position_x': node.get('position_x', 0),
-                'position_y': node.get('position_y', 0),
+                'label': node.get('label', stored_node.get('label')),
+                'node_type': node.get('type', node.get('node_type', stored_node.get('node_type', 'screen'))),
+                'position_x': node.get('position_x', stored_node.get('position_x', 0)),
+                'position_y': node.get('position_y', stored_node.get('position_y', 0)),
                 'verifications': verifications,
-                'data': node.get('data', {}),
-                'style': node.get('style', {})
+                'data': data,
+                'style': node.get('style', stored_node.get('style') or {})
             }
             
             # Ensure verifications not duplicated in data
@@ -409,6 +419,64 @@ class TreeTools:
             self.logger.error(f"Error updating node: {e}", exc_info=True)
             return self.formatter.format_error(str(e), ErrorCategory.BACKEND)
     
+    def auto_layout_tree(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Lay the tree out top to bottom (entry, then home, then each level below its parent) and save the
+        positions. Call it once at the end of a build: nodes created by tools all start at (0, 0), so without
+        it the editor shows them stacked on one spot. Only position_x/position_y change.
+
+        Example: auto_layout_tree(userinterface_name='example_web')
+
+        Args:
+            params: {
+                'tree_id': str (OPTIONAL - navigation tree ID, auto-resolved from userinterface_name),
+                'userinterface_name': str (OPTIONAL - UI name for auto-resolving tree_id)
+            }
+
+        Returns:
+            How many nodes were placed
+        """
+        try:
+            tree_id = params.get('tree_id')
+            team_id = params.get('team_id', '7fdeb4bb-3639-4ec3-959f-b54769a219ce')
+            if not tree_id:
+                name = params.get('userinterface_name')
+                if not name:
+                    return self.formatter.format_error("Either tree_id or userinterface_name is required", ErrorCategory.VALIDATION)
+                tree_id, _, _, error = self.api_client.resolve_userinterface_name(name, team_id)
+                if error:
+                    return self.formatter.format_error(error, ErrorCategory.NOT_FOUND)
+
+            full = self.api_client.get(f'/server/navigationTrees/{tree_id}/full', params={'team_id': team_id})
+            if not full.get('success'):
+                return self.formatter.format_error(f"Failed to load tree {tree_id}: {full.get('message') or full.get('error')}",
+                                                   ErrorCategory.BACKEND)
+            nodes, edges = full.get('nodes') or [], full.get('edges') or []
+            positions = tree_layout([n['node_id'] for n in nodes],
+                                    [(e.get('source_node_id'), e.get('target_node_id')) for e in edges])
+            moved, failed = 0, []
+            for n in nodes:
+                x, y = positions[n['node_id']]
+                if (n.get('position_x'), n.get('position_y')) == (x, y):
+                    continue
+                body = {k: v for k, v in n.items() if k not in _NODE_READ_ONLY}
+                body['position_x'], body['position_y'] = x, y
+                result = self.api_client.put(f"/server/navigationTrees/{tree_id}/nodes/{n['node_id']}",
+                                             data=body, params={'team_id': team_id})
+                if result.get('success'):
+                    moved += 1
+                else:
+                    failed.append(n['node_id'])
+            if moved:
+                self._invalidate_host_cache(tree_id, team_id)
+            text = f"auto layout: {len(nodes)} nodes, {moved} moved"
+            if failed:
+                return self.formatter.format_error(f"{text}; failed: {', '.join(failed)}", ErrorCategory.BACKEND)
+            return {"content": [{"type": "text", "text": text}], "isError": False}
+        except Exception as e:
+            self.logger.error(f"Error in auto layout: {e}", exc_info=True)
+            return self.formatter.format_error(str(e), ErrorCategory.BACKEND)
+
     def delete_node(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
         Delete a node from navigation tree. Accepts userinterface_name for auto-resolving tree_id.
@@ -629,6 +697,7 @@ class TreeTools:
         """
         Update an existing edge with full edge object (same pattern as frontend).
         Use get_edge first to fetch the edge, modify it locally, then pass the full modified edge here.
+        source_node_id/target_node_id (or source/target) may be left out: the stored ones are kept.
         Action commands will be validated against available device controllers.
 
         Example workflow:
@@ -680,13 +749,28 @@ class TreeTools:
             if validation_error:
                 return validation_error
             
+            # Endpoints: source_node_id/target_node_id, or the React Flow names source/target; an edge given
+            # without them keeps the stored ones (a partial edge used to hit the NOT NULL column, TASK-135).
+            source = edge.get('source_node_id') or edge.get('source')
+            target = edge.get('target_node_id') or edge.get('target')
+            if not (source and target):
+                stored = self.api_client.get(f'/server/navigationTrees/{tree_id}/edges/{edge_id}',
+                                             params={'team_id': team_id})
+                stored_edge = (stored.get('edge') or {}) if stored.get('success') else {}
+                source = source or stored_edge.get('source_node_id')
+                target = target or stored_edge.get('target_node_id')
+            if not (source and target):
+                return self.formatter.format_error(
+                    f"edge {edge_id} has no source_node_id/target_node_id and none is stored: pass both",
+                    ErrorCategory.VALIDATION)
+
             # Build edge data for backend (same format as frontend saveEdge)
             # Uses same endpoint as frontend: POST /server/navigationTrees/{treeId}/edges
             edge_data = edge.get('data', {})
             normalized_edge = {
                 'edge_id': edge_id,
-                'source_node_id': edge.get('source_node_id'),
-                'target_node_id': edge.get('target_node_id'),
+                'source_node_id': source,
+                'target_node_id': target,
                 'label': edge.get('label', ''),
                 # final_wait_time + threshold live per-direction inside action_sets.
                 'action_sets': action_sets,
@@ -1107,3 +1191,35 @@ class TreeTools:
             self.logger.error(f"Error saving node screenshot: {e}", exc_info=True)
             return self.formatter.format_error(str(e), ErrorCategory.BACKEND)
 
+
+_NODE_READ_ONLY = ('id', 'tree_id', 'team_id', 'created_at', 'updated_at', 'has_subtree', 'subtree_count')
+LAYOUT_DX, LAYOUT_DY = 300, 220
+
+
+def tree_layout(node_ids: List[str], edges: List[tuple]) -> Dict[str, tuple]:
+    """Top-down layout: roots (entry first) on row 0, every node one row below its first parent, a parent centred
+    over its children, leaves LAYOUT_DX apart. Back edges and cycles are ignored (first visit wins)."""
+    children = {i: [] for i in node_ids}
+    indegree = {i: 0 for i in node_ids}
+    for source, target in edges:
+        if source in children and target in children and target != source and target not in children[source]:
+            children[source].append(target)
+            indegree[target] += 1
+    roots = sorted([i for i in node_ids if indegree[i] == 0], key=lambda i: (i not in ('entry-node', 'entry'), i))
+    positions, seen, cursor = {}, set(), [0]
+
+    def place(node, depth):
+        seen.add(node)
+        kids = [k for k in children[node] if k not in seen]
+        seen.update(kids)
+        xs = [place(k, depth + 1) for k in kids]
+        x = (xs[0] + xs[-1]) / 2 if xs else cursor[0]
+        if not xs:
+            cursor[0] += LAYOUT_DX
+        positions[node] = (int(round(x)), depth * LAYOUT_DY)
+        return x
+
+    for root in roots + list(node_ids):  # node_ids catches nodes only reachable through a cycle
+        if root not in seen:
+            place(root, 0)
+    return positions

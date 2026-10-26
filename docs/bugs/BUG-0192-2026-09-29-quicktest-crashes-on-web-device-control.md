@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High (QuickTest unusable on every web target)                |
 | Area      | frontend (`features/quicktest`)                              |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `06a9cf847`                                                  |
 
 ---

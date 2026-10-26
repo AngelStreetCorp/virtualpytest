@@ -38,6 +38,8 @@ const mockAgentChatContextValue = {
   deleteConversation: () => {},
   clearBackgroundHistory: () => {},
   setAgentId: () => {},
+  setPinnedProfileId: () => {},
+  setCompanionContext: () => {},
   setNavigationContext: () => {},
   setOnUIAction: () => {},
   reloadSkills: () => {},
@@ -52,6 +54,20 @@ const mockAgentChatContextValue = {
 
 vi.mock('../../frontend/src/contexts/AgentChatContext', () => ({
   useAgentChatContext: () => mockAgentChatContextValue,
+}));
+
+vi.mock('../../frontend/src/contexts/VoiceContext', () => ({
+  useVoice: () => ({ phase: 'off', surface: null, conversation: false, lastCommand: null, setTarget: () => undefined }),
+}));
+
+vi.mock('../../frontend/src/components/ai/voice/VoiceControls', () => ({
+  VoiceMessageButton: () => null,
+  VoiceConversationButton: () => null,
+  VoiceRecordBar: () => null,
+  VoiceStrip: () => null,
+  VoiceError: () => null,
+  VoiceSettingsButton: () => null,
+  VoiceCommandLine: () => null,
 }));
 
 vi.mock('../../frontend/src/hooks/aiagent/useToolExecutionTiming', () => {
@@ -199,11 +215,14 @@ describe('AgentChat page', () => {
       </BrowserRouter>
     );
     const { rerender, container } = render(ui);
-    const target = () => (Array.from(container.querySelectorAll('input.MuiSelect-nativeInput')) as HTMLInputElement[]).map((i) => i.value).find((v) => v.includes(':device1'));
-    await waitFor(() => expect(target()).toBe('host-clone-1:device1'));
+    // The shared TargetDropdown (59a31f0fd) replaced the old MUI <Select> with a Button + Popover,
+    // so the selected target is the trigger button's label (getDeviceTargetLabel: "<device> - <host>")
+    // and there is no input.MuiSelect-nativeInput left to read a host:device value from.
+    const target = () => Array.from(container.querySelectorAll('button')).map((b) => b.textContent ?? '').find((txt) => txt.includes('Dev - '))?.trim();
+    await waitFor(() => expect(target()).toBe('Dev - host-clone-1'));
 
     serverState.selectedServer = 'rpi1';
     rerender(<BrowserRouter><AgentChat /></BrowserRouter>);
-    await waitFor(() => expect(target()).toBe('rpi1-host:device1'));
+    await waitFor(() => expect(target()).toBe('Dev - rpi1-host'));
   });
 });

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium                                                       |
 | Area      | backend_host / incident manager                              |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `10de3cb4c`                                                  |
 
 ---
@@ -33,7 +33,7 @@ it creates the alert, but it created the alert even when nothing was uploaded:
   ("proceeding without image").
 
 On vpt-nipogi every upload fails: its storage endpoint is `http://127.0.0.1:9000`, which `vpt-tunnel.service`
-forwarded to MinIO (192.168.0.101:9000). That unit is now `vpt-tunnel.service.bak-20261009` and nothing listens on
+forwarded to MinIO (192.168.x.101:9000). That unit is now `vpt-tunnel.service.bak-20261009` and nothing listens on
 port 9000. That is a host setup issue, not fixed by this change.
 
 ## Fix

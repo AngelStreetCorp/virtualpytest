@@ -1,0 +1,10 @@
+[Unit]
+Description=Tick the idle-device game dispatcher every minute (game_dispatch.py)
+
+[Timer]
+OnBootSec=90
+OnUnitActiveSec=60
+AccuracySec=5
+
+[Install]
+WantedBy=timers.target

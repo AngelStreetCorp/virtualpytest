@@ -116,6 +116,31 @@ def _build_dom_captures_section(dom_captures: list) -> str:
     )
 
 
+def _build_timeline_section(image_url: str, html_url: str, tiles: int = 0) -> str:
+    """Collapsible "Video timeline" block: the whole execution video as one contact sheet. The image opens
+    timeline.html (player + clickable sheet and steps) in a new tab."""
+    if not image_url:
+        return ''
+    safe_img = escape(image_url, quote=True)
+    safe_html = escape(html_url or image_url, quote=True)
+    return f"""
+            <div class="section">
+                <div class="section-header" onclick="toggleSection('timeline-content')">
+                    <h2>{icon('mosaic', 18)} {t('timeline.title')}</h2>
+                    <button class="toggle-btn">▶</button>
+                </div>
+                <div id="timeline-content" class="collapsible-content">
+                    <a href="{safe_html}" target="_blank" rel="noopener">
+                        <img src="{safe_img}" alt="Video timeline" loading="lazy"
+                             style="display: block; max-width: 100%; height: auto; border-radius: 4px; cursor: pointer;
+                                    border: 1px solid var(--border-light); background: var(--bg-tertiary);">
+                    </a>
+                    <div style="margin-top: 6px; color: var(--text-secondary); font-size: 12px;">{t('timeline.hint')}</div>
+                </div>
+            </div>
+    """
+
+
 def _build_mosaic_section(mosaic_url: str, tiles: int = 0) -> str:
     """Collapsible "Test Mosaic" block: one step per tile, click for full size.
 
@@ -231,6 +256,67 @@ def _inject_catalog(page: str) -> str:
         return page
     tags = emoji_icons_script_tag() + '\n' + catalog_script_tag()
     return page[:index] + tags + '\n' + page[index:]
+
+
+def _resolve_project_for_executable(executable_type: Optional[str],
+                                    executable_id: Optional[str]) -> Optional[Dict]:
+    """Lazy wrapper around `projects_db.resolve_project_for_executable`.
+
+    The DB helper needs a live Supabase client. The report can run with no
+    Supabase configured (snapshots, local previews, tests), so we resolve
+    lazily and swallow *any* connection error: no project badge is fine, a
+    crashed page is not.
+    """
+    if not executable_type or not executable_id:
+        return None
+    try:
+        # Local import — `projects_db` initializes the Supabase client on access.
+        from ..database.projects_db import resolve_project_for_executable
+    except Exception:
+        return None
+    try:
+        return resolve_project_for_executable(str(executable_type), str(executable_id))
+    except Exception as e:
+        print(f"[@utils:report_utils:_resolve_project_for_executable] "
+              f"{executable_type}:{executable_id} error: {e}")
+        return None
+
+
+def _build_project_badge_html(executable_type: Optional[str],
+                              executable_id: Optional[str]) -> str:
+    """Render the `{project_badge}` slot for a single-executable report header.
+
+    Returns the empty string when the executable has no project tag (the
+    default for projectless artifacts — Task-65 Q2=1 makes the badge info-only).
+    """
+    project = _resolve_project_for_executable(executable_type, executable_id)
+    if not project:
+        return ''
+    name = escape(str(project.get('name') or ''))
+    if not name:
+        return ''
+    color = (str(project.get('color') or '').strip()).lower()
+    style_bits: List[str] = []
+    # Validate color — accept #rrggbb / #rgb / named via a tiny allowlist. The
+    # `color` column is user-editable so anything else would let arbitrary CSS
+    # leak through the (trusted) report.
+    import re as _re
+    if color and (
+        _re.fullmatch(r'#[0-9a-f]{3}', color)
+        or _re.fullmatch(r'#[0-9a-f]{6}', color)
+        or _re.fullmatch(r'#[0-9a-f]{8}', color)
+        or color in {'red', 'blue', 'green', 'orange', 'purple', 'grey', 'gray'}
+    ):
+        style_bits.append(f'background:{color}')
+        # Dark colour → light foreground, light colour → dark foreground.
+        # Project colors are usually mid-saturation so the heuristic below reads well.
+        if color in {'#000', '#1a1a1a', 'black', 'blue', 'purple', 'red'}:
+            style_bits.append('color:#fff')
+        else:
+            style_bits.append('color:#1a1a1a')
+    label = escape(t('header.project_label'))
+    style_attr = f' style="{";".join(style_bits)}"' if style_bits else ''
+    return f' <span class="project-badge"{style_attr}><span class="project-badge-label">{label}</span>{name}</span>'
 
 
 def generate_validation_report(report_data: Dict) -> str:
@@ -365,6 +451,7 @@ def _generate_validation_report_html(report_data: Dict) -> str:
             ('zap', t('link.zap_report'), zap_report_url),
             ('subtitle', t('link.subtitle_report'), subtitle_report_url),
             ('mosaic', t('link.mosaic'), report_data.get('mosaic_url', '')),
+            ('mosaic', t('link.timeline'), report_data.get('timeline_html_url', '')),
         ], meta_rows=[
             ('version', t('meta.code_version'), f'<code>{escape(code_version)}</code>' if code_version else ''),
             ('trigger', t('meta.trigger'), trigger_html),
@@ -399,10 +486,19 @@ def _generate_validation_report_html(report_data: Dict) -> str:
             f'title="{t_attr("header.share_snapshot")}" aria-label="{t_attr("header.share_snapshot")}">{icon("share", 18)}</a>'
         ) if script_result_id else ''
 
+        # Project badge — TASK-65 G7. Resolves the report's owning project from
+        # the executable's tag set. A testcase_id beats script_name as the
+        # lookup target when both exist (testcases carry their own tag set).
+        project_badge = _build_project_badge_html(
+            executable_type='testcase' if testcase_id else 'script',
+            executable_id=testcase_id or script_name,
+        )
+
         # Replace placeholders with actual content
         html_content = html_template.format(
             share_button=share_button,
             script_name=script_name,
+            project_badge=project_badge,
             execution_date=format_execution_date(start_time),
             start_time=format_timestamp(start_time),
             end_time=format_timestamp(end_time),
@@ -422,7 +518,8 @@ def _generate_validation_report_html(report_data: Dict) -> str:
             overview_section=overview_section,
             zap_summary_section=zap_summary_section,
             edge_results_section=edge_results_section,
-            mosaic_section=_build_mosaic_section(report_data.get('mosaic_url', ''), report_data.get('mosaic_tiles', 0)),
+            mosaic_section=_build_mosaic_section(report_data.get('mosaic_url', ''), report_data.get('mosaic_tiles', 0))
+            + _build_timeline_section(report_data.get('timeline_url', ''), report_data.get('timeline_html_url', ''), report_data.get('timeline_tiles', 0)),
             logs_link=links_bar,
             script_source_link='',
             steps_section_title=t('steps.title', passed=passed_steps, total=total_steps),
@@ -470,11 +567,13 @@ def generate_and_upload_script_report(
     dom_captures: Optional[List[Dict[str, Any]]] = None,
     ui_dumps: Optional[Tuple[str, int]] = None,
     script_i18n: Optional[Dict[str, Dict[str, str]]] = None,
+    video_start_epoch: float = 0.0,
 ) -> Dict[str, str]:
     """
     Generate HTML report and upload to R2 storage - extracted from validation.py
 
     script_i18n: the script's `main._i18n` translations (merged over its `<script>.i18n.json`).
+    video_start_epoch: epoch second the execution video starts at (the run's start); with it the video timeline marks each step.
     dom_captures / ui_dumps: this execution's DOM captures and (UI dump file, count) when the
     caller froze them earlier (a testcase report built in the background, after the next run
     reset the process-global sessions). None reads the sessions, as always.
@@ -723,9 +822,52 @@ def generate_and_upload_script_report(
                     # Keep original URL as fallback
             else:
                 print(f"[@utils:report_utils:generate_and_upload_script_report] Test video URL provided but not a local file, using as-is: {test_video_url}")
-        else:
+        elif not any(st.get('no_capture') for st in (step_results or [])):
             print(f"[@utils:report_utils:generate_and_upload_script_report] No test video provided")
         
+        # Video timeline (TASK-94): the execution video as one contact sheet + a self-contained timeline.html,
+        # next to report.html. Built from the LOCAL video, so it must run before that file is cleaned up.
+        timeline_url = ''
+        timeline_html_url = ''
+        timeline_tiles = 0
+        try:
+            if test_video_url and os.path.exists(test_video_url) and test_video_url.endswith('.mp4'):
+                import tempfile
+                from .report_timeline import (build_video_timeline, build_timeline_html, steps_for_video,
+                                              timeline_strings)
+                _t = _phase_t0()
+                with tempfile.NamedTemporaryFile(suffix='.jpg', delete=False) as tl_tmp:
+                    tl_jpg = tl_tmp.name
+                tl_html = tl_jpg[:-4] + '.html'
+                try:
+                    tl_info = build_video_timeline(test_video_url, tl_jpg, steps_for_video(updated_step_results, video_start_epoch))
+                    if tl_info:
+                        with open(tl_html, 'w', encoding='utf-8', newline='\n') as fh:
+                            fh.write(build_timeline_html(
+                                tl_info,
+                                uploaded_test_video_url if str(uploaded_test_video_url).startswith('http') else '',
+                                script_name.replace('.py', ''), timeline_strings()))
+                        tl_folder = _build_script_artifact_folder_name(
+                            script_name.replace('.py', ''), upload_timestamp, script_result_id)
+                        tl_base = f"script-reports/{device_info.get('device_model', 'unknown')}/{tl_folder}"
+                        tl_upload = get_cloudflare_utils().upload_files(
+                            [{'local_path': tl_jpg, 'remote_path': f'{tl_base}/timeline.jpg', 'content_type': 'image/jpeg'},
+                             {'local_path': tl_html, 'remote_path': f'{tl_base}/timeline.html', 'content_type': 'text/html'}],
+                            for_report_assets=True,
+                        )
+                        by_path = {f['remote_path']: f['url'] for f in tl_upload.get('uploaded_files', [])}
+                        timeline_url = by_path.get(f'{tl_base}/timeline.jpg', '')
+                        timeline_html_url = by_path.get(f'{tl_base}/timeline.html', '')
+                        timeline_tiles = tl_info['tiles']
+                        print(f"[@utils:report_utils:generate_and_upload_script_report] Timeline uploaded ({timeline_tiles} tiles): {timeline_html_url}")
+                finally:
+                    for _f in (tl_jpg, tl_html):
+                        if os.path.exists(_f):
+                            os.unlink(_f)
+                _log_phase('report.timeline', _t)
+        except Exception as timeline_error:
+            print(f"[@utils:report_utils:generate_and_upload_script_report] Timeline skipped: {timeline_error}")
+
         # Calculate proper start and end times based on actual script execution
         # execution_timestamp is when report is generated (end time)
         # start_time should be execution_timestamp - execution_time
@@ -846,6 +988,9 @@ def generate_and_upload_script_report(
             'ui_dumps_url': ui_dumps_url,
             'mosaic_url': mosaic_url,
             'mosaic_tiles': mosaic_tiles,
+            'timeline_url': timeline_url,
+            'timeline_html_url': timeline_html_url,
+            'timeline_tiles': timeline_tiles,
         }
         
         _t = _phase_t0()
@@ -879,12 +1024,18 @@ def generate_and_upload_script_report(
                 'verification_review_path': verification_review_path,
                 'mosaic_url': mosaic_url,
                 'mosaic_path': mosaic_r2_path,
+                'timeline_url': timeline_url,
+                'timeline_html_url': timeline_html_url,
                 'ui_dumps_url': ui_dumps_url,
             }
         else:
             print(f"[@utils:report_utils:generate_and_upload_script_report] Upload failed: {upload_result.get('error', 'Unknown error')}")
             return {
                 'success': False,
+                # Keep the reason: the caller writes the run row, and a run whose
+                # report never reached storage must say WHY (BUG-0770: a host with
+                # stale storage credentials silently produced "No Report" rows).
+                'error': upload_result.get('error') or 'Upload failed',
                 'report_url': '',
                 'report_path': '',
                 'logs_url': '',
@@ -899,6 +1050,7 @@ def generate_and_upload_script_report(
         print(f"[@utils:report_utils:generate_and_upload_script_report] Error: {str(e)}")
         return {
             'success': False,
+            'error': str(e) or 'Report generation failed',
             'report_url': '',
             'report_path': '',
             'logs_url': '',
@@ -1056,9 +1208,17 @@ def _generate_campaign_orchestrator_report_html(report_data: Dict[str, Any]) -> 
     items_html.append('</div>')
 
     html_template = create_themed_html_template()
+    # Campaign badge — TASK-65 G7. The cover shows the campaign's own project
+    # (looked up by `campaign_id`). A campaign without a project tag renders
+    # an empty badge.
+    project_badge = _build_project_badge_html(
+        executable_type='campaign',
+        executable_id=campaign_id,
+    )
     return html_template.format(
         share_button='',
         script_name=escape(campaign_name),
+        project_badge=project_badge,
         execution_date=format_execution_date(started_at),
         start_time=format_timestamp(started_at),
         end_time=format_timestamp(ended_at),

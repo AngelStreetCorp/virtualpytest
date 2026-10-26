@@ -49,6 +49,16 @@ def is_skippable(key: str) -> bool:
     return key in SKIPPABLE_WHEN_PAUSED
 
 
+# Background / best-effort usages with a source-text fallback (nobody waits on the answer): they never pay for a
+# second hop when the flat-rate primary is rate limited, and an endpoint that keeps answering empty is left alone for
+# a cool-down (router.skip_breaker). Found 2026-10-22: caption translation spent ~$1.5/h of empty OpenRouter answers.
+BEST_EFFORT = frozenset({"text.caption_translation"})
+
+
+def is_best_effort(key: str) -> bool:
+    return key in BEST_EFFORT
+
+
 def _u(key: str, label: str, description: str, parent: Optional[str] = None, *,
        needs: tuple[str, ...] = (), output: str = "text", thinking: str = "auto") -> Usage:
     return Usage(key, label, description, parent, frozenset(needs), output, thinking)
@@ -58,11 +68,19 @@ USAGES: dict[str, Usage] = {u.key: u for u in (
     # --- tool-calling agents -------------------------------------------------------
     _u("agent", "Agents", "Tool-calling chat agents", needs=("tools",)),
     _u("agent.atlas", "Atlas", "Main assistant: chat, script/testcase creation, campaigns, UI building", "agent"),
+    _u("agent.atlas.quick", "Atlas quick step",
+       "First small call of an Atlas turn: one quick tool (page, take control, goto) or hand the message on (TASK-140)",
+       "agent.atlas"),
     _u("agent.nightwatch", "Nightwatch", "Incident analysis chat", "agent"),
     _u("agent.sherlock", "Sherlock (chat)", "Script-result analysis chat", "agent"),
     _u("agent.forge", "Forge", "Scripting agent: virtual scripts, testcases, trees, campaigns", "agent"),
     _u("public.ask", "Public docs Ask", "Question box on the public documentation site", "agent"),
     _u("agent.mcp_prompt", "MCP prompt", "Natural-language prompt to MCP tool calls (/server/mcp-proxy)", "agent"),
+    _u("agent.voice", "Atlas voice commands",
+       "Spoken command (its words or its audio) to one quick tool: open a page, take control, goto, stop (TASK-140)",
+       "agent"),
+    _u("agent.voice.speak", "Atlas voice answers", "Atlas's spoken answers: MiniMax text-to-speech (TASK-140)",
+       "agent.voice"),
     _u("agent.browser", "Browser agent", "browser-use web automation (needs an OpenAI-compatible endpoint)",
        "agent"),
     # --- vision --------------------------------------------------------------------
@@ -81,7 +99,22 @@ USAGES: dict[str, Usage] = {u.key: u for u in (
        output="json"),
     _u("vision.drone", "Drone showcase", "Drone demo: is the target in the drone camera frame / which move next (TASK-32)",
        "vision", output="json"),
+    _u("vision.game_coc", "Clash of Clans player", "Vision-LLM player: one screenshot in, one tap/swipe/wait out, per step (game_clashofclans_llm, TASK-100)",
+       "vision", output="json"),
+    _u("vision.game_coc_flash", "Clash of Clans player (MiniMax Flash)", "Same player as vision.game_coc on MiniMax M3.1-Flash (the owner's unlimited free plan); game_clashofclans_llm uses it for every run unless the run asks for the paid model explicitly",
+       "vision.game_coc", output="json"),
+    _u("vision.game_lol_review", "League game review", "After a League game: reads the timeline and the frames of the worst moments, writes what went wrong and one rule change to try (shared/src/lib/game/leagueoflegends/game_review_ai.py, TASK-131)",
+       "vision"),
     _u("vision.dom", "Web/TV DOM generation", "Screenshot to focusable-element DOM", "vision", output="json"),
+    _u("vision.classify", "Unknown-screen classification",
+       "Default: Qwen open-set naming for an abstained screen. Experimental: --classifier hybrid pins "
+       "jev-router for a Jev closed choice over the interface's node ids, then Qwen on none/error "
+       "(backend_server/scripts/auto_classify_unknowns.py)", "vision", output="json", thinking="off"),
+    _u("vision.screen_label", "Screen naming worker (MiniMax VLM)",
+       "TASK-162: names the recurring screens that are still unknown_N. Closed question first (is it live? is it a "
+       "splash / a poster?), then open-set; a second pass with a different prompt re-checks a sample and reports the "
+       "agreement rate. Pinned to the MiniMax VLM profile (flat plan, cost 0) "
+       "(backend_server/scripts/screen_label_worker.py)", "vision", output="json", thinking="off"),
     _u("vision.screenshot", "Agent screenshot description", "Frame description for agents (MCP capture_screenshot vlm=true)",
        "vision"),
     _u("vision.alert_triage", "Alert triage (background)",
@@ -93,6 +126,8 @@ USAGES: dict[str, Usage] = {u.key: u for u in (
        output="json"),
     _u("text.plan", "Test plan generator", "AI graph / test-case plan generation (GOAL / REASONING / STEPS text)", "text"),
     _u("text.translation", "Translation", "Language detection and translation", "text"),
+    _u("text.caption_translation", "Caption translation",
+       "Caption playback (TASK-103): one batched call per transcribed minute and target language", "text.translation"),
     _u("text.transcript", "Transcript analysis", "Audio transcript analysis", "text"),
     _u("text.transcript_correction", "Transcript correction",
        "Live transcript spelling/grammar fix (one call per transcribed minute per device)", "text.transcript",
@@ -121,6 +156,9 @@ USAGES: dict[str, Usage] = {u.key: u for u in (
     _u("text.decision.route", "Manager router: builder / reviewer (decision model, shadow)",
        "Who builds a delegated change (minimax / codex / sonnet / opus) and who reviews it "
        "(none / haiku / sonnet / opus); refs.point says which (TASK-47 points 2-3)", "text.decision"),
+    _u("text.decision.atlas.routing", "Atlas route selection (decision model, shadow)",
+       "Closed-choice Atlas skill and intent routing; shadow-only until calibrated (TASK-112)",
+       "text.decision"),
     _u("text.decision.retry", "Manager router: after a rejected build (decision model, shadow)",
        "retry_same_with_notes / step_up_one / owner after a gate rejects (TASK-47 point 4)", "text.decision"),
     _u("text.decision.model", "Manager router: session model suggestion (decision model, shadow)",
@@ -291,7 +329,7 @@ CATEGORIES = ("ask_ai", "discard_script", "discard_incident", "script_creation",
 
 _CATEGORY_BY_KEY = {
     # Ask AI: free questions and chat answers
-    "vision.ask": "ask_ai", "public.ask": "ask_ai", "agent.atlas": "ask_ai", "agent.mcp_prompt": "ask_ai",
+    "vision.ask": "ask_ai", "public.ask": "ask_ai", "agent.atlas": "ask_ai", "agent.atlas.quick": "ask_ai", "agent.voice": "ask_ai", "agent.voice.speak": "ask_ai", "agent.mcp_prompt": "ask_ai",
     "vision.screenshot": "ask_ai", "vision.describe": "ask_ai",
     # Discard script: is a failed script run real or noise
     "agent.sherlock": "discard_script", "analyzer.sherlock": "discard_script",
@@ -304,19 +342,20 @@ _CATEGORY_BY_KEY = {
     "vision.dom": "script_creation",
     # Screen recognition: which screen is this, what does it show
     "vision.banner": "screen_recognition", "vision.menu": "screen_recognition",
-    "vision.quality": "screen_recognition", "text.decision.localize": "screen_recognition",
+    "vision.quality": "screen_recognition", "vision.classify": "screen_recognition",
+    "text.decision.localize": "screen_recognition",
     "text.decision.screen_review": "screen_recognition", "text.decision.verification": "screen_recognition",
     # Transcripts & translation
     "text.transcript": "transcripts", "text.transcript_correction": "transcripts",
-    "text.translation": "transcripts", "vision.subtitle": "transcripts",
+    "text.translation": "transcripts", "text.caption_translation": "transcripts", "vision.subtitle": "transcripts",
     # Showcase / games
-    "vision.drone": "showcase", "text.game_2048": "showcase", "text.game_strategy": "showcase",
+    "vision.drone": "showcase", "vision.game_coc": "showcase", "vision.game_coc_flash": "showcase", "vision.game_lol_review": "showcase", "text.game_2048": "showcase", "text.game_strategy": "showcase",
     # Web lookup
     "text.web": "web_lookup",
     # Other: roots, the browser agent, the session manager, reports
     "agent": "other", "vision": "other", "text": "other", "agent.browser": "other", "text.report": "other",
     "text.decision": "other", "text.decision.manager": "other", "text.decision.wake": "other",
-    "text.decision.route": "other", "text.decision.retry": "other", "text.decision.model": "other",
+    "text.decision.route": "other", "text.decision.atlas.routing": "other", "text.decision.retry": "other", "text.decision.model": "other",
 }
 
 
@@ -331,3 +370,16 @@ def category_of(key: str) -> str:
             return _CATEGORY_BY_KEY[base]
         base = base.rsplit(".", 1)[0] if "." in base else ""
     return "other"
+
+
+MODEL_TEST_PREFIXES = ("eval:", "proof:", "test:")
+
+
+def page_category(key: str) -> str:
+    """Category key the AI usage page shows: ``model_tests`` for benchmark and proof calls (``eval:`` / ``proof:``
+    / ``test:`` keys, one row instead of one per use case), the named category, else ``usage:<key>`` so a usage
+    with no category (Browser agent, Fleet health report…) is its own row under its own name, never "Other"."""
+    if key.startswith(MODEL_TEST_PREFIXES):
+        return "model_tests"
+    category = category_of(key)
+    return f"usage:{key}" if category == "other" else category

@@ -44,6 +44,7 @@ def get_all_alerts_endpoint():
     host_name = request.args.get('host_name')
     device_id = request.args.get('device_id')
     incident_type = request.args.get('incident_type')
+    profile = request.args.get('profile')  # optional monitor profile filter (TASK-90)
     active_limit = int(request.args.get('active_limit', 100))
     resolved_limit = int(request.args.get('resolved_limit', 100))
 
@@ -52,7 +53,8 @@ def get_all_alerts_endpoint():
         device_id=device_id,
         incident_type=incident_type,
         active_limit=active_limit,
-        resolved_limit=resolved_limit
+        resolved_limit=resolved_limit,
+        profile=profile
     )
 
     if result['success']:
@@ -114,11 +116,16 @@ def update_alert_discard_status_route(alert_id):
     discard_comment = data.get('discard_comment')
     check_type = data.get('check_type', 'manual')
     success = update_alert_discard_status(alert_id, discard, discard_comment, check_type)
-    if success:
-        _label_alert_training_samples(alert_id, discard, check_type, request.args.get('team_id'))
-        _teach_screen_memory(alert_id, discard, check_type)
-        return jsonify({'status': 'success'})
-    return jsonify({'error': 'Alert not found or failed to update'}), 404
+    if not success:
+        return jsonify({'error': 'Alert not found or failed to update'}), 404
+    team_id = request.args.get('team_id')
+    # A person's Discard or Keep (check_type manual) needs the alert once: its metadata.screen_id teaches the screen
+    # memory either way (Discard -> expected, Keep -> bad: BUG-0746, Discard had stopped teaching), and a Keep labels
+    # the training samples with its incident_type. Both helpers take the pre-fetched row, so one lookup per click.
+    alert = get_alert_by_id(alert_id) if check_type == 'manual' else None
+    _label_alert_training_samples(alert_id, discard, check_type, team_id, alert)
+    _teach_screen_memory(alert_id, discard, check_type, alert)
+    return jsonify({'status': 'success'})
 
 
 @server_alerts_bp.route('/triageStats', methods=['GET'])
@@ -133,14 +140,22 @@ def triage_stats_route():
     return jsonify(stats), (200 if stats.get('success') else 500)
 
 
-def _teach_screen_memory(alert_id, discard, check_type):
+def _teach_screen_memory(alert_id, discard, check_type, alert=None):
     """TASK-84: a person's Discard/Keep on an alert the host stamped with a screen id becomes that screen's
-    verdict (expected / bad), source human. Best effort, never raises, never changes the route's response."""
+    verdict (expected / bad), source human. Best effort, never raises, never changes the route's response.
+
+    ``alert`` is the pre-fetched alert row the route already has; when it is None (direct
+    callers, tests) we fall back to looking the row up ourselves so the helper stays
+    usable from outside the route.
+    """
     try:
         if check_type != 'manual':
             return
-        alert = get_alert_by_id(alert_id)
-        screen_id = ((alert or {}).get('metadata') or {}).get('screen_id')
+        if alert is None:
+            alert = get_alert_by_id(alert_id)
+        if not alert:
+            return
+        screen_id = ((alert.get('metadata') or {})).get('screen_id')
         if screen_id:
             from shared.src.lib.database import screen_fingerprints_db
             screen_fingerprints_db.set_human_verdict(screen_id, bool(discard), alert_id)
@@ -148,13 +163,18 @@ def _teach_screen_memory(alert_id, discard, check_type):
         logger.warning(f"[screen-memory] teaching from alert {alert_id} failed: {e}")
 
 
-def _label_alert_training_samples(alert_id, discard, check_type, team_id):
+def _label_alert_training_samples(alert_id, discard, check_type, team_id, alert=None):
     """TASK-27 step 3a: turn a human discard/confirm into the label of the alert's
     ``av-fault`` training samples (recorded by the host at alert creation).
 
     discard=true: the detector was wrong, ``incident_type`` None. discard=false with a
     manual check: confirmed, the alert's own type. Best effort, never raises, and never
     changes the route's response.
+
+    ``alert`` is the pre-fetched alert row the route already has; for the discard branch
+    we never need it, and for the confirm branch we don't re-look it up if the row is
+    passed in. Direct callers (and the tests) that omit it keep working via the
+    fallback get_alert_by_id().
     """
     try:
         if not team_id or not (discard or check_type == 'manual'):
@@ -169,7 +189,8 @@ def _label_alert_training_samples(alert_id, discard, check_type, team_id):
         if discard:
             ground_truth = {'incident_type': None}
         else:
-            alert = get_alert_by_id(alert_id)
+            if alert is None:
+                alert = get_alert_by_id(alert_id)
             if not alert or not alert.get('incident_type'):
                 logger.warning(f"[training] alert {alert_id} not found, samples left unlabelled")
                 return

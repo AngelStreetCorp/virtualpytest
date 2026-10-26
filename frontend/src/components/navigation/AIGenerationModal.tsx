@@ -31,6 +31,8 @@ import { ContextSummary } from './ContextSummary';
 import { StyledDialog } from '../common/StyledDialog';
 import { useR2Url } from '../../hooks/storage/useR2Url';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { dangerButtonSx, neutralButtonSx, primaryButtonSx } from '../common/PageChrome';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface AIGenerationModalProps {
   isOpen: boolean;
@@ -437,7 +439,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                         <Box sx={{ mt: 1, pl: 2, maxHeight: 200, overflow: 'auto' }}>
                           {activePlan.lines && activePlan.lines.length > 0 ? (
                             // DPAD navigation (TV/STB) - show dual-layer chips
-                            <Box sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                            <Box sx={{ fontFamily: 'monospace', fontSize: TYPOGRAPHY.caption.size }}>
                               {activePlan.lines.map((line: string[], lineIdx: number) => {
                                 // Helper: Strip _duplicate* suffix for display
                                 const stripDuplicateSuffix = (name: string) => name.replace(/_duplicate\d+$/i, '');
@@ -470,7 +472,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                                     
                                     {/* Focus Layer Chips */}
                                     <Box sx={{ pl: 1, mb: 0.5 }}>
-                                      <Typography variant="caption" sx={{ color: P.accentText, fontSize: '0.65rem' }}>
+                                      <Typography variant="caption" sx={{ color: P.accentText, fontSize: TYPOGRAPHY.microMeta.size }}>
                                         Focus:
                                       </Typography>
                                       <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
@@ -492,7 +494,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                                                   bgcolor: isDuplicate ? `${P.error}4d` : (isFocusSelected ? `${P.accent}33` : 'transparent'),
                                                   borderColor: isDuplicate ? P.error : (isFocusSelected ? P.accent : P.borderColor),
                                                   borderWidth: isDuplicate ? '2px' : '1px',
-                                                  fontSize: '0.65rem',
+                                                  fontSize: TYPOGRAPHY.microMeta.size,
                                                   '&:hover': isDuplicate ? {} : {
                                                     opacity: 0.8,
                                                     bgcolor: isFocusSelected ? `${P.accent}4d` : P.hoverBg
@@ -507,7 +509,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                                     
                                     {/* Screen Layer Chips */}
                                     <Box sx={{ pl: 1 }}>
-                                      <Typography variant="caption" sx={{ color: 'success.light', fontSize: '0.65rem' }}>
+                                      <Typography variant="caption" sx={{ color: 'success.light', fontSize: TYPOGRAPHY.microMeta.size }}>
                                         Screen:
                                       </Typography>
                                       <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mt: 0.5 }}>
@@ -530,7 +532,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                                                   bgcolor: isDuplicate ? `${P.error}4d` : ((isFocusSelected && isScreenSelected) ? `${P.success}33` : 'transparent'),
                                                   borderColor: isDuplicate ? P.error : ((isFocusSelected && isScreenSelected) ? P.success : P.borderColor),
                                                   borderWidth: isDuplicate ? '2px' : '1px',
-                                                  fontSize: '0.65rem',
+                                                  fontSize: TYPOGRAPHY.microMeta.size,
                                                   '&:hover': isDuplicate ? {} : (isFocusSelected ? {
                                                     opacity: 0.8,
                                                     bgcolor: isScreenSelected ? `${P.success}4d` : P.hoverBg
@@ -644,17 +646,17 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                                         {item} {!isSelected && '(skipped)'}
                                       </Typography>
                                       {/* Horizontal edges - using backend data */}
-                                      <Typography variant="body2" sx={{ fontSize: '0.70rem', fontFamily: 'monospace', pl: 1 }}>
+                                      <Typography variant="body2" sx={{ fontSize: TYPOGRAPHY.caption.size, fontFamily: 'monospace', pl: 1 }}>
                                         {horizontal.source} → {horizontal.target}: {horizontal.forward_action}
                                       </Typography>
-                                      <Typography variant="body2" sx={{ fontSize: '0.70rem', fontFamily: 'monospace', pl: 1 }}>
+                                      <Typography variant="body2" sx={{ fontSize: TYPOGRAPHY.caption.size, fontFamily: 'monospace', pl: 1 }}>
                                         {horizontal.target} ← {horizontal.source}: {horizontal.reverse_action}
                                       </Typography>
                                       {/* Vertical edges - using backend data */}
-                                      <Typography variant="body2" sx={{ fontSize: '0.70rem', fontFamily: 'monospace', pl: 1 }}>
+                                      <Typography variant="body2" sx={{ fontSize: TYPOGRAPHY.caption.size, fontFamily: 'monospace', pl: 1 }}>
                                         {vertical.source} ↓ {vertical.target}: {vertical.forward_action}
                                       </Typography>
-                                      <Typography variant="body2" sx={{ fontSize: '0.70rem', fontFamily: 'monospace', pl: 1 }}>
+                                      <Typography variant="body2" sx={{ fontSize: TYPOGRAPHY.caption.size, fontFamily: 'monospace', pl: 1 }}>
                                         {vertical.target} ↑ {vertical.source}: {vertical.reverse_action}
                                       </Typography>
                                     </Box>
@@ -686,10 +688,10 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
                                       <Typography variant="caption" sx={{ fontWeight: 'bold', color: 'text.secondary', display: 'block', mb: 0.5 }}>
                                         {item} {!isSelected && '(skipped)'}
                                       </Typography>
-                                      <Typography variant="body2" sx={{ fontSize: '0.70rem', fontFamily: 'monospace', pl: 1 }}>
+                                      <Typography variant="body2" sx={{ fontSize: TYPOGRAPHY.caption.size, fontFamily: 'monospace', pl: 1 }}>
                                         {click.source} → {click.target}: {click.forward_action}
                                       </Typography>
-                                      <Typography variant="body2" sx={{ fontSize: '0.70rem', fontFamily: 'monospace', pl: 1 }}>
+                                      <Typography variant="body2" sx={{ fontSize: TYPOGRAPHY.caption.size, fontFamily: 'monospace', pl: 1 }}>
                                         {click.target} ← {click.source}: {click.reverse_action}
                                       </Typography>
                                     </Box>
@@ -782,24 +784,22 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
           <>
             <Button
               variant="outlined"
-              color="error"
               onClick={handleCancel}
-              startIcon={<CancelIcon />}
+              startIcon={<CancelIcon />} sx={neutralButtonSx(P)}
             >
               Abort
             </Button>
             <Button
               variant="outlined"
-              color="warning"
-              onClick={handleStart}
+              onClick={handleStart} sx={neutralButtonSx(P)}
             >
               Retry
             </Button>
             <Button
               variant="contained"
-              color="success"
               onClick={handleCreateStructure}
               startIcon={<NavigationIcon />}
+              sx={primaryButtonSx(P)}
             >
               Create Nodes/Edges
             </Button>
@@ -832,8 +832,7 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
           <Button
             onClick={handleCancel}
             variant="outlined"
-            color="error"
-            startIcon={<CancelIcon />}
+            startIcon={<CancelIcon />} sx={neutralButtonSx(P)}
           >
             Cancel
           </Button>
@@ -870,10 +869,9 @@ export const AIGenerationModal: React.FC<AIGenerationModalProps> = ({
         </Button>
         <Button 
           onClick={handleConfirmClean} 
-          variant="contained" 
-          color="error"
+          variant="contained"
           disabled={isCheckingTree}
-          startIcon={isCheckingTree ? <CircularProgress size={16} sx={{ color: 'inherit' }} /> : undefined}
+          startIcon={isCheckingTree ? <CircularProgress size={16} sx={{ ...(dangerButtonSx(P) as object),  color: 'inherit' }} /> : undefined}
         >
           {isCheckingTree ? 'Deleting...' : 'Delete'}
         </Button>

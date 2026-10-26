@@ -1,6 +1,8 @@
 """Browser-Use Integration Utility"""
 
 import asyncio
+import json
+import os
 import time
 from typing import Dict, Any
 
@@ -49,7 +51,39 @@ def _counted_http_client(hop: dict, team_id: str | None):
                              timeout=httpx.Timeout(float(hop.get('timeout_s') or 120)))
 
 
-def build_browser_llm(team_id: str | None = None) -> ChatOpenAI:
+class ModelUnavailable(RuntimeError):
+    """The AI route behind browser-use cannot be called now (no credit, paused): no model request is made."""
+
+
+def _stop_on_refusal_client(stop: dict):
+    """httpx client for the server passthrough that ends the browser-use run at the first 402.
+
+    browser-use retries a failed step (``max_failures``) with the same request: against an account without
+    credit that is five paid-for refusals per task (BUG-0514). The first 402 flags ``stop`` and stops the agent."""
+    import httpx
+
+    async def _on_response(response):
+        if response.status_code == 402:
+            stop['reason'] = 'the AI account has no credit (HTTP 402)'
+            agent = stop.get('agent')
+            if agent is not None:
+                try:
+                    agent.stop()
+                except Exception:
+                    pass
+
+    return httpx.AsyncClient(event_hooks={'response': [_on_response]})
+
+
+def ensure_model_available(team_id: str | None = None) -> None:
+    """Raise ``ModelUnavailable`` when the server says ``agent.browser`` is paused (no credit): checked before the
+    run so a doomed task makes no request at all."""
+    from shared.src.lib.ai import gateway
+    if not gateway.is_available(BROWSER_USAGE, team_id):
+        raise ModelUnavailable(f"{BROWSER_USAGE} is not available now (no credit or no route): task not started")
+
+
+def build_browser_llm(team_id: str | None = None, stop: dict | None = None) -> ChatOpenAI:
     """browser-use LLM from the ``agent.browser`` AI route (TASK-30).
 
     browser-use drives an OpenAI client itself, so the route must point at an
@@ -57,7 +91,7 @@ def build_browser_llm(team_id: str | None = None) -> ChatOpenAI:
     directly; any other goes through the server passthrough, which swaps in the
     routed model and the API key (hosts hold no provider keys).
     """
-    from shared.src.lib.ai import gateway
+    from shared.src.lib.ai import caller as ai_caller, gateway
     from shared.src.lib.utils.build_url_utils import buildServerUrl, server_auth_headers
 
     hop = gateway.describe(BROWSER_USAGE, team_id)['chain'][0]
@@ -67,7 +101,11 @@ def build_browser_llm(team_id: str | None = None) -> ChatOpenAI:
     if hop['reach'] == 'host':
         return ChatOpenAI(model=hop['model'], api_key='local', base_url=hop['base_url'],
                           temperature=hop.get('temperature'), http_client=_counted_http_client(hop, team_id))
-    headers = dict(server_auth_headers())
+    headers = dict(server_auth_headers())  # carries X-VPT-Caller: who asked (script / user / host)
+    if ai_caller.HEADER not in headers:
+        # Nothing bound (a worker thread without the request's context): at least name this host's own work.
+        fields = {'origin': 'background', 'job': BROWSER_USAGE, 'host_name': os.getenv('HOST_NAME')}
+        headers[ai_caller.HEADER] = json.dumps({k: v for k, v in fields.items() if v}, separators=(',', ':'))
     if team_id:
         headers['X-VPT-Team-Id'] = team_id
     return ChatOpenAI(
@@ -76,6 +114,7 @@ def build_browser_llm(team_id: str | None = None) -> ChatOpenAI:
         base_url=buildServerUrl(f'/server/ai/openai/{BROWSER_USAGE}'),
         default_headers=headers,
         temperature=hop.get('temperature'),
+        http_client=_stop_on_refusal_client(stop) if stop is not None else None,
     )
 
 
@@ -86,9 +125,9 @@ class BrowserUseManager:
         self.playwright_utils = playwright_utils
         self.llm = None
         
-    def _get_llm(self):
-        if self.llm is None:
-            self.llm = build_browser_llm()
+    def _get_llm(self, stop: dict | None = None):
+        # Rebuilt per task: the caller header is frozen into the client, so a cached one names the first caller forever.
+        self.llm = build_browser_llm(stop=stop)
         return self.llm
 
     async def execute_task(self, task: str, max_steps: int = 20) -> Dict[str, Any]:
@@ -98,8 +137,10 @@ class BrowserUseManager:
             task: Task description for browser-use
             max_steps: Maximum steps for browser-use agent (default: 20)
         """
+        ensure_model_available()  # BUG-0514: no browser, no agent, no request while the model has no credit
         start_time = time.time()
         execution_logs = []
+        stop: dict = {}
         
         # Capture both print and logging output during execution
         import logging
@@ -158,14 +199,17 @@ class BrowserUseManager:
             # Create and run agent with existing page and preserved viewport
             agent = Agent(
                 task=task, 
-                llm=self._get_llm(), 
+                llm=self._get_llm(stop), 
                 page=page,
                 browser_profile=browser_profile,
                 use_vision=True,
                 max_failures=5,  # Allow more failures before stopping
                 retry_delay=2    # Shorter retry delay
             )
+            stop['agent'] = agent
             await agent.run(max_steps=max_steps)
+            if stop.get('reason'):
+                raise ModelUnavailable(f"browser task stopped: {stop['reason']}")
             
             # Get captured logs
             captured_logs = log_capture_string.getvalue()

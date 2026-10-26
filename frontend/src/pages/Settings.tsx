@@ -17,6 +17,8 @@ import {
   Videocam as VideoIcon,
   Bluetooth as BluetoothIcon,
   SettingsRemote as IrIcon,
+  Engineering as MaintenanceIcon,
+  PaletteOutlined as AppearanceIcon,
 } from '@mui/icons-material';
 import { AIIcon } from '../components/common/icons/CustomIcons';
 import { getEnv } from '../config/constants';
@@ -31,6 +33,7 @@ import {
   Grid,
   Divider,
   CircularProgress,
+  Switch,
   Tabs,
   Tab,
   Accordion,
@@ -41,7 +44,6 @@ import {
   MenuItem,
   Paper,
   Tooltip,
-  Switch,
   Table,
   TableHead,
   TableBody,
@@ -49,10 +51,10 @@ import {
   TableCell,
   Snackbar,
   Chip,
-  FormControlLabel,
+  Skeleton,
 } from '@mui/material';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
-import { PAGE_TITLE_SX, pageSurfaceSx } from '../components/common/PageChrome';
+import { PAGE_TITLE_SX, dangerIconSx, neutralButtonSx, pageSurfaceSx } from '../components/common/PageChrome';
 import { useResponsiveMode } from '../hooks/useResponsiveMode';
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
@@ -61,12 +63,28 @@ import { useSettings, FrontendConfig } from '../hooks/pages';
 import { useBranding } from '../contexts/BrandingContext';
 import { ALL_NAV_ITEMS } from '../config/navItems';
 import { TOAST_POSITION, TOAST_AUTO_HIDE_DURATION } from '../constants/toastConfig';
-import { featureSettingsNotices } from '../config/features';
-import { buildServerUrl } from '../utils/buildUrlUtils';
+import { featureSettingsNotices, featureSettingsToggles } from '../config/features';
+import { buildServerUrl, buildServerUrlForServer } from '../utils/buildUrlUtils';
 import { api } from '../utils/apiClient';
 import { ConfirmDialog } from '../components/common/ConfirmDialog';
+import SettingRow from '../components/common/SettingRow';
+import AppearanceSettings from '../components/settings/AppearanceSettings';
 import { AiRoutingSettings } from '../components/settings/AiRoutingSettings';
+import { AtlasMemorySettings } from '../components/settings/AtlasMemorySettings';
+import { MaintenanceSettings } from '../components/settings/MaintenanceSettings';
+import { useProfile } from '../hooks/auth/useProfile';
+import { useServerManager } from '../hooks/useServerManager';
+import { lookupHostServerUrl } from '../hooks/allServer/useRowServerUrl';
+import { isAllServersSentinel } from '../lib/allServer/scope';
+import { AllServersSettingsLanding } from '../components/settings/AllServersSettingsLanding';
 import { useConfirmDialog } from '../hooks/useConfirmDialog';
+import { MonitorProfileConfirmDialog } from '../components/settings/monitorProfile/MonitorProfileConfirmDialog';
+import { MonitorProfileCatalogue } from '../components/settings/monitorProfile/MonitorProfileCatalogue';
+import { MonitorProfileSelect } from '../components/settings/monitorProfile/MonitorProfileSelect';
+import { MonitorProfileStatusCard } from '../components/settings/monitorProfile/MonitorProfileStatusCard';
+import { planProfileChange, type ProfileSelection } from '../components/settings/monitorProfile/plan';
+import { useMonitorProfiles } from '../components/settings/monitorProfile/useMonitorProfiles';
+import { TYPOGRAPHY } from '../constants/typography';
 
 // ─── Feature Visibility Tab ───────────────────────────────────────────────────
 // Sources navbar items from the shared `navItems` config so toggle keys
@@ -121,7 +139,11 @@ const writeRestartPending = (state: RestartPendingState) => {
   }
 };
 
-const SettingsTabPanel: React.FC<React.PropsWithChildren<{ active: boolean }>> = ({ active, children }) => (
+const SettingsTabPanel: React.FC<React.PropsWithChildren<{ active: boolean; loading?: boolean }>> = ({
+  active,
+  loading,
+  children,
+}) => (
   <Box
     role="tabpanel"
     hidden={!active}
@@ -131,8 +153,27 @@ const SettingsTabPanel: React.FC<React.PropsWithChildren<{ active: boolean }>> =
       ...settingsPanelSx,
     }}
   >
-    {children}
+    {loading ? <SettingsPanelSkeleton /> : children}
   </Box>
+);
+
+// While the active tab's config still loads, draw the shape of two stacked
+// Card-shaped text fields inside a bordered card so the page never paints a
+// centred spinner in an empty area (UI_STYLE §10 S6).
+const SettingsPanelSkeleton: React.FC = () => (
+  <Card>
+    <CardContent sx={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+      <Skeleton variant="text" width={180} height={28} />
+      <Skeleton variant="rounded" height={56} />
+      <Skeleton variant="rounded" height={56} />
+      <Skeleton variant="rounded" height={56} />
+      <Box sx={{ display: 'flex', gap: '16px' }}>
+        <Skeleton variant="rounded" width="48%" height={56} />
+        <Skeleton variant="rounded" width="48%" height={56} />
+      </Box>
+      <Skeleton variant="rounded" height={120} />
+    </CardContent>
+  </Card>
 );
 
 // ─── Dynamic "every other key" rendering ──────────────────────────────────────
@@ -237,6 +278,7 @@ const ExtraEnvFields: React.FC<{
 // ─── Branding Tab ─────────────────────────────────────────────────────────────
 
 const BrandingTab: React.FC = () => {
+  const P = useAgentChatPalette();
   const { branding, setBranding, resetBranding, isLoaded, hasBackup } = useBranding();
   const [name, setName] = useState(branding.name);
   const [tagline, setTagline] = useState(branding.tagline);
@@ -267,6 +309,13 @@ const BrandingTab: React.FC = () => {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('asset', asset);
+    // TASK-113 follow-up: BrandingTab is a separate component; in
+    // ALL mode the user opens this server's settings individually.
+    // The current buildServerUrl targets the picker-selected server,
+    // which IS the server whose settings the user is editing in
+    // single-server mode. A future PR lifts editTargetServer to a
+    // context or props so branding follows the per-server row in
+    // ALL mode.
     const res = await fetch(buildServerUrl('/server/branding/upload'), {
       method: 'POST',
       body: formData,
@@ -322,11 +371,10 @@ const BrandingTab: React.FC = () => {
                 <Button
                   size="small"
                   variant="outlined"
-                  color="warning"
                   startIcon={reverting ? <CircularProgress size={14} /> : <ResetIcon fontSize="small" />}
                   onClick={handleRevert}
                   disabled={reverting}
-                  sx={{ ml: 'auto' }}
+                  sx={{ ...(neutralButtonSx(P) as object),  ml: 'auto' }}
                 >
                   Revert to backup
                 </Button>
@@ -459,13 +507,15 @@ const BrandingTab: React.FC = () => {
               Footer links
             </Typography>
             <Box display="flex" flexDirection="column">
-              <FormControlLabel
-                control={<Switch size="small" checked={showMobileAppLink} onChange={(e) => setShowMobileAppLink(e.target.checked)} />}
-                label="Show “Get the mobile app”"
+              <SettingRow
+                title="Show “Get the mobile app”"
+                checked={showMobileAppLink}
+                onChange={setShowMobileAppLink}
               />
-              <FormControlLabel
-                control={<Switch size="small" checked={showGithubLink} onChange={(e) => setShowGithubLink(e.target.checked)} />}
-                label="Show “View on GitHub”"
+              <SettingRow
+                title="Show “View on GitHub”"
+                checked={showGithubLink}
+                onChange={setShowGithubLink}
               />
             </Box>
           </Grid>
@@ -516,7 +566,21 @@ const Settings: React.FC = () => {
   const P = useAgentChatPalette();
   const { isMobile } = useResponsiveMode();
   const [searchParams, setSearchParams] = useSearchParams();
-  const initialTab = searchParams.get('tab') === 'ai' ? 5 : 0;
+  const { isAdmin } = useProfile();
+  // TASK-113: per-row action calls (host-service restart) dispatch to
+  // the host's home server, not the currently selected one.
+  const { serverHostsData, selectedServer } = useServerManager();
+  // TASK-113: in ALL mode, the current-server actions (branding upload,
+  // restart server/frontend) target the per-server row the user is
+  // editing. The `editTargetServer` falls back to the selected server
+  // in single-server mode (the existing behavior).
+  const [editTargetServer, setEditTargetServer] = useState<string>(selectedServer ?? '');
+  useEffect(() => {
+    if (!isAllServersSentinel(selectedServer) && !editTargetServer) {
+      setEditTargetServer(selectedServer ?? '');
+    }
+  }, [selectedServer, editTargetServer]);
+  const initialTab = searchParams.get('tab') === 'ai' ? 5 : searchParams.get('tab') === 'appearance' ? 6 : searchParams.get('tab') === 'maintenance' ? 7 : 0;
   const [activeTab, setActiveTab] = useState(initialTab);
   const [restartPending, setRestartPending] = useState<RestartPendingState>(() => readRestartPending());
   const [registeredHosts, setRegisteredHosts] = useState<Array<{ host_name: string }>>([]);
@@ -524,6 +588,8 @@ const Settings: React.FC = () => {
   const [hostConfigSaved, setHostConfigSaved] = useState(false);
   const [hostConfigReady, setHostConfigReady] = useState(false);
   const [restartingHostService, setRestartingHostService] = useState<string | null>(null);
+  const [profileConfirmOpen, setProfileConfirmOpen] = useState(false);
+  const loadedProfiles = useRef<ProfileSelection>({ host: '', devices: {} });
 
   const acknowledgeRestart = (scope: 'server' | 'frontend') => {
     setRestartPending((prev) => {
@@ -541,7 +607,8 @@ const Settings: React.FC = () => {
     setRestartError(null);
     setRestarting((prev) => ({ ...prev, server: true }));
     try {
-      await api.post(buildServerUrl('/server/system/restartServerService'), {});
+      // TASK-113: in ALL mode the restart targets editTargetServer.
+      await api.post(buildServerUrlForServer(editTargetServer, '/server/system/restartServerService'), {});
       acknowledgeRestart('server');
     } catch (err) {
       setRestartError(err instanceof Error ? err.message : 'Failed to restart the server');
@@ -554,7 +621,8 @@ const Settings: React.FC = () => {
     setRestartError(null);
     setRestarting((prev) => ({ ...prev, frontend: true }));
     try {
-      await api.post(buildServerUrl('/server/settings/restart-frontend'), {});
+      // TASK-113: in ALL mode the restart targets editTargetServer.
+      await api.post(buildServerUrlForServer(editTargetServer, '/server/settings/restart-frontend'), {});
       acknowledgeRestart('frontend');
     } catch (err) {
       setRestartError(err instanceof Error ? err.message : 'Failed to restart the frontend');
@@ -597,8 +665,10 @@ const Settings: React.FC = () => {
       onConfirm: async () => {
         setRestartError(null);
         setRestartingHostService(service);
+        // TASK-113: route the host-service restart to the host's home server.
+        const homeServerUrl = lookupHostServerUrl(serverHostsData, selectedHostName) ?? selectedServer;
         try {
-          await api.post(buildServerUrl('/server/settings/restart-host-service'), {
+          await api.post(buildServerUrlForServer(homeServerUrl, '/server/settings/restart-host-service'), {
             host_name: selectedHostName,
             service: serviceName,
           });
@@ -638,11 +708,24 @@ const Settings: React.FC = () => {
     getAudioSource,
   } = useSettings();
 
+  const monitorProfiles = useMonitorProfiles(selectedHostName);
+  const profileSelection = (): ProfileSelection => ({
+    host: config.host.MONITOR_PROFILE ?? '',
+    devices: Object.fromEntries(Object.entries(config.devices).map(([k, d]) => [k, d.DEVICE_MONITOR_PROFILE ?? ''])),
+  });
+  const profilePlan = planProfileChange(loadedProfiles.current, profileSelection(), monitorProfiles.profiles, monitorProfiles.units);
+  // The values the host had when its config was loaded (or last saved): the baseline a change is measured against.
+  useEffect(() => {
+    if (hostConfigReady) loadedProfiles.current = profileSelection();
+  }, [hostConfigReady, selectedHostName]);
+
   useEffect(() => {
     const initializeSettings = async () => {
       await loadConfig();
       try {
-        const result = await api.get(buildServerUrl('/server/system/getAllHosts?include_actions=false'));
+        // TASK-113: in ALL mode, registered hosts come from the per-
+        // server row the user is editing.
+        const result = await api.get(buildServerUrlForServer(editTargetServer, '/server/system/getAllHosts?include_actions=false'));
         const hosts = (result.hosts ?? []).map((host: any) => ({ host_name: host.host_name }));
         setRegisteredHosts(hosts);
         if (hosts.length) setSelectedHostName((current) => current || hosts[0].host_name);
@@ -666,6 +749,10 @@ const Settings: React.FC = () => {
   const handleSave = async () => {
     if (activeTab === 2) {
       if (!hostConfigReady) return;
+      if (profilePlan.changed) {
+        setProfileConfirmOpen(true);
+        return;
+      }
       setHostConfigSaved(await saveHostConfig(selectedHostName));
       return;
     }
@@ -681,16 +768,39 @@ const Settings: React.FC = () => {
     });
   };
 
-  useEffect(() => {
-    if (searchParams.get('tab') === 'ai' && activeTab !== 5) {
-      setActiveTab(5);
+  const saveWithProfileChange = async () => {
+    const ok = await saveHostConfig(selectedHostName);
+    setHostConfigSaved(ok);
+    setProfileConfirmOpen(false);
+    if (ok) {
+      loadedProfiles.current = profileSelection();
+      monitorProfiles.watchApply();
     }
-  }, [activeTab, searchParams]);
+  };
 
-  if (loading) {
+  // Follow ?tab= when the URL changes (deep links). Keyed on the URL only: keying on activeTab too
+  // let the stale URL pull the tab back for one render after the user clicked another tab.
+  useEffect(() => {
+    const tab = searchParams.get('tab');
+    if (tab === 'ai') setActiveTab(5);
+    else if (tab === 'appearance') setActiveTab(6);
+    else if (tab === 'maintenance') setActiveTab(7);
+  }, [searchParams]);
+
+  // While `loading` is true the page chrome (title, save bar, tabs, alerts)
+  // stays mounted and each tab panel renders SettingsPanelSkeleton — a centred
+  // spinner is reserved for tiny, per-cell cases (UI_STYLE §10 S6).
+  const isLoading = loading;
+
+  // TASK-113: in ALL mode the Settings page becomes a per-server
+  // landing: pick a server, the picker flips to that single server,
+  // and the rest of the page renders as today. The per-row dispatch
+  // helpers (PR-D / migration-2) carry the home server through every
+  // action; this landing is the user-facing entry point.
+  if (isAllServersSentinel(selectedServer)) {
     return (
-      <Box display="flex" justifyContent="center" alignItems="center" minHeight="400px">
-        <CircularProgress />
+      <Box sx={pageSurfaceSx(P)}>
+        <AllServersSettingsLanding />
       </Box>
     );
   }
@@ -718,7 +828,7 @@ const Settings: React.FC = () => {
             variant="contained"
             startIcon={saving ? <CircularProgress size={20} /> : <SaveIcon />}
             onClick={handleSave}
-            disabled={saving || activeTab === 5 || (activeTab === 2 && !hostConfigReady)}
+            disabled={saving || activeTab === 5 || activeTab === 6 || activeTab === 7 || (activeTab === 2 && !hostConfigReady)}
           >
             Save
           </Button>
@@ -770,7 +880,7 @@ const Settings: React.FC = () => {
         value={activeTab}
         onChange={(_, newValue) => {
           setActiveTab(newValue);
-          setSearchParams(newValue === 5 ? { tab: 'ai' } : {});
+          setSearchParams(newValue === 5 ? { tab: 'ai' } : newValue === 6 ? { tab: 'appearance' } : newValue === 7 ? { tab: 'maintenance' } : {});
         }}
         variant="scrollable"
         scrollButtons="auto"
@@ -789,7 +899,7 @@ const Settings: React.FC = () => {
             <Box display="flex" alignItems="center" gap={0.75}>
               Server
               {restartPending.server && (
-                <Chip label="Restart needed" size="small" color="warning" sx={{ height: 18, fontSize: 10 }} />
+                <Chip label="Restart needed" size="small" color="warning" sx={{ height: 18, fontSize: TYPOGRAPHY.microMeta.size }} />
               )}
             </Box>
           }
@@ -801,7 +911,7 @@ const Settings: React.FC = () => {
             <Box display="flex" alignItems="center" gap={0.75}>
               Frontend
               {restartPending.frontend && (
-                <Chip label="Restart needed" size="small" color="warning" sx={{ height: 18, fontSize: 10 }} />
+                <Chip label="Restart needed" size="small" color="warning" sx={{ height: 18, fontSize: TYPOGRAPHY.microMeta.size }} />
               )}
             </Box>
           }
@@ -810,10 +920,12 @@ const Settings: React.FC = () => {
         <Tab icon={<BrandingIcon />} label="Branding" iconPosition="start" />
         <Tab icon={<FeaturesIcon />} label="Features" iconPosition="start" />
         <Tab icon={<AIIcon />} label="AI" iconPosition="start" />
+        <Tab icon={<AppearanceIcon />} label="Appearance" iconPosition="start" />
+        {isAdmin && <Tab icon={<MaintenanceIcon />} label="Maintenance" iconPosition="start" />}
       </Tabs>
 
       {/* Tab 1: Server */}
-      <SettingsTabPanel active={activeTab === 0}>
+      <SettingsTabPanel active={activeTab === 0} loading={isLoading}>
         {restartPending.server && (
           <Alert
             severity="warning"
@@ -896,7 +1008,7 @@ const Settings: React.FC = () => {
       </SettingsTabPanel>
 
       {/* Tab 2: Frontend */}
-      <SettingsTabPanel active={activeTab === 1}>
+      <SettingsTabPanel active={activeTab === 1} loading={isLoading}>
         {restartPending.frontend && (
           <Alert
             severity="warning"
@@ -1003,12 +1115,12 @@ const Settings: React.FC = () => {
       </SettingsTabPanel>
 
       {/* Tab 4: Branding */}
-      <SettingsTabPanel active={activeTab === 3}>
+      <SettingsTabPanel active={activeTab === 3} loading={isLoading}>
         <BrandingTab />
       </SettingsTabPanel>
 
       {/* Tab 5: Features */}
-      <SettingsTabPanel active={activeTab === 4}>
+      <SettingsTabPanel active={activeTab === 4} loading={isLoading}>
         <Card>
           <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
             {/* Feature Toggles */}
@@ -1017,44 +1129,25 @@ const Settings: React.FC = () => {
               <Typography variant="h6">Feature Toggles</Typography>
             </Box>
             <Divider />
-            <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
-              <TableBody>
-                <TableRow sx={{ '&:hover': { backgroundColor: 'transparent !important' } }}>
-                  <TableCell sx={{ width: 'calc(100% - 90px)' }}>
-                    <Typography variant="body2" fontWeight={500}>Periodic Deployments</Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'nowrap' }}>
-                      Enable periodic test execution. Requires frontend rebuild.
-                    </Typography>
-                  </TableCell>
-                  <TableCell align="center" sx={{ width: 90 }}>
-                    <Switch
-                      size="small"
-                      checked={config.frontend.VITE_FEATURE_DEPLOYMENTS !== 'false'}
-                      onChange={(e) =>
-                        updateFrontendConfig('VITE_FEATURE_DEPLOYMENTS', e.target.checked ? 'true' : 'false')
-                      }
-                    />
-                  </TableCell>
-                </TableRow>
-                <TableRow sx={{ '&:hover': { backgroundColor: 'transparent !important' } }}>
-                  <TableCell sx={{ width: 'calc(100% - 90px)' }}>
-                    <Typography variant="body2" fontWeight={500}>Run Version Selector</Typography>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', whiteSpace: 'nowrap' }}>
-                      Show version dropdowns on Run Tests and Run Campaign. Requires frontend rebuild.
-                    </Typography>
-                  </TableCell>
-                  <TableCell align="center" sx={{ width: 90 }}>
-                    <Switch
-                      size="small"
-                      checked={config.frontend.VITE_FEATURE_RUN_VERSION_SELECTOR === 'true'}
-                      onChange={(e) =>
-                        updateFrontendConfig('VITE_FEATURE_RUN_VERSION_SELECTOR', e.target.checked ? 'true' : 'false')
-                      }
-                    />
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
+            <Box sx={{ px: 2, py: 0.5 }}>
+              <SettingRow
+                divider
+                title="Periodic Deployments"
+                description="Enable periodic test execution. Requires frontend rebuild."
+                checked={config.frontend.VITE_FEATURE_DEPLOYMENTS !== 'false'}
+                onChange={(on) => updateFrontendConfig('VITE_FEATURE_DEPLOYMENTS', on ? 'true' : 'false')}
+              />
+              <SettingRow
+                divider
+                title="Run Version Selector"
+                description="Show version dropdowns on Run Tests and Run Campaign. Requires frontend rebuild."
+                checked={config.frontend.VITE_FEATURE_RUN_VERSION_SELECTOR === 'true'}
+                onChange={(on) => updateFrontendConfig('VITE_FEATURE_RUN_VERSION_SELECTOR', on ? 'true' : 'false')}
+              />
+              {featureSettingsToggles().map((ToggleRow, i) => (
+                <ToggleRow key={i} />
+              ))}
+            </Box>
             <Divider sx={{ mt: 1 }} />
 
             {/* Navbar Visibility */}
@@ -1066,7 +1159,7 @@ const Settings: React.FC = () => {
               </Typography>
             </Box>
             <Divider />
-            <Table size="small">
+            <Table size="small" sx={{ tableLayout: 'fixed', width: '100%' }}>
               <TableHead>
                 <TableRow sx={{ '&:hover': { backgroundColor: 'transparent !important' } }}>
                   <TableCell sx={{ fontWeight: 600, width: '25%' }}>Item</TableCell>
@@ -1129,7 +1222,7 @@ const Settings: React.FC = () => {
       </SettingsTabPanel>
 
       {/* Tab 3: Host */}
-      <SettingsTabPanel active={activeTab === 2}>
+      <SettingsTabPanel active={activeTab === 2} loading={isLoading}>
         <Box>
           <Card sx={{ mb: 1 }}>
             <CardContent>
@@ -1215,6 +1308,29 @@ const Settings: React.FC = () => {
                     size="small"
                   />
                 </Grid>
+                {monitorProfiles.profiles.length > 0 && (
+                  <Grid item xs={12} md={6}>
+                    <MonitorProfileSelect
+                      label="Default monitoring profile"
+                      value={config.host.MONITOR_PROFILE ?? ''}
+                      onChange={(v) => updateHostConfig('MONITOR_PROFILE', v)}
+                      profiles={monitorProfiles.profiles}
+                      defaultName="tv_app"
+                      helperText="For every device that has no profile of its own"
+                      testId="host-monitor-profile"
+                    />
+                  </Grid>
+                )}
+                {monitorProfiles.profiles.length > 0 && (
+                  <Grid item xs={12}>
+                    <MonitorProfileCatalogue profiles={monitorProfiles.profiles} />
+                  </Grid>
+                )}
+                {monitorProfiles.status && (
+                  <Grid item xs={12}>
+                    <MonitorProfileStatusCard status={monitorProfiles.status} profiles={monitorProfiles.profiles} applying={monitorProfiles.applying} />
+                  </Grid>
+                )}
               </Grid>
             </CardContent>
           </Card>
@@ -1277,7 +1393,7 @@ const Settings: React.FC = () => {
                   return (
                     <Box component="table" sx={{ width: '100%', borderCollapse: 'collapse' }}>
                       <Box component="thead">
-                        <Box component="tr" sx={{ '& th': { textAlign: 'left', py: 0.5, pr: 2, fontSize: 12, color: 'text.secondary' } }}>
+                        <Box component="tr" sx={{ '& th': { textAlign: 'left', py: 0.5, pr: 2, fontSize: TYPOGRAPHY.caption.size, color: 'text.secondary' } }}>
                           <Box component="th">Video</Box>
                           <Box component="th">Audio</Box>
                           <Box component="th">USB</Box>
@@ -1295,7 +1411,7 @@ const Settings: React.FC = () => {
                             <Box
                               component="tr"
                               key={g.video}
-                              sx={{ '& td': { py: 0.5, pr: 2, fontSize: 13, borderTop: `1px solid ${P.borderColor}` } }}
+                              sx={{ '& td': { py: 0.5, pr: 2, fontSize: TYPOGRAPHY.body.size, borderTop: `1px solid ${P.borderColor}` } }}
                             >
                               <Box component="td"><code>{g.video}</code></Box>
                               <Box component="td">
@@ -1377,7 +1493,7 @@ const Settings: React.FC = () => {
                             e.stopPropagation();
                             deleteDevice(deviceKey);
                           }}
-                          color="error"
+                          sx={dangerIconSx(P)}
                         >
                           <DeleteIcon fontSize="small" />
                         </IconButton>
@@ -1515,6 +1631,27 @@ const Settings: React.FC = () => {
                         />
                       </Grid>
 
+                      {monitorProfiles.profiles.length > 0 && (
+                        <>
+                          <Grid item xs={12}>
+                            <Typography variant="subtitle2" sx={{ color: P.accentText }} gutterBottom>
+                              Monitoring
+                            </Typography>
+                          </Grid>
+                          <Grid item xs={12} md={6}>
+                            <MonitorProfileSelect
+                              label="Monitoring profile"
+                              value={device.DEVICE_MONITOR_PROFILE ?? ''}
+                              onChange={(v) => updateDeviceConfig(deviceKey, 'DEVICE_MONITOR_PROFILE', v)}
+                              profiles={monitorProfiles.profiles}
+                              defaultName={config.host.MONITOR_PROFILE || 'tv_app'}
+                              helperText="Saving restarts the monitor services of this host"
+                              testId={`monitor-profile-${deviceKey}`}
+                            />
+                          </Grid>
+                        </>
+                      )}
+
                       <Grid item xs={12}>
                         <Typography variant="subtitle2" sx={{ color: P.accentText }} gutterBottom>
                           Power Control
@@ -1555,9 +1692,33 @@ const Settings: React.FC = () => {
       </SettingsTabPanel>
 
       {/* Tab 6: AI */}
-      <SettingsTabPanel active={activeTab === 5}>
-        <AiRoutingSettings />
+      <SettingsTabPanel active={activeTab === 5} loading={isLoading}>
+        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <AtlasMemorySettings />
+          <AiRoutingSettings />
+        </Box>
       </SettingsTabPanel>
+
+      {/* Tab 7: Appearance */}
+      <SettingsTabPanel active={activeTab === 6} loading={isLoading}>
+        <AppearanceSettings />
+      </SettingsTabPanel>
+
+      {isAdmin && (
+        <SettingsTabPanel active={activeTab === 7} loading={isLoading}>
+          <MaintenanceSettings />
+        </SettingsTabPanel>
+      )}
+
+      <MonitorProfileConfirmDialog
+        open={profileConfirmOpen}
+        hostName={selectedHostName}
+        plan={profilePlan}
+        profiles={monitorProfiles.profiles}
+        saving={saving}
+        onConfirm={() => void saveWithProfileChange()}
+        onCancel={() => setProfileConfirmOpen(false)}
+      />
 
       <ConfirmDialog
         open={dialogState.open}

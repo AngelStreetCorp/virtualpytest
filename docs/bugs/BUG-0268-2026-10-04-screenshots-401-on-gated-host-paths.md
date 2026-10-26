@@ -9,7 +9,7 @@
 | Status    | Fixed — proxy + frontend deployed and verified 2026-10-04    |
 | Severity  | High                                                         |
 | Area      | frontend                                                     |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `16f33780a`, `0436f415c`, `af1f318e4`                        |
 
 ---

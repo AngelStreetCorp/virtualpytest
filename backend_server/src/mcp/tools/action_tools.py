@@ -9,7 +9,7 @@ import time
 from typing import Dict, Any, Optional
 from ..utils.api_client import MCPAPIClient
 from ..utils.mcp_formatter import MCPFormatter
-from ..utils.lock_ownership import auto_lock
+from ..utils.lock_ownership import auto_lock, lock_command_error
 from ..utils.screenshot_capture import capture_image_block
 from shared.src.lib.config.constants import APP_CONFIG, get_team_id
 
@@ -246,7 +246,7 @@ class ActionTools:
                 'host_name': str (REQUIRED - host name where device is connected),
                 'device_id': str (REQUIRED - device identifier),
                 'actions': list (REQUIRED - list of action dicts with command and params),
-                'force_unlock': bool (OPTIONAL - stop a running script/testcase/deployment holding the device; never another user's take-control),
+                'force_unlock': bool (OPTIONAL - clears a STALE lock or your own only; never aborts another caller's live run (device_busy: wait/queue) nor another user's take-control),
                 'session_id': str (OPTIONAL - session_id from take_control; runs under that lock),
                 'include_screenshot': bool (OPTIONAL - include a device screenshot of the resulting screen in the response, default false)
             }
@@ -258,6 +258,9 @@ class ActionTools:
         host_name = params.get('host_name')
         team_id = params.get('team_id', get_team_id())
         actions = params.get('actions', [])
+        lock_error = lock_command_error(actions)
+        if lock_error:
+            return lock_error
         retry_actions = params.get('retry_actions', [])
         failure_actions = params.get('failure_actions', [])
         force_unlock = bool(params.get('force_unlock', False))
@@ -279,6 +282,12 @@ class ActionTools:
         # Wrong format:   {"action_type": "adb", "action_name": "press_key", "parameters": {"key": "BACK"}}
         normalized_actions = []
         for i, action in enumerate(actions):
+            if isinstance(action, str):  # "VOLUME_UP" or "press_key" sent bare: a key name is a press_key (TASK-163)
+                action = {'command': 'press_key', 'params': {'key': action}}
+            if not isinstance(action, dict):
+                return {"content": [{"type": "text", "text": f"Error: action {i} must be an object like {{\"command\": \"press_key\", \"params\": {{\"key\": \"BACK\"}}}}"}], "isError": True}
+            if not action.get('command') and action.get('key'):  # {"key": "HOME"} without command
+                action = {'command': 'press_key', 'params': {'key': action['key']}}
             if not action.get('command') and action.get('action_name'):
                 # Auto-convert legacy/wrong format
                 converted = {

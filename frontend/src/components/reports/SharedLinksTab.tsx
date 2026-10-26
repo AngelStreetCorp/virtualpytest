@@ -26,6 +26,9 @@ import {
   type TeamSnapshotStatus,
 } from '../../hooks/useReportSnapshots';
 import { openR2Url } from '../../utils/infrastructure/cloudflareUtils';
+import { dangerButtonSx } from '../common/PageChrome';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 const STATUS_CHIPS: Array<{ value: TeamSnapshotStatus; label: string }> = [
   { value: 'active', label: 'Active' },
@@ -72,6 +75,7 @@ const STATUS_COLOR: Record<RowStatus, 'success' | 'default' | 'error' | 'warning
 };
 
 export const SharedLinksTab: React.FC = () => {
+  const P = useAgentChatPalette();
   const { listTeamSnapshots, revokeSnapshot } = useReportSnapshots();
   const [status, setStatus] = useState<TeamSnapshotStatus>('active');
   const [filter, setFilter] = useState('');
@@ -170,7 +174,7 @@ export const SharedLinksTab: React.FC = () => {
           sx={{
             tableLayout: 'fixed',
             minWidth: 1120,
-            '& .MuiTableCell-root': { px: 1, py: 0.25, fontSize: '0.875rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
+            '& .MuiTableCell-root': { px: 1, py: 0.25, fontSize: TYPOGRAPHY.body.size, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' },
           }}
         >
           <colgroup>
@@ -244,10 +248,10 @@ export const SharedLinksTab: React.FC = () => {
                           <>
                             <Button
                               size="small"
-                              color="error"
                               variant="contained"
                               disabled={revokingId === s.id}
                               onClick={() => handleRevoke(s.id)}
+                              sx={dangerButtonSx(P)}
                             >
                               Confirm revoke
                             </Button>
@@ -256,7 +260,7 @@ export const SharedLinksTab: React.FC = () => {
                             </Button>
                           </>
                         ) : (
-                          <Button size="small" color="error" onClick={() => setConfirmId(s.id)}>
+                          <Button size="small" onClick={() => setConfirmId(s.id)} sx={dangerButtonSx(P)}>
                             Revoke
                           </Button>
                         )
@@ -265,7 +269,7 @@ export const SharedLinksTab: React.FC = () => {
                           size="small"
                           color={STATUS_COLOR[st]}
                           label={st.charAt(0).toUpperCase() + st.slice(1)}
-                          sx={{ height: 20, fontSize: '0.7rem' }}
+                          sx={{ height: 20, fontSize: TYPOGRAPHY.caption.size }}
                         />
                       )}
                     </TableCell>

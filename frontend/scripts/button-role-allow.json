@@ -1,0 +1,4 @@
+{
+  "reasons": "Counts of tolerated hits per file. Only a fixed status control belongs here, with a reason. Empty: every button takes a role.",
+  "files": {}
+}

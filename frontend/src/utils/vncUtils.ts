@@ -3,6 +3,18 @@
  *  reason about a 1440x847 box (see BUG-0104). */
 const VNC_RESOLUTION = { width: 1440, height: 847 };
 
+/** Let noVNC fit the server's real framebuffer into the iframe viewport. Windows
+ * desktops can have a different resolution from the legacy 1440×847 CSS scale. */
+export const withVncViewportScale = (url: string): string => {
+  const hashIndex = url.indexOf('#');
+  const base = hashIndex === -1 ? url : url.slice(0, hashIndex);
+  const hash = hashIndex === -1 ? '' : url.slice(hashIndex);
+  const scaled = /([?&])scale=/.test(base)
+    ? base.replace(/([?&])scale=[^&]*/, '$1scale=true')
+    : `${base}${base.includes('?') ? '&' : '?'}scale=true`;
+  return `${scaled}${hash}`;
+};
+
 /**
  * The size the scaled render actually occupies — i.e. what you must size a wrapper to if you
  * want to centre it. Centre THAT wrapper, never the iframe: the iframe's own box is the full

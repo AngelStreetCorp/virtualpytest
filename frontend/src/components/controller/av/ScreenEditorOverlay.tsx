@@ -3,6 +3,7 @@ import React, { useState, useEffect } from 'react';
 
 import { RecordingTimerProps, StreamStatus } from '../../../types/pages/UserInterface_Types';
 import { formatRecordingTime } from '../../../utils/userinterface/screenEditorUtils';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 // Separate component for recording timer to avoid parent re-renders
 const RecordingTimer: React.FC<RecordingTimerProps> = ({ isCapturing }) => {
@@ -32,7 +33,7 @@ const RecordingTimer: React.FC<RecordingTimerProps> = ({ isCapturing }) => {
       sx={{
         // palette: drawn on video/screenshot — must stay readable on any frame
         color: '#fff',
-        fontSize: '0.7rem',
+        fontSize: TYPOGRAPHY.caption.size,
         fontWeight: 'bold',
       }}
     >
@@ -165,7 +166,7 @@ export const StatusIndicator: React.FC<{ streamStatus: StreamStatus }> = ({ stre
     {/* palette: drawn on video/screenshot — text on dark scrim */}
     <Typography
       variant="caption"
-      sx={{ color: '#fff', fontSize: '0.7rem', width: '40px', textAlign: 'center' }}
+      sx={{ color: '#fff', fontSize: TYPOGRAPHY.caption.size, width: '40px', textAlign: 'center' }}
     >
       {streamStatus === 'running' ? 'Live' : 'Stopped'}
     </Typography>

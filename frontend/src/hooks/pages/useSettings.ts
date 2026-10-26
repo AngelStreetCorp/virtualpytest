@@ -43,6 +43,8 @@ export interface HostConfig {
   HOST_PORT: string;
   HOST_URL: string;
   HOST_API_URL: string;
+  // Default monitoring profile of every device on the host ('' = tv_app). Set from Settings -> Host & Devices.
+  MONITOR_PROFILE?: string;
 }
 
 export interface DeviceConfig {
@@ -57,6 +59,8 @@ export interface DeviceConfig {
   DEVICE_PORT: string;
   DEVICE_POWER_NAME: string;
   DEVICE_POWER_IP: string;
+  // '' = follow the host's MONITOR_PROFILE
+  DEVICE_MONITOR_PROFILE?: string;
 }
 
 // A capture card reported by the host's `/host/system/grabbers` endpoint.

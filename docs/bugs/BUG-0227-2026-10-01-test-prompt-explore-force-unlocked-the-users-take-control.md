@@ -9,7 +9,7 @@
 | Status    | Fixed — deployed and verified 2026-10-01                     |
 | Severity  | High — after any exploration the user no longer holds the device, though the page still shows Release; the next run is refused, and another user can take the device |
 | Area      | `features/ai-test/skills/test-prompt-{web,mobile,androidtv,stb}/SKILL.md` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

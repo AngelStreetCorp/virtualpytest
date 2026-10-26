@@ -8,6 +8,7 @@ import {
   Button,
   Checkbox,
   CircularProgress,
+  Skeleton,
   Alert,
   Accordion,
   AccordionSummary,
@@ -45,10 +46,13 @@ import {
   Search,
 } from '@mui/icons-material';
 import { buildServerUrl } from '../utils/buildUrlUtils';
+import { apiClient } from '../utils/apiClient';
 import { StyledDialog } from '../components/common/StyledDialog';
 import { discoverServerIdentity, getAccessTokenForServer } from '../lib/serverIdentity';
 import { unauthenticatedFetch } from '../utils/pristineFetch';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { dangerButtonSx } from '../components/common/PageChrome';
+import { TYPOGRAPHY } from '../constants/typography';
 
 interface Request {
   id: string;
@@ -192,10 +196,17 @@ const UserApiWorkspaceDetail: React.FC = () => {
       const wsResponse = await fetch(buildServerUrl('/server/postman/workspaces'));
       const wsData = await wsResponse.json();
       
+      // The workspace answers to its internal id; the Postman workspace id is
+      // accepted too, because that is the id Postman itself shows and the one a
+      // developer is likely to paste (BUG-0796).
+      let canonicalId = workspaceId;
       if (wsData.success) {
-        const ws = wsData.workspaces.find((w: Workspace) => w.id === workspaceId);
+        const ws = wsData.workspaces.find(
+          (w: Workspace) => w.id === workspaceId || w.workspaceId === workspaceId,
+        );
         if (ws) {
           setWorkspace(ws);
+          canonicalId = ws.id;
         } else {
           setError('Workspace not found');
           return;
@@ -203,7 +214,7 @@ const UserApiWorkspaceDetail: React.FC = () => {
       }
 
       // Load collections
-      const collResponse = await fetch(buildServerUrl(`/server/postman/workspaces/${workspaceId}/collections`));
+      const collResponse = await apiClient(buildServerUrl(`/server/postman/workspaces/${canonicalId}/collections`));
       const collData = await collResponse.json();
       
       if (collData.success) {
@@ -223,7 +234,7 @@ const UserApiWorkspaceDetail: React.FC = () => {
     setLoadingRequests(prev => new Set(prev).add(collectionId));
     
     try {
-      const response = await fetch(buildServerUrl(`/server/postman/collections/${collectionId}/requests?workspace_id=${workspaceId}`));
+      const response = await apiClient(buildServerUrl(`/server/postman/collections/${collectionId}/requests?workspace_id=${workspace?.id || workspaceId}`));
       const data = await response.json();
       
       if (data.success) {
@@ -394,7 +405,7 @@ const UserApiWorkspaceDetail: React.FC = () => {
         const startedAt = performance.now();
         try {
           const definitionResponse = await fetch(buildServerUrl(
-            `/server/postman/requests/${encodeURIComponent(request.id)}/definition?workspace_id=${encodeURIComponent(workspaceId || '')}&collection_id=${encodeURIComponent(collectionId)}`
+            `/server/postman/requests/${encodeURIComponent(request.id)}/definition?workspace_id=${encodeURIComponent(workspace?.id || workspaceId || '')}&collection_id=${encodeURIComponent(collectionId)}`
           ));
           const definitionData = await definitionResponse.json();
           if (!definitionResponse.ok || !definitionData.success) throw new Error(definitionData.error || 'Could not load request definition');
@@ -487,21 +498,7 @@ const UserApiWorkspaceDetail: React.FC = () => {
   };
 
   if (loading) {
-    return (
-      <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'center', 
-        alignItems: 'center', 
-        position: 'fixed',
-        top: 64,
-        left: 38,
-        right: 38,
-        bottom: 35,
-        overflow: 'hidden'
-      }}>
-        <CircularProgress />
-      </Box>
-    );
+    return <UserApiWorkspaceDetailSkeleton />;
   }
 
   if (!workspace) {
@@ -524,15 +521,15 @@ const UserApiWorkspaceDetail: React.FC = () => {
   }
 
   return (
-    <Box sx={{ 
-      display: 'flex', 
-      flexDirection: 'column', 
+    <Box sx={{
+      display: 'flex',
+      flexDirection: 'column',
       position: 'fixed',
       top: 64,
       left: 38,
       right: 38,
       bottom: 35,
-      overflow: 'hidden'
+      overflow: 'hidden',
     }}>
       {/* Ultra-Compact Header with All Controls */}
       <Box 
@@ -690,10 +687,10 @@ const UserApiWorkspaceDetail: React.FC = () => {
                               result.method === 'POST' ? 'primary' :
                               'default'
                             }
-                            sx={{ fontSize: '0.7rem', height: 20 }}
+                            sx={{ fontSize: TYPOGRAPHY.caption.size, height: 20 }}
                           />
                         </TableCell>
-                        <TableCell sx={{ fontFamily: 'monospace', fontSize: '0.85rem' }}>
+                        <TableCell sx={{ fontFamily: 'monospace', fontSize: TYPOGRAPHY.body.size }}>
                           {result.path}
                         </TableCell>
                         <TableCell>
@@ -715,7 +712,7 @@ const UserApiWorkspaceDetail: React.FC = () => {
                                 textOverflow: 'ellipsis', 
                                 whiteSpace: 'nowrap',
                                 fontFamily: 'monospace',
-                                fontSize: '0.8rem',
+                                fontSize: TYPOGRAPHY.body.size,
                                 cursor: 'pointer',
                                 '&:hover': { textDecoration: 'underline' }
                               }}
@@ -785,7 +782,7 @@ const UserApiWorkspaceDetail: React.FC = () => {
                 borderRadius: 1,
                 overflow: 'auto',
                 fontFamily: 'monospace',
-                fontSize: '0.875rem',
+                fontSize: TYPOGRAPHY.body.size,
                 lineHeight: 1.5,
                 whiteSpace: 'pre-wrap',
                 wordBreak: 'break-word'
@@ -845,7 +842,7 @@ const UserApiWorkspaceDetail: React.FC = () => {
           <DialogActions sx={{ justifyContent: 'space-between' }}>
             <Box>
               {!creatingEnvironment && environments.length > 1 && (
-                <Button color="error" onClick={deleteEnvironment}>Delete environment</Button>
+                <Button onClick={deleteEnvironment} sx={dangerButtonSx(P)}>Delete environment</Button>
               )}
             </Box>
             <Box sx={{ display: 'flex', gap: 1 }}>
@@ -942,10 +939,10 @@ const UserApiWorkspaceDetail: React.FC = () => {
                   />
                 )}
                 <Box sx={{ flex: 1, minWidth: 0 }}>
-                  <Typography variant="body2" sx={{ fontWeight: 600, fontSize: '0.9rem' }}>
+                  <Typography variant="body2" sx={{ fontWeight: 600, fontSize: TYPOGRAPHY.navbarItem.size }}>
                     {collection.name}
                   </Typography>
-                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', lineHeight: 1 }}>
+                  <Typography variant="caption" color="text.secondary" sx={{ fontSize: TYPOGRAPHY.caption.size, lineHeight: 1 }}>
                     {collection.description || 'VirtualPyTest Server API collection. Select routes to test against your configured backend.'}
                   </Typography>
                 </Box>
@@ -954,7 +951,7 @@ const UserApiWorkspaceDetail: React.FC = () => {
                   size="small"
                   color="primary"
                   variant="outlined"
-                  sx={{ height: 22, fontSize: '0.7rem' }}
+                  sx={{ height: 22, fontSize: TYPOGRAPHY.caption.size }}
                 />
               </Box>
             </AccordionSummary>
@@ -1003,18 +1000,18 @@ const UserApiWorkspaceDetail: React.FC = () => {
                                   minWidth: 45, 
                                   height: 16, 
                                   fontFamily: 'monospace', 
-                                  fontSize: '0.6rem',
+                                  fontSize: TYPOGRAPHY.microMeta.size,
                                   fontWeight: 600,
                                   '& .MuiChip-label': { px: 0.75, py: 0 }
                                 }}
                               />
-                              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.8rem', lineHeight: 1.3 }}>
+                              <Typography variant="body2" sx={{ fontFamily: 'monospace', fontSize: TYPOGRAPHY.body.size, lineHeight: 1.3 }}>
                                 {request.path}
                               </Typography>
                             </Box>
                           }
                           secondary={
-                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: '0.7rem', lineHeight: 1.2 }}>
+                            <Typography variant="caption" color="text.secondary" sx={{ fontSize: TYPOGRAPHY.caption.size, lineHeight: 1.2 }}>
                               {request.name}
                             </Typography>
                           }
@@ -1033,5 +1030,48 @@ const UserApiWorkspaceDetail: React.FC = () => {
     </Box>
   );
 };
+
+// While the workspace loads, draw a chrome that matches the fixed-position layout:
+// a top bar (Back + title + Filter + counts, all skeletonized) and a three-pane body
+// (collection list / request list / response) so the page never paints a small spinner
+// in the middle of an otherwise empty area (UI_STYLE §10 S6).
+const UserApiWorkspaceDetailSkeleton: React.FC = () => (
+  <Box sx={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden' }}>
+    <Box sx={{ px: 3, py: 0.5, flexShrink: 0, bgcolor: 'background.default', borderBottom: 1, borderColor: 'divider' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1 }}>
+        <Skeleton variant="rounded" width={56} height={28} />
+        <Skeleton variant="text" width={180} height={28} />
+        <Skeleton variant="rounded" width={240} height={32} />
+        <Skeleton variant="text" width={120} height={18} />
+        <Box sx={{ flex: 1 }} />
+        <Skeleton variant="rounded" width={180} height={32} />
+        <Skeleton variant="rounded" width={120} height={32} />
+        <Skeleton variant="rounded" width={56} height={32} />
+      </Box>
+    </Box>
+    <Box sx={{ display: 'flex', flex: 1, overflow: 'hidden' }}>
+      <Box sx={{ width: 240, borderRight: 1, borderColor: 'divider', p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+        {[0, 1, 2, 3, 4, 5, 6].map((i) => (
+          <Skeleton key={i} variant="rounded" height={28} />
+        ))}
+      </Box>
+      <Box sx={{ width: 320, borderRight: 1, borderColor: 'divider', p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+        {[0, 1, 2, 3, 4, 5, 6, 7].map((i) => (
+          <Box key={i} sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+            <Skeleton variant="text" width="80%" height={18} />
+            <Skeleton variant="text" width="60%" height={14} />
+          </Box>
+        ))}
+      </Box>
+      <Box sx={{ flex: 1, p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+        <Skeleton variant="rounded" height={32} />
+        <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <Skeleton variant="rounded" height={36} />
+          <Skeleton variant="rounded" height={180} />
+        </Box>
+      </Box>
+    </Box>
+  </Box>
+);
 
 export default UserApiWorkspaceDetail;

@@ -13,8 +13,10 @@ installs pytest/requests.
 Tier A — pure logic, no network, no device.
 """
 
+import ast
 import importlib.util
 import json
+import os
 import urllib.error
 import urllib.parse
 from pathlib import Path
@@ -359,6 +361,15 @@ class TestTlsAndBaseUrl:
 # Not marked @pytest.mark.unit: these need a live backend, which the conftest probe only
 # finds in CI. A feature must add its own tests — nothing discovers them (docs/technical/FEATURES.md).
 
+def _json_body(response) -> dict:
+    # `get` returns a requests.Response (it has .json(), not Flask's .get_json(silent=True)).
+    try:
+        body = response.json()
+    except ValueError:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
 class TestGitLabRoutes:
     def test_health_reports_configuration(self, get, api_headers):
         response = get("/server/gitlab/health", headers=api_headers)
@@ -368,14 +379,23 @@ class TestGitLabRoutes:
         assert body['base_url'].startswith('http'), body
 
     def test_projects_answer_with_a_status_envelope(self, get, api_headers):
-        response = get("/server/gitlab/projects", headers=api_headers)
+        # health=0 skips the per-project pipeline probe (up to 25 sequential GitLab calls),
+        # which can outlast the proxy timeout and come back as an empty-body 502. The
+        # envelope is what this test pins, not the health signal. _json_body() keeps a
+        # non-JSON body from raising JSONDecodeError instead of failing the assertion.
+        response = get("/server/gitlab/projects?health=0", headers=api_headers)
         assert response.status_code in (200, 502), response.text[:300]
-        assert 'success' in response.json(), response.text[:300]
+        if response.status_code == 502 and not _json_body(response):
+            # The route answers {'success': False, ...} + 502 when GitLab is unreachable
+            # (_bad_request), but Cloudflare in front of the server replaces any 502 body
+            # with its own HTML "Bad gateway" page. The 502 is the envelope's status then.
+            return
+        assert 'success' in _json_body(response), response.text[:300]
 
     def test_trigger_requires_a_signed_in_user(self, post, api_headers):
         # Launching a pipeline is a side effect on the customer's CI: anonymous callers
         # must not reach it. Without the api key the request is rejected before the handler.
-        response = post("/server/gitlab/projects/root%2Fdemo/trigger", json={}, headers={})
+        response = post("/server/gitlab/project/trigger?project=root%2Fdemo", json={}, headers={})
         assert response.status_code in (401, 403), response.text[:300]
     def test_instances_list_shape(self, get, api_headers):
         response = get("/server/gitlab/instances", headers=api_headers)
@@ -390,8 +410,31 @@ class TestGitLabRoutes:
                 assert 'last_pipeline' in row, "the page's health column reads this key"
 
     def test_tree_answer(self, get, api_headers):
-        response = get("/server/gitlab/projects/root%2Fdemo/tree?ref=main", headers=api_headers)
+        response = get("/server/gitlab/project/tree?project=root%2Fdemo&ref=main", headers=api_headers)
         assert response.status_code in (200, 400, 404, 502), response.text[:300]
+
+    def test_namespaced_project_never_reaches_the_auto_proxy_catch_all(self, get, api_headers):
+        # A GitLab project path is `group/project`, so it cannot ride in a path segment: Flask's
+        # default string converter will not match a segment holding an encoded slash, the route
+        # matched nothing, and the request fell through to the auto_proxy handler that wants a
+        # `host_name`. The page showed an empty file tree and a blank README for EVERY project,
+        # and the only error on the wire mentioned a parameter this feature has never used.
+        #
+        # Assert on the BODY, not just the status: the old test allowed 400 through, which is
+        # precisely the status this bug produced.
+        response = get("/server/gitlab/project/tree?project=root%2Fdemo&ref=main", headers=api_headers)
+        body = _json_body(response)
+        assert 'host_name' not in str(body.get('error', '')), (
+            "the request fell through to the auto_proxy catch-all: "
+            f"{response.status_code} {body.get('error')!r}"
+        )
+
+    def test_project_argument_is_required(self, get, api_headers):
+        response = get("/server/gitlab/project/tree?ref=main", headers=api_headers)
+        body = _json_body(response)
+        assert response.status_code == 400, response.text[:300]
+        # Our own message, not the catch-all's.
+        assert body.get('error') == 'project is required', body
 
     def test_saving_an_instance_needs_the_manage_permission(self, post, api_headers):
         # No api key: the route carries require_permission('plugins.gitlab:manage'), so an
@@ -434,31 +477,80 @@ class TestRepositoryTree:
 
 @pytest.mark.unit
 class TestReadme:
+    """The README is RESOLVED FROM THE TREE, not fetched from a dedicated endpoint.
+
+    GitLab v4 has no `/projects/:id/readme` — it 404s on a real instance, so the first version
+    of this returned nothing for every project. A repository file is only reachable through
+    `/repository/files/:file_path` and its name is not known in advance, so the root tree is
+    listed first and the README picked from it.
+    """
+
+    @staticmethod
+    def _fake(monkeypatch, tree, file_payload):
+        """Stub _request: the tree listing, then the file fetch."""
+
+        def fake_request(path, method="GET", body=None, form=None, **kw):
+            if "/repository/tree" in path:
+                return tree
+            if "/repository/files/" in path:
+                return file_payload
+            raise AssertionError(f"readme() must not call {path}")
+
+        monkeypatch.setattr(gl, "_request", fake_request)
+
+    def _tree(self, *names):
+        return [{"name": n, "path": n, "type": "blob", "mode": "100644"} for n in names]
+
     def test_base64_content_is_decoded(self, monkeypatch):
         import base64 as _b64
         payload = {"file_name": "README.md", "ref": "main", "encoding": "base64",
                    "content": _b64.b64encode(b"# Title\n\nhello").decode()}
-        monkeypatch.setattr(gl, "_request", lambda *a, **k: payload)
+        self._fake(monkeypatch, self._tree("README.md", ".gitlab-ci.yml"), payload)
         out = gl.readme(1, ref="main")
         assert out["content"] == "# Title\n\nhello"
         assert out["binary"] is False
 
     def test_binary_file_is_flagged_not_crashed(self, monkeypatch):
         import base64 as _b64
-        payload = {"file_name": "logo.png", "encoding": "base64",
+        payload = {"file_name": "README.md", "encoding": "base64",
                    "content": _b64.b64encode(b"\x89PNG\r\n\x1a\n\xff\xfe").decode()}
-        monkeypatch.setattr(gl, "_request", lambda *a, **k: payload)
+        self._fake(monkeypatch, self._tree("README.md"), payload)
         out = gl.readme(1)
         assert out["binary"] is True and out["content"] is None
 
     def test_non_base64_encoding_is_passed_through(self, monkeypatch):
-        monkeypatch.setattr(gl, "_request", lambda *a, **k: {"file_name": "a.txt",
-                                                             "encoding": "text", "content": "plain"})
+        self._fake(monkeypatch, self._tree("README"),
+                   {"file_name": "README", "encoding": "text", "content": "plain"})
         assert gl.readme(1)["content"] == "plain"
 
     def test_plain_string_content_is_decoded(self, monkeypatch):
-        monkeypatch.setattr(gl, "_request", lambda *a, **k: {"file_name": "README.md",
-                                                             "encoding": "base64", "content": None})
+        self._fake(monkeypatch, self._tree("README.md"),
+                   {"file_name": "README.md", "encoding": "base64", "content": None})
+        assert gl.readme(1) is None
+
+    def test_no_readme_is_none_not_an_error(self, monkeypatch):
+        # A project with no README is a normal state, not a failure.
+        self._fake(monkeypatch, self._tree("main.py", "setup.py"), {})
+        assert gl.readme(1) is None
+
+    def test_markdown_wins_over_rst(self, monkeypatch):
+        # Both present: README.md is what a person opens.
+        captured = {}
+
+        def fake_request(path, method="GET", body=None, form=None, **kw):
+            if "/repository/tree" in path:
+                return [{"name": "README.rst", "path": "README.rst", "type": "blob"},
+                        {"name": "README.md", "path": "README.md", "type": "blob"}]
+            captured["path"] = path
+            return {"file_name": "README.md", "encoding": "text", "content": "md"}
+
+        monkeypatch.setattr(gl, "_request", fake_request)
+        assert gl.readme(1)["content"] == "md"
+        assert "README.md" in captured["path"]
+
+    def test_a_folder_named_readme_is_not_the_readme(self, monkeypatch):
+        # type == tree is a directory; it has no content to show.
+        self._fake(monkeypatch, [{"name": "readme", "path": "readme", "type": "tree"}], {})
         assert gl.readme(1) is None
 
 
@@ -598,3 +690,89 @@ class TestInstanceStore:
         self.mod.CONFIG_PATH.write_text(json.dumps(
             {"instances": [{"base_url": "http://gl", "token": "t"}]}))
         assert len(self.mod.load()) == 1
+
+
+# ─── bundle builder (TASK-91 goal A) ─────────────────────────────────────────
+
+@pytest.mark.unit
+class TestProjectIsNeverAPathSegment:
+    """The project travels as a query argument, in the route AND in the client that builds it.
+
+    This is a source-level guard on purpose. The behavioural tests for these routes live in the
+    `backend_server` tier, which skips entirely when no server is running (conftest), so a bug
+    here shipped once already: `encodeURIComponent('root/demo')` produced `root%2Fdemo` inside a
+    path segment, Flask's default string converter refused to match it, the request fell through
+    to the auto_proxy catch-all, and every project rendered an empty file tree with a 400 about a
+    `host_name` this feature has never used. The route test that should have caught it allowed
+    status 400 through.
+
+    Importing the blueprint would need Flask, which this job does not install, so the invariant is
+    asserted on the source: cheap, dependency-free, and it runs on every commit.
+    """
+
+    BACKEND = Path(__file__).resolve().parents[2] / 'features/gitlab/backend_server/__init__.py'
+    CLIENT = Path(__file__).resolve().parents[2] / 'features/gitlab/frontend/gitlabApi.ts'
+
+    def test_backend_declares_no_project_path_segment(self):
+        src = self.BACKEND.read_text(encoding='utf-8')
+        offenders = [line.strip() for line in src.splitlines()
+                     if '.route(' in line and '<project>' in line]
+        assert offenders == [], (
+            "the project is `group/project`, and a path segment cannot hold an encoded slash: "
+            f"move it to the `project` query argument. Offending routes: {offenders}"
+        )
+
+    def test_frontend_never_builds_a_project_path_segment(self):
+        src = self.CLIENT.read_text(encoding='utf-8')
+        offenders = [line.strip() for line in src.splitlines()
+                     if 'encodeURIComponent(project)' in line
+                     and '?project=' not in line
+                     and '&project=' not in line]
+        assert offenders == [], (
+            "the client must send the project as `?project=`/`&project=`, not as a path "
+            f"segment. Offending lines: {offenders}"
+        )
+
+
+@pytest.mark.unit
+class TestFeatureStillHasAnEntryPoint:
+    """The module must still expose `register(app)` — the shape the feature loader calls.
+
+    A feature is loaded by `shared/src/lib/utils/features.py`, which does
+    `getattr(module, 'register')(app)` for every enabled feature. A module without that attribute
+    does not raise, does not fail a test, and does not break the server: the loader catches the
+    AttributeError, prints one `❌ <name>: backend_server failed to register` line at startup, and
+    moves on. The result is a feature whose every route 404s into the auto_proxy catch-all while
+    the rest of the app looks healthy.
+
+    That is exactly what happened when the packaging block was cut from the end of this module on
+    2026-10-13: `register` sat directly after it and went with it, and `/server/gitlab/*` stopped
+    matching entirely. Nothing in the behavioural suite noticed — those tests skip when no backend
+    answers on :5109.
+
+    Asserted on the source, for the same reason as the class above: importing the blueprint needs
+    Flask, which this job does not install.
+    """
+
+    BACKEND = Path(__file__).resolve().parents[2] / 'features/gitlab/backend_server/__init__.py'
+
+    def test_module_defines_register_app(self):
+        tree = ast.parse(self.BACKEND.read_text(encoding='utf-8'))
+        entry_points = [n for n in tree.body
+                        if isinstance(n, ast.FunctionDef) and n.name == 'register']
+        assert entry_points, (
+            "features/gitlab/backend_server must define register(app): the feature loader calls "
+            "it by name and silently skips the feature when it is absent, which turns every "
+            "/server/gitlab/* route into an unmatched endpoint"
+        )
+        params = entry_points[0].args
+        assert [a.arg for a in params.args] == ['app'], (
+            "register(app) takes exactly the Flask app the loader passes"
+        )
+
+    def test_register_registers_the_blueprint(self):
+        src = self.BACKEND.read_text(encoding='utf-8')
+        assert 'app.register_blueprint(feature_gitlab_bp)' in src, (
+            "register(app) must mount feature_gitlab_bp — registering anything else leaves the "
+            "/server/gitlab prefix unrouted"
+        )

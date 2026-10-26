@@ -1,17 +1,16 @@
-import { Tv as TvIcon, Lock as LockIcon } from '@mui/icons-material';
+import { Tv as TvIcon } from '@mui/icons-material';
 import {
   Box,
   Button,
-  FormControl,
-  InputLabel,
-  Select,
-  MenuItem,
-  Typography,
   CircularProgress,
 } from '@mui/material';
 import React from 'react';
+import { TargetDropdown } from '../common/TargetDropdown';
+import { DeviceKey } from '../../hooks/useDeviceFavorites';
+import { getDeviceTargetLabel } from '../../hooks/useDeviceFilters';
 
 import { NavigationEditorDeviceControlsProps } from '../../types/pages/NavigationHeader_Types';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export const NavigationEditorDeviceControls: React.FC<NavigationEditorDeviceControlsProps> = ({
   selectedHost,
@@ -25,6 +24,7 @@ export const NavigationEditorDeviceControls: React.FC<NavigationEditorDeviceCont
   disableTakeControl = false, // Optional prop to disable Take Control button
   middleContent,
 }) => {
+
   // Helper function to create a unique device identifier
   const createDeviceKey = (hostName: string, deviceId: string) => `${hostName}:${deviceId}`;
 
@@ -33,12 +33,6 @@ export const NavigationEditorDeviceControls: React.FC<NavigationEditorDeviceCont
     const [hostName, deviceId] = key.split(':');
     return { hostName, deviceId };
   };
-
-  // Get the current selected device key for the dropdown
-  const selectedDeviceKey =
-    selectedHost && selectedDeviceId
-      ? createDeviceKey(selectedHost.host_name, selectedDeviceId)
-      : '';
 
   // Check if the selected device is locked (device-based locking)
   const isSelectedDeviceLocked =
@@ -78,6 +72,21 @@ export const NavigationEditorDeviceControls: React.FC<NavigationEditorDeviceCont
     }
   };
 
+  // Shared target list: one entry per device, labelled the same way as the Device Control filter.
+  const targetOptions: string[] = [];
+  const targetKeys: Record<string, DeviceKey> = {};
+  availableHosts.forEach((host) =>
+    (host.devices || []).forEach((device) => {
+      const label = getDeviceTargetLabel(host, device);
+      targetOptions.push(label);
+      targetKeys[label] = { host_name: host.host_name, device_id: device.device_id };
+    }),
+  );
+  const selectedTargetLabel =
+    targetOptions.find(
+      (label) => targetKeys[label].host_name === selectedHost?.host_name && targetKeys[label].device_id === selectedDeviceId,
+    ) ?? '';
+
   return (
     <Box
       sx={{
@@ -88,80 +97,23 @@ export const NavigationEditorDeviceControls: React.FC<NavigationEditorDeviceCont
         minWidth: 0,
       }}
     >
-      {/* Target Selection Dropdown */}
-      <FormControl size="small" sx={{ minWidth: 180 }}>
-        <InputLabel id="device-select-label">Target</InputLabel>
-        <Select
-          labelId="device-select-label"
-          value={selectedDeviceKey}
-          onChange={(e) => handleDeviceChange(e.target.value)}
-          label="Target"
-          disabled={isControlLoading || isControlActive}
-          sx={{ height: 32, fontSize: '0.75rem' }}
-        >
-          {/* Render hidden fallback option if selectedDeviceKey doesn't exist in availableHosts */}
-          {selectedDeviceKey && !availableHosts.some((host) =>
-            host.devices?.some((d) => createDeviceKey(host.host_name, d.device_id) === selectedDeviceKey)
-          ) && (
-            <MenuItem value={selectedDeviceKey} sx={{ display: 'none' }}>
-              {selectedDeviceKey}
-            </MenuItem>
-          )}
-          
-          {availableHosts.flatMap((host, hostIndex) => {
-            const devices = host.devices || [];
-
-            // Skip hosts with no devices
-            if (devices.length === 0) {
-              return [];
-            }
-
-            // Show all devices in a flat list with visual gaps between host groups
-            return devices.map((device, deviceIndex) => {
-              const deviceKey = createDeviceKey(host.host_name, device.device_id);
-              const deviceIsLocked = isDeviceLocked(deviceKey);
-              const isLastDeviceInHost = deviceIndex === devices.length - 1;
-              const isNotLastHost = hostIndex < availableHosts.length - 1;
-
-              return (
-                <MenuItem
-                  key={deviceKey}
-                  value={deviceKey}
-                  sx={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 1,
-                    opacity: deviceIsLocked ? 0.85 : 1,
-                    borderBottom: isLastDeviceInHost && isNotLastHost ? '1px solid' : 'none',
-                    borderColor: 'divider',
-                    mb: isLastDeviceInHost && isNotLastHost ? 0.5 : 0,
-                    pb: isLastDeviceInHost && isNotLastHost ? 0.5 : undefined,
-                  }}
-                >
-                  {deviceIsLocked && (
-                    <LockIcon sx={{ fontSize: '0.8rem', color: 'warning.main' }} />
-                  )}
-                  <span>
-                    {(device.device_name || device.device_id).replace(/_Host$/, '')} ({host.host_name})
-                  </span>
-                  {deviceIsLocked && (
-                    <Typography
-                      variant="caption"
-                      sx={{
-                        ml: 'auto',
-                        color: 'warning.main',
-                        fontSize: '0.65rem',
-                      }}
-                    >
-                      (Locked)
-                    </Typography>
-                  )}
-                </MenuItem>
-              );
-            });
-          })}
-        </Select>
-      </FormControl>
+      {/* Target Selection Dropdown: shared with the Dashboard and Device Control filters (single-select here) */}
+      <TargetDropdown
+        multiple={false}
+        width={180}
+        isLocked={(label) => {
+          const key = targetKeys[label];
+          return !!key && isDeviceLocked(`${key.host_name}:${key.device_id}`);
+        }}
+        placeholder="Select Target..."
+        selected={selectedTargetLabel ? [selectedTargetLabel] : []}
+        options={targetOptions}
+        keys={targetKeys}
+        onChange={(next) => {
+          const key = next[0] ? targetKeys[next[0]] : undefined;
+          handleDeviceChange(key ? createDeviceKey(key.host_name, key.device_id) : '');
+        }}
+      />
 
       {middleContent}
 
@@ -171,14 +123,23 @@ export const NavigationEditorDeviceControls: React.FC<NavigationEditorDeviceCont
         size="small"
         onClick={onTakeControl}
         disabled={!selectedHost || !selectedDeviceId || isControlLoading || disableTakeControl}
-        startIcon={isControlLoading ? <CircularProgress size={16} /> : <TvIcon />}
+        startIcon={
+          // Same fixed slot for both icons so the spinner sits inside the button border.
+          <Box
+            component="span"
+            sx={{ width: 16, height: 16, display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+          >
+            {isControlLoading ? <CircularProgress size={16} thickness={5} /> : <TvIcon />}
+          </Box>
+        }
         color={isControlActive ? 'success' : isSelectedDeviceLocked ? 'warning' : 'primary'}
         sx={{
           height: 32,
-          fontSize: '0.75rem',
+          fontSize: TYPOGRAPHY.caption.size,
           textTransform: 'none',
-          minWidth: 110,
-          maxWidth: 110,
+          width: 140, // fixed — fits "Processing..." plus the spinner inside the border
+          minWidth: 140,
+          maxWidth: 140,
           whiteSpace: 'nowrap',
           px: 1.5,
         }}

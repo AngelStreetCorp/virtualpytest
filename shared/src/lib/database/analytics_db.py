@@ -269,16 +269,22 @@ def get_kpi_section(team_id: Optional[str] = None, days: int = 30) -> Dict[str, 
 # Overview — deliberately the cheap one
 # ---------------------------------------------------------------------------
 
-def get_overview_section(team_id: Optional[str] = None) -> Dict[str, Any]:
+def get_overview_section(team_id: Optional[str] = None, incidents: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     """Headline tiles plus the three charts on the landing tab.
 
     MUST NOT read analytics_device_availability_daily. That is the expensive rollup
     and it belongs to the Devices tab alone — the whole point of the tabbed design is
     that opening the page does not pay for it.
+
+    `incidents` is the incidents section, passed in by the caller so both tabs read
+    the SAME cached figure: the Overview tile "Open incidents" and the Incidents tab
+    "still open" are one number, not two computed on two different cache clocks
+    (BUG-0788). Without it this function reads it itself, which is what drifted.
     """
     devices = get_device_status()
     hosts = _rows('analytics_host_status')
-    incidents = get_incidents_section(days=14)
+    if incidents is None:
+        incidents = get_incidents_section(days=14)
     alerts = get_alerts_section(days=14)
     kpi = get_kpi_section(team_id=team_id, days=30)
 

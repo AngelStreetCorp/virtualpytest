@@ -18,11 +18,16 @@ Type=simple
 User=vpt_user
 Group=vpt_user
 WorkingDirectory=/opt/virtualpytest/backend_host/src
-# Load the project .env through systemd as well as python-dotenv (override=False, so
-# these win) and make the loaded environment inspectable. Note this still only reads
-# the file at start: a credential change needs a restart on every host (BUG-0109).
+# Load the HOST-SPECIFIC .env (backend_host/src/.env) through systemd as well as
+# python-dotenv (override=False, so systemd values win) and make the loaded
+# environment inspectable via `systemctl show vpt-host`. We deliberately do NOT
+# point at %PROJECT_ROOT%/.env here, because that file is the BACKEND's env
+# (SERVER_URL, SERVER_PORT, FLASK_SECRET_KEY, MCP_SECRET_KEY, …) and on a host
+# box it would clobber the host's own SERVER_URL/HW_KEY/etc. with values that
+# only make sense on the backend host. Note this still only reads the file at
+# start: a credential change needs a restart on every host (BUG-0109).
 # Leading '-' = tolerate a missing file rather than refusing to start.
-EnvironmentFile=-%PROJECT_ROOT%/.env
+EnvironmentFile=-%PROJECT_ROOT%/backend_host/src/.env
 Environment=PYTHONPATH=/opt/virtualpytest/shared/lib:/opt/virtualpytest/backend_host/src
 # Reload systemd in case the service file was updated via code sync
 ExecStartPre=+/usr/bin/systemctl daemon-reload

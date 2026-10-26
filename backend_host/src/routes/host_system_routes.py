@@ -14,6 +14,7 @@ System control endpoints for host-level operations:
 from flask import Blueprint, request, jsonify, current_app
 from backend_host.src.lib.utils.route_decorators import route_exception_handler
 from backend_host.src.lib.utils.admin_token import require_admin_token
+from shared.src.lib.utils.service_names import canonical_unit_name
 from backend_host.src.lib.utils.system_info_utils import (
     CONTROLLABLE_SERVICE_NAMES,
     resolve_windows_service_target,
@@ -61,6 +62,18 @@ def _host_env_config():
     return host, devices
 
 
+def _check_monitor_profiles(values, current):
+    """Reject a MONITOR_PROFILE / DEVICE<N>_MONITOR_PROFILE that is being CHANGED to a profile this host cannot run
+    ('' = default is fine). A value the file already holds passes, so an old bad value never blocks saving other fields."""
+    import re
+    from backend_host.src.lib.utils.monitor_profile import profile_problem
+    for key, value in values.items():
+        if re.fullmatch(r'(DEVICE\d+_)?MONITOR_PROFILE', key) and value.strip() and value.strip() != current.get(key, '').strip():
+            problem = profile_problem(value.strip())
+            if problem:
+                raise ValueError(f'{key}={value.strip()}: {problem["reason"]}')
+
+
 def _save_host_env_config(host, devices):
     import re
     path = _host_env_path()
@@ -83,6 +96,7 @@ def _save_host_env_config(host, devices):
             device_updates[f'{device_key}_{field[7:]}'] = value
 
     old_text = path.read_text(encoding='utf-8') if path.exists() else ''
+    _check_monitor_profiles({**updates, **device_updates}, _parse_env_text(old_text))
     kept_devices = set(devices)
     lines = []
     for line in old_text.splitlines():
@@ -113,13 +127,53 @@ def host_config():
     """Read or update this host's own .env host and DEVICE<N> settings."""
     if request.method == 'GET':
         host, devices = _host_env_config()
+        # TASK-102: the active STREAM_PROFILE and its cap (TASK-100 / TASK-102 contract).
+        # We source the loader to expand STREAM_PROFILE -> the right env keys + cap, so
+        # the dashboard reads the resolved values without re-implementing the bundle table.
+        # The loader is bash 4+; on a non-bash-4 host (macOS dev box) the helper returns
+        # 'legacy|' and the JSON field is empty.
+        host['_stream_profile'], host['_stream_profile_cap'] = _resolve_stream_profile()
         return jsonify({'host': host, 'devices': devices}), 200
     data = request.get_json() or {}
     try:
         _save_host_env_config(data.get('host', {}), data.get('devices', {}))
     except ValueError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 400
-    return jsonify({'success': True, 'message': 'Host configuration saved'}), 200
+    # A changed DEVICE<N>_MONITOR_PROFILE / MONITOR_PROFILE restarts the monitor units that follow it (TASK-90).
+    # On a background thread: up to three unit restarts must not hold the HTTP request.
+    from backend_host.src.lib.utils.monitor_profile import start_apply
+    start_apply()
+    return jsonify({'success': True, 'message': 'Host configuration saved', 'monitor_profiles': 'applying'}), 200
+
+
+def _resolve_stream_profile() -> tuple[str, str]:
+    """Source backend_host/scripts/stream_profile.sh and return (profile_name, cap).
+
+    Returns ('legacy', '') when STREAM_PROFILE is unset (no profile active).
+    Returns ('stream_hls_720p', '24') on a typo'd profile (the safe default).
+
+    The function is tolerant: any error (no bash 4, missing file, non-zero exit) is
+    logged and returns ('legacy', '') so the JSON response is always well-formed.
+    """
+    import logging
+    loader = Path(__file__).resolve().parents[2] / 'scripts' / 'stream_profile.sh'
+    if not loader.is_file():
+        return 'legacy', ''
+    try:
+        completed = subprocess.run(
+            ['bash', '-c', f'source "{loader}" 2>/dev/null; stream_profile_summary'],
+            capture_output=True, text=True, timeout=5,
+        )
+    except Exception as exc:
+        logging.getLogger(__name__).warning('STREAM_PROFILE summary failed: %s', exc)
+        return 'legacy', ''
+    if completed.returncode != 0 or not completed.stdout:
+        return 'legacy', ''
+    summary = completed.stdout.strip().splitlines()[-1]
+    if '|' not in summary:
+        return 'legacy', ''
+    profile, cap = summary.split('|', 1)
+    return (profile or 'legacy'), (cap or '')
 
 
 @host_system_bp.route('/grabbers', methods=['GET'])
@@ -495,8 +549,32 @@ def device_is_busy(device_id: str):
     Used by the server's stale-lock liveness probe during host pings.
     Returns {busy: true/false, active_jobs: [...]} so the server can decide
     whether a lock for this device is still valid.
+
+    With `execution_id` the question is per row instead of per device: "is THIS
+    deployment execution still running?". The device-level answer cannot answer it -
+    a live run on the device says nothing about a dead row on the same device, and
+    using it is what let one runaway run shield every dead row of the host (E50).
     """
+    execution_id = (request.args.get('execution_id') or '').strip()
+    if execution_id:
+        from backend_host.src.services.execution_liveness import liveness_snapshot
+        snapshot = liveness_snapshot()
+        alive = snapshot['alive']
+        # A registry the host could not read means "unknown", and unknown is busy: the
+        # server must never close a row on a guess.
+        busy = (not snapshot['complete']) or (execution_id in alive)
+        return jsonify({
+            'busy': busy,
+            'device_id': device_id,
+            'execution_id': execution_id,
+            'active_jobs': [],
+            'check_errors': [] if snapshot['complete'] else ['execution_liveness'],
+        }), 200
+
     active_jobs = []
+    # A check that fails says nothing about the device: the answer is "busy" so the server never
+    # closes a run row on a guess (BUG-0780).
+    check_errors = []
 
     # 1. Check running campaigns
     try:
@@ -511,6 +589,24 @@ def device_is_busy(device_id: str):
                 })
     except Exception as exc:
         print(f"⚠️ [is_busy] Error checking campaigns: {exc}")
+        check_errors.append('campaigns')
+
+    # 1b. Campaigns in flight in this process (scheduler and DB campaigns): between two steps no script
+    # process exists, so only this registry shows the campaign is still going.
+    try:
+        from shared.src.lib.executors.campaign_executor import get_in_flight_campaigns
+        for info in get_in_flight_campaigns():
+            target = info.get('device_id')
+            if target in (None, '', 'auto', device_id):
+                active_jobs.append({
+                    'type': 'campaign',
+                    'campaign_id': info.get('campaign_id'),
+                    'started_at': info.get('started_at'),
+                    'in_flight': True,
+                })
+    except Exception as exc:
+        print(f"⚠️ [is_busy] Error checking in-flight campaigns: {exc}")
+        check_errors.append('in_flight_campaigns')
 
     # 2. Check running testcase executions
     try:
@@ -526,25 +622,30 @@ def device_is_busy(device_id: str):
                         })
     except Exception as exc:
         print(f"⚠️ [is_busy] Error checking testcases: {exc}")
+        check_errors.append('testcases')
 
     # 3. Check running legacy script processes
     try:
         from shared.src.lib.executors.script_executor import _running_processes_by_device, _running_processes_lock
         with _running_processes_lock:
-            proc_info = _running_processes_by_device.get(device_id)
-            if proc_info and proc_info.get('process') and proc_info['process'].poll() is None:
-                active_jobs.append({
-                    'type': 'script',
-                    'script_name': proc_info.get('script_name'),
-                    'started_at': proc_info.get('started_at'),
-                })
+            # Several runs can share a device (TASK-146): one entry per run.
+            proc_entries = list(_running_processes_by_device.get(device_id) or [])
+            for proc_info in proc_entries:
+                if proc_info.get('process') and proc_info['process'].poll() is None:
+                    active_jobs.append({
+                        'type': 'script',
+                        'script_name': proc_info.get('script_name'),
+                        'started_at': proc_info.get('started_at'),
+                    })
     except Exception as exc:
         print(f"⚠️ [is_busy] Error checking scripts: {exc}")
+        check_errors.append('scripts')
 
     return jsonify({
-        'busy': len(active_jobs) > 0,
+        'busy': len(active_jobs) > 0 or len(check_errors) > 0,
         'device_id': device_id,
         'active_jobs': active_jobs,
+        'check_errors': check_errors,
     }), 200
 
 
@@ -566,8 +667,8 @@ def restart_host_service():
 # resolves to whichever alias matched. vpt-host stays excluded — it serves this
 # very request, so it goes through the dedicated restart-vpt-host / reboot path.
 _AUTOFIX_ALLOWED_UNITS = CONTROLLABLE_SERVICE_NAMES | {
-    'stream', 'monitor', 'archiver', 'kpi',
-    'vnc', 'websockify', 'transcript', 'subtitle',
+    'stream', 'monitor-img', 'archiver', 'kpi',
+    'vnc', 'websockify', 'monitor-audio', 'monitor-subtitle',
 }
 
 
@@ -695,7 +796,7 @@ def control_service():
     request, so acting on them in-band is safe. vpt-host is not in the
     allowlist — it uses the dedicated restart-vpt-host / reboot path."""
     data = request.get_json() or {}
-    unit = str(data.get('service') or '').strip()
+    unit = canonical_unit_name(str(data.get('service') or '').strip())
     action = str(data.get('action') or '').strip().lower()
     if action not in ('start', 'stop', 'restart'):
         return jsonify({'success': False, 'error': "action must be start, stop or restart"}), 400
@@ -725,7 +826,7 @@ def restart_service():
 
     results = []
     for raw in requested:
-        unit = str(raw or '').strip()
+        unit = canonical_unit_name(str(raw or '').strip())
         if unit not in _AUTOFIX_ALLOWED_UNITS:
             results.append({'service': unit, 'restarted': False, 'error': 'not an autofixable service'})
             continue
@@ -851,6 +952,24 @@ def run_command():
                 os.unlink(path)
             except OSError:
                 pass
+
+
+@host_system_bp.route('/diskCleanup', methods=['POST'])
+@route_exception_handler()
+def disk_cleanup():
+    """Delete expired capture files (thumbnails, chunks, reports, loose artifacts) on this host. dry_run defaults to true.
+
+    Reachable only through the permission-checked server route /server/system/hostDiskCleanup (contract #38).
+    Rules and windows: shared/src/lib/utils/host_disk_cleanup.py.
+    """
+    from shared.src.lib.utils.host_disk_cleanup import run_cleanup
+    from shared.src.lib.utils.storage_path_utils import get_capture_base_directories
+
+    data = request.get_json(silent=True) or {}
+    dry_run = data.get('dry_run', True) is not False
+    result = run_cleanup(get_capture_base_directories(), dry_run=dry_run)
+    result['success'] = True
+    return jsonify(result), 200
 
 
 @host_system_bp.route('/rebootHost', methods=['POST'])
@@ -1082,6 +1201,129 @@ def update_core():
         _release_update_lock()
 
 
+def _host_name() -> str:
+    import socket
+    return str(getattr(current_app, 'host_name', None) or os.getenv('HOST_NAME') or socket.gethostname())
+
+
+@host_system_bp.route('/updatePrereqs', methods=['GET'])
+@route_exception_handler()
+def update_prereqs():
+    """TASK-101: can this host take part in a pull update? Read-only: disk, tools, `sudo -n -l` for the
+    exact restart/reconcile commands, and a test download from this host's SERVER_URL."""
+    import platform
+    from backend_host.src.lib.utils import bundle_apply
+    from shared.src.lib.utils.build_url_utils import buildServerUrl, server_auth_headers
+    if platform.system() == 'Windows':
+        return jsonify({'success': True, 'supports_apply_bundle': False, 'ok': False,
+                        'error': 'pull updates are not available on Windows hosts: use the deploy node'}), 200
+    return jsonify(bundle_apply.self_check(
+        project_root=_project_root(), backup_root=_backup_root(), host_name=_host_name(),
+        server_url=buildServerUrl('').rstrip('/'), headers=server_auth_headers(),
+    )), 200
+
+
+@host_system_bp.route('/envFiles', methods=['GET'])
+@route_exception_handler()
+def env_files_route():
+    """TASK-109: the `.env` files of this host, for the Platform update backup (step 1).
+
+    Reachable only with the service key (the global `/host/*` API-key guard). The content is returned to the
+    server that conducts the update, which stores it 0600; it is never logged here and never cached.
+    """
+    from backend_host.src.lib.utils import env_backup
+    response = jsonify({'success': True, 'host_name': _host_name(), 'files': env_backup.collect(_project_root())})
+    response.headers['Cache-Control'] = 'no-store'
+    return response, 200
+
+
+@host_system_bp.route('/restoreEnvFile', methods=['POST'])
+@route_exception_handler()
+def restore_env_file_route():
+    """TASK-128 G7: write one of this host's `.env` files back from a Platform update backup.
+
+    Body: {name, content}. `name` must be one of the fixed names `envFiles` reports; the file is replaced atomically and
+    the current one is kept as `<file>.bak-<timestamp>`. Reachable only with the service key (the global `/host/*` API-key
+    guard) and, on the server, only through the admin route `/server/platform-update/restore`. The content is never
+    logged. The host service is NOT restarted: the operator does that.
+    """
+    from backend_host.src.lib.utils import env_backup
+    data = request.get_json(silent=True) or {}
+    try:
+        done = env_backup.restore(_project_root(), data.get('name'), data.get('content'))
+    except env_backup.RestoreError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 400
+    response = jsonify({'success': True, 'host_name': _host_name(), **done})
+    response.headers['Cache-Control'] = 'no-store'
+    return response, 200
+
+
+@host_system_bp.route('/applyBundle', methods=['POST'])
+@route_exception_handler()
+def apply_bundle_route():
+    """TASK-101: pull the bundle from this host's own server, verify its sha256, back up, extract, sync,
+    reconcile feature units and schedule the host service restart.
+
+    Body: {url: '/server/platform-update/bundle/<run>/archive', sha256: '<64 hex>'}. The reply carries
+    `progress`: VPT_PROGRESS lines the server copies into the run log (rsync / install / restart / health).
+    """
+    import platform
+    from backend_host.src.lib.utils import bundle_apply
+    from shared.src.lib.utils.build_url_utils import buildServerUrl, server_auth_headers
+    if platform.system() == 'Windows':
+        return jsonify({'success': False, 'error': 'applyBundle is not available on Windows hosts'}), 400
+    data = request.get_json(silent=True) or {}
+    if not _acquire_update_lock():
+        return jsonify({'success': False, 'error': 'Another update is currently in progress'}), 409
+    try:
+        _set_deploy_state('running')
+        server_url = buildServerUrl('').rstrip('/')
+        result = bundle_apply.apply_bundle(
+            project_root=_project_root(), backup_root=_backup_root(), url=str(data.get('url') or ''),
+            sha256=str(data.get('sha256') or ''), host_name=_host_name(), server_url=server_url,
+            headers=server_auth_headers(),
+            backup_fn=lambda target, root, reason: _create_backup_snapshot(target, root, reason),
+            prune_fn=_prune_backup_entries, restart_fn=_schedule_host_service_restart,
+        )
+        if result['success']:
+            _set_deploy_state('success', version=result.get('version_after'))
+        else:
+            _set_deploy_state('failed', error=result.get('error'))
+        return jsonify(result), 200 if result['success'] else 500
+    finally:
+        _release_update_lock()
+
+
+@host_system_bp.route('/rollbackBundle', methods=['POST'])
+@route_exception_handler()
+def rollback_bundle_route():
+    """TASK-128 G12: undo this host's part of a Platform update. Body: {backup_id} = the id applyBundle returned.
+    Restores the tree from that backup (same excludes as applyBundle: .env and local state stay), reconciles the feature
+    units and schedules the host service restart. The server reaches it through its admin route, never through auto-proxy."""
+    import platform
+    from backend_host.src.lib.utils import bundle_apply
+    if platform.system() == 'Windows':
+        return jsonify({'success': False, 'error': 'rollbackBundle is not available on Windows hosts'}), 400
+    data = request.get_json(silent=True) or {}
+    if not _acquire_update_lock():
+        return jsonify({'success': False, 'error': 'Another update is currently in progress'}), 409
+    try:
+        _set_deploy_state('running')
+        result = bundle_apply.rollback_bundle(
+            project_root=_project_root(), backup_root=_backup_root(), backup_id=str(data.get('backup_id') or ''),
+            host_name=_host_name(),
+            backup_fn=lambda target, root, reason: _create_backup_snapshot(target, root, reason),
+            restart_fn=_schedule_host_service_restart,
+        )
+        if result['success']:
+            _set_deploy_state('success', version=result.get('version_after'))
+        else:
+            _set_deploy_state('failed', error=result.get('error'))
+        return jsonify(result), 200 if result['success'] else 500
+    finally:
+        _release_update_lock()
+
+
 @host_system_bp.route('/rollbackCore', methods=['POST'])
 @route_exception_handler()
 def rollback_core():
@@ -1220,8 +1462,8 @@ _LOG_FILES_WHITELIST = {
 }
 
 _JOURNAL_SERVICES_WHITELIST = {
-    'vpt-host', 'vpt-stream', 'vpt-monitor', 'vpt-archiver',
-    'vpt-kpi', 'vpt-transcript', 'vpt-subtitle', 'vpt-vnc',
+    'vpt-host', 'vpt-stream', 'vpt-monitor-img', 'vpt-archiver',
+    'vpt-kpi', 'vpt-monitor-audio', 'vpt-monitor-subtitle', 'vpt-vnc',
     'vpt-websockify', 'vpt-emulator', 'vpt-emulator-fifo',
 }
 
@@ -1234,7 +1476,10 @@ def view_journal_logs():
     Request body: { "service": "vpt-host", "lines": 100, "since": "1h", "grep": "error" }
     """
     data = request.get_json() or {}
+    from shared.src.lib.utils.service_names import canonical_unit_name
     service = data.get('service')
+    if service:
+        service = canonical_unit_name(service)
     lines = min(int(data.get('lines', 100)), 2000)
     since = data.get('since')
     grep_pattern = data.get('grep')

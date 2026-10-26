@@ -9,7 +9,7 @@
 | Status    | Fixed (live on vpt-pi1 since 2026-10-04 12:16)               |
 | Severity  | Medium                                                       |
 | Area      | backend_host / archive                                       |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `this commit`                                                |
 
 ---

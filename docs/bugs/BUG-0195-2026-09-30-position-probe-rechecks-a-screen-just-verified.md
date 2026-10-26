@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                                                         |
 | Severity  | High (a testcase could pass without running the action it tests; every multi-step web testcase spent about half its run waiting) |
 | Area      | `backend_host/src/services/navigation/navigation_executor.py`, `backend_host/src/services/testcase/testcase_executor.py`, `backend_host/src/routes/host_actions_routes.py` |
-| Fixed in  | Unreleased                                                                                     |
+| Fixed in  | build 90145 |
 | Commit    | `8107abcb0`                                                                                    |
 
 ---

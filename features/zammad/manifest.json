@@ -1,0 +1,10 @@
+{
+  "name": "zammad",
+  "description": "Support tickets (TASK-96) through a Zammad helpdesk: provider layer (lib/), the team-scoped support_tickets index (db/, applied by hand) and the /server/zammad routes, a 'Open a ticket' dialog opened from Settings, and a Zammad page under Plugins that tests the connection, shows health, carries the Enabled / Disabled switch and lists the team's recent tickets. Core hooks: the generic nav `onSelect`/`isVisible`, the `appOverlays` and `translations` feature slots. Enable or disable with DISABLED_FEATURES like any other feature; when absent nothing is registered and nothing is bundled.",
+  "parts": [
+    "backend_server",
+    "lib",
+    "frontend",
+    "db"
+  ]
+}

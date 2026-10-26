@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — database VM would not come back after a restart     |
 | Area      | setup / database install (Supabase CLI)                      |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `0d582527a`                                                  |
 
 ---

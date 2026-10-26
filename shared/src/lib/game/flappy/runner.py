@@ -231,7 +231,7 @@ def kpi_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
 
 def summary(data: Dict[str, Any], success: bool, error: str = "") -> str:
     return "\n".join([
-        "Flappy Bird (TASK-33 phase 3c)",
+        "Flappy Bird",
         f"Pipes: {data.get('pipes', 0)}  Jumps: {data.get('jumps', 0)}  Stop reason: {data.get('stop_reason', '')}",
         f"Loop: {data.get('loop_ms_p50')} ms p50 / {data.get('loop_ms_p95')} ms p95 / {data.get('loop_ms_max')} ms max, "
         f"lookahead {data.get('lookahead_frames_p50')} frames",

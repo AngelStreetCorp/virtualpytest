@@ -82,7 +82,18 @@ for ($i = 1; $i -le 10; $i++) {
         $capturePath = Get-Item -Path "env:$captureVar" -ErrorAction SilentlyContinue
         $fps = Get-Item -Path "env:$fpsVar" -ErrorAction SilentlyContinue
 
-        $grabbers["device$i"] = "$($videoSource.Value)|$($audioDevice.Value)|$($capturePath.Value)|$($fps.Value)"
+        # An empty FPS reaches Start-Process -ArgumentList as an empty string and
+        # PowerShell rejects it ("Cannot validate argument on parameter
+        # 'ArgumentList'. The argument is null or empty.") before ffmpeg ever
+        # starts, leaving the previous playlist on disk (frozen / ENDLIST) which
+        # the dashboard renders as a black tile that keeps reloading. Default it
+        # instead of dying. See BUG-0601.
+        $fpsValue = if ($fps -and $fps.Value) { $fps.Value } else { "5" }
+        if (-not ($fps -and $fps.Value)) {
+            Write-Host "WARNING: $fpsVar is not set - defaulting to $fpsValue fps (add $fpsVar=5 to .env)"
+        }
+
+        $grabbers["device$i"] = "$($videoSource.Value)|$($audioDevice.Value)|$($capturePath.Value)|$fpsValue"
     }
 }
 
@@ -174,9 +185,37 @@ function Get-SourceType {
         return "v4l2"
     } elseif ($source -match '^:\d+$' -or $source -match '^(desktop|gdigrab)$') {
         return "x11grab"
+    } elseif ($source -match '\.(png|jpg|jpeg)$') {
+        # Image file source (Android emulator PNG frames updated by vpt-emulator-fifo).
+        # Mirrors the imagefile branch in run_ffmpeg.sh — the source file is rewritten
+        # by another process (emulator_screencap.ps1) and ffmpeg reads it as a stream.
+        return "imagefile"
     } else {
         return "unknown"
     }
+}
+
+function Wait-ImageDims {
+    # Mirrors the identify-based wait loop in run_ffmpeg.sh:1701-1717. Reads the first 24
+    # bytes (PNG IHDR is at byte 16 with width/height as 4-byte big-endian) to detect
+    # orientation. Returns "<width> <height>" or null.
+    param([string]$Path)
+    $wait = 0
+    while ($wait -le 60) {
+        try {
+            if (Test-Path $Path) {
+                $bytes = [System.IO.File]::ReadAllBytes($Path)
+                if ($bytes.Length -ge 24 -and $bytes[0] -eq 0x89 -and $bytes[1] -eq 0x50 -and $bytes[2] -eq 0x4E -and $bytes[3] -eq 0x47) {
+                    $w = ($bytes[16] -shl 24) -bor ($bytes[17] -shl 16) -bor ($bytes[18] -shl 8) -bor $bytes[19]
+                    $h = ($bytes[20] -shl 24) -bor ($bytes[21] -shl 16) -bor ($bytes[22] -shl 8) -bor $bytes[23]
+                    if ($w -gt 0 -and $h -gt 0) { return "$w $h" }
+                }
+            }
+        } catch { }
+        Start-Sleep -Seconds 2
+        $wait++
+    }
+    return "1920 1080"   # default landscape
 }
 
 function Reset-LogIfLarge {
@@ -420,6 +459,94 @@ function Start-Grabber {
             "-atomic_writing", "1",
             (Join-Path $outputThumbnails "capture_%09d_thumbnail.jpg")
         )
+    } elseif ($sourceType -eq "imagefile") {
+        # Image file source (Android emulator PNG frames updated by vpt-emulator-fifo).
+        # Port of run_ffmpeg.sh:1696-1829. The frames are stamped with the wall clock
+        # so audio + video share a clock; the stream output is resampled to a constant
+        # fps via `-r` because image2pipe delivers VFR by default.
+        $dims = Wait-ImageDims $source
+        $imgW, $imgH = $dims -split ' '
+        $orientation = "landscape"
+        if ([int]$imgH -gt [int]$imgW) { $orientation = "portrait" }
+
+        if ($orientation -eq "portrait") {
+            $thumbScale = "180:320"
+            if ($quality -eq "hd")      { $streamScale = "720:1280"; $streamBitrate = "750k" }
+            elseif ($quality -eq "sd")  { $streamScale = "360:640";  $streamBitrate = "175k" }
+            else                         { $streamScale = "180:320";  $streamBitrate = "60k"  }
+        } else {
+            $thumbScale = "320:180"
+            if ($quality -eq "hd")      { $streamScale = "1280:720"; $streamBitrate = "750k" }
+            elseif ($quality -eq "sd")  { $streamScale = "640:360";  $streamBitrate = "175k" }
+            else                         { $streamScale = "320:180";  $streamBitrate = "60k"  }
+        }
+        $streamGop = [int]([math]::Floor([int]$inputFps * 4 / 5))
+        $bufsizeK  = [int](($streamBitrate -replace 'k','')) * 2
+
+        # Wall-clock the video so audio can be interleaved cleanly (parity with BUG-0169).
+        # Split into 3 outputs: stream, capture (mjpeg), thumbnail (mjpeg).
+        $filter = "[0:v]settb=AVTB,setpts=RTCTIME-RTCSTART,split=3[str][cap][thm];" +
+                  "[str]scale=${streamScale}[streamout];" +
+                  "[cap]setpts=PTS-STARTPTS[captureout];" +
+                  "[thm]scale=${thumbScale}[thumbout]"
+
+        # Read the PNG file via image2 demuxer with -loop 1. ffmpeg reads the file
+        # once and loops that frame, which is the right behaviour for a *static*
+        # screenshot path. The emulator_screencap.ps1 loop is the live source —
+        # ffmpeg just provides HLS packaging + capture/thumbnail fanout. Parity
+        # with the labox-mobile imagefile path (run_ffmpeg.sh:1696-1829) where
+        # the bash version pipes `cat | ffmpeg -f image2pipe`; on Windows the
+        # cat-loop equivalent needs a background stdin writer, which is harder to
+        # keep alive across Task Scheduler restarts. -loop 1 is the pragmatic
+        # trade-off: stream runs continuously, content is the most recent frame
+        # the screencap wrote (faster than the next-restart cycle of -i -).
+        $ffmpegArgs = @(
+            "-hide_banner",
+            "-loglevel", "error",
+            "-y",
+            "-fflags", "+flush_packets",
+            "-threads", "1",
+            "-f", "image2",
+            "-loop", "1",
+            "-framerate", $inputFps,
+            "-i", $source,
+            "-filter_complex", $filter,
+            "-map", "[streamout]",
+            "-c:v", "libx264",
+            "-preset", "ultrafast",
+            "-tune", "zerolatency",
+            "-r", $inputFps,
+            "-g", $streamGop,
+            "-keyint_min", $streamGop,
+            "-x264opts", "no-scenecut:bframes=0",
+            "-b:v", $streamBitrate,
+            "-maxrate", $streamBitrate,
+            "-bufsize", "${bufsizeK}k",
+            "-pix_fmt", "yuv420p",
+            "-f", "hls",
+            "-hls_time", "0.8",
+            "-hls_list_size", "375",
+            "-hls_delete_threshold", "375",
+            "-hls_flags", "delete_segments+program_date_time",
+            "-hls_segment_filename", (Join-Path $outputSegments "segment_%09d.ts"),
+            (Join-Path $outputSegments "output.m3u8"),
+            "-map", "[captureout]",
+            "-fps_mode", "passthrough",
+            "-enc_time_base", "1:1000",
+            "-c:v", "mjpeg",
+            "-q:v", "8",
+            "-f", "image2",
+            "-atomic_writing", "1",
+            (Join-Path $outputCaptures "capture_%09d.jpg"),
+            "-map", "[thumbout]",
+            "-fps_mode", "passthrough",
+            "-enc_time_base", "1:1000",
+            "-c:v", "mjpeg",
+            "-q:v", "8",
+            "-f", "image2",
+            "-atomic_writing", "1",
+            (Join-Path $outputThumbnails "capture_%09d_thumbnail.jpg")
+        )
     }
 
     if ($ffmpegArgs.Count -gt 0) {
@@ -492,14 +619,17 @@ function Restart-StalledGrabbers {
         $lastRestart = [int64]$state.LastRestartEpoch
         if (($now - $lastRestart) -lt $script:STALL_RESTART_COOLDOWN_SECONDS) { continue }
 
-        $pid = [int]$state.PID
+        # BUG-0593: `$pid` is PowerShell's read-only automatic variable (the
+        # current process's PID). Reassigning it is a runtime error. Use
+        # `$devicePid` (or any non-reserved name) instead.
+        $devicePid = [int]$state.PID
         Write-Host "Stall detected: $device has no new frames for ${age}s (timeout=$($script:STALL_TIMEOUT_SECONDS)s). Restarting ffmpeg..."
 
         try {
-            Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue
+            Stop-Process -Id $devicePid -Force -ErrorAction SilentlyContinue
         } catch { }
 
-        $script:FFMPEG_PIDS = @($script:FFMPEG_PIDS | Where-Object { $_ -ne $pid })
+        $script:FFMPEG_PIDS = @($script:FFMPEG_PIDS | Where-Object { $_ -ne $devicePid })
 
         Start-Grabber -source ([string]$state.Source) `
             -audioDevice ([string]$state.AudioDevice) `
@@ -594,25 +724,70 @@ foreach ($device in $grabbers.Keys) {
 
 Write-Host "All grabbers started"
 
-# Keep script running and fail fast if FFmpeg dies (so sched task/service wrapper can restart).
+# Keep script running and restart ffmpeg in-place if it dies.
+# Old behaviour (BUG-0592) was `exit 1` on death, expecting Task Scheduler to
+# restart the wrapper. Two problems with that: (a) Task Scheduler auto-disables
+# a task after enough RestartOnFailure iterations, and the atomic-rename
+# race between the emulator_screencap.ps1 loop and ffmpeg's image2 demuxer
+# keeps killing ffmpeg, so the task ended up Disabled every time. (b) Even
+# when the task survived, the cold-start re-running run_ffmpeg.ps1 has to
+# re-import the env, re-allocate the ffmpeg log file, and re-create every
+# HLS playlist — a 5-10 s gap with no segments. Restart in-place and the
+# ffmpeg pipeline keeps rolling; a `RestartOnFailure` is reserved for the
+# "wrapper itself died" case (host crash, OOM, etc.).
+$script:DEATH_RESTART_COOLDOWN_SECONDS = 5
+$lastDeathRestart = [int64]0
 while ($true) {
     Restart-StalledGrabbers
     Check-QualityChanges
 
-    $anyDead = $false
-    foreach ($ffmpegPid in @($script:FFMPEG_PIDS)) {
+    $nowEpoch = Get-NowEpoch
+    foreach ($device in @($script:DEVICE_STATE.Keys)) {
+        $state = $script:DEVICE_STATE[$device]
+        if ($null -eq $state) { continue }
+        # BUG-0593: `$pid` is PowerShell's read-only automatic variable (the
+        # current process's PID). Reassigning it errors out with
+        # "Impossible de remplacer la variable PID, car elle est constante
+        # ou en lecture seule", which crashes the wrapper at the first
+        # iteration of this loop. Use `$devicePid` (or any non-reserved name)
+        # instead. Same for the other loop below.
+        $devicePid = [int]$state.PID
+        if ($devicePid -le 0) { continue }
+
+        $isAlive = $true
+        try {
+            $p = Get-Process -Id $devicePid -ErrorAction Stop
+            if ($p.HasExited) { $isAlive = $false }
+        } catch {
+            $isAlive = $false
+        }
+        if ($isAlive) { continue }
+
+        # ffmpeg for this device is gone. Restart in place, with a cooldown
+        # so a flapping source (e.g. a half-written latest.png the screencap
+        # loop is mid-rename on) doesn't hot-loop the restarter.
+        if (($nowEpoch - $lastDeathRestart) -lt $script:DEATH_RESTART_COOLDOWN_SECONDS) { continue }
+        $lastDeathRestart = $nowEpoch
+        Write-Host "ffmpeg for $device (PID $devicePid) exited; restarting in-place."
+
+        $script:FFMPEG_PIDS = @($script:FFMPEG_PIDS | Where-Object { $_ -ne $devicePid })
+
+        # Clear any leftover ffmpeg for this capture dir (mirrors the stall
+        # path), pause briefly so the device handle is released, then start.
+        $captureDir = [string]$state.CaptureDir
+        Clear-StaleFFmpeg -CaptureDirs @($captureDir.TrimEnd('\', '/'))
+        Start-Sleep -Seconds 2
 
         try {
-            $p = Get-Process -Id $ffmpegPid -ErrorAction Stop
-            if ($p.HasExited) { $anyDead = $true }
+            Start-Grabber -source ([string]$state.Source) `
+                -audioDevice ([string]$state.AudioDevice) `
+                -captureDir $captureDir `
+                -index $device `
+                -inputFps ([string]$state.InputFps) `
+                -quality ([string]$state.Quality)
         } catch {
-            $anyDead = $true
+            Write-Host "Restart of $device failed: $_"
         }
-    }
-
-    if ($anyDead) {
-        Write-Host "One or more FFmpeg processes exited; terminating wrapper so it can be restarted."
-        exit 1
     }
 
     Start-Sleep -Seconds 1

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # profile_remote_monitor.sh — sample-profile a long-running service on a
-# remote VirtualPyTest host (vpt-monitor, vpt-stream wrapper, etc.) with
+# remote VirtualPyTest host (vpt-monitor-img, vpt-stream wrapper, etc.) with
 # py-spy, with zero code changes and no service restart.
 #
 # Why this exists: capture_monitor.py / run_ffmpeg.sh CPU problems are not
@@ -14,7 +14,7 @@
 #   scripts/profile_remote_monitor.sh <ssh-host> [service] [duration_s] [min_uptime_s]
 #
 #   <ssh-host>      ssh alias from ~/.ssh/config (e.g. host1, host3)
-#   service         systemd unit to profile        (default: vpt-monitor)
+#   service         systemd unit to profile        (default: vpt-monitor-img)
 #   duration_s      py-spy sampling window          (default: 30)
 #   min_uptime_s    wait until the process has been
 #                   up at least this long before
@@ -22,7 +22,7 @@
 #
 # Examples:
 #   scripts/profile_remote_monitor.sh host1
-#   scripts/profile_remote_monitor.sh host1 vpt-monitor 30 240   # steady state
+#   scripts/profile_remote_monitor.sh host1 vpt-monitor-img 30 240   # steady state
 #   scripts/profile_remote_monitor.sh host3 vpt-stream 20
 #
 # Requirements (already true for host* hosts):
@@ -33,7 +33,7 @@
 set -euo pipefail
 
 HOST="${1:?usage: profile_remote_monitor.sh <ssh-host> [service] [duration_s] [min_uptime_s]}"
-SERVICE="${2:-vpt-monitor}"
+SERVICE="${2:-vpt-monitor-img}"
 DURATION="${3:-30}"
 MIN_UPTIME="${4:-0}"
 

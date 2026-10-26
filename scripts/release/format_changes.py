@@ -17,15 +17,18 @@ import re, sys
 # subsections. Kept per build, the same three headings repeat and the reader has to stitch them
 # together to answer "what security work is in this?". Merged into three groups instead, each a
 # collapsed section over collapsed items.
-GROUPS = [("features", "Features"), ("bugs", "Bug fixes"), ("security", "Security")]
+# Improvements are polish on existing features; Internal (libraries, ops agents, payload fields) is
+# collected and never printed, so a customer note carries Features + Improvements only (TASK-108).
+GROUPS = [("features", "Features"), ("improvements", "Improvements"), ("bugs", "Bug fixes"), ("security", "Security")]
 buckets = {k: [] for k, _ in GROUPS}
+buckets["internal"] = []
 group, cur = "features", None
 
 def flush():
     global cur
     if not cur: return
     title, body = cur[0], cur[1].strip()
-    bug = commit = task = None
+    bug = commit = task = area = None
     kept = []
     for seg in body.split(" · "):
         t = seg.strip()
@@ -33,11 +36,13 @@ def flush():
         if m: bug = bug or m.group(1); continue
         if re.fullmatch(r"`[0-9a-f]{7,40}`", t) or t == "`this commit`":
             commit = commit or t.strip("`"); continue
+        m = re.fullmatch(r"area: ([\w-]+)", t)
+        if m: area = m.group(1); continue
         m = re.fullmatch(r"(TASK-\d+)", t)
         if m: task = task or m.group(1); continue
         kept.append(seg)
     body = " · ".join(kept).strip()
-    badges = [b for b in (task, "🗄 migration" if "DB migration" in body else None) if b]
+    badges = [b for b in (area, task, "🗄 migration" if "DB migration" in body else None) if b]
     head = "<b>%s</b>" % title
     if bug: head = "<b>%s</b> — %s" % (bug, title)
     if commit and commit != "this commit": head += " — <code>%s</code>" % commit
@@ -53,6 +58,8 @@ for line in sys.stdin.read().splitlines():
         flush()
         h = line.lstrip("# ").strip()
         if "security" in h.lower(): group = "security"
+        elif "internal" in h.lower(): group = "internal"
+        elif "improvement" in h.lower(): group = "improvements"
         elif "bug" in h.lower(): group = "bugs"
         elif "feature" in h.lower(): group = "features"
         continue

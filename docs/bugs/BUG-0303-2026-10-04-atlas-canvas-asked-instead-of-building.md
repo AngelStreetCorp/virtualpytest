@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — the requested canvas was not built                  |
 | Area      | `backend_server/src/agent/core/manager.py`, `backend_server/src/lib/analytics/service.py` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | see branch `task43-w4-canvas-devices`                        |
 
 ---

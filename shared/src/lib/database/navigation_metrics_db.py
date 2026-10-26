@@ -77,7 +77,8 @@ def _latest_kpi_report_urls(supabase, team_id: str, edge_ids: List[str], variant
     return latest
 
 
-def get_tree_metrics(team_id: str, node_ids: List[str], edge_ids: List[str], variant: Optional[str] = None) -> Dict:
+def get_tree_metrics(team_id: str, node_ids: List[str], edge_ids: List[str], variant: Optional[str] = None,
+                     tree_ids: Optional[List[str]] = None) -> Dict:
     """
     Get aggregated metrics for trees matching the frontend API interface.
 
@@ -95,6 +96,8 @@ def get_tree_metrics(team_id: str, node_ids: List[str], edge_ids: List[str], var
                                          avg_kpi_ms, kpi_volume, kpi_report_url,
                                          action_set_id, variant}}}
         Every requested node_id is present (defaults for untested nodes).
+        With `tree_ids`, a node that has one also carries verified_frame_url + verified_at
+        (the last frame that passed its verifications, see node_verified_frame).
         Edges are only present when a metrics row exists, since the key needs
         the action_set_id that only the row knows.
     """
@@ -144,6 +147,11 @@ def get_tree_metrics(team_id: str, node_ids: List[str], edge_ids: List[str], var
         for node_id in node_ids:
             if node_id not in node_metrics:
                 node_metrics[node_id] = default_node_metrics()
+
+        if tree_ids and node_ids:
+            from shared.src.lib.utils.node_verified_frame import get_verified_frames
+            for node_id, frame in get_verified_frames(team_id, tree_ids, variant, node_ids).items():
+                node_metrics[node_id].update(frame)
 
         return {'nodes': node_metrics, 'edges': edge_metrics}
 

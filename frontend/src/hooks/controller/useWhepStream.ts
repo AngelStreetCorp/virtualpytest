@@ -13,6 +13,13 @@ interface UseWhepStreamReturn {
   stream: MediaStream | null;
   /** Live peer connection, for getStats(). Null until connected. */
   pc: RTCPeerConnection | null;
+  /**
+   * Why the last attempt gave up — `timeout`, `Failed to fetch`, a
+   * `RTCPeerConnection.connectionState`, … Null until a failure happens.
+   * Set together with `status: 'failed'` in the same batch, so a reader of
+   * `status` never sees the new status without its reason.
+   */
+  failReason: string | null;
 }
 
 /**
@@ -27,6 +34,7 @@ export const useWhepStream = (whepUrl: string | null, reconnectKey?: string): Us
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [pc, setPc] = useState<RTCPeerConnection | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [failReason, setFailReason] = useState<string | null>(null);
   const sessionRef = useRef<WhepSession | null>(null);
   const hasPlayedRef = useRef(false);
 
@@ -38,8 +46,12 @@ export const useWhepStream = (whepUrl: string | null, reconnectKey?: string): Us
 
   useEffect(() => {
     setPc(null);
+    // A new target starts with no verdict, so a stale reason can never be read
+    // alongside a fresh `failed`.
+    setFailReason(null);
     if (!whepUrl || typeof RTCPeerConnection === 'undefined') {
       setStream(null);
+      if (whepUrl) setFailReason('no WebRTC support in this browser');
       setStatus(whepUrl ? 'failed' : 'idle');
       return undefined;
     }
@@ -61,6 +73,7 @@ export const useWhepStream = (whepUrl: string | null, reconnectKey?: string): Us
       }
       console.warn(`[@hook:useWhepStream] WebRTC failed (${reason}) — falling back to HLS`);
       setStream(null);
+      setFailReason(reason);
       setStatus('failed');
     };
 
@@ -102,5 +115,5 @@ export const useWhepStream = (whepUrl: string | null, reconnectKey?: string): Us
     };
   }, [whepUrl, reconnectKey, attempt]);
 
-  return { status, stream, pc };
+  return { status, stream, pc, failReason };
 };

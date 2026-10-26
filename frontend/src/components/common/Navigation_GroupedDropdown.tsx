@@ -3,17 +3,20 @@ import { Button, Menu, MenuItem, Box, Typography, Chip } from '@mui/material';
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 
-import { getNavVisibility } from '../../config/featureFlags';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';import { getNavVisibility } from '../../config/featureFlags';
+import { useTheme } from '../../contexts/ThemeContext';
 import { useWorkspaceContext } from '../../contexts/workspace/WorkspaceContext';
 import { useI18n } from '../../i18n/useI18n';
 import type { NavigationItem } from '../../types/pages/Navigation_Types';
 
 import { NavigationGroupedDropdownProps } from '../../types/pages/Navigation_Types';
-import { navItemSx } from './Navigation_ItemStyle';
+import { navItemSx, NavLabel } from './Navigation_ItemStyle';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 const NavigationGroupedDropdown: React.FC<NavigationGroupedDropdownProps> = ({ label, groups }) => {
+  const { menuIconColourResolved: menuIconColour } = useTheme();
   const { t } = useI18n();
-  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const P = useAgentChatPalette();  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
   const location = useLocation();
   const { isPathHidden } = useWorkspaceContext();
   const open = Boolean(anchorEl);
@@ -50,7 +53,7 @@ const NavigationGroupedDropdown: React.FC<NavigationGroupedDropdownProps> = ({ l
         endIcon={<KeyboardArrowDown />}
         sx={navItemSx(isDropdownActive)}
       >
-        {label}
+        <NavLabel text={label} />
       </Button>
       <Menu
         anchorEl={anchorEl}
@@ -70,6 +73,8 @@ const NavigationGroupedDropdown: React.FC<NavigationGroupedDropdownProps> = ({ l
             minWidth: Math.min(800, visibleGroups.length * 200),
             maxWidth: 960,
             boxShadow: '0 4px 20px rgba(0,0,0,0.1)',
+            // Menu icon colour (Edit background → Icons); the item icon is the first svg of the row Box.
+            ...(menuIconColour && { '& .MuiMenuItem-root > .MuiBox-root > .MuiSvgIcon-root:first-of-type': { color: menuIconColour } }),
           },
         }}
       >
@@ -86,7 +91,7 @@ const NavigationGroupedDropdown: React.FC<NavigationGroupedDropdownProps> = ({ l
             <Box
               key={t(group.sectionLabel)}
               sx={{
-                borderRight: groupIndex < visibleGroups.length - 1 ? '1px solid rgba(0, 0, 0, 0.08)' : 'none',
+                borderRight: groupIndex < visibleGroups.length - 1 ? `1px solid ${P.borderColor}` : 'none',
               }}
             >
               {/* Section Header */}
@@ -94,15 +99,15 @@ const NavigationGroupedDropdown: React.FC<NavigationGroupedDropdownProps> = ({ l
                 sx={{
                   px: 2,
                   py: 0.75,
-                  backgroundColor: 'rgba(0, 0, 0, 0.03)',
-                  borderBottom: '1px solid rgba(0, 0, 0, 0.08)',
+                  backgroundColor: P.hoverBg,
+                  borderBottom: `1px solid ${P.borderColor}`,
                 }}
               >
                 <Typography
                   variant="caption"
                   sx={{
                     fontWeight: 700,
-                    fontSize: '0.7rem',
+                    fontSize: TYPOGRAPHY.caption.size,
                     letterSpacing: '0.5px',
                     color: 'text.secondary',
                     textTransform: 'uppercase',
@@ -128,18 +133,18 @@ const NavigationGroupedDropdown: React.FC<NavigationGroupedDropdownProps> = ({ l
                     sx={{
                       py: 0.75,
                       px: 2,
-                      fontSize: '0.875rem',
+                      fontSize: TYPOGRAPHY.body.size,
                       opacity: isDisabled ? 0.5 : 1,
                       cursor: isDisabled ? 'default' : 'pointer',
                     }}
                   >
                     <Box display="flex" alignItems="center" gap={1} width="100%">
                       {item.icon}
-                      <Typography variant="body2" sx={{ fontSize: '0.875rem' }}>
+                      <Typography variant="body2" sx={{ fontSize: TYPOGRAPHY.body.size }}>
                         {t(item.label)}
                       </Typography>
                       {visibility === 'coming-soon' && (
-                        <Chip label={t('Soon')} size="small" sx={{ ml: 'auto', height: 16, fontSize: '0.6rem' }} />
+                        <Chip label={t('Soon')} size="small" sx={{ ml: 'auto', height: 16, fontSize: TYPOGRAPHY.microMeta.size }} />
                       )}
                     </Box>
                   </MenuItem>

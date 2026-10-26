@@ -9,7 +9,7 @@
 | Severity  | Medium — node_metrics attributed to the wrong variant; a wasted tree rebuild per run |
 | Status    | Fixed (pending deploy)                                                   |
 | Area      | `backend_host` verification route + navigation_executor · frontend verification hooks |
-| Fixed in  | Unreleased                                                               |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                              |
 
 ---

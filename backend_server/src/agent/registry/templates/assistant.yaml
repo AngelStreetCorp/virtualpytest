@@ -101,9 +101,14 @@ available_skills:
   - check-system-health   # check-system-health/SKILL.md
   - system-ops            # system-ops/SKILL.md        (TASK-74: get info, troubleshoot, restart, storage)
   - search-docs           # search-docs/SKILL.md
+  - video-library         # video-library/SKILL.md     (Atlas: search docs/videos/videos.json, embed [[video:<id>]] in chat)
+  - navigate-vpt-ui       # navigate-vpt-ui/SKILL.md   (TASK-126: Atlas Companion, show_page)
 
   # Atlas builds a Grafana dashboard from the analytics catalog (TASK-43 phase 10)
   - grafana-dashboard     # grafana-dashboard/SKILL.md
+
+  # Atlas builds, changes and shares custom app pages from catalogue blocks (TASK-139)
+  - custom-pages          # custom-pages/SKILL.md
 
   # AI-learned UI knowledge base (DB-backed; distinct from production userinterfaces table)
   - ai-userinterface      # ai-userinterface/SKILL.md
@@ -127,6 +132,19 @@ skills:
   # description) so Atlas can answer "what's on screen?" questions directly without
   # loading an exploration skill.
   - capture_screenshot
+  # Search the video library (docs/videos/videos.json) and embed the right demo
+  # in the chat reply. Made a baseline tool (2026-10-15) so it loads with
+  # EVERY chat, not just the ones the video-library skill selector picks —
+  # the selector was reliably choosing control-device / tello / system-ops
+  # over video-library for "how do I fly a drone" style questions, leaving
+  # the LLM in safety-overdrive mode with no video to embed. With this as
+  # a baseline, the LLM has search_videos in its function-calling schema
+  # from turn 1 and can call it for any feature question.
+  - search_videos
+  # Atlas Companion (TASK-126): show the filtered app page beside the chat. Baseline so every
+  # data answer can end with show_page; the page list and params come from get_available_pages.
+  - get_available_pages
+  - show_page
 
 permissions:
   devices:

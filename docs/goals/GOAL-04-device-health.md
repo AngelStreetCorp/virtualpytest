@@ -46,7 +46,7 @@ remediation tasks when it isn't.
 - Rebooting a host or device.
 - Physical-intervention tasks (replug IR toy, power-cycle STB) — agent files them,
   human executes.
-- Any change to the monitoring services themselves (vpt-host, vpt-monitor, ffmpeg).
+- Any change to the monitoring services themselves (vpt-host, vpt-monitor-img, ffmpeg).
 
 ## Active tasks
 

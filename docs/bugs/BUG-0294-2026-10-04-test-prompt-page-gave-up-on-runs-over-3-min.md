@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High — any exploration over ~3 min showed as failed on screen, though it later passed |
 | Area      | `features/ai-test/frontend/hooks/useTestPromptPage.ts` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

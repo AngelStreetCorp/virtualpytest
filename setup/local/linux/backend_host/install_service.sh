@@ -4,8 +4,10 @@
 # Installs a single systemd service from a template
 # Equivalent to macOS's install_service.sh
 #
-# Usage: install_service.sh <service_name> [--force]
-#   --force: Force reinstall (stop, disable, remove, regenerate cert, reinstall)
+# Usage: install_service.sh <service_name> [--force] [--no-enable]
+#   --force:     Force reinstall (stop, disable, remove, regenerate cert, reinstall)
+#   --no-enable: Render and install the unit file only; do not enable or start it
+#                (migrate_monitor_units.sh restores the old unit's enabled/active state)
 
 set -e
 
@@ -16,6 +18,7 @@ source "$SCRIPT_DIR/common_vars.sh"
 
 # Global force flag
 FORCE_REINSTALL=false
+NO_ENABLE=false
 
 # Completely remove a service before reinstalling
 uninstall_service() {
@@ -177,6 +180,11 @@ install_service() {
         return 0
     fi
 
+    if [[ "$NO_ENABLE" == true ]]; then
+        log_success "$service_name unit installed at $service_file (not enabled, not started)"
+        return 0
+    fi
+
     # Enable and start the service
     sudo systemctl enable "vpt-${service_name}.service"
 
@@ -200,9 +208,13 @@ main() {
                 FORCE_REINSTALL=true
                 shift
                 ;;
+            --no-enable)
+                NO_ENABLE=true
+                shift
+                ;;
             -*)
                 log_error "Unknown option: $1"
-                log_error "Usage: $0 <service_name> [--force]"
+                log_error "Usage: $0 <service_name> [--force] [--no-enable]"
                 exit 1
                 ;;
             *)
@@ -214,7 +226,7 @@ main() {
 
     if [[ -z "$service_name" ]]; then
         log_error "Usage: $0 <service_name> [--force]"
-        log_error "Available services: flask, stream, monitor, archiver, transcript, kpi, vnc, websockify, ble-remote, emulator-fifo"
+        log_error "Available services: flask, stream, monitor-img, archiver, monitor-audio, monitor-subtitle, kpi, vnc, websockify, ble-remote, emulator-fifo"
         log_error "Options:"
         log_error "  --force, -f  Force reinstall (stop, disable, remove, regenerate cert)"
         exit 1

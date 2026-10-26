@@ -9,7 +9,9 @@ batch is retried once and then dropped with a log line.
 
 from __future__ import annotations
 
+import atexit
 import json
+import logging
 import queue
 import re
 import threading
@@ -32,9 +34,10 @@ ROW_FIELDS = (
     "ts", "server", "request_id", "usage_key", "team_id", "user_id", "origin", "route", "script_name",
     "script_result_id", "campaign_id", "host_name", "device_id", "device_model", "userinterface_name",
     "session_id", "client_hash", "turn_index", "tool_calls", "stop_reason", "split_arm", "profile", "endpoint",
-    "model", "effort_sent", "fallback_used", "attempt_index", "ok", "outcome", "error_type", "tokens_in",
+    "model", "effort_sent", "fallback_used", "attempt_index", "hop_index", "ok", "outcome", "error_type", "tokens_in",
     "tokens_out", "tokens_cache_read", "tokens_cache_write", "tokens_reasoning", "web_searches", "images",
-    "image_bytes", "parse_ok", "latency_ms", "cost", "cost_source", "cache_saved",
+    "image_bytes", "parse_ok", "latency_ms", "cost", "cost_source", "cache_saved", "ref_type", "ref_id", "ref_kind",
+    "project_id",
 )
 # Fields a call site may add through ``extra``.
 EXTRA_FIELDS = ("turn_index", "tool_calls", "stop_reason", "images", "image_bytes", "parse_ok", "effort_sent")
@@ -52,7 +55,11 @@ def effective_origin(label: str, fields: dict) -> str:
         return "settings_test"
     if label.startswith("eval:"):
         return "eval"
-    return fields.get("origin") or "unknown"
+    origin = fields.get("origin")
+    if not origin:
+        logging.getLogger(__name__).warning("AI call %s has no caller origin; recorded as background", label)
+        origin = "background"
+    return origin
 
 
 def looks_like_json(text: str) -> bool:
@@ -109,9 +116,11 @@ def build_row(resolution: Any, hop: Any, *, ok: bool, ms: int, tokens_in: int = 
         "effort_sent": hop.effort(resolution.usage),
         "fallback_used": bool(fallback),
         "attempt_index": int(attempt_index),
+        "hop_index": resolution.hop_index(hop) if hasattr(resolution, "hop_index") else 0,
         "ok": bool(ok),
         "outcome": outcome,
-        "error_type": error_type,
+        # A value outside the CHECK list would fail the whole 100-row batch: never send one.
+        "error_type": (error_type if error_type in ERROR_TYPES else "other") if error_type else None,
         "tokens_in": int(tokens_in or 0),
         "tokens_out": int(tokens_out or 0),
         "latency_ms": max(int(ms or 0), 0),
@@ -119,15 +128,17 @@ def build_row(resolution: Any, hop: Any, *, ok: bool, ms: int, tokens_in: int = 
         "cost_source": "none",
     }
     for key in ("user_id", "route", "script_name", "script_result_id", "campaign_id", "device_id", "session_id",
-                "client_hash"):
+                "client_hash", "ref_type", "ref_id", "ref_kind", "project_id"):
         row[key] = fields.get(key)
     if usage is not None:
         row.update(tokens_cache_read=usage.cache_read, tokens_cache_write=usage.cache_write,
                    tokens_reasoning=usage.reasoning, web_searches=usage.web_searches)
         if usage.cost is not None:
             row["cost"], row["cost_source"] = round(float(usage.cost), 8), "provider"
-    if outcome == "served" and (tokens_in or tokens_out):
+    if outcome == "served":
         # No provider figure: price it now from the dated price table (never rewritten later).
+        # A call with no tokens (the provider reports none) is priced 0 only when the endpoint is free — the
+        # coding plan, a local machine; a metered endpoint keeps "no price" instead of claiming a wrong 0.
         priced = prices.cost_for(hop, int(tokens_in or 0), int(tokens_out or 0), usage)
         if priced is not None:
             if row["cost"] is None:
@@ -150,7 +161,8 @@ def reported_row(data: dict, server: Optional[str] = None) -> dict:
         "usage_key": label, "team_id": team_id, "origin": effective_origin(label, fields),
         "split_arm": data.get("split_arm") or "", "profile": data.get("profile") or "?",
         "endpoint": data.get("endpoint") or "?", "model": data.get("model"),
-        "fallback_used": bool(data.get("fallback")), "attempt_index": 0, "ok": bool(data.get("ok")),
+        "fallback_used": bool(data.get("fallback")), "attempt_index": 0, "hop_index": int(data.get("hop_index") or 0),
+        "ok": bool(data.get("ok")),
         "outcome": "served", "error_type": data.get("error_type") if data.get("error_type") in ERROR_TYPES else None,
         "tokens_in": int(data.get("tokens_in") or 0), "tokens_out": int(data.get("tokens_out") or 0),
         "tokens_cache_read": int(data.get("tokens_cache_read") or 0),
@@ -160,17 +172,18 @@ def reported_row(data: dict, server: Optional[str] = None) -> dict:
     }
     row.update({k: fields.get(k) for k in ("user_id", "route", "script_name", "script_result_id", "campaign_id",
                                            "host_name", "device_id", "device_model", "userinterface_name",
-                                           "session_id", "client_hash")})
+                                           "session_id", "client_hash", "project_id")})
     if isinstance(data.get("cost"), (int, float)):
         row["cost"], row["cost_source"] = round(float(data["cost"]), 8), "provider"
-    elif row["tokens_in"] or row["tokens_out"]:
-        price = prices.price_for(row["endpoint"], row.get("model") or "")
-        if price is not None:  # a host-reach endpoint is OpenAI-shaped: prompt tokens include cached ones
-            row["cost"], row["cache_saved"] = prices.compute(
-                price, row["tokens_in"], row["tokens_out"], row["tokens_cache_read"], row["tokens_cache_write"],
-                row["web_searches"], input_includes_cache=True)
-            row["cost_source"] = "price_table"
-        else:  # only host-reach endpoints (a PC on the user's LAN) report here: no per-call cost
+    else:
+        priced = prices.cost_for_endpoint(row["endpoint"], row.get("model") or "", row["tokens_in"], row["tokens_out"],
+                                          row["tokens_cache_read"], row["tokens_cache_write"], row["web_searches"])
+        if priced is not None:
+            row["cost"], row["cost_source"] = priced[0], "price_table"
+            if priced[1]:
+                row["cache_saved"] = priced[1]
+        elif row["tokens_in"] or row["tokens_out"]:
+            # only host-reach endpoints (a PC on the user's LAN) report here: no per-call cost
             row["cost"], row["cost_source"] = 0.0, "price_table"
     for key, value in (data.get("extra") or {}).items():
         if key in EXTRA_FIELDS and value is not None:
@@ -193,6 +206,23 @@ def submit(row: dict) -> None:
             _dropped += 1
         return
     _ensure_thread()
+    _audit(row)
+
+
+def _audit(row: dict) -> None:
+    """TASK-154: one audit_events row per AI call (``ai_calls`` stays the AI system of record). Never raises."""
+    try:
+        from shared.src.lib.database import audit_events_db
+        user_id = row.get("user_id")
+        kind = audit_events_db.actor_for(user_id) if user_id else "agent"
+        audit_events_db.record(
+            category="ai", action="ai.call", actor_kind=kind,
+            actor_id=user_id or row.get("origin"), team_id=row.get("team_id"), target=row.get("usage_key"),
+            outcome="ok" if row.get("ok", True) else "error", request_id=row.get("request_id"),
+            meta={"origin": row.get("origin"), "route": row.get("route"), "model": row.get("model"),
+                  "cost": row.get("cost")})
+    except Exception:
+        pass
 
 
 def dropped() -> int:
@@ -200,11 +230,25 @@ def dropped() -> int:
 
 
 def _ensure_thread() -> None:
-    global _thread
+    global _thread, _atexit_set
     with _lock:
         if _thread is None or not _thread.is_alive():
             _thread = threading.Thread(target=_run, name="ai-call-log", daemon=True)
             _thread.start()
+        if not _atexit_set:
+            # A script (jev_*, score_eval, a bench) can exit before the daemon thread writes its last rows.
+            atexit.register(_flush_at_exit)
+            _atexit_set = True
+
+
+_atexit_set = False
+
+
+def _flush_at_exit() -> None:
+    flush()
+    thread = _thread
+    if thread is not None and thread.is_alive():
+        thread.join(timeout=FLUSH_INTERVAL_S * 3)  # the batch the thread already holds
 
 
 def _write(rows: list[dict]) -> None:

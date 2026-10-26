@@ -9,7 +9,7 @@
 | Severity  | Low — wasted work; measured 0.068s on the lab, larger on a big hierarchy or a loaded DB |
 | Status    | Fixed (pending deploy)                                           |
 | Area      | `backend_server/src/routes/server_control_routes.py` · device-control hooks |
-| Fixed in  | Unreleased                                                       |
+| Fixed in  | build 90145 |
 | Related   | [BUG-0200](BUG-0200-2026-09-30-node-verification-runs-under-a-leftover-variant.md) (same cache key, the correctness half) |
 | Commit    | this commit                                                      |
 

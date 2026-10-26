@@ -41,7 +41,7 @@ export const useInfraredRemote = (
   host: Host,
   deviceId?: string,
   isConnected?: boolean,
-  remoteType: 'ir_remote' | 'vega' = 'ir_remote',
+  remoteType: 'ir_remote' | 'vega' | 'samsung_tizen' = 'ir_remote',
   irTypeOverride?: string,
 ): UseInfraredRemoteReturn => {
   // Get IR type from device configuration

@@ -112,7 +112,12 @@ class RoutingTracker:
         except Exception as e:
             print(f"[AGENT] routing log build failed: {e}")
             return
-        threading.Thread(target=_insert, args=(row,), daemon=True).start()
+        try:
+            threading.Thread(target=_insert, args=(row,), daemon=True).start()
+        except Exception as e:  # noqa: BLE001 - "never raises" is the contract of this method
+            # The thread itself can fail to start (no thread slots left). "Never raises" is the
+            # contract of this method, so it is reported and swallowed.
+            print(f"[AGENT] routing log thread failed: {e}")
 
 
 def _insert(row: Dict[str, Any]) -> None:

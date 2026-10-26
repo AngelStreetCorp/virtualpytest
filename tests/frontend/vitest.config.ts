@@ -92,7 +92,10 @@ export default defineConfig({
     // MiniMax typically kicks (Rec, DeviceControl, DroneTileSingleVoice) while
     // bounding any leak to 4 stale workers instead of `nproc`-many.
     poolOptions: {
-      forks: { maxForks: 4 },
+      // minForks must be <= maxForks: vitest defaults it to the CPU count, and on a runner with
+      // more than 4 cores Tinypool throws "minThreads and maxThreads must not conflict" at
+      // collection, so zero files are discovered and no test runs.
+      forks: { minForks: 1, maxForks: 4 },
     },
   },
 });

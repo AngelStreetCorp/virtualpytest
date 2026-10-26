@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High — every Atlas chart, table and canvas was invisible     |
 | Area      | `frontend/src/components/agent-chat/ContentViewer.tsx`, `AnalyticsArtifactViewer.tsx`, `frontend/src/pages/AgentChat.tsx` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `9d2d590bc`, `1cfacae11`                                     |
 
 ---

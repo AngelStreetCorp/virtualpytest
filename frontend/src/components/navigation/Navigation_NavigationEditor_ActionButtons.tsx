@@ -7,6 +7,7 @@ import React from 'react';
 
 import { NavigationEditorActionButtonsProps } from '../../types/pages/NavigationHeader_Types';
 import { UndoRedoDiscardButtons } from '../common/UndoRedoDiscardButtons';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export const NavigationEditorActionButtons: React.FC<NavigationEditorActionButtonsProps> = ({
   // Validate button moved to the editor header next to the variant chip;
@@ -62,7 +63,7 @@ export const NavigationEditorActionButtons: React.FC<NavigationEditorActionButto
         sx={{
           minWidth: 'auto',
           whiteSpace: 'nowrap',
-          fontSize: '0.75rem',
+          fontSize: TYPOGRAPHY.caption.size,
           px: 1,
           '& .MuiButton-startIcon': { mr: 0.5 },
         }}

@@ -85,6 +85,7 @@ OVERLAY_PLATE_MAX_AREA = 0.80      # … and <= this fraction of the frame (reje
 OVERLAY_PLATE_CENTER_X = (0.30, 0.70)   # a modal's centre must sit in this x window
 OVERLAY_PLATE_CENTER_Y = (0.20, 0.85)
 OVERLAY_DIM_RATIO = 0.55           # DIALOG_DIM_RATIO: surround < 0.55 * plate => modal
+OVERLAY_PLATE_MIN_SOLIDITY = 0.85  # convex hull area / bounding box: a plate is a rectangle (TASK-107)
 
 # Inside this band around OVERLAY_DIM_RATIO the dimming is inconclusive (a light page behind a
 # light panel, a screenshot of a dialog, compression noise). We answer 'unknown' instead of
@@ -108,12 +109,51 @@ OVERLAY_KEYBOARD_TOP_DIFF_MIN = 20.0
 # both render there). NEW — needs tuning; a bottom-centre toast is deliberately NOT claimed.
 OVERLAY_NOTIFICATION_TOP_FRAC = 0.03
 OVERLAY_NOTIFICATION_RIGHT_FRAC = 0.02
+# ... and is a BANNER, not a page: a bright photo that happens to reach the top-right corner
+# (a promo slate, 0.80 x 0.88 of the frame on stb_tv, BUG-0535) is not a notification.
+OVERLAY_NOTIFICATION_MAX_W = 0.45
+OVERLAY_NOTIFICATION_MAX_H = 0.30
+# A modal popup floats INSIDE the frame: a plate touching a frame edge is part of the page (a promo
+# slate whose bright half spans the full height read as a popup on stb_tv, BUG-0535).
+OVERLAY_POPUP_EDGE_MARGIN = 0.01
 
 # A tooltip is a small bright patch that does NOT dim its page. NEW — needs tuning. The area gate
 # is deliberately far below OVERLAY_PLATE_MIN_W * OVERLAY_PLATE_MIN_H so a tooltip can never be
 # mistaken for a modal, and the contrast gate keeps a dark box from reading as a tooltip.
 OVERLAY_TOOLTIP_MAX_AREA = 0.08    # fraction of the frame
 OVERLAY_TOOLTIP_CONTRAST_MIN = 20.0  # grey levels the patch outshines its surround by
+
+# Calibrated 2026-10-15 (TASK-107 goal 7) on 252 real node screenshots + 6 real dialogs + the
+# 23-frame captures, with synthetic tooltips / keyboards / notifications / popups drawn on real
+# pages (scripts/localize/bench.py overlay set). The old rule ("any small patch 20 grey levels
+# above the frame median") read a focused tile, a menu underline or a URL bar as a tooltip on 94 %
+# of plain screens. A tooltip is now a SOLID, mostly UNIFORM callout that carries TEXT, measured
+# against its own surround ring; three or more such patches on one page are page chrome.
+OVERLAY_TOOLTIP_MIN_W = 0.05        # fraction of frame width
+OVERLAY_TOOLTIP_MIN_H = 0.03        # ... height (a line of text needs room)
+OVERLAY_TOOLTIP_MAX_ASPECT = 12.0   # w / h (a menu underline is ~100)
+OVERLAY_TOOLTIP_MAX_H = 0.12        # a tooltip is a line or two of text, not a focused tile
+OVERLAY_TOOLTIP_EDGE_MARGIN = 0.01  # it floats inside the frame (a tile cut by the frame edge does not)
+OVERLAY_TOOLTIP_MIN_SOLIDITY = 0.85 # contour area / bounding box (a plate, not a glyph cluster)
+OVERLAY_TOOLTIP_UNIFORM_MIN = 0.55  # share of patch pixels within OVERLAY_TOOLTIP_UNIFORM_TOL of its median
+OVERLAY_TOOLTIP_UNIFORM_TOL = 14
+OVERLAY_TOOLTIP_TEXT_RANGE = (0.03, 0.45)   # share of dark (text) pixels inside the callout
+OVERLAY_TOOLTIP_RING_CONTRAST = 35.0  # patch median above the median of a ring around it
+OVERLAY_TOOLTIP_MAX_PATCHES = 2     # more qualifying callouts than this = buttons / chrome, not a tooltip
+OVERLAY_TOOLTIP_TEXT_SAT_MAX = 70.0 # tooltip text is neutral (white / grey / black); a logo's is coloured
+# A notification banner: also looked for among the small patches (most banners are < 15 % high).
+OVERLAY_NOTIFICATION_MIN_W = 0.15
+OVERLAY_NOTIFICATION_MIN_H = 0.04
+# On-screen keyboard by its keys: in the lower part of the frame, at least three rows of similar
+# key-sized blobs (an app-tile grid has two rows of ~7 tiles; a keyboard has 3-4 rows of ~10 keys).
+# Independent of the brightness mask (a lit page merges with the panel).
+OVERLAY_KEYBOARD_SCAN_FROM = 0.40   # keys are looked for below this fraction of the frame height
+OVERLAY_KEYBOARD_MIN_KEYS = 24
+OVERLAY_KEYBOARD_MIN_ROWS = 3
+OVERLAY_KEYBOARD_ROW_MIN_KEYS = 6
+OVERLAY_KEYBOARD_KEY_W = (0.025, 0.14)   # key width, fraction of frame width
+OVERLAY_KEYBOARD_KEY_H = (0.03, 0.16)    # key height, fraction of frame height
+OVERLAY_KEYBOARD_KEY_H_CV = 0.35         # key heights must agree (std / mean)
 
 # Side length the frame is downsampled to before contour work. Overlay is reached only on a Tier-1
 # abstain, but it still must not cost a millisecond of full-resolution Canny-level work. NEW.
@@ -209,6 +249,8 @@ class Thresholds:
     overlay_keyboard_top_diff_min: float = OVERLAY_KEYBOARD_TOP_DIFF_MIN
     overlay_notification_top_frac: float = OVERLAY_NOTIFICATION_TOP_FRAC
     overlay_notification_right_frac: float = OVERLAY_NOTIFICATION_RIGHT_FRAC
+    overlay_notification_max_w: float = OVERLAY_NOTIFICATION_MAX_W
+    overlay_notification_max_h: float = OVERLAY_NOTIFICATION_MAX_H
     overlay_tooltip_max_area: float = OVERLAY_TOOLTIP_MAX_AREA
     overlay_tooltip_contrast_min: float = OVERLAY_TOOLTIP_CONTRAST_MIN
     overlay_plate_gray_min: int = OVERLAY_PLATE_GRAY_MIN
@@ -349,9 +391,8 @@ def content_state(changed_pct: Optional[Sequence[Any]],
 # --------------------------------------------------------------------------- #
 # 2. overlay                                                                     #
 # --------------------------------------------------------------------------- #
-def _regions(gray: np.ndarray, plate_gray_min: int) -> Tuple[List[Tuple[int, int, int, int]],
-                                                                List[Tuple[int, int, int, int]]]:
-    """Raised regions of the frame, split into (big plates, small patches), biggest first.
+def _regions(gray: np.ndarray, plate_gray_min: int) -> Tuple[List[Tuple[int, int, int, int]], List[tuple]]:
+    """Raised regions of the frame: (big plate boxes, small patches as (contour, box)), biggest first.
 
     Two passes, because one absolute threshold cannot segment every frame:
 
@@ -379,18 +420,28 @@ def _regions(gray: np.ndarray, plate_gray_min: int) -> Tuple[List[Tuple[int, int
             continue
         if area_frac > OVERLAY_PLATE_MAX_AREA:
             continue
+        # A modal / keyboard / banner is a rectangle; a lit subject on a dark picture (a face, two
+        # actors on a promo slate) is a silhouette. TASK-107 goal 7.
+        if cv2.contourArea(cv2.convexHull(c)) / float(bw * bh) < OVERLAY_PLATE_MIN_SOLIDITY:
+            continue
         big.append((x, y, bw, bh))
     big.sort(key=lambda b: b[2] * b[3], reverse=True)
 
     small = []
-    rel_level = float(np.median(gray)) + OVERLAY_TOOLTIP_CONTRAST_MIN
-    _, rel_mask = cv2.threshold(gray, rel_level, 255, cv2.THRESH_BINARY)
-    rel_contours, _ = cv2.findContours(rel_mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
-    for c in rel_contours:
-        x, y, bw, bh = cv2.boundingRect(c)
-        if (bw * bh) / float(w * h) <= OVERLAY_TOOLTIP_MAX_AREA:
-            small.append((x, y, bw, bh))
-    small.sort(key=lambda b: b[2] * b[3], reverse=True)
+    # Two relative levels: the low one finds a callout on an evenly lit page; the high one keeps a
+    # bright callout apart from mid-bright neighbours it touches (its border is < 1 px at the work
+    # width, so on a busy page the low mask merges them).
+    med = float(np.median(gray))
+    for rel_level in (med + OVERLAY_TOOLTIP_CONTRAST_MIN, med + 2 * OVERLAY_TOOLTIP_RING_CONTRAST):
+        if rel_level >= 255:
+            continue
+        _, rel_mask = cv2.threshold(gray, rel_level, 255, cv2.THRESH_BINARY)
+        rel_contours, _ = cv2.findContours(rel_mask, cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+        for c in rel_contours:
+            x, y, bw, bh = cv2.boundingRect(c)
+            if (bw * bh) / float(w * h) <= OVERLAY_TOOLTIP_MAX_AREA:
+                small.append((c, (x, y, bw, bh)))
+    small.sort(key=lambda cb: cb[1][2] * cb[1][3], reverse=True)
     return big, small
 
 
@@ -445,13 +496,16 @@ def _classify_plate(gray: np.ndarray, box: Tuple[int, int, int, int], inside: fl
         if _top_edge_diff(gray, box) >= th.overlay_keyboard_top_diff_min:
             return 'keyboard'
     if (y <= th.overlay_notification_top_frac * h
-            and (x + bw) >= (1.0 - th.overlay_notification_right_frac) * w):
+            and (x + bw) >= (1.0 - th.overlay_notification_right_frac) * w
+            and bw <= th.overlay_notification_max_w * w and bh <= th.overlay_notification_max_h * h):
         return 'notification'
 
     # A modal: centred, and the page behind it is materially darker than the plate. A ratio
     # inside the unknown band is a real measurement that does not settle the question.
     cx, cy = (x + bw / 2) / w, (y + bh / 2) / h
-    centred = (OVERLAY_PLATE_CENTER_X[0] <= cx <= OVERLAY_PLATE_CENTER_X[1]
+    m = OVERLAY_POPUP_EDGE_MARGIN
+    inset = x > m * w and y > m * h and (x + bw) < (1.0 - m) * w and (y + bh) < (1.0 - m) * h
+    centred = (inset and OVERLAY_PLATE_CENTER_X[0] <= cx <= OVERLAY_PLATE_CENTER_X[1]
                and OVERLAY_PLATE_CENTER_Y[0] <= cy <= OVERLAY_PLATE_CENTER_Y[1])
     if centred:
         if abs(dim_ratio - th.overlay_dim_ratio) <= th.overlay_dim_unknown_band:
@@ -461,10 +515,14 @@ def _classify_plate(gray: np.ndarray, box: Tuple[int, int, int, int], inside: fl
     return 'ambiguous'
 
 
-def overlay(frame_bgr: Optional[np.ndarray], *, focus_box: Optional[Sequence[float]] = None,
-            dim_ratio: Optional[float] = None, work_width: Optional[int] = None,
-            thresholds: Optional[Thresholds] = None) -> str:
-    """What, if anything, is drawn on top of the page.
+def overlay_plate(frame_bgr: Optional[np.ndarray], *, focus_box: Optional[Sequence[float]] = None,
+                  dim_ratio: Optional[float] = None, work_width: Optional[int] = None,
+                  thresholds: Optional[Thresholds] = None) -> Tuple[str, Optional[Tuple[float, float, float, float]]]:
+    """What, if anything, is drawn on top of the page, and where: ``(verdict, box)``.
+
+    ``box`` is the surface that decided the verdict as (x, y, w, h) fractions of the frame, None when
+    no single surface did (none / unknown / a caller-supplied ``dim_ratio``). Localize uses it to
+    match the screen UNDER a popup / keyboard / notification (TASK-104 phase 2).
 
     'popup'        a centred raised plate over a DIMMED page (the ``_dialog_plate`` rule).
     'tooltip'      a small bright patch that does not dim the page.
@@ -488,40 +546,170 @@ def overlay(frame_bgr: Optional[np.ndarray], *, focus_box: Optional[Sequence[flo
         # Caller-supplied measurement: apply the same gate, nothing to inspect.
         ratio = _num(dim_ratio)
         if ratio is None:
-            return 'unknown'
+            return 'unknown', None
         if abs(ratio - t.overlay_dim_ratio) <= t.overlay_dim_unknown_band:
-            return 'unknown'
-        return 'popup' if ratio < t.overlay_dim_ratio else 'none'
+            return 'unknown', None
+        return ('popup' if ratio < t.overlay_dim_ratio else 'none'), None
     if not isinstance(frame_bgr, np.ndarray) or frame_bgr.size == 0 or frame_bgr.ndim not in (2, 3):
-        return 'unknown'                      # nothing to look at -> honest abstain
+        return 'unknown', None                      # nothing to look at -> honest abstain
     h0, w0 = frame_bgr.shape[:2]
     if width > 0 and w0 > width:
         scale = width / float(w0)
-        small = cv2.resize(frame_bgr, (width, max(1, int(round(h0 * scale)))), interpolation=cv2.INTER_AREA)
+        small_bgr = cv2.resize(frame_bgr, (width, max(1, int(round(h0 * scale)))), interpolation=cv2.INTER_AREA)
     else:
-        small = frame_bgr
-    gray = cv2.cvtColor(small, cv2.COLOR_BGR2GRAY) if small.ndim == 3 else small
+        small_bgr = frame_bgr
+    gray = cv2.cvtColor(small_bgr, cv2.COLOR_BGR2GRAY) if small_bgr.ndim == 3 else small_bgr
     if gray.size == 0:
-        return 'unknown'
+        return 'unknown', None
+    kb = _keyboard_band(gray)
+    if kb:
+        return 'keyboard', _box_frac(kb, gray.shape)
     big, small = _regions(gray, plate_gray_min)
     for box in big:
         inside, outside = _surround_mean(gray, box)
         verdict = _classify_plate(gray, box, inside, outside, t)
         if verdict != 'ambiguous':
-            return verdict
-    # No modal: a small patch that is materially brighter than its page, without dimming it, is a
-    # tooltip. Looked at only after the plates, so a tooltip can never shadow a real modal.
-    for box in small:
-        inside, outside = _surround_mean(gray, box)
-        if (inside - outside) >= t.overlay_tooltip_contrast_min:
-            return 'tooltip'
+            return verdict, _box_frac(box, gray.shape)
+    h, w = gray.shape[:2]
+    # A banner in the top-right corner that is too short for the plate pass.
+    for contour, box in small:
+        x, y, bw, bh = box
+        if (y <= t.overlay_notification_top_frac * h and (x + bw) >= (1.0 - t.overlay_notification_right_frac) * w
+                and OVERLAY_NOTIFICATION_MIN_W * w <= bw <= t.overlay_notification_max_w * w
+                and OVERLAY_NOTIFICATION_MIN_H * h <= bh <= t.overlay_notification_max_h * h
+                and _callout(gray, contour, box, text=False)):
+            return 'notification', _box_frac(box, gray.shape)
+    # No modal: a tooltip is a small solid callout carrying text, brighter than its own surround.
+    # Looked at only after the plates, so a tooltip can never shadow a real modal; three or more
+    # such callouts are the page's own buttons.
+    m = OVERLAY_TOOLTIP_EDGE_MARGIN
+
+    sat = small_bgr if small_bgr.ndim == 3 else None
+
+    def callouts_of(g, patches):
+        return [box for contour, box in patches
+                if box[2] >= OVERLAY_TOOLTIP_MIN_W * w and OVERLAY_TOOLTIP_MIN_H * h <= box[3] <= OVERLAY_TOOLTIP_MAX_H * h
+                and box[2] / float(box[3]) <= OVERLAY_TOOLTIP_MAX_ASPECT
+                and box[0] > m * w and box[1] > m * h and box[0] + box[2] < (1 - m) * w and box[1] + box[3] < (1 - m) * h
+                and _callout(g, contour, box, text=True, sat=sat)]
+    callouts = callouts_of(gray, small)
+    if not callouts and float(np.median(gray)) > 128:
+        # a light page: its tooltips are dark callouts with light text
+        inverted = 255 - gray
+        callouts = callouts_of(inverted, _regions(inverted, plate_gray_min)[1])
+    if 0 < len(callouts) <= OVERLAY_TOOLTIP_MAX_PATCHES:
+        return 'tooltip', _box_frac(callouts[0], gray.shape)
     if big:
-        return 'unknown'                      # raised plates, none of them explained
+        return 'unknown', None                      # raised plates, none of them explained
     # No plate and no patch. That is a clean 'none' only if the frame was actually legible enough
     # for the scan to mean something; a flat black frame was never inspected for an overlay.
     if float(gray.std()) <= t.overlay_tooltip_contrast_min:
-        return 'unknown'
-    return 'none'
+        return 'unknown', None
+    return 'none', None
+
+
+def _ring_median(gray: np.ndarray, box: Tuple[int, int, int, int]) -> float:
+    """Median grey of a band around the box (its own surround, not the whole page)."""
+    h, w = gray.shape[:2]
+    x, y, bw, bh = box
+    pad = max(3, int(0.03 * w))
+    x0, y0, x1, y1 = max(0, x - pad), max(0, y - pad), min(w, x + bw + pad), min(h, y + bh + pad)
+    region = gray[y0:y1, x0:x1].astype(np.int16)
+    mask = np.ones(region.shape, bool)
+    mask[y - y0:y - y0 + bh, x - x0:x - x0 + bw] = False
+    vals = region[mask]
+    return float(np.median(vals)) if vals.size else 0.0
+
+
+def _callout(gray: np.ndarray, contour, box: Tuple[int, int, int, int], *, text: bool,
+             sat: Optional[np.ndarray] = None) -> bool:
+    """A solid, mostly uniform plate standing out from its own surround (and carrying text when
+    ``text``): a tooltip or a notification banner, not a photo tile, a logo or a glyph. ``sat`` is
+    the BGR work frame, read only for a callout that passed every other test: the text of a tooltip
+    is neutral, a brand logo's is coloured."""
+    x, y, bw, bh = box
+    if bw < 2 or bh < 2:
+        return False
+    if cv2.contourArea(contour) / float(bw * bh) < OVERLAY_TOOLTIP_MIN_SOLIDITY:
+        return False
+    patch = gray[y:y + bh, x:x + bw].astype(np.int16)
+    med = float(np.median(patch))
+    if float((np.abs(patch - med) <= OVERLAY_TOOLTIP_UNIFORM_TOL).mean()) < OVERLAY_TOOLTIP_UNIFORM_MIN:
+        return False
+    if med - _ring_median(gray, box) < OVERLAY_TOOLTIP_RING_CONTRAST:
+        return False
+    if text:
+        ink = np.abs(patch - med) > 60
+        dark = float(ink.mean())
+        if not (OVERLAY_TOOLTIP_TEXT_RANGE[0] <= dark <= OVERLAY_TOOLTIP_TEXT_RANGE[1]):
+            return False
+        if sat is not None:
+            hsv = cv2.cvtColor(sat[y:y + bh, x:x + bw], cv2.COLOR_BGR2HSV)[:, :, 1]
+            if float(hsv[ink].mean()) > OVERLAY_TOOLTIP_TEXT_SAT_MAX:
+                return False
+    return True
+
+
+def _keyboard_band(gray: np.ndarray) -> Optional[Tuple[int, int, int, int]]:
+    """(x, y, w, h) of an on-screen keyboard, found by its rows of keys, or None."""
+    h, w = gray.shape[:2]
+    top0 = int(OVERLAY_KEYBOARD_SCAN_FROM * h)
+    band = gray[top0:, :]
+    if band.size == 0:
+        return None
+    # Keys are blobs of one polarity against the panel: try light keys on a dark panel and dark
+    # keys on a light one (Otsu on the band), keep the polarity that yields more key-sized blobs.
+    # Connected components, not dilated edges: at the work width the gap between keys is ~2 px.
+    _, light = cv2.threshold(band, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    keys = []
+    for mask in (light, cv2.bitwise_not(light)):
+        n, _lab, stats, _c = cv2.connectedComponentsWithStats(mask, connectivity=4)
+        found = [(int(stats[i, cv2.CC_STAT_TOP]), int(stats[i, cv2.CC_STAT_HEIGHT])) for i in range(1, n)
+                 if OVERLAY_KEYBOARD_KEY_W[0] * w <= stats[i, cv2.CC_STAT_WIDTH] <= OVERLAY_KEYBOARD_KEY_W[1] * w
+                 and OVERLAY_KEYBOARD_KEY_H[0] * h <= stats[i, cv2.CC_STAT_HEIGHT] <= OVERLAY_KEYBOARD_KEY_H[1] * h
+                 and stats[i, cv2.CC_STAT_AREA] >= 0.6 * stats[i, cv2.CC_STAT_WIDTH] * stats[i, cv2.CC_STAT_HEIGHT]
+                 and stats[i, cv2.CC_STAT_TOP] > 0]           # cut by the scan line: a tile, not a key
+        if len(found) > len(keys):
+            keys = found
+    if len(keys) < OVERLAY_KEYBOARD_MIN_KEYS:
+        return None
+    heights = [k[1] for k in keys]
+    if float(np.std(heights)) / max(1e-6, float(np.mean(heights))) > OVERLAY_KEYBOARD_KEY_H_CV:
+        return None
+    # rows: keys whose tops are within half a key height of each other
+    keys.sort()
+    half = float(np.median(heights)) / 2.0
+    rows, row = [], [keys[0]]
+    for k in keys[1:]:
+        if k[0] - row[0][0] <= half:
+            row.append(k)
+        else:
+            rows.append(row)
+            row = [k]
+    rows.append(row)
+    full = [r for r in rows if len(r) >= OVERLAY_KEYBOARD_ROW_MIN_KEYS]
+    if len(full) < OVERLAY_KEYBOARD_MIN_ROWS:
+        return None
+    top = top0 + max(0, full[0][0][0] - int(half))
+    return (0, top, w, h - top)
+
+
+def _box_frac(box: Tuple[int, int, int, int], shape) -> Tuple[float, float, float, float]:
+    """(x, y, w, h) pixels of the work-size frame -> fractions of the frame."""
+    h, w = shape[:2]
+    x, y, bw, bh = box
+    return (round(x / w, 4), round(y / h, 4), round(bw / w, 4), round(bh / h, 4))
+
+
+def overlay(frame_bgr: Optional[np.ndarray], *, focus_box: Optional[Sequence[float]] = None,
+            dim_ratio: Optional[float] = None, work_width: Optional[int] = None,
+            thresholds: Optional[Thresholds] = None) -> str:
+    """What, if anything, is drawn on top of the page: the verdict of ``overlay_plate``.
+
+    'popup' / 'tooltip' / 'keyboard' / 'notification' / 'none' / 'unknown' — see ``overlay_plate``.
+    """
+    return overlay_plate(frame_bgr, focus_box=focus_box, dim_ratio=dim_ratio, work_width=work_width,
+                         thresholds=thresholds)[0]
 
 
 # --------------------------------------------------------------------------- #

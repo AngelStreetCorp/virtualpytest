@@ -10,7 +10,20 @@ import threading
 from flask import Blueprint, request, jsonify
 from backend_server.src.lib.utils.route_utils import proxy_to_host_with_params
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
+from backend_server.src.lib.utils.unmatched_endpoint import explain_unmatched_endpoint
 from shared.src.lib.config.constants import CACHE_CONFIG, HTTP_CONFIG
+
+# Contract 38: `system/` is DEFAULT-DENY. /host/system/* is the host's admin surface
+# (runCommand = shell as the service user, updateCore, applyBundle, updatePrereqs, envFiles...).
+# Every legitimate caller has its own server route (server_system_routes.py) that checks a
+# permission. Only the entries below are passthroughs that any authenticated user may use.
+# Do not add an admin-ish endpoint here; add a dedicated, permission-checked server route.
+SYSTEM_PASSTHROUGH_ALLOWLIST = {
+    # (method, endpoint). Hands the dashboard the host's noVNC password (only when
+    # HOST_VNC_AUTOCONNECT=true) so the VNC tile connects without a prompt. POST on purpose:
+    # the viewer role is blocked from POST.
+    ('POST', 'system/vnc-info'),
+}
 
 auto_proxy_bp = Blueprint('auto_proxy', __name__)
 
@@ -61,6 +74,8 @@ def auto_proxy(endpoint):
         print(f"[@auto_proxy] 🔧 Normalized double /server/ prefix: /server/server/{endpoint} -> /server/{endpoint}")
     if endpoint.startswith(('executable/', 'settings/', 'teams/', 'users/', 'workspaces/', 'auth/', 'devices/')):
         return jsonify({'success': False, 'error': f'Endpoint /server/{endpoint} is handled by a dedicated blueprint, not auto-proxy'}), 404
+    if endpoint.startswith('system/') and (request.method, endpoint) not in SYSTEM_PASSTHROUGH_ALLOWLIST:
+        return jsonify({'success': False, 'error': f'Endpoint /server/{endpoint} is handled by a dedicated server route, not auto-proxy'}), 404
     data = request.get_json() if request.method in ['POST', 'PUT'] else None
     host_endpoint = f'/host/{endpoint}'
     query_params = {}
@@ -96,15 +111,22 @@ def auto_proxy(endpoint):
             # Avoids 504 when host gunicorn worker is busy executing a testcase
             try:
                 from backend_server.src.lib.utils.server_utils import get_host_manager
-                from shared.src.lib.utils.build_url_utils import buildStreamUrl
+                from shared.src.lib.utils.build_url_utils import buildStreamUrl, buildAudioStreamUrl
                 host_manager = get_host_manager()
                 host_info = host_manager.get_host(host_name)
                 if host_info:
                     stream_url = buildStreamUrl(host_info, device_id)
                     response_data = {'success': True, 'stream_url': stream_url, 'device_id': device_id}
+                    # host_vnc devices carry a separate audio HLS playlist (BUG-0597 /
+                    # BUG-0605). This server-side shortcut used to answer with the
+                    # video URL only, so the dashboard's useStream never saw an
+                    # audio_stream_url and never rendered the <audio> track.
+                    audio_stream_url = buildAudioStreamUrl(host_info, device_id)
+                    if audio_stream_url:
+                        response_data['audio_stream_url'] = audio_stream_url
                     with _cache_lock:
                         _stream_url_cache[cache_key] = {'data': response_data, 'timestamp': time.time()}
-                    print(f"[@auto_proxy] Built stream URL server-side for {host_name}/{device_id}: {stream_url}")
+                    print(f"[@auto_proxy] Built stream URL server-side for {host_name}/{device_id}: {stream_url} (audio={audio_stream_url})")
                     return jsonify(response_data)
             except Exception as e:
                 print(f"[@auto_proxy] Server-side stream URL build failed, falling back to host proxy: {e}")
@@ -128,6 +150,22 @@ def auto_proxy(endpoint):
     response_data, status_code = proxy_to_host_with_params(
         host_endpoint, target_method, data, query_params, timeout=timeout
     )
+    # This catch-all answers for EVERY /server/* path that matched no blueprint, so a caller
+    # that got the path wrong lands here too — and the host helper's answer, "host_name
+    # required", blames a device parameter. That is how a GitLab route whose project carried an
+    # encoded slash (BUG-0507) answered a question about device hosts for an entire afternoon.
+    # The explanation itself lives in lib/utils/unmatched_endpoint.py, which imports nothing, so
+    # the message can be tested without the whole backend.
+    explained = explain_unmatched_endpoint(endpoint, response_data, status_code)
+    if explained is not response_data:
+        # Log it as what it is. The line above says "Proxying" as if this were a normal device
+        # call, which is exactly why the real cause stayed hidden: the logs looked healthy while
+        # a feature's requests were being forwarded to a host that had never heard of them.
+        print(f"[@auto_proxy] ⚠️  UNMATCHED ROUTE — /server/{endpoint} matched no blueprint and was "
+              f"forwarded to a device host anyway. If this is a VirtualPyTest route it did not "
+              f"match; if it is a device route it needs a host_name. "
+              f"({status_code} {explained.get('error')})", flush=True)
+    response_data = explained
     if status_code == 200 and response_data.get('success'):
         cache_invalidation_endpoints = [
             'ai-generation/continue-exploration',

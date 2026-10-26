@@ -72,6 +72,7 @@ export const buildPrintHtml = (doc: PrintDocument): string => {
   return [
     '<!doctype html><html><head><meta charset="utf-8"/>',
     `<title>${escapeHtml(doc.title)}</title>`,
+    // ui-ok: no-literal-font-size - standalone exported HTML report, outside the app and its Size picker
     '<style>body{font:12px system-ui,sans-serif;margin:24px;color:#222}h1{font-size:18px}h2{font-size:14px;margin-top:20px}',
     'table{border-collapse:collapse;width:100%}th,td{border:1px solid #ccc;padding:4px 6px;text-align:left}th{background:#f3f3f3}</style>',
     `</head><body><h1>${escapeHtml(doc.title)}</h1><table>${summary}</table>${chart}${sections}</body></html>`,

@@ -9,7 +9,8 @@ import {
   Button,
 } from '@mui/material';
 import React, { useEffect, useCallback, useRef, useState, useMemo } from 'react';
-import { useParams, useLocation } from 'react-router-dom';
+import { useParams, useLocation, useNavigate, useSearchParams } from 'react-router-dom';
+import { findFocusTarget } from '../utils/navigation/findFocusTarget';
 import { DEFAULT_DEVICE_RESOLUTION } from '../config/deviceResolutions';
 import ReactFlow, {
   Background,
@@ -51,7 +52,9 @@ import { NodeEditDialog } from '../components/navigation/Navigation_NodeEditDial
 import { NodeGotoPanel } from '../components/navigation/Navigation_NodeGotoPanel';
 import { NodeSelectionPanel } from '../components/navigation/Navigation_NodeSelectionPanel';
 import { NavigationScreenshotProvider } from '../contexts/navigation/NavigationScreenshotContext';
+import { NavigationInterfaceNotFound } from '../components/navigation/Navigation_InterfaceNotFound';
 import { AGENT_CHAT_PALETTE, useAgentChatPalette } from '../constants/agentChatTheme';
+import { neutralButtonSx } from '../components/common/PageChrome';
 import { useDeviceData } from '../contexts/device/DeviceDataContext';
 import { useHostControl } from '../hooks/useHostManager';
 import {
@@ -66,6 +69,7 @@ import {
   useNavigationStack,
 } from '../contexts/navigation/NavigationStackContext';
 import { useNavigationEditor } from '../hooks/navigation/useNavigationEditor';
+import { useUserInterfaceResolution } from '../hooks/navigation/useUserInterfaceResolution';
 import { useGlobalFocusNodes } from '../hooks/navigation/useGlobalFocusNodes';
 import { useNavigationBreadcrumb } from '../hooks/navigation/useNavigationBreadcrumb';
 import { useNestedNavigation } from '../hooks/navigation/useNestedNavigation';
@@ -79,7 +83,6 @@ import {
   detectCompositionConflicts,
 } from '../utils/navigation/variantResolver';
 import { reanchorEdgeToDrawnHandles } from '../utils/navigation/navigationUtils';
-import { useUserInterface } from '../hooks/pages/useUserInterface';
 import { useUserInterfaceVariants } from '../hooks/userinterface/useUserInterfaceVariants';
 import { useDeviceCompatibilityGuard } from '../hooks/navigation/useDeviceCompatibilityGuard';
 import { useToast } from '../hooks/useToast';
@@ -101,6 +104,8 @@ import {
   AUTO_LAYOUT_BUTTON_TOP,
   AUTO_LAYOUT_BUTTON_LEFT,
 } from '../utils/navigation/navigationLayoutConstants';
+import { AppIcon } from '../constants/icons';
+import { TYPOGRAPHY } from '../constants/typography';
 
 // Node types for React Flow - defined outside component to prevent recreation on every render
 const nodeTypes = {
@@ -301,7 +306,7 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
     // Cross-tree focus: list every node across root + all subtrees and, on
     // selection, redirect into the owning subtree (rebuilding the breadcrumb)
     // before focusing the node on the canvas.
-    const { globalFocusNodes, focusSelectValue, selectFocusNode } = useGlobalFocusNodes(
+    const { globalFocusNodes, deepLinkNodes, focusSelectValue, selectFocusNode } = useGlobalFocusNodes(
       userInterface?.id || null,
     );
 
@@ -375,8 +380,6 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
     // Track the last loaded tree ID to prevent unnecessary reloads
     const lastLoadedTreeId = useRef<string | null>(null);
     
-    // Track the last resolved treeName to prevent duplicate userInterface resolution
-    const lastResolvedTreeName = useRef<string | null>(null);
 
     const {
       variants: registeredVariants,
@@ -1154,6 +1157,49 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
       }, 100);
     }, [focusNodeId, nodes, navigation.reactFlowInstance, navigation.parentChain.length]);
 
+    // Deep link `?node=<node_id>`: once the tree hierarchy is loaded, enter the owning tree
+    // (root or subtree, same breadcrumb rebuild as the focus dropdown), select the node so its
+    // panel opens, and centre the canvas on it. Applied once per node id; the param stays in
+    // the URL so the link remains shareable.
+    const [deepLinkParams] = useSearchParams();
+    const deepLinkNodeId = deepLinkParams.get('node');
+    const deepLinkEnteredRef = useRef<string | null>(null);
+    const deepLinkDoneRef = useRef<string | null>(null);
+    const deepLinkTarget = useMemo(
+      () => findFocusTarget(deepLinkNodes, deepLinkNodeId),
+      [deepLinkNodes, deepLinkNodeId],
+    );
+    // Step 1: go to the owning tree (waits for the root tree and the hierarchy).
+    useEffect(() => {
+      if (!deepLinkNodeId || deepLinkEnteredRef.current === deepLinkNodeId) return;
+      if (!actualTreeId || nodes.length === 0 || deepLinkNodes.length === 0) return;
+      deepLinkEnteredRef.current = deepLinkNodeId;
+      if (!deepLinkTarget) {
+        deepLinkDoneRef.current = deepLinkNodeId;
+        showToastError('Screen not found in this tree');
+        return;
+      }
+      selectFocusNode(deepLinkTarget.value);
+    }, [deepLinkNodeId, deepLinkTarget, actualTreeId, nodes.length, deepLinkNodes.length, selectFocusNode, showToastError]);
+    // Step 2: once the node is on the canvas, select and centre it.
+    useEffect(() => {
+      if (!deepLinkNodeId || !deepLinkTarget || deepLinkDoneRef.current === deepLinkNodeId) return;
+      if (deepLinkEnteredRef.current !== deepLinkNodeId) return;
+      if (actualTreeId !== deepLinkTarget.treeId || !navigation.reactFlowInstance) return;
+      const found = nodes.find((n) => n.id === deepLinkNodeId);
+      if (!found) return;
+      deepLinkDoneRef.current = deepLinkNodeId;
+      setSelectedNode(found);
+      // Also mark it selected on the canvas (React Flow `selected` class), as a click would.
+      setNodes(nodes.map((n) => ({ ...n, selected: n.id === deepLinkNodeId })));
+      // Centre once React Flow has measured the node (a freshly entered subtree needs a moment).
+      setTimeout(() => {
+        const rf = navigation.reactFlowInstance;
+        if (!rf) return;
+        rf.fitView({ nodes: [{ id: deepLinkNodeId }], maxZoom: 1.2, minZoom: 0.5, padding: 0.5, duration: 600 });
+      }, 400);
+    }, [deepLinkNodeId, deepLinkTarget, actualTreeId, nodes, setNodes, setSelectedNode, navigation.reactFlowInstance]);
+
     // ========================================
     // 1. INITIALIZATION & REFERENCES
     // ========================================
@@ -1200,7 +1246,6 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
     // Lifecycle refs to prevent unnecessary re-renders
 
     // Clean approach: Resolve userInterface by name from treeName
-    const { getUserInterfaceByName } = useUserInterface();
     const location = useLocation();
     const seededInterface = (location.state as { userInterface?: { id: string; name: string; models: string[]; mode?: 'dev' | 'prod' } } | null)?.userInterface;
     // Dev/prod scope: the name is shared between both rows, so deep links carry
@@ -1212,47 +1257,31 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
         : 'dev';
     const isProdView = uiMode === 'prod';
 
+    // Editing the prod view saves to dev (TASK-173): once the server confirms
+    // the save landed on the draft, move to the dev row in place (no history
+    // entry) so every later edit is a plain dev edit.
+    const navigateToDev = useNavigate();
     useEffect(() => {
-      const resolveUserInterface = async () => {
-        if (!treeName) return;
-
-        // Resolution key includes the mode: dev and prod share a name, and
-        // toggling the scope must re-resolve to the other row's id.
-        const resolveKey = `${treeName}::${uiMode}`;
-
-        // Prevent duplicate resolution for the same treeName+mode
-        if (lastResolvedTreeName.current === resolveKey) return;
-
-        // If we already have the correct userInterface, skip
-        if (userInterface?.name === treeName && (userInterface.mode || 'dev') === uiMode) return;
-
-        // Skip the network round-trip when the caller already handed us the userInterface via route state
-        if (seededInterface && seededInterface.name === treeName && (seededInterface.mode || 'dev') === uiMode) {
-          lastResolvedTreeName.current = resolveKey;
-          setUserInterfaceFromProps(seededInterface);
-          console.log(`[@component:NavigationEditor] Using userInterface from route state: ${seededInterface.name} (ID: ${seededInterface.id}, mode: ${uiMode})`);
-          return;
-        }
-
-        try {
-          console.log(`[@component:NavigationEditor] Resolving userInterface for treeName: ${treeName} (mode: ${uiMode})`);
-
-          // Mark as being resolved to prevent duplicates
-          lastResolvedTreeName.current = resolveKey;
-
-          const resolvedInterface = await getUserInterfaceByName(treeName, uiMode);
-          setUserInterfaceFromProps(resolvedInterface);
-
-          console.log(`[@component:NavigationEditor] Successfully resolved userInterface: ${resolvedInterface.name} (ID: ${resolvedInterface.id}, mode: ${uiMode})`);
-        } catch (error) {
-          console.error(`[@component:NavigationEditor] Failed to resolve userInterface for treeName ${treeName} (mode: ${uiMode}):`, error);
-          // Reset on error so we can retry
-          lastResolvedTreeName.current = null;
-        }
+      if (!isProdView) return;
+      const onSavedToDev = () => {
+        showToastSuccess('Saved to the draft (dev). Publish to make it live.');
+        navigateToDev(`/navigation-editor/${encodeURIComponent(treeName ?? '')}`, { replace: true });
       };
+      window.addEventListener('vpt:prod-edit-saved-to-dev', onSavedToDev);
+      return () => window.removeEventListener('vpt:prod-edit-saved-to-dev', onSavedToDev);
+    }, [isProdView, navigateToDev, showToastSuccess, treeName]);
 
-      resolveUserInterface();
-    }, [treeName, userInterface?.name, userInterface?.mode, uiMode, setUserInterfaceFromProps, seededInterface]);
+    // Resolve the interface this link asks for. A name that does not exist —
+    // or a mode the interface has no snapshot for — is reported here, so the
+    // page can say so instead of opening a blank but enabled editor
+    // (BUG-0774).
+    const { error: interfaceError } = useUserInterfaceResolution({
+      treeName,
+      mode: uiMode,
+      seededInterface,
+      currentUserInterface: userInterface,
+      onResolved: setUserInterfaceFromProps,
+    });
 
     // Clean approach: treeName is guaranteed to exist from NavigationEditor
 
@@ -2066,6 +2095,14 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
       if (freshSets !== curSets) navigation.setSelectedEdge(fresh);
     }, [renderEdges, selectedEdge, navigation]);
 
+    // The interface this link asked for does not exist (or has no snapshot for
+    // the requested mode). Show that instead of the editor: an empty canvas
+    // with a live toolbar reads as "this tree is empty", and the developer
+    // would publish nodes into the wrong place (BUG-0774).
+    if (interfaceError) {
+      return <NavigationInterfaceNotFound message={interfaceError} />;
+    }
+
     return (
       <NavigationScreenshotProvider nodes={nodes}>
         <Box
@@ -2090,7 +2127,7 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
           visibleNodes={nodes.length}
           isLoading={isLoadingInterface}
           error={error}
-          isLocked={(isLocked ?? false) || isProdView}
+          isLocked={isLocked ?? false}
           treeId={actualTreeId || ''}
           selectedHost={selectedHost}
           selectedDeviceId={selectedDeviceId}
@@ -2127,7 +2164,7 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
           <Box sx={{ px: 1, py: 0.5 }}>
             <Alert
               severity="warning"
-              sx={{ py: 0, fontSize: '0.75rem', '& .MuiAlert-message': { py: 0.5 } }}
+              sx={{ py: 0, fontSize: TYPOGRAPHY.caption.size, '& .MuiAlert-message': { py: 0.5 } }}
             >
               {`Composition has ${compositionConflicts.length} override conflict(s): ` +
                 compositionConflicts
@@ -2170,9 +2207,9 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
                   position: 'relative',
                 }}
               >
-                {/* Read-Only Overlay - locked by someone else, or viewing the
-                    published prod snapshot */}
-                {(isLocked || isProdView) && (
+                {/* Read-Only Overlay - locked by someone else. The prod view is
+                    editable: its saves land on the dev draft (TASK-173). */}
+                {isLocked && (
                   <Box
                     sx={{
                       position: 'absolute',
@@ -2188,15 +2225,13 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
                       display: 'flex',
                       alignItems: 'center',
                       gap: 1,
-                      fontSize: '0.675rem',
+                      fontSize: TYPOGRAPHY.microMeta.size,
                       fontWeight: 'medium',
                     }}
                   >
-                    🔒 READ-ONLY MODE
+                    <AppIcon name="lock" /> READ-ONLY MODE
                     <Typography variant="caption" sx={{ opacity: 0.8 }}>
-                      {isProdView
-                        ? 'Production version — switch to DEV to edit, then Publish'
-                        : 'Tree locked by another user'}
+                      Tree locked by another user
                     </Typography>
                   </Box>
                 )}
@@ -2279,7 +2314,7 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
                       border: `0px solid ${P.borderColor}`,
                       borderRadius: '0',
                       cursor: 'pointer',
-                      fontSize: '16px',
+                      fontSize: TYPOGRAPHY.navbarItem.size,
                       color: P.textPrimary,
                       zIndex: 5,
                       display: 'flex',
@@ -2890,7 +2925,7 @@ export const NavigationEditorContent: React.FC<{ treeName: string }> = ({ treeNa
           </DialogContent>
           <DialogActions>
             <Button onClick={() => setIsDiscardDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handlePerformDiscard} color="warning" variant="contained">
+            <Button onClick={handlePerformDiscard} variant="contained" sx={neutralButtonSx(P)}>
               Discard Changes
             </Button>
           </DialogActions>

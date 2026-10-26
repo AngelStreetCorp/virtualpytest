@@ -5,6 +5,7 @@ import StopIcon from '@mui/icons-material/Stop';
 import RefreshIcon from '@mui/icons-material/Refresh';
 
 import { useAgentChatPalette } from '../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../constants/typography';
 
 /**
  * HLS Debug Page
@@ -436,7 +437,7 @@ const HLSDebugPage: React.FC = () => {
               )}
             </Box>
 
-            <Typography variant="body2" component="div" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+            <Typography variant="body2" component="div" sx={{ fontFamily: 'monospace', fontSize: TYPOGRAPHY.caption.size }}>
               <div>Current Time: {hlsStats.currentTime?.toFixed(2) || 'N/A'}s</div>
               <div>Duration: {hlsStats.duration?.toFixed(2) || 'N/A'}s</div>
               <div>Buffered: {hlsStats.buffered?.toFixed(2) || 'N/A'}s</div>
@@ -468,7 +469,7 @@ const HLSDebugPage: React.FC = () => {
                 p: 1,
                 borderRadius: 1,
                 fontFamily: 'monospace',
-                fontSize: '0.75rem',
+                fontSize: TYPOGRAPHY.caption.size,
               }}
             >
               {debugLogs.map((log, index) => (

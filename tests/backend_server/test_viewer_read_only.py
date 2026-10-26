@@ -122,6 +122,20 @@ def test_exempt_list_is_the_reviewed_one():
         '/server/av/getStreamUrl',
         '/server/av/getStatus',
         '/server/run-management/query',
+    # TASK-99 (device + executable favorites): a viewer's star lives in the same
+    # row as the viewer's verified principal (`request.user_id` is set from the
+    # JWT, never the body), so PUT/DELETE only mutates the caller's own row.
+    # Walking the handlers in server_device_favorites_routes.py and
+    # server_executable_favorites_routes.py shows no shared-state writes.
+    '/server/device-favorites',
+    '/server/executable-favorites',
+    # TASK-145 (per-user notification prefs): the handler writes the caller's
+    # own row from the verified principal; team / workspace / project rows and
+    # `locked` are refused for non-admins in
+    # server_notification_prefs_routes.upsert_pref.
+    '/server/notification-prefs',
+    # TASK-145: notification history; every handler is scoped to the caller's own rows.
+    '/server/notifications',
     )
 
 

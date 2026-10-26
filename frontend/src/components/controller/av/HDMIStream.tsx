@@ -16,12 +16,14 @@ import { useHdmiStream, useStream } from '../../../hooks/controller';
 import { Host } from '../../../types/common/Host_Types';
 import { VerificationEditor } from '../verification';
 import { getZIndex } from '../../../utils/zIndexUtils';
+import { panelAnchorEdges } from './panelAnchor';
 import { DEFAULT_DEVICE_RESOLUTION } from '../../../config/deviceResolutions';
 
 import { RecordingOverlay, LoadingOverlay, ModeIndicatorDot } from './ScreenEditorOverlay';
 import { ScreenshotCapture } from './ScreenshotCapture';
 import { LiveStreamPlayer } from '../../common/LiveStream/LiveStreamPlayer';
 import { VideoCapture } from './VideoCapture';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface HDMIStreamProps {
   host: Host;
@@ -306,6 +308,11 @@ export const HDMIStream = React.memo(
     const expandedHeight = panelLayout.expanded.height;
 
     // Build position styles - simple container without scaling
+    // The outer box is the anchor point and has no size of its own; the panel inside it
+    // grows from that anchor. A right-anchored stream therefore has to grow to the LEFT of
+    // its anchor (its right edge sits on the anchor), otherwise it hangs past the right
+    // edge of the page — which is what the picture-in-picture overlay did (BUG-0777).
+    const anchoredRight = Boolean(positionRight);
     const positionStyles: any = {
       position: useAbsolutePositioning ? 'absolute' : 'fixed',
       zIndex: getZIndex('HDMI_STREAM'),
@@ -383,7 +390,8 @@ export const HDMIStream = React.memo(
               // Simple positioning - bottom and left anchored
               bottom: isVerificationEditorMaximized ? '16px' : 0,
               top: isVerificationEditorMaximized ? '16px' : 'auto',
-              left: isVerificationEditorMaximized ? '16px' : 0,
+              left: isVerificationEditorMaximized ? '16px' : panelAnchorEdges(anchoredRight).left,
+              right: isVerificationEditorMaximized ? 'auto' : panelAnchorEdges(anchoredRight).right,
               backgroundColor: '#1E1E1E',
               // Default discreet white border for all HDMI panels
               border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -422,7 +430,7 @@ export const HDMIStream = React.memo(
                       }}
                       disabled={!isStreamActive || isCaptureActive || isScreenshotLoading}
                     >
-                      <PhotoCamera sx={{ fontSize: 20 }} />
+                      <PhotoCamera sx={{ fontSize: TYPOGRAPHY.pageSubtitle.size }} />
                     </IconButton>
                   </Tooltip>
 
@@ -436,7 +444,7 @@ export const HDMIStream = React.memo(
                           '&:hover': { backgroundColor: 'rgba(255, 255, 255, 0.1)' },
                         }}
                       >
-                        <StopCircle sx={{ fontSize: 20 }} />
+                        <StopCircle sx={{ fontSize: TYPOGRAPHY.pageSubtitle.size }} />
                       </IconButton>
                     </Tooltip>
                   ) : (
@@ -450,7 +458,7 @@ export const HDMIStream = React.memo(
                         }}
                         disabled={!isStreamActive}
                       >
-                        <VideoCall sx={{ fontSize: 20 }} />
+                        <VideoCall sx={{ fontSize: TYPOGRAPHY.pageSubtitle.size }} />
                       </IconButton>
                     </Tooltip>
                   )}
@@ -465,7 +473,7 @@ export const HDMIStream = React.memo(
                       }}
                       disabled={!isStreamActive || isCaptureActive}
                     >
-                      <Refresh sx={{ fontSize: 20 }} />
+                      <Refresh sx={{ fontSize: TYPOGRAPHY.pageSubtitle.size }} />
                     </IconButton>
                   </Tooltip>
                 </Box>
@@ -475,7 +483,7 @@ export const HDMIStream = React.memo(
               <Typography
                 variant="subtitle2"
                 sx={{
-                  fontSize: '0.875rem',
+                  fontSize: TYPOGRAPHY.body.size,
                   fontWeight: 'bold',
                   flex: 1,
                   textAlign: 'center',

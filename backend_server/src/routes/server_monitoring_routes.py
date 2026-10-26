@@ -5,6 +5,7 @@ Server-side monitoring proxy endpoints that forward requests to host monitoring 
 """
 
 import re
+import time
 from flask import Blueprint, request, jsonify, Response
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
 import requests
@@ -108,6 +109,30 @@ def get_json_by_time():
     )
     return jsonify(response_data), status_code
     
+def _fetch_host_file(file_url, timeout=30, retries=1, retry_delay=2.0):
+    """GET a file from a lab host, retrying once when the host refuses the connection.
+
+    A host that is being restarted refuses the connection for a second or two —
+    a deploy restarts the host and the server at the same time. Answering 502
+    straight away turned every restart into a failed request for whoever asked
+    for the file (the Atlas / stb benchmark, TASK-169). One short retry turns
+    that window into a normal answer.
+
+    Only a CONNECTION error is retried: a timeout or a bad status means the host
+    answered and the answer is what it is.
+    """
+    last_error = None
+    for attempt in range(retries + 1):
+        try:
+            return requests.get(file_url, stream=True, timeout=timeout)
+        except requests.exceptions.ConnectionError as e:
+            last_error = e
+            if attempt >= retries:
+                raise
+            time.sleep(retry_delay)
+    raise last_error  # pragma: no cover - the loop always returns or raises
+
+
 @server_monitoring_bp.route('/proxyImage/<filename>', methods=['GET'])
 @handle_route_exceptions('monitoring:proxy_monitoring_image')
 def proxy_monitoring_image(filename):
@@ -145,7 +170,7 @@ def proxy_monitoring_image(filename):
                 f"/host/av/images/screenshot/{quote(filename, safe='')}?device_id={quote(device_id, safe='')}")
     
     try:
-        response = requests.get(file_url, stream=True, timeout=30)
+        response = _fetch_host_file(file_url)
         response.raise_for_status()
         
         if is_json:
@@ -194,4 +219,23 @@ def get_live_events():
         {'device_id': device_id}
     )
     return jsonify(response_data), status_code
-    
+
+
+@server_monitoring_bp.route('/ad-breaks', methods=['POST'])
+@handle_route_exceptions('monitoring:get_ad_breaks')
+def get_ad_breaks():
+    """The commercial breaks ad_meter found on one device (last 24 h by default), proxied to its host."""
+    request_data = request.get_json() or {}
+    response_data, status_code = proxy_to_host_with_params('/host/monitoring/ad-breaks', 'POST', request_data,
+                                                           {'device_id': request_data.get('device_id', 'device1')})
+    return jsonify(response_data), status_code
+
+
+@server_monitoring_bp.route('/ad-breaks/not-ad', methods=['POST'])
+@handle_route_exceptions('monitoring:mark_ad_break_not_ad')
+def mark_ad_break_not_ad():
+    """A person marks one break as not an ad (the host queues it for ad_meter)."""
+    request_data = request.get_json() or {}
+    response_data, status_code = proxy_to_host_with_params('/host/monitoring/ad-breaks/not-ad', 'POST', request_data,
+                                                           {'device_id': request_data.get('device_id', 'device1')})
+    return jsonify(response_data), status_code

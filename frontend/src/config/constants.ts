@@ -287,6 +287,12 @@ export const STORAGE_KEYS = {
   DASHBOARD_FILTERS: 'dashboard_filters',
 
   /**
+   * Dashboard tabs (TASK-123): per user, `<key>_<userId>` = favourite tab + per-tab card overrides,
+   * `<key>_range` = the time range of the results cards.
+   */
+  DASHBOARD_LAYOUT: 'dashboard_layout',
+
+  /**
    * Device (Rec) page-only state (page size)
    */
   REC_FILTERS: 'rec_filters',

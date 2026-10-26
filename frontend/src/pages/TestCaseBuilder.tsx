@@ -83,6 +83,8 @@ import {
   TESTCASE_BUILDER_ATTRIBUTION_CSS,
   getExecutionFooterSummary,
 } from '../utils/testcase/testCaseBuilderUi';
+import { dangerButtonSx } from '../components/common/PageChrome';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 
 // Node types for React Flow - memoized to prevent recreation warnings
 const NODE_TYPES = {
@@ -153,6 +155,7 @@ const defaultEdgeOptions = {
 
 // Exported for embedding in ContentViewer
 export const TestCaseBuilderContent: React.FC = () => {
+  const P = useAgentChatPalette();
   // Inject styles to hide React Flow attribution
   React.useEffect(() => {
     const styleTag = document.createElement('style');
@@ -954,8 +957,8 @@ export const TestCaseBuilderContent: React.FC = () => {
           </Button>
           <Button
             onClick={hookData.handleConfirmDelete}
-            color="error"
             variant="contained"
+            sx={dangerButtonSx(P)}
           >
             Delete
           </Button>

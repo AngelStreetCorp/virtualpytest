@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High — an export answer showed numbers that were not in the data |
 | Area      | `backend_server/src/mcp/tools/analytics_tools.py`, `backend_server/src/lib/analytics/service.py`, `backend_server/src/agent/core/manager.py` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `24dae71f4`, `49e44bd38`                                            |
 
 ---

@@ -8,6 +8,7 @@ import { Host } from '../../../types/common/Host_Types';
 import { InfraredRemoteButton } from '../../../config/remote/infraredRemoteBase';
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { useDisabledRemoteKeys } from '../../../contexts/RemoteCommandSinkContext';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface InfraredRemoteProps {
   host: Host;
@@ -19,7 +20,7 @@ interface InfraredRemoteProps {
   onStatusChange?: (color: string, tooltip: string) => void;
   // Host remote that receives the keys: 'ir_remote' (default) or 'vega' (TASK-57),
   // and the button layout to draw when it is not the device's own ir_type.
-  remoteType?: 'ir_remote' | 'vega';
+  remoteType?: 'ir_remote' | 'vega' | 'samsung_tizen';
   irType?: string;
   sx?: any;
   isCollapsed: boolean;
@@ -253,9 +254,9 @@ export const InfraredRemote = React.memo(
               }}
             >
               {showOverlays ? (
-                <VisibilityIcon sx={{ fontSize: 18 }} />
+                <VisibilityIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />
               ) : (
-                <VisibilityOffIcon sx={{ fontSize: 18 }} />
+                <VisibilityOffIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />
               )}
             </IconButton>
           )}
@@ -334,7 +335,9 @@ export const InfraredRemote = React.memo(
                 <Typography
                     variant="caption"
                     sx={{
-                      fontSize: `${parseInt(layoutConfig.remote_info.text_style.fontSize) * remoteScale}px`,
+                      // ui-ok: no-literal-font-size — per-remote dynamic sizing from the layout
+                      // config (base px × remoteScale); not a role token.
+                      fontSize: `${parseInt(layoutConfig.remote_info.text_style.fontSize) * remoteScale}px`, // ui-ok: no-literal-font-size - overlay text scales with the remote image
                       fontWeight: layoutConfig.remote_info.text_style.fontWeight,
                       // palette: drawn on video/screenshot — overlay label over the remote image
                       color: keyDisabled ? 'rgba(160, 160, 160, 0.5)' : layoutConfig.remote_info.text_style.color,

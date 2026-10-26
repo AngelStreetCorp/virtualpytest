@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — the chat turn never finished ("No response from agent") |
 | Area      | `backend_server/src/agent/async_utils.py`, `server_agent_routes.py`, `agent/core/manager.py`, `features/ai-test/backend_server/server_testprompt_routes.py` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `04cd29529`                                                       |
 
 ---

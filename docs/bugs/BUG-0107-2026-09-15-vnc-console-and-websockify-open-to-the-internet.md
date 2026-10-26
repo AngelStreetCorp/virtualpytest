@@ -120,12 +120,12 @@ From an external host outside the allowlist, before → after, on both `virtualp
 | `/host/<h>/core/rfb.js`                | `200`  | `403` |
 
 Unaffected, confirmed after the reload: both app roots `200`, `rpitest` `200`,
-`kozy.angelstreet.io` `302`, and `/host/<h>/stream/...` still `308` (streams are deliberately
+`<app-host-2>` `302`, and `/host/<h>/stream/...` still `308` (streams are deliberately
 outside the gate). An allowlisted client still gets `200` / `101`.
 
 ## Not a finding (recorded so it is not re-investigated)
 
-`rpitest.angelstreet.io` first looked identically exposed — `curl` reported `101` for *any*
+`<pi-server-host>` first looked identically exposed — `curl` reported `101` for *any*
 host name, including invented ones. It is a **false positive**: no valid WebSocket handshake
 and no RFB bytes come back, and its real host route answers
 `401 {"error":"Authentication required","message":"X-API-Key header is required"}`. That
@@ -175,7 +175,7 @@ with `proxy_set_header Host $host;` copied in from day one.
 **Verified 2026-09-16:** `/host/host-clone-1/vnc_lite.html` with no cookie → `401` on both
 `virtualpytest` and `virtualpytest-demo` (previously `200`/allowed for any allowlisted IP,
 which by definition includes every real operator). Unaffected: app root `200`,
-`heartclaws.angelstreet.io` `200`.
+`<app-host-3>` `200`.
 
 ## Step 3 — generalized to HLS streams and the phone link (2026-09-16)
 

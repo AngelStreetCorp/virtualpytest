@@ -9,7 +9,7 @@
 | Status    | Fixed                                                        |
 | Severity  | High - a device lost all video (stream, captures, thumbnails) after a `vpt-stream` restart |
 | Area      | `backend_host/scripts/run_ffmpeg.sh` (grabber selection)    |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 
 ---
 

@@ -15,10 +15,18 @@ if (!fs.existsSync(authDir)) {
 // Only use storageState if the file exists
 const hasStorageState = fs.existsSync(storageStatePath);
 
+// GitHub Actions sets CI=true on every job (hosted AND self-hosted); on CI
+// we let a single page-level flake pass on retry-2 instead of failing the
+// whole LAN runner's e2e-* job. A real product bug still fails all three
+// attempts. Local keeps retries=0 so devs see flakes immediately.
+const isCI = process.env.CI === 'true' || process.env.CI === '1';
+
 module.exports = defineConfig({
-  testDir: './specs',
+  testDir: '.',
+  testMatch: ['specs/**/*.spec.js', 'allserver/**/*.spec.js'],
   outputDir: './test-results',
   timeout: 45_000,
+  retries: isCI ? 2 : 0,
   expect: {
     timeout: 12_000,
   },

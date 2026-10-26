@@ -17,7 +17,7 @@ import {
 } from '@mui/material';
 import { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
 
-import { buildServerUrl } from '../../utils/buildUrlUtils';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';import { buildServerUrl, buildServerUrlForServer } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
 import { openR2Url } from '../../utils/infrastructure/cloudflareUtils';
 
@@ -32,14 +32,16 @@ interface HeatmapReport {
   generated_at: string;
 }
 
-type HeatMapHistoryProps = object;
+interface HeatMapHistoryProps {
+  serverUrl?: string; // the server whose reports to list; defaults to the picked server
+}
 
 export interface HeatMapHistoryRef {
   refreshReports: () => Promise<void>;
 }
 
-export const HeatMapHistory = forwardRef<HeatMapHistoryRef, HeatMapHistoryProps>((_props, ref) => {
-  const [reports, setReports] = useState<HeatmapReport[]>([]);
+export const HeatMapHistory = forwardRef<HeatMapHistoryRef, HeatMapHistoryProps>(({ serverUrl }, ref) => {
+  const P = useAgentChatPalette();  const [reports, setReports] = useState<HeatmapReport[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -54,7 +56,9 @@ export const HeatMapHistory = forwardRef<HeatMapHistoryRef, HeatMapHistoryProps>
         reports?: HeatmapReport[];
         error?: string;
       }>(
-        buildServerUrl('/server/heatmap/history?limit=10')
+        serverUrl
+          ? buildServerUrlForServer(serverUrl, '/server/heatmap/history?limit=10')
+          : buildServerUrl('/server/heatmap/history?limit=10')
       );
       console.log('[@component:HeatMapHistory] Fetched reports:', data.reports?.length || 0);
       setReports(data.reports || []);
@@ -84,7 +88,7 @@ export const HeatMapHistory = forwardRef<HeatMapHistoryRef, HeatMapHistoryProps>
   // Load reports on component mount
   useEffect(() => {
     fetchReports();
-  }, []);
+  }, [serverUrl]);
 
   // Auto-refresh when component becomes visible (page focus)
   useEffect(() => {
@@ -96,7 +100,7 @@ export const HeatMapHistory = forwardRef<HeatMapHistoryRef, HeatMapHistoryProps>
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
-  }, []);
+  }, [serverUrl]);
 
   // Format timestamp for display
   const formatTimestamp = (timestamp: string): string => {
@@ -241,7 +245,7 @@ export const HeatMapHistory = forwardRef<HeatMapHistoryRef, HeatMapHistoryProps>
                   sx={{
                     backgroundColor: 'transparent !important',
                     '&:hover': {
-                      backgroundColor: 'rgba(0, 0, 0, 0.04) !important',
+                      backgroundColor: `${P.hoverBg} !important`,
                     },
                   }}
                 >

@@ -1,0 +1,132 @@
+# egg_quality_yolo: the same egg line as `egg_quality`, but the boxes come from a model trained on egg
+# photographs instead of from blob contrast (BUG-0837).
+#
+# WHY A SECOND PROFILE AND NOT A REPLACEMENT
+# ------------------------------------------
+# `egg_quality` detects with `egg_detect method: blob`, which finds each egg by its own local contrast
+# and so never merges two — but its box is the LoG *response diameter*, not the egg: measured on the
+# device3 frame it drew 45 px circles on eggs that are 55-70 px across. This profile draws the egg.
+#
+# WHAT IT COSTS, MEASURED ON vpt-lenovo1 (4 cores, no OpenVINO in that OpenCV build)
+# ---------------------------------------------------------------------------------
+# One 640x640 forward costs 1.03 s there through cv2.dnn and 1.08 s through onnxruntime; int8 dynamic
+# quantisation made it 3.5x SLOWER (3.8 s), so the model ships fp32. The ONNX input is a fixed square,
+# so every tile costs the same whatever its size, and `tile` below is the only thing that trades cost
+# against recall.
+#
+# WHAT THE MODEL SEES, AND WHAT IT NEEDS TO SEE
+# ----------------------------------------------
+# The model was trained on a portrait video of BIG white eggs (150-250 px) on yellow rods, in daylight.
+# The device3 feed is a landscape shot of small white eggs (20-70 px) on a blue belt. Three of the
+# knobs below exist only to close that gap, and each one is measured, not guessed:
+#
+#   fill: stretch      a square 640 tile fills the square input with no grey padding to confuse the
+#                      model, and a square tile stretched is not distorted. (letterbox was 89 boxes;
+#                      stretch 96.)
+#   preprocess         `whitebalance` pulls the saturated blue out of the scene, `unsharp` brings back
+#                      the edges the belt's blur takes away. Together: 89 -> 226 candidates.
+#   flip_tta           the same tile seen from the other side. A model confused by a neighbour in a
+#                      crowd often finds the egg in the mirrored crop: the single biggest recall lever
+#                      measured (89 -> 111 unique eggs).
+#
+# THE TWO FILTERS THAT DECIDE WHAT A CIRCLE IS
+# --------------------------------------------
+# `color_filter` (mode: belt) is the answer to "is that really an egg?". The scene is white eggs on a
+# SATURATED BLUE belt, so a box that lands on bare belt is mostly blue and a real egg is mostly not.
+# This is what makes the very low `min_conf` safe: at 0.01 the detector offers ~220 candidates and the
+# belt filter throws out the 28 of them that are bare belt, leaving 198. A brightness test does NOT
+# work here: "bright and unsaturated" rejected 84 candidates, and most of those were real eggs lying
+# in the shadow of the pile.
+#
+# `dedupe_dist` is the answer to "why two circles on one egg?". IoU NMS cannot see it: two boxes on
+# the same egg are offset by a few pixels, so their IoU lands around 0.3-0.5 and some survive. Two
+# DIFFERENT eggs that touch overlap by ~0.04 and their centres are a full diameter apart, so the test
+# for "same egg" is centre DISTANCE, not overlap. At 0.35 diameters, with the size tolerance at
+# `dedupe_ratio: 0.8`, the duplicate circles are gone and no pair of neighbouring eggs was merged.
+#
+# MEASURED ON THE device3 FRAME (one fixed frame, 1280x720, ~200 eggs in it):
+#
+#     min_conf  dedupe  belt max  boxes  on bare belt  duplicated  forwards  s/frame on the box
+#       0.25     off      off        89         –            many         9        9.7
+#       0.05     off      0.35      183         0             3         12       12.4
+#       0.02     0.35    0.35      187         0             0         12       12.4
+#       0.01     0.35    0.35      198         0             0         12       12.4
+#
+# So this profile updates the overlay about every 12 s, not 5 times a second. That is the trade: the
+# circles are right, the refresh is slow. The overlay's frame-lock (`AnalysedFrameLayer`) is what keeps
+# them ON the eggs at that rate — see BUG-0836. Switch the device back to `egg_quality` for the fast
+# picture at the cost of the circle size.
+#
+# `tile` can never be WIDER than the model's 640 input: such a crop can only be scaled DOWN to fit the
+# square, which is the whole-frame failure again (47 boxes). A square 640 tile is scale 1.0 and still
+# gets ~198 boxes, because what a small tile buys is fewer eggs per crop, not zoom. Zoom (a 320 tile
+# is a 2x zoom) was measured too: it finds the small far eggs but at 30 forwards it doubles the cost
+# and its boxes disagree with the 640 pass often enough that merging the two scales is a MESS of
+# doubled circles. One scale, 640, wins.
+#
+# THE MODEL IS NOT IN GIT. best.pt is a YOLOv8s segmentation model trained by a third party on the
+# public Roboflow `egg-seg-1` set (GitHub: Yossefmohammed/EGGS-counting-Detection-with_YOLOV8-Model).
+# It is exported to ONNX outside the project folder, e.g. /var/lib/vpt_user/models/egg_seg.onnx, and
+# MONITOR_YOLO_MODEL points at it. `classes` is REQUIRED: the export drops the mask-prototype branch,
+# so nothing in the graph marks where the class scores end and the 32 mask coefficients begin, and
+# reading that wrong produces 618 boxes a frame instead of 47 (see the analyzer's docstring).
+name: egg_quality_yolo
+services: { img: true, audio: false, subtitle: false }
+img:
+  runtime: edge
+  analyzers:
+    - type: yolo_seg_detect
+      # one pass takes ~12 s here, so sample at 0.08 Hz: `sample_hz` above this only queues work the
+      # detector cannot keep up with.
+      sample_hz: 0.08
+      classes: [egg]                # one name per model class, in the model's order
+      min_conf: 0.01                # low on purpose: the belt filter below is the real arbiter
+      model_env: MONITOR_YOLO_MODEL
+      tile: [640, 640]              # square, so `stretch` distorts nothing
+      tile_overlap: 0.25            # a quarter of each tile is shared with its neighbour
+      fill: stretch                 # no grey padding, and a square tile keeps the egg's shape
+      preprocess: [whitebalance, unsharp]   # towards the training distribution: warm, sharp, white
+      flip_tta: true                # the mirrored tile finds eggs the model lost in the crowd
+      nms_iou: 0.30                 # two touching eggs overlap ~0.1; the same egg twice overlaps ~0.6
+      dedupe_dist: 0.35             # centres within 0.35 diameters = the same egg, one circle
+      dedupe_ratio: 0.8             # ...unless the two boxes differ so much they are different eggs
+      color_filter: { mode: belt, max_ratio: 0.35 }   # a box that is mostly blue belt is not an egg
+      min_side: 12                  # a clipped tile-border box is a sliver, not an egg
+      max_aspect: 2.6
+    - type: egg_classify
+      attr: condition
+      classes: [good, bad]
+      model_env: MONITOR_EGG_MODEL
+  # ocsort + votes as `egg_quality`, except `votes`/`min_votes`, which have to follow the 10 s cadence
+  # and not the 0.2 s one. An egg crosses this belt in a few seconds, so at one pass per 10 s it is
+  # seen once or twice before it leaves: `votes: 3 / min_votes: 2` (what `egg_quality` uses at 5 Hz)
+  # is unreachable here and every egg came out `unverified` — measured, 191 of 191. `votes: 2,
+  # min_votes: 1` judges an egg on its second sighting and keeps `unverified` for the ones not yet seen
+  # twice. `max_gap_s` is generous for the same reason: a gap of three passes is normal here.
+  #
+  # WHAT THE VERDICT IS WORTH ON THIS FEED: nothing. `egg_classify` grades crops of white eggs on a blue
+  # belt in daylight, where the image carries no evidence of interior quality, so it reports ~99 % bad
+  # because that is what the model says. The counters are kept because they are part of the block, not
+  # because the number means anything. A real grade needs candling (the egg against a light).
+  track: { algo: ocsort, max_gap_s: 30.0, min_iou: 0.1, cold_gate: 1.5, votes: 2, min_votes: 1 }
+  reset_counters: { every_s: 120 }        # one clip pass takes longer than the 30 s of the fast profile
+events:
+  egg_seen: { attr: label, in: [egg] }
+incidents: {}
+kpis:
+  - { name: count_total, of: egg_seen, window_s: 86400 }
+  - { name: count_by_condition, of: egg_seen, group_by: condition, window_s: 86400 }   # includes `unverified`
+  - { name: bad_pct, of: egg_seen, window_s: 300, pct_where: { attr: condition, in: [bad] } }
+ui:
+  title: Egg quality control (model)
+  stats:
+    - { label: Eggs, kpi: count_total }
+    - { label: Detections, observations: true }
+  counters:
+    kpi: count_by_condition
+    items:
+      - { key: good, colour: green }
+      - { key: bad, colour: red }
+      - { key: unverified, colour: grey }
+  box: { shape: ellipse, badge: votes, colour_by: verdict }
+  focus_panel: { crop: true, probs: true, title: Last checked }

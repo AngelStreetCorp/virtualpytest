@@ -40,12 +40,11 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, Callable, Dict, List, Optional
 
-from . import menus, tactics, tutorial, vision
+from . import menus, tactics, vision
 from .tactics import (
     CLEAR_DISCONNECT_MODAL,
     IDLE,
 )
-from .tutorial import TutorialDriver, TutorialStep
 from .video import VideoRecorder
 from .tactics import (
     Action,
@@ -149,8 +148,7 @@ class GameRunner:
     def __init__(self, device: Any, context: Any, userinterface: str, tree_id: str,
                  config: Optional[RunnerConfig] = None,
                  ocr: Optional[OCRFn] = None,
-                 video: Optional[VideoRecorder] = None,
-                 tutorial_driver: Optional[TutorialDriver] = None):
+                 video: Optional[VideoRecorder] = None):
         if not userinterface.startswith(UI_PREFIX):
             raise ValueError(f"userinterface must start with '{UI_PREFIX}', got {userinterface!r}")
         if config is None:
@@ -168,9 +166,6 @@ class GameRunner:
             run_id = "coc_run_" + str(int(time.time()))
             video = VideoRecorder(device, run_id=run_id)
         self.video = video
-        # §81.1.10 tutorial driver. When None, the runner auto-creates one;
-        # tests inject a scripted driver for synthetic state machines.
-        self.tutorial_driver = tutorial_driver or TutorialDriver()
 
         # Hard guard against enabling the Attack path. TASK-81 §81.1 says
         # the runner MUST refuse Attack; the only place that flag would
@@ -178,7 +173,7 @@ class GameRunner:
         # on principle (the script is the only layer that can read it for
         # ad-hoc testing on a non-farming account).
         if config.attack_opt_in:
-            log.warning("attack_opt_in=True ignored: TASK-81 §81.1 refuses the Attack button")
+            log.warning("attack_opt_in=True ignored: the Attack button is refused")
 
         self.data: Dict[str, Any] = {
             "userinterface": userinterface,
@@ -207,11 +202,6 @@ class GameRunner:
             "transition_cycles": 0,
             "plan_priority": tactics.priority_chain_description(),
             "buy_surface_refused": 0,
-            # §81.1.10 tutorial driver state
-            "tutorial_dialogs_seen": 0,
-            "tutorial_complete": False,
-            "tutorial_current_step": self.tutorial_driver.step_current or "",
-            "tutorial_past_steps": [],
         }
 
         # Action log: every cycle + every screen change + every guard trip.
@@ -343,160 +333,6 @@ class GameRunner:
         elif action.name == DAILY_COLLECT:
             self.data["dailies_collected"] += 1
 
-    # --- §81.1.10 tutorial routing ------------------------------------------
-
-    def _handle_tutorial(self, img: Any, cycle_index: int, started: float) -> str:
-        """One cycle on the tutorial dialog screen.
-
-        Reads the bubble text (OCR via ``self.ocr``), feeds it to the
-        ``TutorialDriver``, executes the step's action via the menu
-        executor when one is set, and logs the event.
-
-        Always returns ``"continue"``: tutorial advances are paced by
-        the dialog itself, not by the bot's cycle budget.
-        """
-        td = self.tutorial_driver
-        # OCR the bubble box only when the bubble is painted -- otherwise
-        # we just hit "step_held bubble_not_painted".
-        crop = vision.crop_tutorial_bubble(img)
-        text = ""
-        if crop is not None and getattr(crop, "size", 0):
-            text = self.ocr(crop) or ""
-        result = td.observe(text or "", painted=text != "" or vision.detect_tutorial_dialog(img))
-        self.data["tutorial_dialogs_seen"] += 1
-        self.data["tutorial_current_step"] = td.step_current or ""
-        self.data["tutorial_past_steps"] = list(td.past_steps)
-        self.data["tutorial_complete"] = td.is_complete()
-
-        # Log + dispatch
-        action_result: Dict[str, Any] = {"observed": result, "text": (text or "")[:200]}
-        if td.require_manual_handoff():
-            self._log("tutorial_manual_handoff", cycle_index,
-                      step=td.step_current,
-                      description=td.step_description(),
-                      text=(text or "")[:120])
-            # do not fire actions on a manual step
-            self.record_step(
-                "§81.1.10 manual handoff — operator must take over",
-                True, "tutorial",
-                {"tutorial": td.snapshot(), "observed": result,
-                 "text": (text or "")[:200]},
-                self.evidence(f"coc_tutorial_{cycle_index:04d}_manual"),
-                started, label="tutorial_manual",
-            )
-            return "continue"
-
-        action = td.step_action()
-        params = td.step_action_params()
-        if action is None:
-            self._log("tutorial_dialog_seen", cycle_index,
-                      step=td.step_current,
-                      event_kind=result.get("event"),
-                      observed=result,
-                      text=(text or "")[:120])
-            self.record_step(
-                f"§81.1.10 tutorial: {td.step_description()}",
-                True, "tutorial",
-                {"tutorial": td.snapshot(), "observed": result,
-                 "text": (text or "")[:200]},
-                self.evidence(f"coc_tutorial_{cycle_index:04d}_text"),
-                started, label="tutorial_text",
-            )
-            return "continue"
-
-        # Tap / swipe the action the step asks for. The runner never
-        # dispatches UI-tree nodes from inside the tutorial -- we go
-        # straight to the action executor so the input bypasses vptree
-        # (the dock + bubble taps aren't tree nodes).
-        tap_actions = self._tutorial_action_batch(action, params)
-        success = False
-        if tap_actions:
-            run = self.run_actions(tap_actions)
-            success = bool(run.get("success"))
-            action_result["actions_fired"] = tap_actions
-            action_result["run_result"] = run
-
-        # §81.1.10 step transition: when the action succeeded and the
-        # step has a successor, advance. We do NOT wait for the bubble
-        # to re-render -- the next observation cycle will re-validate.
-        advance_event: Optional[Dict[str, Any]] = None
-        if success:
-            advance_event = td.advance_to_next()
-            action_result["advance"] = advance_event
-            self.data["tutorial_current_step"] = td.step_current or ""
-            self.data["tutorial_past_steps"] = list(td.past_steps)
-            self.data["tutorial_complete"] = td.is_complete()
-
-        kind = result.get("event", "step_advanced")
-        self._log("tutorial_action_fired" if success else "tutorial_action_failed",
-                  cycle_index, step=td.step_current,
-                  action=action, params=params, success=success,
-                  observed_event=kind, advance=advance_event)
-        self.record_step(
-            f"§81.1.10 {action}: {td.step_description()}",
-            success, "tutorial",
-            {"tutorial": td.snapshot(), "observed": result,
-             "action": action, "params": params,
-             "actions_fired": tap_actions, "text": (text or "")[:200],
-             "advance": advance_event},
-            self.evidence(f"coc_tutorial_{cycle_index:04d}_{action}"),
-            started, label="tutorial_action",
-        )
-        if kind == "step_advanced":
-            self._log("tutorial_step_advanced", cycle_index,
-                      from_step=result.get("from"),
-                      to_step=result.get("to"),
-                      to_manual=bool(result.get("manual")))
-        if advance_event and advance_event.get("event") == "tutorial_complete":
-            self._log("tutorial_complete", cycle_index,
-                      past=list(td.past_steps))
-        return "continue"
-
-    def _tutorial_action_batch(self, action: str, params: Dict[str, Any]
-                               ) -> List[Dict[str, Any]]:
-        """Translate a tutorial step into one action_executor batch."""
-        if action == "tap_bubble":
-            xy = params.get("bubble_xy") or (640, 480)
-            return [{"command": "tap_coordinates", "action_type": "android_mobile",
-                     "params": {"x": int(xy[0]), "y": int(xy[1]), "wait_time": 0}}]
-        if action == "tap_dock_card":
-            name = params.get("name")
-            from .tutorial import DOCK_CARD_SLOTS
-            xy = DOCK_CARD_SLOTS.get(name)
-            if xy is None:
-                return []
-            return [{"command": "tap_coordinates", "action_type": "android_mobile",
-                     "params": {"x": int(xy[0]), "y": int(xy[1]), "wait_time": 0}}]
-        if action == "swipe_dock_to_grass":
-            from_xy = params.get("from_xy") or (640, 480)
-            to_xy = params.get("to_xy") or tutorial.GRASS_DROP_XY
-            # The android_mobile swipe handler reads params from
-            # ``params.get('from_x'|'from_y'|'to_x'|'to_y')`` -- NOT
-            # ``x1/y1/x2/y2`` like the menu plans use. Wrong keys
-            # silently fail with ``{'success': False}`` and never call
-            # the underlying adb swipe.
-            return [{"command": "swipe", "action_type": "android_mobile",
-                     "params": {"from_x": int(from_xy[0]),
-                                "from_y": int(from_xy[1]),
-                                "to_x": int(to_xy[0]),
-                                "to_y": int(to_xy[1]),
-                                "duration": 600}}]
-        if action == "auto_advance":
-            # Multi-tap sequence with per-tap wait_time. The action
-            # executor runs these sequentially with the wait_time as
-            # the delay between consecutive taps. Used for the
-            # attack_tutorial + join_clan steps where the game flow
-            # is "tap a button, wait for the screen, tap the next
-            # button" -- a single tap isn't enough.
-            taps = params.get("taps") or []
-            return [
-                {"command": "tap_coordinates", "action_type": "android_mobile",
-                 "params": {"x": int(t["x"]), "y": int(t["y"]),
-                            "wait_time": int(t.get("wait_time", 1000))}}
-                for t in taps
-            ]
-        return []
-
     # --- event log ------------------------------------------------------------
 
     def _log(self, kind: str, cycle_index: int, **fields: Any) -> None:
@@ -604,12 +440,6 @@ class GameRunner:
                   account_warning_present=bool(getattr(obs, "account_warning_present", None)))
 
         self._try_update_resource_deltas(obs)
-
-        # §81.1.10: tutorial screen supersedes the §81.1.2 chain. While
-        # the tutorial is in progress we route every cycle through the
-        # TutorialDriver instead of decide_next().
-        if getattr(obs, "screen", None) == "tutorial":
-            return self._handle_tutorial(img, cycle_index, started)
 
         action = tactics.decide_next(obs)
         self._log("decision", cycle_index,
@@ -883,9 +713,6 @@ def kpi_metadata(data: Dict[str, Any]) -> Dict[str, Any]:
         # §81.1.9 run video
         "run_video_path", "run_video_r2_url",
         "run_video_chunk_count", "run_video_disabled_reason",
-        # §81.1.10 tutorial
-        "tutorial_dialogs_seen", "tutorial_complete",
-        "tutorial_current_step", "tutorial_past_steps",
     )
     out = {k: data[k] for k in keys if k in data}
     if "event_log" in data:

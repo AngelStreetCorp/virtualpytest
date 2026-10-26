@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy) — most likely cause, not reproduced   |
 | Severity  | Medium — the page shows one device while a run drives another |
 | Area      | `frontend/src/hooks/controller/useStream.ts` (every stream preview) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

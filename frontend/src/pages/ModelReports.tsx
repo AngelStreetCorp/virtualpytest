@@ -17,7 +17,6 @@ import {
   TableRow,
   Paper,
   Chip,
-  CircularProgress,
   Alert,
   ToggleButton,
   ToggleButtonGroup,
@@ -36,7 +35,9 @@ import { useUserInterface } from '../hooks/pages/useUserInterface';
 import { useMetrics } from '../hooks/navigation/useMetrics';
 import { useAgentChatPalette } from '../constants/agentChatTheme';
 import { PageTitle, StatTiles, pageSurfaceSx, rateColor, segmentedSx } from '../components/common/PageChrome';
+import { TableRowsSkeleton, ValueSkeleton } from '../components/common/ReportSkeleton';
 import { buildServerUrl } from '../utils/buildUrlUtils';
+import { TYPOGRAPHY } from '../constants/typography';
 
 type FilterType = 'all' | 'action' | 'verification';
 
@@ -333,8 +334,20 @@ const ModelReports: React.FC = () => {
     };
   }, [filteredResults, metricsHook]);
 
-  const successRate = totalVolume > 0 ? ((totalSuccessful / totalVolume) * 100).toFixed(1) : 'N/A';
-  const avgDuration = totalVolume > 0 ? formatDuration(totalExecutionTime / totalVolume) : 'N/A';
+  // `null` means "nothing to compute from" — true before the first load lands and on an empty
+  // result set alike. That is neither a rate of zero nor a failure, so it must not fall through
+  // the rate thresholds into the error colour (UI_STYLE §10 S6): `Number('N/A')` is `NaN`, and
+  // every comparison against `NaN` is false, so `rateColor` returned `P.error`.
+  const successRate: number | null =
+    totalVolume > 0 ? (totalSuccessful / totalVolume) * 100 : null;
+  const avgDuration: string | null =
+    totalVolume > 0 ? formatDuration(totalExecutionTime / totalVolume) : null;
+
+  // Every number in the tile row is unknown while the first load is in flight, so each value
+  // slot takes a grey bar and the labels stay readable — the page does not greet the user with
+  // a row of 0s.
+  const tileValue = (node: React.ReactNode, width = 44) =>
+    loading ? <ValueSkeleton width={width} height={22} /> : node;
 
   // Separate by execution type (for current interface stats)
   const actionExecutions = executionResults.filter((result) => result.execution_type === 'action');
@@ -377,14 +390,6 @@ const ModelReports: React.FC = () => {
       hour12: false 
     });
   }
-
-  // Loading state component
-  const LoadingState = () => (
-    <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-      <CircularProgress />
-    </Box>
-  );
-
 
   return (
     <Box sx={pageSurfaceSx(P)}>
@@ -443,7 +448,7 @@ const ModelReports: React.FC = () => {
       {!selectedUserInterface ? (
         <Card>
           <CardContent sx={{ py: 6, textAlign: 'center' }}>
-            <ModelIcon sx={{ fontSize: 48, color: P.accentText, mb: 1 }} />
+            <ModelIcon sx={{ fontSize: TYPOGRAPHY.displayKpi.size, color: P.accentText, mb: 1 }} />
             <Typography variant="h6" color="text.secondary" gutterBottom>
               Select User Interface to Analyze
             </Typography>
@@ -458,15 +463,19 @@ const ModelReports: React.FC = () => {
           {/* Quick Stats */}
           <StatTiles
             tiles={[
-              { label: filter === 'all' ? 'Elements' : 'Filtered elements', value: totalElements },
-              { label: 'Executions', value: totalVolume },
-              { label: 'This week', value: thisWeekCount },
-              { label: 'Success rate', value: `${successRate}%`, color: rateColor(Number(successRate), P) },
-              { label: 'Avg duration', value: avgDuration },
+              { label: filter === 'all' ? 'Elements' : 'Filtered elements', value: tileValue(totalElements, 34) },
+              { label: 'Executions', value: tileValue(totalVolume, 34) },
+              { label: 'This week', value: tileValue(thisWeekCount, 34) },
+              {
+                label: 'Success rate',
+                value: tileValue(successRate === null ? '—' : `${successRate.toFixed(1)}%`, 56),
+                color: successRate === null ? P.textMuted : rateColor(successRate, P),
+              },
+              { label: 'Avg duration', value: tileValue(avgDuration ?? '—', 48) },
               ...(filter === 'all'
                 ? [
-                    { label: 'Edges', value: actionExecutions.length },
-                    { label: 'Nodes', value: verificationExecutions.length },
+                    { label: 'Edges', value: tileValue(actionExecutions.length, 34) },
+                    { label: 'Nodes', value: tileValue(verificationExecutions.length, 34) },
                   ]
                 : []),
             ]}
@@ -491,7 +500,7 @@ const ModelReports: React.FC = () => {
                 title="Only elements below 100% success"
                 sx={{ minWidth: 'auto', px: 1, textTransform: 'none', borderRadius: 2, '&.Mui-selected': { color: P.accentText, bgcolor: `${P.accent}26`, borderColor: P.accent } }}
               >
-                <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
+                <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                   ≠100%
                 </Typography>
               </ToggleButton>
@@ -504,7 +513,7 @@ const ModelReports: React.FC = () => {
                 title="Only elements never executed"
                 sx={{ minWidth: 'auto', px: 1, textTransform: 'none', borderRadius: 2, '&.Mui-selected': { color: P.accentText, bgcolor: `${P.accent}26`, borderColor: P.accent } }}
               >
-                <Typography variant="caption" sx={{ fontSize: '0.7rem' }}>
+                <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
                   Vol=0
                 </Typography>
               </ToggleButton>
@@ -574,11 +583,13 @@ const ModelReports: React.FC = () => {
               </TableHead>
               <TableBody>
                 {loading ? (
-                  <TableRow>
-                    <TableCell colSpan={10}>
-                      <LoadingState />
-                    </TableCell>
-                  </TableRow>
+                  /* Same shape as the live table: 10 columns, the expand control first and the
+                     Report action last, both icon-sized. */
+                  <TableRowsSkeleton
+                    rows={8}
+                    widths={[null, '56%', '52%', '64%', '72%', '64%', '68%', '70%', '74%', null]}
+                    rowHeight={46}
+                  />
                 ) : filteredResults.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={10} sx={{ textAlign: 'center', py: 4 }}>
@@ -642,7 +653,7 @@ const ModelReports: React.FC = () => {
                               label={result.execution_type === 'action' ? 'Edge' : 'Node'}
                               size="small"
                               variant="outlined"
-                              sx={{ height: 22, fontSize: '0.72rem', borderColor: P.borderColor, color: P.textSecondary, '& .MuiChip-icon': { fontSize: 15, color: P.accentText } }}
+                              sx={{ height: 22, fontSize: TYPOGRAPHY.caption.size, borderColor: P.borderColor, color: P.textSecondary, '& .MuiChip-icon': { fontSize: TYPOGRAPHY.navbarItem.size, color: P.accentText } }}
                             />
                           </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
@@ -677,7 +688,7 @@ const ModelReports: React.FC = () => {
                               variant="body2" 
                               sx={{ 
                                 fontWeight: 'bold',
-                                fontSize: '0.9rem',
+                                fontSize: TYPOGRAPHY.navbarItem.size,
                                 color: (metrics?.volume || 0) === 0 ? 'text.secondary' : 
                                        (metrics?.confidence || 0) >= 0.7 ? P.success : (metrics?.confidence || 0) >= 0.5 ? P.warning : P.error
                               }}
@@ -687,7 +698,7 @@ const ModelReports: React.FC = () => {
                           </Box>
                         </TableCell>
                         <TableCell sx={{ py: 0.5 }}>
-                          <Typography variant="body2" sx={{ fontSize: '0.75rem', whiteSpace: 'nowrap' }}>
+                          <Typography variant="body2" sx={{ fontSize: TYPOGRAPHY.caption.size, whiteSpace: 'nowrap' }}>
                             {formatDate(result.executed_at)}
                           </Typography>
                         </TableCell>
@@ -700,7 +711,7 @@ const ModelReports: React.FC = () => {
                               sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: P.accentText }}
                             >
                               Report
-                              <OpenInNew sx={{ fontSize: 14 }} />
+                              <OpenInNew sx={{ fontSize: TYPOGRAPHY.body.size }} />
                             </Link>
                           ) : (
                             <Typography variant="body2" color="text.secondary">

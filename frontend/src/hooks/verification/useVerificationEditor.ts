@@ -7,7 +7,7 @@ import { useToastContext } from '../../contexts/ToastContext';
 
 import { useVerification } from './useVerification';
 
-import { buildServerUrl } from '../../utils/buildUrlUtils';
+import { buildHostServerUrl } from '../../utils/buildUrlUtils';
 import { api, apiClient } from '../../utils/apiClient';
 
 // Helper to round area coordinates to 2 decimal places
@@ -305,7 +305,7 @@ export const useVerificationEditor = ({
         console.log(
           '[@hook:useVerificationEditor] Using processImage endpoint with processing options',
         );
-        captureResponse = await apiClient(buildServerUrl(`/server/verification/image/processImage`), {
+        captureResponse = await apiClient(buildHostServerUrl(selectedHost, `/server/verification/image/processImage`), {
           method: 'POST',
           body: JSON.stringify({
             host_name: selectedHost.host_name, // Send full host object
@@ -320,7 +320,7 @@ export const useVerificationEditor = ({
         });
       } else {
         console.log('[@hook:useVerificationEditor] Using standard cropImage endpoint');
-        captureResponse = await apiClient(buildServerUrl(`/server/verification/image/cropImage`), {
+        captureResponse = await apiClient(buildHostServerUrl(selectedHost, `/server/verification/image/cropImage`), {
           method: 'POST',
           body: JSON.stringify({
             host_name: selectedHost.host_name, // Send full host object
@@ -432,7 +432,7 @@ export const useVerificationEditor = ({
         console.log(
           '[@hook:useVerificationEditor] Saving text reference using processed image from detectText',
         );
-        const result = await api.post(buildServerUrl('/server/verification/text/saveText'), {
+        const result = await api.post(buildHostServerUrl(selectedHost, '/server/verification/text/saveText'), {
           host_name: selectedHost.host_name,
           device_id: selectedDeviceId,
           reference_name: referenceName,
@@ -505,7 +505,7 @@ export const useVerificationEditor = ({
 
         if (imageProcessingOptions.autocrop || imageProcessingOptions.removeBackground) {
           console.log('[@hook:useVerificationEditor] Capturing with processing options for save');
-          captureResponse = await apiClient(buildServerUrl(`/server/verification/image/processImage`), {
+          captureResponse = await apiClient(buildHostServerUrl(selectedHost, `/server/verification/image/processImage`), {
             method: 'POST',
             body: JSON.stringify({
               host_name: selectedHost.host_name,
@@ -520,7 +520,7 @@ export const useVerificationEditor = ({
           });
         } else {
           console.log('[@hook:useVerificationEditor] Capturing without processing for save');
-          captureResponse = await apiClient(buildServerUrl(`/server/verification/image/cropImage`), {
+          captureResponse = await apiClient(buildHostServerUrl(selectedHost, `/server/verification/image/cropImage`), {
             method: 'POST',
             body: JSON.stringify({
               host_name: selectedHost.host_name,
@@ -542,7 +542,7 @@ export const useVerificationEditor = ({
         }
 
         // Image references: Single call uploads to R2 and saves to database
-        const result = await api.post(buildServerUrl('/server/verification/image/saveImage'), {
+        const result = await api.post(buildHostServerUrl(selectedHost, '/server/verification/image/saveImage'), {
           host_name: selectedHost.host_name,
           device_id: selectedDeviceId, // MUST include device_id to find file in correct captures folder
           reference_name: referenceName,
@@ -654,7 +654,7 @@ export const useVerificationEditor = ({
       const sourceFilename = captureSourcePath.split('/').pop() || '';
       console.log('[@hook:useVerificationEditor] Extracted source filename:', sourceFilename);
 
-      const result = await api.post(buildServerUrl(`/server/verification/text/detectText`), {
+      const result = await api.post(buildHostServerUrl(selectedHost, `/server/verification/text/detectText`), {
         host_name: selectedHost.host_name, // Send full host object
         device_id: selectedDeviceId, // Add missing device_id parameter
         userinterface_name: userinterfaceName,

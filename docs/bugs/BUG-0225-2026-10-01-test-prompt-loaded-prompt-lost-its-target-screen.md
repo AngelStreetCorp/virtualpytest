@@ -9,7 +9,7 @@
 | Status    | Fixed — deployed and verified 2026-10-01                     |
 | Severity  | High — Explore from the page pre-navigates to the tree's root instead of the target and fails; Save then stores the prompt without its target |
 | Area      | `features/ai-test/frontend/hooks/useTestPromptPage.ts` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                  |
 
 ---

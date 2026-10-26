@@ -351,6 +351,12 @@ export const loadRemoteConfig = (deviceModel: string, irType?: string): any => {
       case 'vega':
         config = getInfraredRemoteConfig('fire_tv');
         break;
+      // Samsung Tizen TV (samsung_tizen network remote): reuse the Samsung IR remote picture;
+      // keys are sent over the websocket by the host's samsung_tizen controller, not IR.
+      case 'tizen':
+      case 'samsung_tizen':
+        config = getInfraredRemoteConfig('samsung');
+        break;
       case 'nintendo_switch':
         config = nintendoSwitchRemoteConfig;
         break;

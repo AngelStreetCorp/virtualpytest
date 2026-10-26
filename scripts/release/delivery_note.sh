@@ -17,17 +17,20 @@
 #   --pin <ref>       platform ref being delivered (tag, branch or sha)
 #   --prev-pin <ref>  platform ref the customer runs TODAY. Omitted = read it from the
 #                     previous release-* tag's customer.conf in --overlay; none found = the
-#                     delivery is treated as a first install (no delta, no upgrade block)
+#                     note has the table and a "changelog unavailable" line (zip sources
+#                     have no history; VPT_CORE_SOURCE=zip names them in that line)
 #   --overlay <dir>   customer overlay clone (for --prev-pin auto-detect and overlay version)
 #   --manifest <file> BUNDLE_MANIFEST.txt to take the feature lists from
 #   --archive <file>  the built archive, to name it with its size and sha256
 #
+# The changelog carries Features and Improvements, Bug fixes and Security; `### Internal` entries
+# are dropped (format_changes.py), so the customer reads what changed for them.
 # Writes markdown to stdout. Reads git only; never ssh-es, never writes into either repo.
 set -euo pipefail
 
 REPO_DIR="${REPO_DIR:-${HOME}/virtualpytest}"
 PIN="" PREV_PIN="" OVERLAY_DIR="" MANIFEST="" ARCHIVE="" PREV_TAG=""
-usage() { sed -n '2,25p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n "2,27p" "$0" | sed 's/^# \{0,1\}//'; }
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --pin)       [[ $# -gt 1 ]] || { echo "--pin needs a value" >&2; exit 1; }; PIN="$2"; shift ;;
@@ -86,9 +89,13 @@ if [[ -z "${PREV_PIN}" ]]; then
     [[ -z "${PREV_PIN}" ]] || PREV_SOURCE="the build tag before it"
   fi
 fi
-if [[ -z "${PREV_PIN}" ]]; then
-  echo "cannot resolve the previous release: pass --prev-pin <ref>." >&2
-  exit 1
+# No previous release to compare against (a zip source is one commit, no tags, no history), or
+# one that this checkout cannot resolve: the note still opens on the delivery table, then says
+# the changelog and rollout checklist are unavailable, instead of failing the whole note.
+NO_CHANGELOG=false
+if [[ -z "${PREV_PIN}" ]] || ! g rev-parse -q --verify "${PREV_PIN}^{commit}" >/dev/null 2>&1; then
+  NO_CHANGELOG=true
+  PREV_PIN=""
 fi
 PREV_BUILD="$(build_of "$(version_at "${PREV_PIN}")")"
 [[ -n "${PREV_BUILD}" ]] || PREV_BUILD="$(build_of "${PREV_PIN}")"
@@ -122,6 +129,15 @@ if [[ -n "${ARCHIVE}" && -f "${ARCHIVE}" ]]; then
   printf '| sha256 | `%s` |\n' "${s}"
 fi
 printf '\n'
+
+if ${NO_CHANGELOG}; then
+  if [[ "${VPT_CORE_SOURCE:-}" == zip ]]; then
+    printf '**Changelog unavailable (zip source)** — a zip carries no release history, so there is nothing to compare with the release you run today. Read `BUNDLE_MANIFEST.txt` for what is in this bundle; run `bash ~/update_core.sh` after unpacking.\n'
+  else
+    printf '**Changelog unavailable** — no previous release could be resolved. Pass `--prev-pin <ref>` to get the changelog and rollout checklist.\n'
+  fi
+  exit 0
+fi
 
 PLATFORM_MOVED=true
 [[ "$(version_at "${PREV_PIN}")" != "${PIN_VERSION}" ]] || PLATFORM_MOVED=false

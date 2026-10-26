@@ -69,8 +69,8 @@ if [ -n "$HOST_CAPTURE_PATH" ]; then
     echo "   ✓ Found host: HOST -> $HOST_CAPTURE_PATH"
 fi
 
-# Check for regular devices (dynamically detect up to 30)
-for i in {1..30}; do
+# Check for regular devices (dynamically detect up to MAX_DEVICES, default 99)
+for i in $(seq 1 "${MAX_DEVICES:-99}"); do  # DEVICE1..DEVICE99 by default (MAX_DEVICES overrides)
     DEVICE_CAPTURE_PATH=$(env_value "DEVICE${i}_VIDEO_CAPTURE_PATH")
 
     if [ -n "$DEVICE_CAPTURE_PATH" ]; then

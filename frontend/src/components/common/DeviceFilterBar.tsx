@@ -1,4 +1,5 @@
-import { Refresh as RefreshIcon, Search as SearchIcon, Clear as ClearIcon } from '@mui/icons-material';
+import { Tune as TuneIcon, ExpandMore as ExpandMoreIcon, Refresh as RefreshIcon, Search as SearchIcon, Clear as ClearIcon } from '@mui/icons-material';
+import { TargetDropdown, TARGET_ROW_SX, TARGET_CHECKBOX_SX, renderSelectedValues } from './TargetDropdown';
 import {
   Box,
   Stack,
@@ -18,10 +19,15 @@ import {
   TextField,
   InputAdornment,
   IconButton,
+  Popover,
 } from '@mui/material';
 import React, { useMemo, useState } from 'react';
 
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { DeviceKey } from '../../hooks/useDeviceFavorites';
+import { hasNonDefaultProfile, narrowFilterOptions, profileShortName, type ReachableFilterOptions } from '../../hooks/useDeviceFilters';
 import { useI18n } from '../../i18n/useI18n';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export type FlagMatchMode = 'AND' | 'OR';
 
@@ -32,11 +38,20 @@ export interface DeviceFilterBarProps {
   onDeviceModelFilterChange: (value: string[]) => void;
   flagFilter: string[];
   onFlagFilterChange: (value: string[]) => void;
+  // Monitoring profile (TASK-90). The select only renders when a device runs a
+  // non-default profile (or one is already picked), so a fleet of tv_app devices
+  // keeps the bar exactly as it was.
+  profileFilter?: string[];
+  onProfileFilterChange?: (value: string[]) => void;
+  uniqueProfiles?: string[];
   // AND = device must carry every selected tag; OR = any one tag. Defaults to
   // 'AND'. Surfaced as a small toggle inside the tag dropdown.
   flagMatchMode?: FlagMatchMode;
   onFlagMatchModeChange?: (mode: FlagMatchMode) => void;
   targetOptions: string[];
+  // Target label -> the (host, device) it stands for. Favorites (TASK-99) are keyed by device,
+  // the targets are labels; without this map the bar shows no stars.
+  targetKeys?: Record<string, DeviceKey>;
   uniqueDeviceModels: string[];
   uniqueFlags: string[];
   hasActiveFilters: boolean;
@@ -46,24 +61,25 @@ export interface DeviceFilterBarProps {
   disableRestart?: boolean;
   isMobile?: boolean;
   targetPlaceholder?: string;
+  /**
+   * Values that survive the *other* filters (BUG-0829). The parent passes the
+   * option lists narrowed to what the current selection can still reach; this
+   * bar applies them to its own lists so no control ever offers a combination
+   * that empties the grid. Omitted (Dashboard bootstrap, tests) = show
+   * everything, which is the pre-BUG-0829 behaviour.
+   */
+  reachableOptions?: Partial<ReachableFilterOptions>;
 }
 
 const MENU_PROPS = {
   PaperProps: { sx: { maxHeight: 300 } },
 };
 
-// Targets menu carries an in-menu search box. autoFocus:false stops MUI from
-// auto-focusing a MenuItem: MenuList hands `autoFocus` to the first non-header
-// child, and every keystroke re-filters the list so a *different* MenuItem
-// mounts with that prop and steals focus from the search box after one char.
-// The TextField's own autoFocus still focuses it when the menu opens.
-const TARGET_MENU_PROPS = {
-  ...MENU_PROPS,
-  autoFocus: false,
+// Slightly smaller than the default 1rem so the dropdowns sit just above the "View" switch.
+const FILTER_SELECT_SX = {
+  fontSize: TYPOGRAPHY.body.size,
+  '& .MuiSelect-select': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: TYPOGRAPHY.body.size, py: '6px' },
 };
-
-const renderSelectedValues = (selected: string[], allLabel: string) =>
-  (selected as string[]).length === 0 ? allLabel : (selected as string[]).join(', ');
 
 export const DeviceFilterBar: React.FC<DeviceFilterBarProps> = ({
   targetFilter,
@@ -72,9 +88,13 @@ export const DeviceFilterBar: React.FC<DeviceFilterBarProps> = ({
   onDeviceModelFilterChange,
   flagFilter,
   onFlagFilterChange,
+  profileFilter = [],
+  onProfileFilterChange,
+  uniqueProfiles = [],
   flagMatchMode = 'AND',
   onFlagMatchModeChange,
   targetOptions,
+  targetKeys,
   uniqueDeviceModels,
   uniqueFlags,
   hasActiveFilters,
@@ -84,291 +104,101 @@ export const DeviceFilterBar: React.FC<DeviceFilterBarProps> = ({
   disableRestart = false,
   isMobile = false,
   targetPlaceholder = 'All Targets',
+  reachableOptions,
 }) => {
   const { t } = useI18n();
-  // Free-text search lives *inside* the Targets dropdown so it costs no
-  // horizontal row space. It narrows the option list shown; selection still
-  // happens via the checkboxes below.
-  const [targetSearch, setTargetSearch] = useState('');
-  const visibleTargetOptions = useMemo(() => {
-    const q = targetSearch.trim().toLowerCase();
-    if (!q) return targetOptions;
-    return targetOptions.filter((option) => option.toLowerCase().includes(q));
-  }, [targetOptions, targetSearch]);
+  const P = useAgentChatPalette();
 
-  // Select-all / clear act on the *visible* (searched) options only, so they
-  // stay predictable when a search narrows the list. Selecting merges with the
-  // current selection; clearing removes just the visible ones, preserving any
-  // selection hidden by the active search.
-  const allVisibleSelected =
-    visibleTargetOptions.length > 0 &&
-    visibleTargetOptions.every((option) => targetFilter.includes(option));
+  // Drop what the current selection can no longer reach (BUG-0829). Each axis
+  // keeps its own selected values so a pick stays removable, and the incoming
+  // (sorted) order is preserved.
+  //
+  // Targets are deliberately NOT narrowed. The target filter is a union, so
+  // picking another target can only widen the result — it is never a dead end,
+  // and BUG-0822 gave the bar under the search box one absolute meaning
+  // ("Select all" takes every target, "Clear" drops every target). Narrowing
+  // the target list would quietly break that rule while fixing nothing. Only
+  // the three AND axes below can empty the grid, so only they are narrowed.
+  const models = useMemo(
+    () => narrowFilterOptions(uniqueDeviceModels, reachableOptions?.models ?? uniqueDeviceModels, deviceModelFilter),
+    [uniqueDeviceModels, reachableOptions?.models, deviceModelFilter],
+  );
+  const profiles = useMemo(
+    () => narrowFilterOptions(uniqueProfiles, reachableOptions?.profiles ?? uniqueProfiles, profileFilter),
+    [uniqueProfiles, reachableOptions?.profiles, profileFilter],
+  );
+  const flags = useMemo(
+    () => narrowFilterOptions(uniqueFlags, reachableOptions?.flags ?? uniqueFlags, flagFilter),
+    [uniqueFlags, reachableOptions?.flags, flagFilter],
+  );
 
-  const handleSelectAllVisible = () => {
-    onTargetFilterChange(Array.from(new Set([...targetFilter, ...visibleTargetOptions])));
-  };
-  const handleClearVisible = () => {
-    const visible = new Set(visibleTargetOptions);
-    onTargetFilterChange(targetFilter.filter((option) => !visible.has(option)));
-  };
+  const [moreAnchor, setMoreAnchor] = useState<HTMLElement | null>(null);
+  const moreActiveCount =
+    (deviceModelFilter.length > 0 ? 1 : 0) + (profileFilter.length > 0 ? 1 : 0) + (flagFilter.length > 0 ? 1 : 0);
 
-  // Group targets by host so a single click can toggle every device on that
-  // host. Targets are formatted as "device_name - host_name" for regular
-  // devices, or just "host_name" for host-only entries (VNC desktops, *_Host);
-  // the last " - " separator is the safe split point in both cases.
-  const TARGET_HOST_SEP = ' - ';
-  const hostGroups = useMemo(() => {
-    const byHost = new Map<string, string[]>();
-    targetOptions.forEach((option) => {
-      const idx = option.lastIndexOf(TARGET_HOST_SEP);
-      const host = idx >= 0 ? option.slice(idx + TARGET_HOST_SEP.length) : option;
-      if (!byHost.has(host)) byHost.set(host, []);
-      byHost.get(host)!.push(option);
-    });
-    // Narrow the displayed pills to hosts with at least one target that
-    // matches the active search. The pill still owns the full host's target
-    // list so a click toggles the complete rack even when only some targets
-    // are currently visible — see handleToggleHost. Without this filter the
-    // pill row contradicts the search box: typing "mf1" would still show
-    // pills for vpt-pi1 / vpt-pi3 alongside the vpt-mf1 result.
-    const visibleSet = new Set(visibleTargetOptions);
-    return Array.from(byHost.entries())
-      .filter(([, targets]) => targets.length >= 2)
-      .filter(([, targets]) => targets.some((t) => visibleSet.has(t)))
-      .map(([host, targets]) => ({
-        host,
-        targets,
-        selectedCount: targets.filter((t) => targetFilter.includes(t)).length,
-      }))
-      .sort((a, b) => a.host.localeCompare(b.host));
-  }, [targetOptions, visibleTargetOptions, targetFilter]);
+  // Desktop "More" popover: a category rail (Models / Profiles / Tags) on the left and the
+  // checkbox list of the active category on the right, same shape as the Targets popover.
+  const [moreCategory, setMoreCategory] = useState<'models' | 'profiles' | 'tags'>('models');
+  const moreCategories = [
+    { key: 'models' as const, label: t('Models'), options: models, selected: deviceModelFilter, onChange: onDeviceModelFilterChange },
+    ...(onProfileFilterChange && (hasNonDefaultProfile(profiles) || profileFilter.length > 0)
+      ? [{ key: 'profiles' as const, label: t('Profiles'), options: profiles, selected: profileFilter, onChange: onProfileFilterChange }]
+      : []),
+    { key: 'tags' as const, label: t('Tags'), options: flags, selected: flagFilter, onChange: onFlagFilterChange },
+  ];
+  const activeCategory = moreCategories.find((c) => c.key === moreCategory) ?? moreCategories[0];
+  const [moreSearch, setMoreSearch] = useState('');
+  const moreVisible = useMemo(() => {
+    const q = moreSearch.trim().toLowerCase();
+    return q ? activeCategory.options.filter((o) => (activeCategory.key === 'profiles' ? `${o} ${profileShortName(o)}` : o).toLowerCase().includes(q)) : activeCategory.options;
+  }, [activeCategory, moreSearch]);
 
-  // Click toggles ALL targets on the host (not just the visible/searched
-  // ones). Empty or partial → select all. Filled → deselect all.
-  const handleToggleHost = (targets: string[]) => {
-    const allSelected = targets.every((t) => targetFilter.includes(t));
-    if (allSelected) {
-      const removed = new Set(targets);
-      onTargetFilterChange(targetFilter.filter((t) => !removed.has(t)));
-    } else {
-      onTargetFilterChange(Array.from(new Set([...targetFilter, ...targets])));
-    }
-  };
-
-  return (
-    <Stack
-      direction="row"
-      spacing={1}
-      sx={{
-        alignItems: 'center',
-        width: isMobile ? '100%' : 'auto',
-        flexWrap: 'nowrap',
-        overflowX: isMobile ? 'auto' : 'visible',
-        pb: isMobile ? 0.5 : 0,
-        '&::-webkit-scrollbar': { display: 'none' },
-      }}
-    >
-      {onRestart && !isMobile && (
-        <Button
-          variant="outlined"
-          size="small"
-          startIcon={isRestarting ? <CircularProgress size={16} /> : <RefreshIcon />}
-          onClick={onRestart}
-          disabled={isRestarting || disableRestart}
-          sx={{ height: 32, minWidth: 110, flexShrink: 0 }}
-        >
-          {isRestarting ? t('Restarting...') : t('Restart')}
-        </Button>
-      )}
-
-      <FormControl size="small" sx={{ width: 200, flexShrink: 0 }}>
-        <Select
-          multiple
-          value={targetFilter}
-          onChange={(e: SelectChangeEvent<string[]>) => onTargetFilterChange(e.target.value as string[])}
-          onClose={() => setTargetSearch('')}
-          displayEmpty
-          renderValue={(selected) => renderSelectedValues(selected as string[], t(targetPlaceholder))}
-          MenuProps={TARGET_MENU_PROPS}
-          sx={{ '& .MuiSelect-select': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }}
-        >
-          {/* Search box + select-all row pinned at the top of the dropdown, in ONE
-              ListSubheader: two sticky subheaders both stick at top:0, so on scroll
-              the second slid over the search box and hid it. ListSubheader keeps
-              Select from treating it as a selectable option; stopping keydown
-              propagation prevents Select's type-ahead from stealing keystrokes
-              and closing the menu. */}
-          <ListSubheader
-            sx={{ p: 0, lineHeight: 'unset', bgcolor: 'background.paper', borderBottom: '1px solid', borderColor: 'divider' }}
-          >
-            <Box sx={{ p: 1, pb: 0.5 }}>
-            <TextField
-              size="small"
-              autoFocus
-              fullWidth
-              placeholder={t('Search targets...')}
-              value={targetSearch}
-              onChange={(e) => setTargetSearch(e.target.value)}
-              onKeyDown={(e) => {
-                // Arrows move focus into the option list and Escape closes the
-                // menu, so those must reach Select; anything else would feed
-                // Select's type-ahead, which moves focus off the search box.
-                if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp' && e.key !== 'Escape') {
-                  e.stopPropagation();
-                }
-              }}
-              InputProps={{
-                startAdornment: (
-                  <InputAdornment position="start">
-                    <SearchIcon fontSize="small" sx={{ color: 'text.secondary' }} />
-                  </InputAdornment>
-                ),
-                endAdornment: targetSearch ? (
-                  <InputAdornment position="end">
-                    <IconButton size="small" edge="end" onClick={() => setTargetSearch('')}>
-                      <ClearIcon fontSize="small" />
-                    </IconButton>
-                  </InputAdornment>
-                ) : undefined,
-              }}
-            />
-            </Box>
-            {/* Select-all / clear row. Buttons act on the visible options. */}
-            <Box
-              onClick={(e) => e.stopPropagation()}
-              onKeyDown={(e) => e.stopPropagation()}
-              sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1, pb: 0.25 }}
-            >
-            <Button
-              size="small"
-              onClick={handleSelectAllVisible}
-              disabled={visibleTargetOptions.length === 0 || allVisibleSelected}
-              sx={{ minWidth: 0, px: 1, fontSize: '0.7rem' }}
-            >
-              {t('Select all')}
-            </Button>
-            <Button
-              size="small"
-              onClick={handleClearVisible}
-              disabled={visibleTargetOptions.every((option) => !targetFilter.includes(option))}
-              sx={{ minWidth: 0, px: 1, fontSize: '0.7rem' }}
-            >
-              {t('Clear')}
-            </Button>
-            </Box>
-            {/* Host toggle pills. Each pill selects or deselects ALL targets
-                on a host (not just visible) so "click once for the whole rack"
-                works. Only shown when at least one host has 2+ targets. */}
-            {hostGroups.length >= 1 && (
-              <Box
-                onClick={(e) => e.stopPropagation()}
-                onKeyDown={(e) => e.stopPropagation()}
-                sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.5, px: 1, pb: 0.75 }}
-              >
-                {hostGroups.map(({ host, targets, selectedCount }) => {
-                  const total = targets.length;
-                  const state =
-                    selectedCount === 0 ? 'empty' : selectedCount === total ? 'filled' : 'mixed';
-                  return (
-                    <Box
-                      key={host}
-                      role="button"
-                      tabIndex={0}
-                      onClick={() => handleToggleHost(targets)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' || e.key === ' ') {
-                          e.preventDefault();
-                          handleToggleHost(targets);
-                        }
-                      }}
-                      sx={{
-                        display: 'inline-flex',
-                        alignItems: 'center',
-                        gap: 0.5,
-                        px: 0.75,
-                        py: 0.25,
-                        borderRadius: 1.25,
-                        border: '1px solid',
-                        borderColor: state === 'empty' ? 'divider' : 'primary.main',
-                        bgcolor: state === 'empty' ? 'transparent' : 'action.hover',
-                        cursor: 'pointer',
-                        fontSize: '0.75rem',
-                        '&:hover': { borderColor: 'primary.main' },
-                        '&:focus-visible': { outline: '2px solid', outlineColor: 'primary.main', outlineOffset: '2px' },
-                      }}
-                      aria-label={`${host} ${selectedCount} of ${total} selected`}
-                    >
-                      <Checkbox
-                        size="small"
-                        checked={state === 'filled'}
-                        indeterminate={state === 'mixed'}
-                        sx={{ p: 0, mr: 0.25 }}
-                        tabIndex={-1}
-                      />
-                      <Typography component="span" variant="body2" sx={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                        {host}
-                      </Typography>
-                      <Typography
-                        component="span"
-                        variant="caption"
-                        sx={{
-                          ml: 0.25,
-                          px: 0.5,
-                          borderRadius: 0.75,
-                          bgcolor: state === 'filled' ? 'primary.main' : 'action.selected',
-                          color: state === 'filled' ? 'primary.contrastText' : 'text.secondary',
-                          fontFamily: 'monospace',
-                          fontSize: '0.65rem',
-                          lineHeight: 1.6,
-                        }}
-                      >
-                        {`${selectedCount}/${total}`}
-                      </Typography>
-                    </Box>
-                  );
-                })}
-              </Box>
-            )}
-          </ListSubheader>
-          {visibleTargetOptions.length === 0 ? (
-            <MenuItem disabled dense>
-              <ListItemText
-                primary={t('No matching targets')}
-                primaryTypographyProps={{ variant: 'body2', color: 'text.secondary' }}
-              />
-            </MenuItem>
-          ) : (
-            visibleTargetOptions.map((option) => (
-              <MenuItem key={option} value={option} dense>
-                <Checkbox size="small" checked={targetFilter.includes(option)} />
-                <ListItemText primary={option} primaryTypographyProps={{ variant: 'body2' }} />
-              </MenuItem>
-            ))
-          )}
-        </Select>
-      </FormControl>
-
-      <FormControl size="small" sx={{ minWidth: 140, maxWidth: 220, flexShrink: 0 }}>
+  // Models / Profiles / Tags: inline on mobile, inside the "More" popover on desktop so the
+  // header row stays one line however many filters are added (Projects will join them).
+  const renderSecondary = (stacked: boolean) => (
+    <>
+      <FormControl size="small" sx={stacked ? { width: '100%' } : { width: 200, flexShrink: 0 }}>
         <Select
           multiple
           value={deviceModelFilter}
           onChange={(e: SelectChangeEvent<string[]>) => onDeviceModelFilterChange(e.target.value as string[])}
           displayEmpty
-          renderValue={(selected) => renderSelectedValues(selected as string[], t('All Models'))}
+          renderValue={(selected) => renderSelectedValues(selected as string[], t('All Models'), (n) => t('{count} models', { count: n }))}
           MenuProps={MENU_PROPS}
-          sx={{ '& .MuiSelect-select': { overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' } }}
+          sx={FILTER_SELECT_SX}
         >
-          {uniqueDeviceModels.map((model) => (
-            <MenuItem key={model} value={model} dense>
-              <Checkbox size="small" checked={deviceModelFilter.includes(model)} />
+          {models.map((model) => (
+            <MenuItem key={model} value={model} dense sx={TARGET_ROW_SX}>
+              <Checkbox size="small" checked={deviceModelFilter.includes(model)} sx={TARGET_CHECKBOX_SX} />
               <ListItemText primary={model} primaryTypographyProps={{ variant: 'body2' }} />
             </MenuItem>
           ))}
         </Select>
       </FormControl>
 
+      {onProfileFilterChange && (hasNonDefaultProfile(profiles) || profileFilter.length > 0) && (
+        <FormControl size="small" sx={stacked ? { width: '100%' } : { width: 200, flexShrink: 0 }}>
+          <Select
+            multiple
+            value={profileFilter}
+            onChange={(e: SelectChangeEvent<string[]>) => onProfileFilterChange(e.target.value as string[])}
+            displayEmpty
+            renderValue={(selected) => renderSelectedValues((selected as string[]).map(profileShortName), t('All Profiles'), (n) => t('{count} profiles', { count: n }))}
+            MenuProps={MENU_PROPS}
+            sx={FILTER_SELECT_SX}
+          >
+            {profiles.map((profile) => (
+              <MenuItem key={profile} value={profile} dense sx={TARGET_ROW_SX}>
+                <Checkbox size="small" checked={profileFilter.includes(profile)} sx={TARGET_CHECKBOX_SX} />
+                <ListItemText primary={profileShortName(profile)} primaryTypographyProps={{ variant: 'body2' }} />
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+      )}
+
       {!isMobile && (
-        <FormControl size="small" sx={{ minWidth: 140, maxWidth: 220, flexShrink: 0 }}>
+        <FormControl size="small" sx={stacked ? { width: '100%' } : { width: 200, flexShrink: 0 }}>
           <Select
             multiple
             value={flagFilter}
@@ -379,9 +209,12 @@ export const DeviceFilterBar: React.FC<DeviceFilterBarProps> = ({
               if (sel.length === 0) return t('All Tags');
               // Make the active combinator visible on the closed control so
               // users know whether they're seeing "all-of" or "any-of".
-              return sel.length > 1 ? sel.join(` ${flagMatchMode.toLowerCase()} `) : sel[0];
+              return sel.length > 2
+                ? <span title={sel.join(` ${flagMatchMode.toLowerCase()} `)}>{t('{count} tags', { count: sel.length })}</span>
+                : sel.join(` ${flagMatchMode.toLowerCase()} `);
             }}
             MenuProps={MENU_PROPS}
+            sx={FILTER_SELECT_SX}
           >
             {/* AND/OR combinator — only meaningful with 2+ tags. Lives inside
                 the dropdown so it costs no horizontal row space. Must be a
@@ -415,20 +248,228 @@ export const DeviceFilterBar: React.FC<DeviceFilterBarProps> = ({
                   }}
                 >
                   {/* i18n-ignore */}
-                  <ToggleButton value="AND" sx={{ py: 0, px: 1, fontSize: '0.65rem', lineHeight: 1.6 }}>AND</ToggleButton>
+                  <ToggleButton value="AND" sx={{ py: 0, px: 1, fontSize: TYPOGRAPHY.microMeta.size, lineHeight: 1.6 }}>AND</ToggleButton>
                   {/* i18n-ignore */}
-                  <ToggleButton value="OR" sx={{ py: 0, px: 1, fontSize: '0.65rem', lineHeight: 1.6 }}>OR</ToggleButton>
+                  <ToggleButton value="OR" sx={{ py: 0, px: 1, fontSize: TYPOGRAPHY.microMeta.size, lineHeight: 1.6 }}>OR</ToggleButton>
                 </ToggleButtonGroup>
               </ListSubheader>
             )}
-            {uniqueFlags.map((flag) => (
-              <MenuItem key={flag} value={flag} dense>
-                <Checkbox size="small" checked={flagFilter.includes(flag)} />
+            {flags.map((flag) => (
+              <MenuItem key={flag} value={flag} dense sx={TARGET_ROW_SX}>
+                <Checkbox size="small" checked={flagFilter.includes(flag)} sx={TARGET_CHECKBOX_SX} />
                 <ListItemText primary={flag} primaryTypographyProps={{ variant: 'body2' }} />
               </MenuItem>
             ))}
           </Select>
         </FormControl>
+      )}
+
+    </>
+  );
+
+  return (
+    <Stack
+      direction="row"
+      spacing={1}
+      sx={{
+        alignItems: 'center',
+        width: isMobile ? '100%' : 'auto',
+        flexWrap: 'nowrap',
+        overflowX: isMobile ? 'auto' : 'visible',
+        pb: isMobile ? 0.5 : 0,
+        '&::-webkit-scrollbar': { display: 'none' },
+      }}
+    >
+      {onRestart && !isMobile && (
+        <Button
+          variant="outlined"
+          size="small"
+          startIcon={isRestarting ? <CircularProgress size={16} /> : <RefreshIcon />}
+          onClick={onRestart}
+          disabled={isRestarting || disableRestart}
+          sx={{ height: 32, minWidth: 110, flexShrink: 0 }}
+        >
+          {isRestarting ? t('Restarting...') : t('Restart')}
+        </Button>
+      )}
+
+      <TargetDropdown
+        selected={targetFilter}
+        onChange={onTargetFilterChange}
+        options={targetOptions}
+        keys={targetKeys}
+        placeholder={targetPlaceholder}
+      />
+
+      {isMobile ? (
+        renderSecondary(false)
+      ) : (
+        <>
+          <Button
+            variant="outlined"
+            size="small"
+            onClick={(e) => setMoreAnchor(e.currentTarget)}
+            startIcon={<TuneIcon fontSize="small" />}
+            endIcon={<ExpandMoreIcon fontSize="small" />}
+            sx={{
+              height: 40,
+              flexShrink: 0,
+              textTransform: 'none',
+              color: moreActiveCount > 0 ? P.accentText : P.textSecondary,
+              borderColor: moreActiveCount > 0 ? P.accent : P.borderColor,
+            }}
+          >
+            {moreActiveCount > 0 ? `${t('More')} ${moreActiveCount}` : t('More')}
+          </Button>
+          <Popover
+            open={!!moreAnchor}
+            anchorEl={moreAnchor}
+            onClose={() => { setMoreAnchor(null); setMoreSearch(''); }}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+            transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+            slotProps={{ paper: { sx: { width: 460, maxWidth: 'calc(100vw - 16px)', height: 'min(420px, 70vh)', display: 'flex', flexDirection: 'column', overflow: 'hidden' } } }}
+          >
+            <Box sx={{ p: 1, pb: 0.5, flexShrink: 0 }}>
+              <TextField
+                size="small"
+                autoFocus
+                fullWidth
+                placeholder={t('Search...')}
+                value={moreSearch}
+                onChange={(e) => setMoreSearch(e.target.value)}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchIcon fontSize="small" sx={{ color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                  endAdornment: moreSearch ? (
+                    <InputAdornment position="end">
+                      <IconButton size="small" edge="end" onClick={() => setMoreSearch('')}>
+                        <ClearIcon fontSize="small" />
+                      </IconButton>
+                    </InputAdornment>
+                  ) : undefined,
+                }}
+              />
+            </Box>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, px: 1, pb: 0.5, flexShrink: 0, borderBottom: '1px solid', borderColor: 'divider' }}>
+              <Button
+                size="small"
+                onClick={() => activeCategory.onChange(Array.from(new Set([...activeCategory.selected, ...moreVisible])))}
+                disabled={moreVisible.length === 0 || moreVisible.every((o) => activeCategory.selected.includes(o))}
+                sx={{ minWidth: 0, px: 1, fontSize: TYPOGRAPHY.caption.size }}
+              >
+                {t('Select all')}
+              </Button>
+              <Button
+                size="small"
+                onClick={() => activeCategory.onChange(activeCategory.selected.filter((o) => !moreVisible.includes(o)))}
+                disabled={moreVisible.every((o) => !activeCategory.selected.includes(o))}
+                sx={{ minWidth: 0, px: 1, fontSize: TYPOGRAPHY.caption.size }}
+              >
+                {t('Clear')}
+              </Button>
+              {activeCategory.key === 'tags' && onFlagMatchModeChange && (
+                <Box sx={{ ml: 'auto', display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                  <Typography variant="caption" color="textSecondary">
+                    {t('Match')}
+                  </Typography>
+                  <ToggleButtonGroup
+                    size="small"
+                    exclusive
+                    value={flagMatchMode}
+                    onChange={(_e, mode: FlagMatchMode | null) => {
+                      if (mode) onFlagMatchModeChange(mode);
+                    }}
+                  >
+                    {/* i18n-ignore */}
+                    <ToggleButton value="AND" sx={{ py: 0, px: 1, fontSize: TYPOGRAPHY.microMeta.size, lineHeight: 1.6 }}>AND</ToggleButton>
+                    {/* i18n-ignore */}
+                    <ToggleButton value="OR" sx={{ py: 0, px: 1, fontSize: TYPOGRAPHY.microMeta.size, lineHeight: 1.6 }}>OR</ToggleButton>
+                  </ToggleButtonGroup>
+                </Box>
+              )}
+            </Box>
+            <Box sx={{ display: 'flex', flex: 1, minHeight: 0 }}>
+              <Box sx={{ width: 150, flexShrink: 0, overflowY: 'auto', borderRight: '1px solid', borderColor: 'divider' }}>
+                {moreCategories.map((c) => {
+                  const active = activeCategory.key === c.key;
+                  return (
+                    <Box
+                      key={c.key}
+                      role="button"
+                      tabIndex={0}
+                      onClick={() => setMoreCategory(c.key)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault();
+                          setMoreCategory(c.key);
+                        }
+                      }}
+                      sx={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 0.75,
+                        px: 1.25,
+                        py: 0.4,
+                        cursor: 'pointer',
+                        borderLeft: '2px solid',
+                        borderLeftColor: active ? 'primary.main' : 'transparent',
+                        bgcolor: active ? 'action.selected' : 'transparent',
+                        '&:hover': { bgcolor: 'action.hover' },
+                      }}
+                    >
+                      <Typography component="span" sx={{ flex: 1, minWidth: 0, fontFamily: 'monospace', fontSize: TYPOGRAPHY.caption.size }}>
+                        {c.label}
+                      </Typography>
+                      <Typography
+                        component="span"
+                        sx={{
+                          flexShrink: 0,
+                          px: 0.5,
+                          borderRadius: 0.75,
+                          bgcolor: c.selected.length > 0 ? 'primary.main' : 'action.selected',
+                          color: c.selected.length > 0 ? 'primary.contrastText' : 'text.secondary',
+                          fontFamily: 'monospace',
+                          fontSize: TYPOGRAPHY.microMeta.size,
+                          lineHeight: 1.6,
+                        }}
+                      >
+                        {c.selected.length}/{c.options.length}
+                      </Typography>
+                    </Box>
+                  );
+                })}
+              </Box>
+              <Box sx={{ flex: 1, minWidth: 0, overflowY: 'auto' }}>
+                {moreVisible.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary" sx={{ p: 2 }}>
+                    {t('No matches')}
+                  </Typography>
+                ) : (
+                  moreVisible.map((opt) => (
+                    <MenuItem
+                      key={opt}
+                      dense
+                      sx={TARGET_ROW_SX}
+                      onClick={() =>
+                        activeCategory.onChange(
+                          activeCategory.selected.includes(opt)
+                            ? activeCategory.selected.filter((v) => v !== opt)
+                            : [...activeCategory.selected, opt],
+                        )
+                      }
+                    >
+                      <Checkbox size="small" checked={activeCategory.selected.includes(opt)} sx={TARGET_CHECKBOX_SX} />
+                      <ListItemText primary={activeCategory.key === 'profiles' ? profileShortName(opt) : opt} primaryTypographyProps={{ variant: 'body2' }} />
+                    </MenuItem>
+                  ))
+                )}
+              </Box>
+            </Box>
+          </Popover>
+        </>
       )}
 
       <Chip

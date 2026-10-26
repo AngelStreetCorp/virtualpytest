@@ -1498,6 +1498,34 @@ def upload_script_report(
             'error': str(e)
         }
 
+def upload_game_run_video(local_video_path: str, remote_path: str) -> Dict:
+    """Compress a game run video like every report video, upload it, and delete the local file on success.
+
+    The host copy is temporary (the object store keeps it). On failure the file stays, so the host's age-based
+    cleanup (tmpfiles) is the only thing that removes it. Returns {'success', 'url', 'error'}."""
+    try:
+        from shared.src.lib.utils.video_utils import compress_video_for_upload
+        prep = compress_video_for_upload(local_video_path)
+        if not prep['success']:
+            return {'success': False, 'url': '', 'error': prep['error']}
+        try:
+            res = get_cloudflare_utils().upload_files(
+                [{'local_path': prep['path'], 'remote_path': remote_path, 'content_type': 'video/mp4'}],
+                for_report_assets=True)
+        finally:
+            if prep['compressed'] and prep['path'] != local_video_path and os.path.exists(prep['path']):
+                try: os.remove(prep['path'])
+                except OSError: pass
+        files = res.get('uploaded_files') or []
+        if not files:
+            return {'success': False, 'url': '', 'error': 'upload returned no file'}
+        try: os.remove(local_video_path)
+        except OSError: pass
+        return {'success': True, 'url': files[0].get('url', ''), 'error': ''}
+    except Exception as e:  # noqa: BLE001
+        return {'success': False, 'url': '', 'error': str(e)[:150]}
+
+
 def upload_test_video(
     local_video_path: str,
     device_model: str,

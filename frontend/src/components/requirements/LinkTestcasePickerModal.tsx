@@ -38,6 +38,9 @@ import { TestcaseWithLink } from '../../hooks/pages/useRequirements';
 import { useConfirmDialog } from '../../hooks/useConfirmDialog';
 import { ConfirmDialog } from '../common/ConfirmDialog';
 import { StyledDialog } from '../common/StyledDialog';
+import { ExecutableFavoriteStar } from '../common/DeviceFavoriteStar';
+import { DeviceFavoriteGroupHeader } from '../common/DeviceFavoriteGroupHeader';
+import { useExecutableFavorites } from '../../hooks/useExecutableFavorites';
 
 interface LinkTestcasePickerModalProps {
   open: boolean;
@@ -68,6 +71,11 @@ export const LinkTestcasePickerModal: React.FC<LinkTestcasePickerModalProps> = (
   const [selectedUI, setSelectedUI] = useState<string>('');
   const [selectedTestcaseIds, setSelectedTestcaseIds] = useState<Set<string>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
+  // Favorites pinned first (TASK-100); the search and interface filters still decide what is listed.
+  const executableFavorites = useExecutableFavorites();
+  const favoriteTestcases = filteredTestcases.filter((tc) => executableFavorites.isFavorite('testcase', tc.testcase_id));
+  const otherTestcases = filteredTestcases.filter((tc) => !executableFavorites.isFavorite('testcase', tc.testcase_id));
+  const orderedTestcases = [...favoriteTestcases, ...otherTestcases];
 
   // Confirmation dialog
   const { dialogState, confirm, handleConfirm, handleCancel } = useConfirmDialog();
@@ -263,9 +271,13 @@ export const LinkTestcasePickerModal: React.FC<LinkTestcasePickerModalProps> = (
               </Alert>
             ) : (
               <Box sx={{ maxHeight: 400, overflowY: 'auto' }}>
-                {filteredTestcases.map((tc) => (
+                {orderedTestcases.map((tc, index) => (
+                  <React.Fragment key={tc.testcase_id}>
+                  {favoriteTestcases.length > 0 && index === 0 && <DeviceFavoriteGroupHeader kind="favorites" inline />}
+                  {favoriteTestcases.length > 0 && otherTestcases.length > 0 && index === favoriteTestcases.length && (
+                    <DeviceFavoriteGroupHeader kind="allItems" inline />
+                  )}
                   <Box
-                    key={tc.testcase_id}
                     sx={{
                       p: 1.5,
                       borderBottom: '1px solid',
@@ -287,7 +299,7 @@ export const LinkTestcasePickerModal: React.FC<LinkTestcasePickerModalProps> = (
                             {tc.testcase_name}
                           </Typography>
                           {tc.is_linked && (
-                            <Chip label="✅ Linked" size="small" color="success" />
+                            <Chip label="Linked" size="small" color="success" />
                           )}
                         </Box>
                         {tc.description && (
@@ -303,8 +315,10 @@ export const LinkTestcasePickerModal: React.FC<LinkTestcasePickerModalProps> = (
                           />
                         )}
                       </Box>
+                      <ExecutableFavoriteStar kind="testcase" itemId={tc.testcase_id} />
                     </Box>
                   </Box>
+                  </React.Fragment>
                 ))}
               </Box>
             )}

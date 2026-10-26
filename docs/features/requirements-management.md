@@ -1,16 +1,34 @@
 # Requirements Management System
 
-## 🎯 Overview
+## Overview
 
-Complete requirements management system for VirtualPyTest that links requirements to testcases and scripts for comprehensive coverage tracking and reporting.
+Requirements say what the app must do. You link each requirement to the tests that check it. The platform then shows how much of the app is covered, and what is not covered yet.
 
-**Status:** ✅ **FULLY IMPLEMENTED** (2025-11-10)
+**Status:** fully implemented (2025-11-10)
 
 ---
 
-## 📐 Naming Convention
+## Naming Convention
 
-### **Requirements Format:**
+Good names make requirements and tests easy to find.
+
+### Requirements
+
+A requirement code has a category, a priority and a number, such as `PLAY_P101`. The name says what the user can do.
+
+Examples: APP_P101 (User can launch app successfully), PLAY_P101 (User can play video content).
+
+<div data-technical>
+
+```
+✅ APP_P101 - User can launch app successfully
+✅ AUTH_P101 - User can login with credentials
+✅ PLAY_P101 - User can play video content
+✅ SRCH_P101 - User can search for content
+```
+
+Format:
+
 ```
 <CATEGORY>_<PRIORITY><NUMBER> - <Action Statement>
 
@@ -19,15 +37,27 @@ Components:
 - PRIORITY: P1, P2, P3 (single letter+digit)
 - NUMBER: 2-digit (01-99) within category+priority
 - Name: Action-oriented, 3-8 words max
-
-Examples:
-✅ APP_P101 - User can launch app successfully
-✅ AUTH_P101 - User can login with credentials
-✅ PLAY_P101 - User can play video content
-✅ SRCH_P101 - User can search for content
 ```
 
-### **Testcases Format:**
+</div>
+
+### Test Cases
+
+A test case name starts with `TC_`, then the category, a number and a short description. The description is one sentence: go to a screen, do something, check the result.
+
+Examples: TC_APP_01_LaunchApp, TC_PLAY_01_BasicPlayback.
+
+<div data-technical>
+
+```
+✅ TC_APP_01_LaunchApp
+✅ TC_AUTH_01_LoginLogout
+✅ TC_PLAY_01_BasicPlayback
+✅ TC_SRCH_01_ContentSearch
+```
+
+Format:
+
 ```
 TC_<CATEGORY>_<NUMBER>_<CamelCase>
 
@@ -37,35 +67,43 @@ Components:
 - NUMBER: 2-digit (01-99) within category
 - Description: CamelCase, 2-4 words max
 
-Examples:
-✅ TC_APP_01_LaunchApp
-✅ TC_AUTH_01_LoginLogout
-✅ TC_PLAY_01_BasicPlayback
-✅ TC_SRCH_01_ContentSearch
-
 Description field:
 - Full sentence describing test flow
 - "Navigate to X, perform Y, verify Z"
 ```
 
-### **Scripts Format:**
+</div>
+
+### Scripts
+
+Scripts are named after their category and action. Scripts made by the AI also carry the date and time.
+
+Example: script_validation_login.py.
+
+<div data-technical>
+
 ```
-script_<category>_<action>.py
-
-For AI-generated:
-ai_<category>_<action>_<YYYYMMDD_HHMMSS>.py
-
-Examples:
 ✅ script_validation_login.py
 ✅ script_device_setup.py
 ✅ ai_validation_login_20251110_143022.py
 ```
 
+Format:
+
+```
+script_<category>_<action>.py
+
+For AI-generated:
+ai_<category>_<action>_<YYYYMMDD_HHMMSS>.py
+```
+
+</div>
+
 ---
 
-## 📊 Category Taxonomy
+## Category Taxonomy
 
-### **Streaming Apps Categories** (Netflix, YouTube, virtualpy TV)
+Pick the category that fits best. The table is for streaming apps.
 
 | Category | Code | Description | Priority Examples |
 |----------|------|-------------|-------------------|
@@ -87,16 +125,20 @@ Examples:
 | **Error Handling** | ERR | Error states, recovery | P2: Playback errors, P3: Error messages |
 | **Accessibility** | A11Y | Screen reader, captions | P3: Screen reader, P3: High contrast |
 
-### **Priority Guidelines:**
-- **P1 (Critical):** Core functionality, app breaking if missing
-- **P2 (Important):** Major features, significant UX impact  
-- **P3 (Nice-to-have):** Enhancement features, minor UX improvements
+### Priority Guidelines
+- **P1 (Critical):** the app is broken without it.
+- **P2 (Important):** a major feature.
+- **P3 (Nice to have):** extras.
 
 ---
 
-## 🗄️ Database Schema
+## Database Schema
 
-### **Tables**
+Requirements, their links to tests and scripts, and two summary views are stored in the database.
+
+<div data-technical>
+
+### Tables
 
 #### 1. `requirements`
 Stores requirement definitions with metadata.
@@ -160,7 +202,7 @@ CREATE TABLE script_requirements (
 );
 ```
 
-### **Views**
+### Views
 
 #### 1. `requirements_coverage_summary`
 Aggregated coverage statistics.
@@ -192,11 +234,17 @@ SELECT * FROM requirements_coverage_summary
 WHERE total_coverage_count = 0 AND status = 'active';
 ```
 
+</div>
+
 ---
 
-## 🏗️ Architecture
+## Architecture
 
-### **System Flow**
+A requirement is covered when a test case or a script that checks it has run.
+
+<div data-technical>
+
+The flow is: the app's screens, then the navigation tree, then the tests and scripts, then the requirements, then the run results, then the reports.
 
 ```
 UserInterface (Netflix, YouTube, etc.)
@@ -212,7 +260,13 @@ Execution Tracking (script_results)
 Coverage Reports
 ```
 
-### **Component Integration**
+</div>
+
+### Parts of the system
+
+The page is in the web app. The server holds the rules and the database holds the data.
+
+<div data-technical>
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
@@ -250,16 +304,27 @@ Coverage Reports
 └─────────────────────────────────────────────────────────────┘
 ```
 
+</div>
+
 ---
 
-## 🔌 Backend API
+## Backend API
+
+<div data-technical>
 
 **Base URL**: `/server/requirements`  
 **Authentication**: All routes require `team_id` query parameter
 
-### **CRUD Operations**
+</div>
+
+Every request names your team.
+
+### CRUD Operations
 
 #### 1. Create Requirement
+
+<div data-technical>
+
 ```
 POST /server/requirements/create
 ```
@@ -286,7 +351,12 @@ POST /server/requirements/create
 }
 ```
 
+</div>
+
 #### 2. List Requirements
+
+<div data-technical>
+
 ```
 GET /server/requirements/list?team_id=xxx&category=play&priority=P1
 ```
@@ -300,13 +370,23 @@ GET /server/requirements/list?team_id=xxx&category=play&priority=P1
 }
 ```
 
+</div>
+
 #### 3. Get Requirement
+
+<div data-technical>
+
 ```
 GET /server/requirements/<id>?team_id=xxx
 GET /server/requirements/by-code/<code>?team_id=xxx
 ```
 
+</div>
+
 #### 4. Update Requirement
+
+<div data-technical>
+
 ```
 PUT /server/requirements/<id>
 ```
@@ -321,9 +401,14 @@ PUT /server/requirements/<id>
 }
 ```
 
-### **Linkage Operations**
+</div>
+
+### Linking Operations
 
 #### 5. Link TestCase to Requirement
+
+<div data-technical>
+
 ```
 POST /server/requirements/link-testcase
 ```
@@ -338,26 +423,46 @@ POST /server/requirements/link-testcase
 }
 ```
 
+</div>
+
 #### 6. Unlink TestCase from Requirement
+
+<div data-technical>
+
 ```
 POST /server/requirements/unlink-testcase
 ```
 
+</div>
+
 #### 7. Get TestCase Requirements
+
+<div data-technical>
+
 ```
 GET /server/requirements/testcase/<testcase_id>/requirements
 ```
 
+</div>
+
 #### 8. Link/Unlink/Get Script Requirements
+
+<div data-technical>
+
 ```
 POST /server/requirements/link-script
 POST /server/requirements/unlink-script
 GET /server/requirements/script/<script_name>/requirements
 ```
 
-### **Coverage Reporting**
+</div>
+
+### Coverage Reporting
 
 #### 9. Get Requirement Coverage
+
+<div data-technical>
+
 ```
 GET /server/requirements/<id>/coverage?team_id=xxx
 ```
@@ -381,7 +486,12 @@ GET /server/requirements/<id>/coverage?team_id=xxx
 }
 ```
 
+</div>
+
 #### 10. Get Coverage Summary
+
+<div data-technical>
+
 ```
 GET /server/requirements/coverage/summary?team_id=xxx&category=play
 ```
@@ -405,25 +515,37 @@ GET /server/requirements/coverage/summary?team_id=xxx&category=play
 }
 ```
 
+</div>
+
 #### 11. Get Uncovered Requirements
+
+<div data-technical>
+
 ```
 GET /server/requirements/uncovered?team_id=xxx
 ```
 
+</div>
+
 ---
 
-## 🎨 Frontend Implementation
+## Frontend Implementation
 
-### **Pages**
+### Pages
 
 #### 1. Requirements Page (`/test-plan/requirements`)
 
-**Features:**
-- ✅ Requirements table with search and filters
-- ✅ Create/Edit requirement dialogs
-- ✅ Color-coded priority chips (P1=red, P2=orange, P3=blue)
-- ✅ Status badges (active=green, deprecated=gray)
-- ✅ Filter by category, priority, app type, device model
+Search and filter the list. Create or edit a requirement in a dialog.
+
+Priority and status are shown in colour.
+
+<div data-technical>
+
+- A table of requirements, with search and filters
+- Create and edit dialogs
+- Priority chips: P1 red, P2 orange, P3 blue
+- Status badges: active green, deprecated grey
+- Filters by category, priority, app type and device model
 
 **Hook:**
 ```typescript
@@ -437,13 +559,18 @@ const {
 } = useRequirements();
 ```
 
+</div>
+
 #### 2. Coverage Page (`/test-plan/coverage`)
 
-**Features:**
-- ✅ Overall coverage summary cards
-- ✅ Coverage by category table with progress bars
-- ✅ Uncovered requirements alert
-- ✅ Color-coded indicators (green ≥80%, yellow ≥50%, red <50%)
+The coverage page shows how much of the app is covered, and flags what is not.
+
+<div data-technical>
+
+- Overall coverage summary cards
+- Coverage by category, with progress bars
+- A warning for uncovered requirements
+- Colours: green at 80% or more, yellow at 50% or more, red below 50%
 
 **Hook:**
 ```typescript
@@ -455,7 +582,13 @@ const {
 } = useCoverage();
 ```
 
-### **Navigation**
+</div>
+
+### Navigation
+
+The two pages sit under **Test Plan**, next to Test Cases and Campaigns.
+
+<div data-technical>
 
 ```
 Test > Test Plan
@@ -465,11 +598,15 @@ Test > Test Plan
 └── Coverage ✅
 ```
 
+</div>
+
 ---
 
-## 💻 Usage Examples
+## Usage Examples
 
-### **Example 1: Create Requirement and Link TestCase**
+<div data-technical>
+
+### Example 1: Create a Requirement and Link a Test Case
 
 **Python (Database Layer):**
 ```python
@@ -542,7 +679,7 @@ curl -X POST http://localhost:5109/server/requirements/link-testcase \
   }'
 ```
 
-### **Example 2: Query Coverage**
+### Example 2: Query Coverage
 
 **Python:**
 ```python
@@ -576,13 +713,15 @@ await loadCoverageSummary({ category: "play" });
 await loadUncoveredRequirements();
 ```
 
+</div>
+
 ---
 
-## 🔄 MCP Integration
+## MCP Integration
 
-### **MCP Tools Available**
+AI agents can work with requirements through the MCP server.
 
-All requirements operations are exposed through MCP server for AI agents:
+<div data-technical>
 
 ```python
 # Requirements category MCP tools (10 of 75 total tools across 19 categories)
@@ -616,11 +755,17 @@ mcp_virtualpytest_get_coverage_summary(
 )
 ```
 
+</div>
+
 ---
 
-## 📝 Sample Data
+## Sample Data
 
-### **Current Requirements (20 active):**
+The platform ships with 20 active requirements and 13 test cases to start from.
+
+<div data-technical>
+
+### Current Requirements (20 active)
 
 **P1 (Critical - 12):**
 - APP_P101 - User can launch app successfully
@@ -646,7 +791,7 @@ mcp_virtualpytest_get_coverage_summary(
 - SETT_P201 - User can change video quality
 - VOD_P201 - Home screen displays content recommendations
 
-### **Current Testcases (13 active):**
+### Current Testcases (13 active)
 
 - TC_APP_01_GetDeviceInfo
 - TC_CONT_02_DetailAccess
@@ -662,11 +807,17 @@ mcp_virtualpytest_get_coverage_summary(
 - TC_SRCH_02_SearchToDetail
 - TC_VOD_01_HomeContent
 
+</div>
+
 ---
 
-## 🚀 Complete Workflow
+## Complete Workflow
 
-### **Scenario: Netflix Mobile Testing**
+### Scenario: Netflix Mobile Testing
+
+Create the requirements, create the test case, link the test case to the requirements, run it, then read the coverage.
+
+<div data-technical>
 
 1. **Create Requirements**
 ```python
@@ -728,9 +879,15 @@ uncovered = get_uncovered_requirements(team_id="...")
 print(f"Uncovered: {len(uncovered)} requirements")
 ```
 
+</div>
+
 ---
 
-## 📚 Python API Reference
+## Python API Reference
+
+The database functions live in one module.
+
+<div data-technical>
 
 **Module:** `shared/src/lib/database/requirements_db.py`
 
@@ -753,59 +910,74 @@ print(f"Uncovered: {len(uncovered)} requirements")
 | `get_coverage_summary()` | Get summary by category/priority |
 | `get_uncovered_requirements()` | Find coverage gaps |
 
----
-
-## 🎓 Best Practices
-
-### **1. Requirement Creation**
-- ✅ Use consistent naming convention (CATEGORY_PRIORITY_NUMBER)
-- ✅ Set app_type and device_model for reusability
-- ✅ Write clear, action-oriented names
-- ✅ Document acceptance criteria
-- ✅ Link to source documents
-
-### **2. TestCase Naming**
-- ✅ Follow TC_CATEGORY_NUMBER_CamelCase format
-- ✅ Match category with requirements
-- ✅ Use sequential numbering within category
-- ✅ Write descriptive camelCase suffixes
-
-### **3. Coverage Tracking**
-- ✅ Link testcases immediately after creation
-- ✅ Use appropriate coverage_type (full/partial/negative)
-- ✅ Add coverage notes for clarity
-- ✅ Monitor uncovered requirements regularly
-- ✅ Aim for 80%+ coverage on P1 requirements
-
-### **4. Maintenance**
-- ✅ Mark obsolete requirements as deprecated
-- ✅ Update requirements when specs change
-- ✅ Review coverage quarterly
-- ✅ Clean up unused requirements
+</div>
 
 ---
 
-## 📁 Files Reference
+## Best Practices
 
-### **Backend:**
+Name things the same way, link each test as you write it, and check the uncovered list.
+
+<div data-technical>
+
+### 1. Requirement Creation
+- Use the naming pattern (CATEGORY_PRIORITY_NUMBER)
+- Set the app type and device model, so the requirement can be reused
+- Write short, clear names that say what the user does
+- Write down the acceptance criteria
+- Link each requirement to its source document
+
+### 2. Test Case Naming
+- Follow the TC_CATEGORY_NUMBER_CamelCase format
+- Use the same category as the requirements
+- Number the tests in order within each category
+- Use a descriptive CamelCase ending
+
+### 3. Coverage Tracking
+- Link each test case as soon as you create it
+- Pick the right coverage type: full, partial or negative
+- Add coverage notes, so the link is clear later
+- Check the uncovered requirements regularly
+- Aim for 80% or more coverage on P1 requirements
+
+### 4. Maintenance
+- Mark old requirements as deprecated
+- Update requirements when the specs change
+- Review coverage every quarter
+- Clean up requirements that nobody uses
+
+</div>
+
+---
+
+## Files Reference
+
+<div data-technical>
+
+### Backend:
 - `backend_server/src/routes/server_requirements_routes.py` - 16 API endpoints
 - `shared/src/lib/database/requirements_db.py` - Database operations
 - `backend_server/src/mcp/tools/requirements_tools.py` - MCP tools
 
-### **Frontend:**
+### Frontend:
 - `frontend/src/pages/Requirements.tsx` - Requirements CRUD UI
 - `frontend/src/pages/Coverage.tsx` - Coverage dashboard
 - `frontend/src/hooks/pages/useRequirements.ts` - Requirements hook
 - `frontend/src/hooks/pages/useCoverage.ts` - Coverage hook
 - `frontend/src/components/common/Navigation_Bar.tsx` - Navigation
 
-### **Database:**
+### Database:
 - `setup/db/schema/017_requirements_management.sql` - Schema migration
 
+</div>
+
 ---
+
+<div data-technical>
 
 **Version**: 2.0.0  
 **Updated**: 2025-11-10  
 **Status**: Production Ready  
 **Database**: virtualpytest (Supabase)
 
+</div>

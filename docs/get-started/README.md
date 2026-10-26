@@ -1,26 +1,23 @@
-# Get started
+# Get Started
 
 ## What is VirtualPyTest?
 
-VirtualPyTest is an open-source test automation and monitoring platform for TVs, set-top boxes, mobile devices, and web applications.
+VirtualPyTest tests and watches TVs, set-top boxes, phones, tablets and web applications. It is open source.
 
-It lets you control real devices, verify what is actually displayed on screen, reuse the same test logic across platforms, and monitor your device fleet from one web interface.
-
-* Run the same test logic across TV, STB, mobile, and web
-* Verify screens using visual matching, OCR, and AI
-* Control and monitor real devices from your browser
-* Keep screenshots, video, reports, and execution evidence
-* Self-host everything, from one machine to a distributed device lab
+* Run the same test on TV, set-top box, mobile and web
+* Check screens with image matching, text reading (OCR) and AI
+* Control and watch real devices from your browser
+* Keep screenshots, video and reports
 
 ![Fleet dashboard: hosts, devices and live screen](/screenshot/features/fleet-status.webp)
 
 ## Try VirtualPyTest
 
-The fastest way to get started is with Docker.
-
-You do not need physical hardware for your first look. The installer sets up the complete platform and prints the URL to open when it is ready.
+The quickest start is Docker. You need no device for a first look. The installer shows the web address when the platform is ready.
 
 **[Install VirtualPyTest →](install.md)**
+
+<div data-technical>
 
 For a standard Docker installation:
 
@@ -33,9 +30,11 @@ cd virtualpytest
 
 Already have Docker? You can skip `install_docker.sh`.
 
+</div>
+
 ## Choose your path
 
-Not sure which setup you need? Start with Docker. You can move to a larger deployment later without changing how VirtualPyTest works.
+Not sure? Start with Docker.
 
 | I want to…                                    | Start here                       |
 | --------------------------------------------- | -------------------------------- |
@@ -56,78 +55,76 @@ For the quickest start, use a machine with:
 * 30 GB free disk space
 * Docker 24 or newer
 
-Windows users can run the Docker setup through WSL2.
+Windows users can use WSL2.
 
-The installer sets up the database and supporting services automatically.
-
-You can explore VirtualPyTest without connecting physical devices. When you are ready to add real hardware, see the [Hardware guide](hardware.md).
+The installer sets up the rest for you. You can explore without any device. For real hardware, see the [Hardware guide](hardware.md).
 
 ## How devices connect
 
-VirtualPyTest separates the platform from the machines that control devices.
+VirtualPyTest has two parts: the platform, and the machines that touch your devices. Such a machine is a **host**. It controls your devices and records what they show. A bigger lab adds more hosts.
 
-A **host** is a machine connected to your devices. Depending on the device, it can control and capture them using technologies such as:
+<div data-technical>
 
-* HDMI capture
-* IR or Bluetooth remotes
-* ADB
-* Appium
-* Browser automation
+A host uses the connections that fit each device: HDMI capture, IR or Bluetooth remotes, ADB, Appium and browser automation.
 
-A small installation can run everything on one machine. Larger labs can add multiple hosts while keeping one central VirtualPyTest platform.
+</div>
 
 ![VirtualPyTest architecture: browser through frontend, backend\_server, backend\_host, to devices](/docs/get-started/images/architecture.svg)
 
-You do not need to understand this architecture to try VirtualPyTest. The standard Docker installation configures it for you.
+You do not need this picture to start.
 
 ## After installation
 
-Once VirtualPyTest is running, continue with the [User Guide](../user-guide/README.md) to:
+Then follow the [User Guide](../user-guide/README.md). It shows you how to open the web interface, add a device, run your first test and review the results.
 
-1. Open the web interface
-2. Add or select a device
-3. Create or import navigation
-4. Run your first test
-5. Review screenshots, video, and results
+<div data-technical>
+
+The User Guide steps, in order: open the web interface, add or choose a device, create or import navigation, run your first test, review screenshots, video and results.
+
+</div>
 
 ## Running in production
 
-The default installation is designed to make local evaluation easy.
-
-Before exposing VirtualPyTest outside a trusted network, review:
+The default installation is for trying things out. Before you open it to the internet, read:
 
 * [Production checklist](production-checklist.md)
 * [Security setup](security.md)
 * [Network setup](network.md)
 * [Supabase and authentication](supabase.md)
 
-These guides cover authentication, TLS, firewall rules, API keys, CORS, and other production settings.
+These guides cover logins, secure connections, firewalls and API keys.
+
+<div data-technical>
+
+They also cover CORS.
+
+</div>
 
 ## More installation options
 
-VirtualPyTest can run on anything from a small lab machine to a distributed fleet.
+For bigger setups:
 
-For advanced deployments:
+* [One VM](proxmox.md#one-vm): everything on one Debian or Ubuntu machine
+* [Proxmox fleet](proxmox.md#proxmox-fleet): separate machines for each part
+* [Managed cloud](cloud-setup.md): parts run in the cloud
+* [Free cloud starter](../user-guide/free-cloud-starter.md): a low-cost showcase
+* [Configuration reference](configuration.md): all settings
 
-* [One VM](proxmox.md#one-vm) — run the platform as native services on one Debian or Ubuntu machine
-* [Proxmox fleet](proxmox.md#proxmox-fleet) — separate database, server, frontend, storage, monitoring, proxy, and device hosts
-* [Managed cloud](cloud-setup.md) — host parts of the platform remotely while keeping device controllers close to the hardware
-* [Free cloud starter](../user-guide/free-cloud-starter.md) — a low-cost showcase using Render, Supabase, and a Linux host VM
-* [Configuration reference](configuration.md) — environment variables, services, ports, and versions
+<div data-technical>
+
+The free cloud starter uses Render, Supabase and a Linux host VM. The Proxmox fleet runs the database, server, web app, storage, monitoring, proxy and device hosts on separate machines.
+
+</div>
 
 ## Where to go next
 
-**Just trying VirtualPyTest?**
-Start with the [Docker quick start](docker.md), then follow the [User Guide](../user-guide/README.md).
+* Real devices: [Hardware](hardware.md)
+* More machines: [Add a host](add-a-host.md) or the [Proxmox deployment guide](proxmox.md)
+* Building or changing VirtualPyTest: the [Developer setup](local-dev.md), the [CI guide](ci_cd.md) and the [full documentation](../README.md)
+* Container images: [Publishing container images](publishing-images.md)
 
-**Connecting real devices?**
-See [Hardware](hardware.md) and the relevant device setup guide.
+<div data-technical>
 
-**Deploying beyond one machine?**
-See [Add a host](add-a-host.md) or the [Proxmox deployment guide](proxmox.md).
+That page covers `workflow_dispatch` on the public repo, what the `verify` job asserts, how users consume the published tags, and how to roll back a bad tag.
 
-**Building or extending VirtualPyTest?**
-See the [Developer setup](local-dev.md), [CI guide](ci_cd.md), and [full documentation](../README.md).
-
-**Publishing or rolling back the GHCR container images?**
-See [Publishing container images](publishing-images.md) — when to publish, how `workflow_dispatch` works on the public repo, what the `verify` job asserts, how users consume the published tags, and how to roll back a bad tag.
+</div>

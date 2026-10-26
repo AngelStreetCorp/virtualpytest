@@ -310,7 +310,7 @@ function extractApiBlockGroups(apiBlocks: any[]) {
     return {
       type: blockDef.command,
       label: blockDef.name || blockDef.label || blockDef.command,
-      icon: blockDef.icon === '🌐' ? PublicIcon : PublicIcon, // Use globe icon
+      icon: PublicIcon, // globe icon
       color: '#06b6d4', // cyan - API blocks
       outputs: ['success', 'failure'],
       defaultData: {

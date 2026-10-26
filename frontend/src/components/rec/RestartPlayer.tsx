@@ -1,3 +1,4 @@
+import { AppIcon } from '../../constants/icons';
 import { Box, Typography, CircularProgress, Alert, IconButton, Tooltip } from '@mui/material';
 import { Settings as SettingsIcon, Assessment as ReportIcon } from '@mui/icons-material';
 import React, { useRef, useState, useMemo } from 'react';
@@ -8,6 +9,7 @@ import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 import { RestartSettingsPanel } from './RestartSettingsPanel';
 import { RestartSubtitleOverlay } from './RestartSubtitleOverlay';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 
 // Analysis Progress Component
@@ -24,8 +26,8 @@ const AnalysisProgress: React.FC<AnalysisProgressProps> = ({ progress }) => {
   const P = useAgentChatPalette();
   const getIcon = (state: string) => {
     switch (state) {
-      case 'completed': return '✓';
-      case 'error': return '✗';
+      case 'completed': return <AppIcon name="success" />;
+      case 'error': return <AppIcon name="error" />;
       case 'loading': return <CircularProgress size={12} sx={{ color: P.textPrimary }} />;
       default: return '○';
     }
@@ -67,7 +69,7 @@ const AnalysisProgress: React.FC<AnalysisProgressProps> = ({ progress }) => {
             variant="caption"
             sx={{
               color: getColor(progress[key as keyof typeof progress]),
-              fontSize: '11px',
+              fontSize: TYPOGRAPHY.microMeta.size,
               fontWeight: 500,
             }}
           >

@@ -20,6 +20,7 @@ MIN_MOVE_CM = 20  # Tello refuses moves below 20 cm
 MAX_MOVE_CM = 500
 MIN_FLY_Z = 30  # never descend below this while flying (landing is a separate command)
 TAKEOFF_Z = 80
+RC_MAX = 60  # joystick (`rc`) channel cap, of the SDK's -100..100
 YAW_FRESH_S = 0.3  # trust the IMU yaw only this long after the last command finished
 FENCE_SLACK_CM = 3  # dead reckoning is rounded to whole cm; standing on the fence line is not a violation
 
@@ -33,7 +34,6 @@ class SafetyLimits:
     min_sep: float = 100
     bat_takeoff: int = 40
     bat_land: int = 20
-    temp_max: int = 85
     cmd_timeout_s: float = 10
     takeoff_timeout_s: float = 20
     room_map: Optional[RoomMap] = None  # obstacles; a dict (JSON from the controller `configure`) is converted
@@ -102,13 +102,13 @@ class SafetyGuard:
         bat = tel.get("bat")
         if verb in ("land", "emergency", "stop", "command", "streamon", "streamoff") or cmd.strip().endswith("?"):
             return True, cmd, "ok"
+        if verb == "rc":
+            return self._check_rc(cmd, tel)
         if verb == "takeoff":
             if self.flying:
                 return False, None, "already flying"
             if bat is not None and bat < lim.bat_takeoff:
                 return False, None, f"battery {bat}% below takeoff floor {lim.bat_takeoff}%"
-            if tel.get("temph", 0) >= lim.temp_max:
-                return False, None, f"temperature {tel.get('temph')}C at or above {lim.temp_max}C"
             return True, cmd, "ok"
         if verb not in ("up", "down", "cw", "ccw", *_MOVES):
             return False, None, f"command '{verb}' not allowed by guard"
@@ -128,6 +128,35 @@ class SafetyGuard:
         if verb in ("up", "down"):
             return self._check_vertical(verb, n, tel)
         return self._check_horizontal(verb, n)
+
+    def _check_rc(self, cmd: str, tel: dict):
+        """Joystick `rc lr fb ud yaw`. Sticks have no distance, so the geofence and the dead-reckoned
+        pose cannot follow them: the guard caps every channel at RC_MAX, keeps the height between
+        MIN_FLY_Z and max_h from the measured height, and lands at the battery floor. Centred
+        sticks (`rc 0 0 0 0`) are always allowed: that is the stop."""
+        parts = cmd.split()
+        try:
+            lr, fb, ud, yaw = (int(float(v)) for v in parts[1:5])
+        except ValueError:
+            return False, None, "rc needs four numbers"
+        if len(parts) != 5:
+            return False, None, "rc needs four numbers"
+        if (lr, fb, ud, yaw) == (0, 0, 0, 0):
+            return True, "rc 0 0 0 0", "ok"
+        if not self.flying:
+            return False, None, "not flying"
+        bat = tel.get("bat")
+        if bat is not None and bat <= self.limits.bat_land:
+            return False, "land", f"battery {bat}% at land floor {self.limits.bat_land}%"
+        clip = lambda v: max(-RC_MAX, min(RC_MAX, v))  # noqa: E731
+        lr, fb, ud, yaw = clip(lr), clip(fb), clip(ud), clip(yaw)
+        h = float(tel.get("h", self.pose.z) or 0)
+        reason = "ok"
+        if ud > 0 and h >= self.limits.max_h:
+            ud, reason = 0, f"max height {self.limits.max_h:g} cm reached"
+        elif ud < 0 and h <= MIN_FLY_Z:
+            ud, reason = 0, f"min flying height {MIN_FLY_Z} cm reached"
+        return True, f"rc {lr} {fb} {ud} {yaw}", reason
 
     def _check_vertical(self, verb: str, n: int, tel: dict):
         lim = self.limits

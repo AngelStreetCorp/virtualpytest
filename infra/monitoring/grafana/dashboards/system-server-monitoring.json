@@ -22,6 +22,19 @@
   "links": [],
   "panels": [
     {
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "collapsed": false,
+      "panels": []
+    },
+    {
       "datasource": {
         "uid": "supabase-postgres"
       },
@@ -88,7 +101,7 @@
         "h": 3,
         "w": 3,
         "x": 0,
-        "y": 0
+        "y": 1
       },
       "id": 43,
       "options": {
@@ -141,7 +154,7 @@
           }
         }
       ],
-      "title": "\ud83d\udea8 Server Status",
+      "title": "🚨 Server Status",
       "type": "stat"
     },
     {
@@ -179,7 +192,7 @@
         "h": 3,
         "w": 3,
         "x": 3,
-        "y": 0
+        "y": 1
       },
       "id": 1,
       "options": {
@@ -248,7 +261,7 @@
         "h": 3,
         "w": 3,
         "x": 6,
-        "y": 0
+        "y": 1
       },
       "id": 2,
       "options": {
@@ -320,7 +333,7 @@
         "h": 3,
         "w": 3,
         "x": 9,
-        "y": 0
+        "y": 1
       },
       "id": 3,
       "options": {
@@ -406,7 +419,7 @@
         "h": 3,
         "w": 3,
         "x": 12,
-        "y": 0
+        "y": 1
       },
       "id": 4,
       "options": {
@@ -477,7 +490,7 @@
         "h": 3,
         "w": 3,
         "x": 15,
-        "y": 0
+        "y": 1
       },
       "id": 52,
       "options": {
@@ -508,7 +521,7 @@
           "refId": "A"
         }
       ],
-      "title": "\ud83c\udf21\ufe0f CPU Temp",
+      "title": "🌡️ CPU Temp",
       "type": "stat"
     },
     {
@@ -548,7 +561,7 @@
         "h": 3,
         "w": 3,
         "x": 18,
-        "y": 0
+        "y": 1
       },
       "id": 50,
       "options": {
@@ -598,7 +611,7 @@
           }
         }
       ],
-      "title": "\ud83d\udd04 Total Reboots",
+      "title": "🔄 Total Reboots",
       "type": "stat"
     },
     {
@@ -667,7 +680,7 @@
         "h": 5,
         "w": 8,
         "x": 0,
-        "y": 3
+        "y": 4
       },
       "id": 13,
       "options": {
@@ -782,7 +795,7 @@
         "h": 5,
         "w": 8,
         "x": 8,
-        "y": 3
+        "y": 4
       },
       "id": 14,
       "options": {
@@ -897,7 +910,7 @@
         "h": 5,
         "w": 8,
         "x": 16,
-        "y": 3
+        "y": 4
       },
       "id": 25,
       "options": {
@@ -1008,7 +1021,7 @@
         "h": 8,
         "w": 8,
         "x": 0,
-        "y": 8
+        "y": 9
       },
       "id": 54,
       "options": {
@@ -1138,7 +1151,7 @@
         "h": 8,
         "w": 8,
         "x": 8,
-        "y": 8
+        "y": 9
       },
       "id": 53,
       "options": {
@@ -1165,7 +1178,7 @@
           "refId": "A"
         }
       ],
-      "title": "\ud83c\udf21\ufe0f Server CPU Temperature by Server",
+      "title": "🌡️ Server CPU Temperature by Server",
       "type": "timeseries"
     },
     {
@@ -1261,7 +1274,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 8
+        "y": 9
       },
       "id": 55,
       "options": {
@@ -1405,7 +1418,7 @@
         "h": 5,
         "w": 12,
         "x": 0,
-        "y": 16
+        "y": 17
       },
       "id": 51,
       "options": {
@@ -1451,7 +1464,7 @@
           }
         }
       ],
-      "title": "\ud83d\udd04 Reboot Events Timeline",
+      "title": "🔄 Reboot Events Timeline",
       "type": "timeseries"
     },
     {
@@ -1524,7 +1537,7 @@
         "h": 5,
         "w": 12,
         "x": 12,
-        "y": 16
+        "y": 17
       },
       "id": 56,
       "options": {
@@ -1553,7 +1566,7 @@
           "refId": "A"
         }
       ],
-      "title": "\ud83d\udcbe Disk Write Activity",
+      "title": "💾 Disk Write Activity",
       "type": "timeseries"
     },
     {
@@ -1595,7 +1608,7 @@
         "h": 3,
         "w": 6,
         "x": 0,
-        "y": 21
+        "y": 22
       },
       "id": 30,
       "options": {
@@ -1627,7 +1640,7 @@
           "refId": "A"
         }
       ],
-      "title": "\ud83d\udcc5 Daily (24h)",
+      "title": "📅 Daily (24h)",
       "type": "stat"
     },
     {
@@ -1669,7 +1682,7 @@
         "h": 3,
         "w": 6,
         "x": 6,
-        "y": 21
+        "y": 22
       },
       "id": 31,
       "options": {
@@ -1700,7 +1713,7 @@
           "refId": "A"
         }
       ],
-      "title": "\ud83d\udcca Weekly (7d)",
+      "title": "📊 Weekly (7d)",
       "type": "stat"
     },
     {
@@ -1742,7 +1755,7 @@
         "h": 3,
         "w": 6,
         "x": 12,
-        "y": 21
+        "y": 22
       },
       "id": 32,
       "options": {
@@ -1776,7 +1789,7 @@
           "refId": "A"
         }
       ],
-      "title": "\ud83d\udcc8 Monthly (30d)",
+      "title": "📈 Monthly (30d)",
       "type": "stat"
     },
     {
@@ -1818,7 +1831,7 @@
         "h": 3,
         "w": 6,
         "x": 18,
-        "y": 21
+        "y": 22
       },
       "id": 33,
       "options": {
@@ -1849,7 +1862,7 @@
           "refId": "A"
         }
       ],
-      "title": "\ud83d\udcc6 Yearly (365d)",
+      "title": "📆 Yearly (365d)",
       "type": "stat"
     },
     {
@@ -1891,7 +1904,7 @@
         "h": 3,
         "w": 6,
         "x": 0,
-        "y": 24
+        "y": 25
       },
       "id": 35,
       "options": {
@@ -1922,7 +1935,7 @@
           "refId": "A"
         }
       ],
-      "title": "\u23f1\ufe0f Daily Uptime",
+      "title": "⏱️ Daily Uptime",
       "type": "stat"
     },
     {
@@ -1964,7 +1977,7 @@
         "h": 3,
         "w": 6,
         "x": 6,
-        "y": 24
+        "y": 25
       },
       "id": 37,
       "options": {
@@ -1995,7 +2008,7 @@
           "refId": "A"
         }
       ],
-      "title": "\u23f1\ufe0f Weekly Uptime",
+      "title": "⏱️ Weekly Uptime",
       "type": "stat"
     },
     {
@@ -2037,7 +2050,7 @@
         "h": 3,
         "w": 6,
         "x": 12,
-        "y": 24
+        "y": 25
       },
       "id": 39,
       "options": {
@@ -2068,7 +2081,7 @@
           "refId": "A"
         }
       ],
-      "title": "\u23f1\ufe0f Monthly Uptime",
+      "title": "⏱️ Monthly Uptime",
       "type": "stat"
     },
     {
@@ -2110,7 +2123,7 @@
         "h": 3,
         "w": 6,
         "x": 18,
-        "y": 24
+        "y": 25
       },
       "id": 41,
       "options": {
@@ -2141,7 +2154,7 @@
           "refId": "A"
         }
       ],
-      "title": "\u23f1\ufe0f Yearly Uptime",
+      "title": "⏱️ Yearly Uptime",
       "type": "stat"
     },
     {
@@ -2183,7 +2196,7 @@
         "h": 3,
         "w": 6,
         "x": 0,
-        "y": 27
+        "y": 28
       },
       "id": 36,
       "options": {
@@ -2214,7 +2227,7 @@
           "refId": "A"
         }
       ],
-      "title": "\ud83d\udd04 Reboots (Selected Period)",
+      "title": "🔄 Reboots (Selected Period)",
       "type": "stat"
     },
     {
@@ -2256,7 +2269,7 @@
         "h": 3,
         "w": 6,
         "x": 6,
-        "y": 27
+        "y": 28
       },
       "id": 38,
       "options": {
@@ -2287,7 +2300,7 @@
           "refId": "A"
         }
       ],
-      "title": "\u23ec Weekly Downtime",
+      "title": "⏬ Weekly Downtime",
       "type": "stat"
     },
     {
@@ -2329,7 +2342,7 @@
         "h": 3,
         "w": 6,
         "x": 12,
-        "y": 27
+        "y": 28
       },
       "id": 40,
       "options": {
@@ -2360,7 +2373,7 @@
           "refId": "A"
         }
       ],
-      "title": "\u23ec Monthly Downtime",
+      "title": "⏬ Monthly Downtime",
       "type": "stat"
     },
     {
@@ -2402,7 +2415,7 @@
         "h": 3,
         "w": 6,
         "x": 18,
-        "y": 27
+        "y": 28
       },
       "id": 42,
       "options": {
@@ -2433,90 +2446,104 @@
           "refId": "A"
         }
       ],
-      "title": "\u23ec Yearly Downtime",
+      "title": "⏬ Yearly Downtime",
       "type": "stat"
     },
     {
-      "datasource": {
-        "uid": "supabase-postgres"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "inspect": false
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": 0
-              },
-              {
-                "color": "red",
-                "value": 80
-              }
-            ]
-          }
-        },
-        "overrides": []
-      },
+      "type": "row",
+      "title": "Details",
       "gridPos": {
-        "h": 6,
+        "h": 1,
         "w": 24,
         "x": 0,
-        "y": 30
+        "y": 31
       },
-      "id": 34,
-      "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
-          ],
-          "show": false
-        },
-        "showHeader": true
-      },
-      "pluginVersion": "12.1.1",
-      "targets": [
+      "id": 101,
+      "collapsed": true,
+      "panels": [
         {
           "datasource": {
             "uid": "supabase-postgres"
           },
-          "editorMode": "code",
-          "format": "table",
-          "rawQuery": true,
-          "rawSql": "SELECT \n    server_name as \"Server\",\n    TO_CHAR(timestamp, 'YYYY-MM-DD HH24:MI:SS') as \"Last Update\",\n    uptime_seconds as \"Uptime (seconds)\",\n    ROUND(uptime_seconds / 3600.0, 2) as \"Uptime (hours)\",\n    ROUND(uptime_seconds / 86400.0, 2) as \"Uptime (days)\",\n    \n    -- Daily calculation (24h)\n    ROUND(LEAST(100, (uptime_seconds / 3600.0) / 24.0 * 100), 2) as \"Daily % (24h)\",\n    ROUND(24 - (uptime_seconds / 3600.0), 2) as \"Daily Downtime (h)\",\n    \n    -- Weekly calculation (7d)\n    ROUND(LEAST(100, (uptime_seconds / 86400.0) / 7.0 * 100), 2) as \"Weekly % (7d)\",\n    ROUND(7 - (uptime_seconds / 86400.0), 2) as \"Weekly Downtime (d)\",\n    \n    -- Monthly calculation (30d)\n    ROUND(LEAST(100, (uptime_seconds / 86400.0) / 30.0 * 100), 2) as \"Monthly % (30d)\",\n    ROUND(30 - (uptime_seconds / 86400.0), 2) as \"Monthly Downtime (d)\",\n    \n    -- Yearly calculation (365d)\n    ROUND(LEAST(100, (uptime_seconds / 86400.0) / 365.0 * 100), 2) as \"Yearly % (365d)\",\n    ROUND(365 - (uptime_seconds / 86400.0), 2) as \"Yearly Downtime (d)\"\n    \nFROM system_metrics \nWHERE host_name = 'server'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC \nLIMIT 5;",
-          "refId": "A",
-          "sql": {
-            "columns": [
-              {
-                "parameters": [],
-                "type": "function"
-              }
-            ],
-            "groupBy": [
-              {
-                "property": {
-                  "type": "string"
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "auto"
                 },
-                "type": "groupBy"
+                "inspect": false
+              },
+              "mappings": [],
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": 0
+                  },
+                  {
+                    "color": "red",
+                    "value": 80
+                  }
+                ]
               }
-            ],
-            "limit": 50
-          }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 24,
+            "x": 0,
+            "y": 32
+          },
+          "id": 34,
+          "options": {
+            "cellHeight": "sm",
+            "footer": {
+              "countRows": false,
+              "fields": "",
+              "reducer": [
+                "sum"
+              ],
+              "show": false
+            },
+            "showHeader": true
+          },
+          "pluginVersion": "12.1.1",
+          "targets": [
+            {
+              "datasource": {
+                "uid": "supabase-postgres"
+              },
+              "editorMode": "code",
+              "format": "table",
+              "rawQuery": true,
+              "rawSql": "SELECT \n    server_name as \"Server\",\n    TO_CHAR(timestamp, 'YYYY-MM-DD HH24:MI:SS') as \"Last Update\",\n    uptime_seconds as \"Uptime (seconds)\",\n    ROUND(uptime_seconds / 3600.0, 2) as \"Uptime (hours)\",\n    ROUND(uptime_seconds / 86400.0, 2) as \"Uptime (days)\",\n    \n    -- Daily calculation (24h)\n    ROUND(LEAST(100, (uptime_seconds / 3600.0) / 24.0 * 100), 2) as \"Daily % (24h)\",\n    ROUND(24 - (uptime_seconds / 3600.0), 2) as \"Daily Downtime (h)\",\n    \n    -- Weekly calculation (7d)\n    ROUND(LEAST(100, (uptime_seconds / 86400.0) / 7.0 * 100), 2) as \"Weekly % (7d)\",\n    ROUND(7 - (uptime_seconds / 86400.0), 2) as \"Weekly Downtime (d)\",\n    \n    -- Monthly calculation (30d)\n    ROUND(LEAST(100, (uptime_seconds / 86400.0) / 30.0 * 100), 2) as \"Monthly % (30d)\",\n    ROUND(30 - (uptime_seconds / 86400.0), 2) as \"Monthly Downtime (d)\",\n    \n    -- Yearly calculation (365d)\n    ROUND(LEAST(100, (uptime_seconds / 86400.0) / 365.0 * 100), 2) as \"Yearly % (365d)\",\n    ROUND(365 - (uptime_seconds / 86400.0), 2) as \"Yearly Downtime (d)\"\n    \nFROM system_metrics \nWHERE host_name = 'server'\n  AND $__timeFilter(timestamp)\nORDER BY timestamp DESC \nLIMIT 5;",
+              "refId": "A",
+              "sql": {
+                "columns": [
+                  {
+                    "parameters": [],
+                    "type": "function"
+                  }
+                ],
+                "groupBy": [
+                  {
+                    "property": {
+                      "type": "string"
+                    },
+                    "type": "groupBy"
+                  }
+                ],
+                "limit": 50
+              }
+            }
+          ],
+          "title": "🔍 Server Availability Debug Data",
+          "type": "table"
         }
-      ],
-      "title": "\ud83d\udd0d Server Availability Debug Data",
-      "type": "table"
+      ]
     }
   ],
   "preload": false,

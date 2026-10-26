@@ -8,7 +8,7 @@
 | Severity  | High                                                         |
 | Area      | backend_host, Linux capture (`run_ffmpeg.sh`)                |
 | Host      | vpt-mf1                                                     |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | _pending_                                                    |
 
 ## Symptom
@@ -17,7 +17,7 @@ On `vpt-mf1` the **host** device (`vpt-mf1-host`, `HOST_VIDEO_SOURCE=:1`) produc
 no archive. In the browser the device page logged
 
 ```
-rpitest.angelstreet.io/server/av/takeScreenshot?team_id=…  →  500
+<pi-server-host>/server/av/takeScreenshot?team_id=…  →  500
 ```
 
 and the capture directory for the host stayed completely empty:

@@ -4,6 +4,8 @@ description: Build navigation tree for mobile apps with auto-validation
 platform: mobile
 requires_device: true
 timeout_seconds: 1800
+think_budget_seconds: 600
+max_tool_calls: 150
 tools:
   - navigate_to_node
   - list_userinterfaces
@@ -22,6 +24,7 @@ tools:
   - get_node
   - create_edge
   - update_edge
+  - auto_layout_tree
   - delete_edge
   - get_edge
   - create_subtree
@@ -130,3 +133,8 @@ For nodes that need screenshots:
 - save_node_screenshot(...)
 
 CLEANUP: none needed — device locking is automatic per action (no release_control tool exists).
+
+LAST STEP: auto_layout_tree(userinterface_name=<ui>) once the tree is built, so the editor does not show every
+node stacked at (0, 0). Only positions change.
+
+LANGUAGE: build so the tree passes in every UI language. Identify nodes by signals that do not translate (web: URL path; Android: resource_id / activity; STB: focus position / tab index, icon references) and act by keys, URLs or positions; a label only as a second check. Method: docs/agent/navigation/LANGUAGE_FREE_TREES.md.

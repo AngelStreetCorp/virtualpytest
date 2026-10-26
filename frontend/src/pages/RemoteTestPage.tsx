@@ -836,6 +836,11 @@ export default function RemoteTestPage() {
                 streamMinimized={streamMinimized}
                 streamHidden={!selectedHost.controller_configs?.av} // Stream is hidden when no AV config
                 captureMode={captureMode}
+                // Inside this test area, not floating over the page: a fixed panel sat on
+                // top of the page's own cards (BUG-0781).
+                useAbsolutePositioning
+                positionBottom="20px"
+                positionRight="20px"
               />
             )}
 
@@ -843,7 +848,9 @@ export default function RemoteTestPage() {
           {selectedHost.controller_configs?.av && (
             <Box
               sx={{
-                position: 'fixed',
+                // Inside this test area, not pinned to the viewport: a fixed box covered
+                // the page's own text wherever the page was scrolled (BUG-0781).
+                position: 'absolute',
                 bottom: '20px',
                 left: '20px',
                 width: '300px',

@@ -12,6 +12,7 @@ import { useAgentChatPalette } from '../../constants/agentChatTheme';
 import { useHostControl } from '../../hooks/useHostManager';
 import { buildVerificationResultUrl } from '../../utils/buildUrlUtils';
 import { StyledDialog } from '../common/StyledDialog';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface VerificationTextComparisonDialogProps {
   open: boolean;
@@ -301,7 +302,7 @@ export const VerificationTextComparisonDialog: React.FC<VerificationTextComparis
               <Box>
                 <Typography
                   variant="subtitle1"
-                  sx={{ fontSize: '1rem', fontWeight: 600, mb: 1, color: P.series[1] }}
+                  sx={{ fontSize: TYPOGRAPHY.navbarItem.size, fontWeight: 600, mb: 1, color: P.series[1] }}
                 >
                   Searched Text:
                 </Typography>
@@ -321,7 +322,7 @@ export const VerificationTextComparisonDialog: React.FC<VerificationTextComparis
                       whiteSpace: 'pre-wrap',
                       wordBreak: 'break-word',
                       color: P.series[1],
-                      fontSize: '0.9rem',
+                      fontSize: TYPOGRAPHY.navbarItem.size,
                     }}
                   >
                     "{searchedText}"
@@ -334,7 +335,7 @@ export const VerificationTextComparisonDialog: React.FC<VerificationTextComparis
                 <Typography
                   variant="subtitle1"
                   sx={{
-                    fontSize: '1rem',
+                    fontSize: TYPOGRAPHY.navbarItem.size,
                     fontWeight: 600,
                     mb: 1,
                     color: resultType === 'PASS' ? P.success : P.error,
@@ -359,7 +360,7 @@ export const VerificationTextComparisonDialog: React.FC<VerificationTextComparis
                       whiteSpace: 'pre-wrap',
                       wordBreak: 'break-word',
                       color: resultType === 'PASS' ? P.success : P.error,
-                      fontSize: '0.9rem',
+                      fontSize: TYPOGRAPHY.navbarItem.size,
                     }}
                   >
                     "{extractedText || 'No text found'}"

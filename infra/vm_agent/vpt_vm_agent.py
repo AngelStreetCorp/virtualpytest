@@ -19,19 +19,37 @@ variables, normally from /etc/default/vpt-vm-agent (see install.sh):
     VM_AGENT_CONTAINERS  comma-separated docker container names or globs,
                          e.g. supabase_*  (read through /var/run/docker.sock)
     VM_AGENT_DISK_PATH   filesystem whose usage is reported (default /)
+
+Optional action (OFF unless both of these are set — see infra/vm_agent/README.md):
+
+    VM_AGENT_ACTIONS         comma-separated actions to enable; only `db-backup` exists
+    VM_AGENT_ACTION_TOKEN    shared secret the caller sends in the X-VM-Agent-Token header
+    VM_AGENT_DB_BACKUP_UNIT  the ONE systemd one-shot unit `db-backup` starts
+                             (default vpt-db-backup.service); never taken from a request
+
+    POST /actions/db-backup  `systemctl start --no-block <unit>`: systemd runs it outside this agent's
+                             sandbox -> 202 {request_id, started_at}
+                             (409 while it runs, 429 within 5 min of a successful one)
+    GET  /actions/db-backup  {running, started_at, finished_at, exit_code, log_tail} from
+                             `systemctl show` + `journalctl -u <unit>`
+
+`GET /status` stays read-only and needs no token.
 """
 
 import fnmatch
+import hmac
 import http.client
 import json
 import os
+import re
 import socket
 import subprocess
 import threading
 import time
+import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-AGENT_VERSION = '2'
+AGENT_VERSION = '4'
 CPU_SAMPLE_SECONDS = 15
 DOCKER_SOCKET = '/var/run/docker.sock'
 
@@ -189,15 +207,161 @@ def _services():
     return services
 
 
+# ── Actions (opt-in) ─────────────────────────────────────────────────────────
+
+ACTION_DB_BACKUP = 'db-backup'
+ACTION_TOKEN_HEADER = 'X-VM-Agent-Token'
+DEFAULT_DB_BACKUP_UNIT = 'vpt-db-backup.service'
+DB_BACKUP_COOLDOWN_SECONDS = 300
+LOG_TAIL_LINES = 40
+SHOW_PROPERTIES = 'ActiveState,SubState,Result,ExecMainStatus,ExecMainStartTimestamp,ExecMainExitTimestamp'
+_UNIT_NAME = re.compile(r'^[A-Za-z0-9][A-Za-z0-9:_.@-]{0,99}\.service$')
+_RUNNING_STATES = ('activating', 'active', 'reloading')
+
+
+def actions_enabled():
+    """db-backup answers only when it is listed AND a token is configured; otherwise both routes are 404."""
+    return ACTION_DB_BACKUP in _csv_env('VM_AGENT_ACTIONS') and bool(os.getenv('VM_AGENT_ACTION_TOKEN', '').strip())
+
+
+def token_valid(supplied):
+    expected = os.getenv('VM_AGENT_ACTION_TOKEN', '').strip()
+    return bool(expected) and bool(supplied) and hmac.compare_digest(supplied.encode(), expected.encode())
+
+
+def _run(argv, timeout=15):
+    """-> (returncode, combined output). argv list, never a shell."""
+    p = subprocess.run(argv, capture_output=True, text=True, timeout=timeout, stdin=subprocess.DEVNULL)
+    return p.returncode, (p.stdout or '') + (p.stderr or '')
+
+
+def _unix(value):
+    """systemctl `--timestamp=unix` prints `@1760522400`; empty or `n/a` means it never happened."""
+    value = (value or '').strip()
+    if value.startswith('@') and value[1:].isdigit() and int(value[1:]) > 0:
+        return float(value[1:])
+    return None
+
+
+class SystemdUnitAction:
+    """One fixed systemd one-shot unit, started on request OUTSIDE this agent's sandbox.
+
+    The agent runs under ProtectSystem=strict, and a child inherits that: the backup script could not
+    write /data/backups. systemd starts the unit from PID 1 instead, with the unit's own (open) settings.
+    """
+
+    def __init__(self, unit, cooldown=DB_BACKUP_COOLDOWN_SECONDS, run=_run, clock=time.time):
+        if not _UNIT_NAME.match(unit or ''):
+            raise ValueError(f'invalid unit name: {unit!r}')
+        self._unit, self._cooldown, self._run, self._clock = unit, cooldown, run, clock
+        self._lock = threading.Lock()
+        self._request_id = None
+        self._requested_at = None
+
+    def _show(self):
+        rc, out = self._run(['systemctl', 'show', '--timestamp=unix', self._unit, '-p', SHOW_PROPERTIES])
+        props = dict(line.split('=', 1) for line in out.splitlines() if '=' in line)
+        if rc != 0 or not props:
+            raise RuntimeError(f'systemctl show failed: {out.strip()[:200]}')
+        return props
+
+    def start(self):
+        """-> (http_code, body). The unit comes from the constructor, never from the request."""
+        with self._lock:
+            try:
+                props = self._show()
+                state = props.get('ActiveState', '')
+                if state in _RUNNING_STATES:
+                    return 409, {'error': 'already running', 'request_id': self._request_id,
+                                 'started_at': _unix(props.get('ExecMainStartTimestamp')) or self._requested_at}
+                now = self._clock()
+                ended = _unix(props.get('ExecMainExitTimestamp'))
+                if state == 'inactive' and props.get('ExecMainStatus') == '0' and ended and now - ended < self._cooldown:
+                    return 429, {'error': 'cooldown', 'retry_after': int(self._cooldown - (now - ended)) + 1}
+                rc, out = self._run(['systemctl', 'start', '--no-block', self._unit])
+            except Exception as e:
+                return 500, {'error': f'cannot start: {type(e).__name__}: {e}'}
+            if rc != 0:
+                return 500, {'error': f'cannot start: {out.strip()[:200]}'}
+            self._request_id, self._requested_at = uuid.uuid4().hex, now
+            return 202, {'request_id': self._request_id, 'started_at': now}
+
+    def snapshot(self):
+        with self._lock:
+            request_id, requested_at = self._request_id, self._requested_at
+        try:
+            props = self._show()
+        except Exception as e:
+            return {'request_id': request_id, 'running': False, 'started_at': requested_at, 'finished_at': None,
+                    'exit_code': None, 'log_tail': [f'agent: {type(e).__name__}: {e}']}
+        state = props.get('ActiveState', '')
+        running = state in _RUNNING_STATES
+        started = _unix(props.get('ExecMainStartTimestamp'))
+        ended = _unix(props.get('ExecMainExitTimestamp'))
+        exit_code = None
+        if not running and started:
+            try:
+                exit_code = int(props.get('ExecMainStatus', ''))
+            except ValueError:
+                exit_code = None
+            if state == 'failed' and not exit_code:
+                exit_code = -1   # failed without an exit status (killed, timeout): never report success
+        argv = ['journalctl', '-u', self._unit, '-n', str(LOG_TAIL_LINES), '--no-pager', '-o', 'cat']
+        if started:
+            argv += ['--since', f'@{int(started)}']
+        try:
+            rc, out = self._run(argv)
+            tail = out.splitlines()[-LOG_TAIL_LINES:] if rc == 0 else [f'agent: journalctl failed: {out.strip()[:200]}']
+        except Exception as e:
+            tail = [f'agent: {type(e).__name__}: {e}']
+        return {'request_id': request_id, 'running': running, 'started_at': started or requested_at,
+                'finished_at': None if running else ended, 'exit_code': exit_code, 'log_tail': tail}
+
+
+_db_backup = None
+_db_backup_lock = threading.Lock()
+
+
+def db_backup_action():
+    global _db_backup
+    with _db_backup_lock:
+        if _db_backup is None:
+            _db_backup = SystemdUnitAction(os.getenv('VM_AGENT_DB_BACKUP_UNIT', '').strip() or DEFAULT_DB_BACKUP_UNIT)
+        return _db_backup
+
+
 # ── HTTP ─────────────────────────────────────────────────────────────────────
 
 ALLOWED_CLIENTS = set(_csv_env('VM_AGENT_ALLOW'))
 
 
 class Handler(BaseHTTPRequestHandler):
+    def _action_gate(self):
+        """True when the request may use /actions/db-backup; otherwise the error reply is already sent."""
+        if self.path.split('?')[0] != '/actions/' + ACTION_DB_BACKUP or not actions_enabled():
+            self._reply(404, {'error': 'not found'})
+            return False
+        if not token_valid(self.headers.get(ACTION_TOKEN_HEADER, '')):
+            self._reply(401, {'error': 'unauthorized'})
+            return False
+        return True
+
+    def do_POST(self):
+        if ALLOWED_CLIENTS and self.client_address[0] not in ALLOWED_CLIENTS:
+            self._reply(403, {'error': 'forbidden'})
+            return
+        if not self._action_gate():
+            return
+        code, body = db_backup_action().start()   # the request body is never read
+        self._reply(code, body)
+
     def do_GET(self):
         if ALLOWED_CLIENTS and self.client_address[0] not in ALLOWED_CLIENTS:
             self._reply(403, {'error': 'forbidden'})
+            return
+        if self.path.startswith('/actions/'):
+            if self._action_gate():
+                self._reply(200, db_backup_action().snapshot())
             return
         if self.path.split('?')[0] != '/status':
             self._reply(404, {'error': 'not found'})

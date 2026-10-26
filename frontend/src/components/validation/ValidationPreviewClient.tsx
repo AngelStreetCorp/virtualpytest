@@ -22,6 +22,7 @@ import {
 } from '@mui/material';
 import { useState, useEffect } from 'react';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 // Tree names are stored in the DB with a " - Subtree" suffix
 // (e.g. "apps - Subtree"). Strip it so chips/dropdown show just "apps".
@@ -286,7 +287,7 @@ export default function ValidationPreviewClient({ treeId, onClose, selectedHost,
                 <Typography
                   variant="body2"
                   fontWeight="bold"
-                  sx={{ fontSize: '14px', flex: '0 0 auto', whiteSpace: 'nowrap' }}
+                  sx={{ fontSize: TYPOGRAPHY.body.size, flex: '0 0 auto', whiteSpace: 'nowrap' }}
                 >
                   {index + 1}. {edge.from_name} → {edge.to_name}
                 </Typography>

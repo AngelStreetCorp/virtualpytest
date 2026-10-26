@@ -2,6 +2,8 @@
 name: manage-campaign
 description: Create, read, update, and delete test campaigns
 timeout_seconds: 3600
+think_budget_seconds: 120
+max_tool_calls: 40
 tools:
   - list_campaigns
   - get_campaign

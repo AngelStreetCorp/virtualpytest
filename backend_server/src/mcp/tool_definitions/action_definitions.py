@@ -39,7 +39,7 @@ def get_tools() -> List[Dict[str, Any]]:
                 },
                 "force_unlock": {
                     "type": "boolean",
-                    "description": "stop a running script/testcase/deployment holding the device; another user's take-control is never taken"
+                    "description": "clears a STALE script/testcase/deployment lock (or your own) only; it never aborts another caller's live run (you get a device_busy refusal: wait or queue) and never takes another user's take-control"
                 },
                 "session_id": {
                     "type": "string",

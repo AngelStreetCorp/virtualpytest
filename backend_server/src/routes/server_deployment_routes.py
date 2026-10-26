@@ -5,7 +5,9 @@ from typing import Any, Dict, List, Optional, Tuple
 from flask import Blueprint, request, jsonify
 from apscheduler.triggers.cron import CronTrigger
 import gevent
-from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
+import re
+import time
+from backend_server.src.lib.utils.route_handlers import handle_route_exceptions, require_team_id_from_args
 from backend_server.src.lib.utils.server_utils import get_host_manager
 from backend_server.src.lib.utils.completion_notifier import notify_completion
 from backend_server.src.lib.utils.lock_utils import release_device_lock
@@ -378,12 +380,67 @@ def delete_deployment(deployment_id):
     emit_system_update('deployment_changed', {'domain': 'deployment', 'action': 'deleted', 'deployment_id': deployment_id})
     
     return jsonify({'success': True})
+
+
+_UUID_RE = re.compile(
+    r'\A[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\Z', re.IGNORECASE)
+
+# The CoC run guard polls this history every 30 s. One transient PostgREST failure
+# (pool exhaustion, a connection reset under load) used to surface as an opaque
+# 500 with a bare exception string, which the guard could only log and retry.
+# The read is retried instead, and a database that stays unreachable answers 503.
+HISTORY_READ_ATTEMPTS = 3
+HISTORY_RETRY_SLEEP_S = 0.25
+
+
+def _read_execution_history(supabase, team_id: str, deployment_id: str):
+    """Latest executions of one deployment, scoped to its team.
+
+    Returns (rows, None) on success, or (None, (response, status)) when the
+    database could not be read after HISTORY_READ_ATTEMPTS tries.
+    """
+    last_error = None
+    for attempt in range(HISTORY_READ_ATTEMPTS):
+        try:
+            result = (supabase.table('deployment_executions')
+                      .select('*, deployments!inner(team_id)')
+                      .eq('deployment_id', deployment_id)
+                      .eq('deployments.team_id', team_id)
+                      .order('started_at', desc=True)
+                      .limit(100)
+                      .execute())
+            return result.data, None
+        except Exception as exc:      # noqa: BLE001 — any DB failure is retryable here
+            last_error = exc
+            if attempt < HISTORY_READ_ATTEMPTS - 1:
+                time.sleep(HISTORY_RETRY_SLEEP_S * (attempt + 1))
+    print(f"[deployment:deployment_history] {deployment_id} unreadable after "
+          f"{HISTORY_READ_ATTEMPTS} attempts: {type(last_error).__name__}: {last_error}")
+    return None, (jsonify({
+        'error': 'deployment history is temporarily unavailable',
+        'detail': f'{type(last_error).__name__}: {last_error}',
+    }), 503)
+
+
 @server_deployment_bp.route('/history/<deployment_id>', methods=['GET'])
 @handle_route_exceptions('deployment:deployment_history')
 def deployment_history(deployment_id):
+    team_id, team_error = require_team_id_from_args()
+    if team_error:
+        return team_error
+    # A malformed id is a client error: PostgREST answers 400 for it, and that
+    # APIError used to reach the caller as a 500.
+    if not _UUID_RE.match(deployment_id or ''):
+        return jsonify({'error': 'deployment_id must be a UUID'}), 400
     supabase = get_supabase_client()
-    result = supabase.table('deployment_executions').select('*').eq('deployment_id', deployment_id).order('started_at', desc=True).limit(100).execute()
-    return jsonify({'success': True, 'executions': result.data})
+    if supabase is None:
+        # No client in this process (see get_supabase_client): a service problem,
+        # not a bad request.
+        return jsonify({'error': 'database client is not available'}), 503
+    rows, db_error = _read_execution_history(supabase, team_id, deployment_id)
+    if db_error:
+        return db_error
+    return jsonify({'success': True, 'executions': rows})
 @server_deployment_bp.route('/executions/recent', methods=['GET'])
 @handle_route_exceptions('deployment:recent_executions')
 def recent_executions():
@@ -1008,6 +1065,20 @@ def execution_complete():
                 f"{host_name}:{device_id}: {release_result.get('error')}"
             )
 
+    # Scheduled runs get a server task so the live endpoints (Deployments row, live run
+    # page) can follow them: opened when the host reports "running", closed with the run.
+    from backend_server.src.lib.utils.task_manager import task_manager, deployment_task_id
+    run_task_id = deployment_task_id(execution_id)
+    if status == 'running':
+        task_manager.create_task('script_execute', {
+            'script_name': data.get('script_name') or (deployment.get('script_name') if deployment else None),
+            'host_name': host_name,
+            'device_id': device_id,
+            'team_id': team_id,
+            'deployment_id': deployment_id,
+            'execution_id': execution_id,
+        }, task_id=run_task_id)
+
     result_payload = data.get('result') or {}
     result_payload.update({
         'deployment_id': deployment_id,
@@ -1022,9 +1093,11 @@ def execution_complete():
     # its caller polling the task_id it was handed. Complete that task with the same
     # result a direct run would have produced, so an API caller cannot tell the
     # difference between "ran now" and "ran when the device freed up".
+    if status in ('completed', 'failed', 'skipped', 'aborted'):
+        task_manager.complete_task(run_task_id, result_payload, error=error, success=result_payload['success'])
+
     queued_task_id = ((deployment or {}).get('rerun_payload') or {}).get('queued_task_id')
     if queued_task_id:
-        from backend_server.src.lib.utils.task_manager import task_manager
         task_manager.complete_task(
             queued_task_id,
             result_payload,

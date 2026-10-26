@@ -52,9 +52,9 @@ $script:SERVICES = @{
     # NOTE: On Windows, desktop capture (ffmpeg gdigrab) must run in an interactive session.
     # It cannot run reliably from Session 0 (services/SSH). We install stream as a Scheduled Task.
     "vpt-stream" = "FFmpeg video capture task"
-    "vpt-monitor" = "Capture monitoring service"
+    "vpt-monitor-img" = "Capture monitoring service"
     "vpt-archiver" = "Hot/cold storage archiver"
-    "vpt-transcript" = "Audio transcription service"
+    "vpt-monitor-audio" = "Audio transcription service"
     "vpt-kpi" = "KPI measurement executor"
     # Windows-only helpers
     "vpt-vnc" = "VNC server service"
@@ -63,6 +63,14 @@ $script:SERVICES = @{
 
 $script:STREAM_TASK_NAME = "vpt-stream"
 $script:HOST_TASK_NAME = "vpt-host"
+# BUG-0597: vpt-windows host_vnc desktop audio HLS pipeline. sounddevice
+# (PortAudio WDM-KS) reads PCM from the Realtek "Stereo Mix" / "Mixage
+# stereo" loopback, run_audio_stereo_mix.ps1 muxes it into HLS. Unlike the
+# stream task, this one needs NO interactive desktop - PortAudio talks to
+# Audiosrv in Session 0 - so we register under /ru SYSTEM via schtasks
+# (Register-ScheduledTask from an ssh'd session fails with HRESULT 0x80041318
+# on this exact path; schtasks goes through a different code path that works).
+$script:AUDIO_TASK_NAME = "vpt-windows-audio"
 
 function Write-Log {
     param(
@@ -79,6 +87,52 @@ function Write-Log {
     if (Test-Path $script:LOGS_PATH) {
         $logFile = Join-Path $script:LOGS_PATH "install.log"
         $logMessage | Out-File -FilePath $logFile -Append -Encoding UTF8
+    }
+}
+
+function Add-EnvLineIfMissing {
+    <#
+    Append a KEY=VALUE line to a .env-style file, but only if no line with
+    the same KEY (case-insensitive, anchored at start-of-line) is already
+    present. Used by Setup-EnvironmentConfiguration to seed defaults
+    (BUG-0597 audio path) without clobbering an operator's hand edits.
+    #>
+    param(
+        [Parameter(Mandatory = $true)] [string]$EnvFile,
+        [Parameter(Mandatory = $true)] [string]$Line
+    )
+    if (-not (Test-Path $EnvFile)) { return }
+    $key = ($Line -split '=', 2)[0]
+    $existing = Get-Content -LiteralPath $EnvFile -ErrorAction SilentlyContinue |
+        Where-Object { $_ -match "^$([regex]::Escape($key))=" }
+    if (-not $existing) {
+        Add-Content -LiteralPath $EnvFile -Value $Line
+    }
+}
+
+function Ensure-TaskEnabled {
+    <#
+    BUG-0600: a Disabled Scheduled Task never fires its LogonTrigger, so the
+    wrapper it owns never restarts after a reboot. `Register-ScheduledTask -Force`
+    and `schtasks /create /f` both create the task in the Ready state on a
+    clean install, but a debugging round that ran `Disable-ScheduledTask` to
+    test a manual wrapper would leave it stuck Disabled forever after - and
+    the only visible symptom is "the host dropped out of getAllHosts after
+    the next reboot". Re-Enable at the end of every installer that registers
+    a task so any operator disable during debugging is undone on the next
+    `.\install_host_windows.ps1` run.
+    #>
+    param(
+        [Parameter(Mandatory = $true)] [string]$TaskName
+    )
+    try {
+        $t = Get-ScheduledTask -TaskName $TaskName -ErrorAction Stop
+        if ($t.State -ne 'Ready') {
+            Enable-ScheduledTask -TaskName $TaskName -ErrorAction Stop | Out-Null
+            Write-Log "Re-enabled scheduled task (was $($t.State)): $TaskName"
+        }
+    } catch {
+        Write-Log "Ensure-TaskEnabled: could not check $TaskName - $($_.Exception.Message)" "WARNING"
     }
 }
 
@@ -315,6 +369,135 @@ function Install-StreamScheduledTask {
         Write-Log "Could not register scheduled task $($script:STREAM_TASK_NAME): $($_.Exception.Message)" "WARNING"
         Write-Log "Stream capture will need manual task creation or interactive startup" "WARNING"
     }
+
+    # BUG-0600: a debugging `Disable-ScheduledTask vpt-stream` would otherwise
+    # leave the task Disabled across reboots - and the symptom only shows up
+    # when the wrapper doesn't come back after a reboot.
+    Ensure-TaskEnabled -TaskName $script:STREAM_TASK_NAME
+}
+
+function Install-WindowsAudioTask {
+    <#
+    BUG-0597: register the vpt-windows-audio Scheduled Task that runs
+    `run_audio_stereo_mix.ps1` from boot. The wrapper owns the
+    (capture_audio_stereo_mix.py, ffmpeg) pair with a pidfile lock + 5 s
+    cooldown + in-place ffmpeg restart - see backend_host/scripts/run_audio_stereo_mix.ps1.
+
+    Why schtasks and not Register-ScheduledTask: Register-ScheduledTask fails
+    with HRESULT 0x80041318 when the calling ssh session tries to bind an
+    account with no interactive token. schtasks.exe goes through a different
+    code path (schedsvc RPC) and works with an XML definition.
+    Why the console user and an interactive (session 1) token: the capture uses
+    WASAPI loopback of the default speaker, which only exists in the logged-on
+    session (BUG-0604). `schtasks /create /ru <user> /it` leaves the task
+    Disabled on Win11, hence the XML registration below.
+    #>
+    Write-Log "Installing vpt-windows-audio scheduled task (BUG-0597 desktop audio HLS)..."
+
+    $audioScript = Join-Path $script:SCRIPTS_PATH "run_audio_stereo_mix.ps1"
+    if (-not (Test-Path $audioScript)) {
+        Write-Log "Missing audio wrapper: $audioScript" "WARNING"
+        return
+    }
+
+    $pythonExe = "$env:SystemRoot\\System32\\WindowsPowerShell\\v1.0\\powershell.exe"
+    $taskArgs = "-NoProfile -ExecutionPolicy Bypass -File `"$audioScript`""
+
+    # Drop any prior registration (XML or schtasks) so we don't end up with two.
+    try {
+        if (Get-ScheduledTask -TaskName $script:AUDIO_TASK_NAME -ErrorAction SilentlyContinue) {
+            Unregister-ScheduledTask -TaskName $script:AUDIO_TASK_NAME -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+        }
+    } catch { }
+    # `schtasks /delete` quietly if it survived from a prior schtasks run.
+    $null = & schtasks /delete /tn $script:AUDIO_TASK_NAME /f 2>&1
+
+    # BUG-0604: run the audio pipeline in the interactive session as the console
+    # user, not as SYSTEM. WASAPI loopback (the capture path) reads the session's
+    # audio endpoint; a SYSTEM task in session 0 has no endpoint and records
+    # silence (measured -90 dB while a sound played). `schtasks /create /ru <user>
+    # /it` also leaves this task in the Disabled state on Win11 (observed
+    # 2026-10-17), so register from an XML definition like vpt-stream/vpt-host:
+    # <Settings><Enabled>true</Enabled> is explicit and the trigger is a real
+    # LogonTrigger for the console user.
+    $consoleUser = Get-ConsoleUsername
+    if (-not $consoleUser) {
+        Write-Log "No active console session detected (cannot create InteractiveToken audio task). Log in to the console once and re-run installer." "WARNING"
+        return
+    }
+
+    $taskXml = @"
+<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <RegistrationInfo>
+    <Description>VirtualPyTest desktop audio capture (WASAPI loopback) + HLS segmenter</Description>
+    <Author>VirtualPyTest</Author>
+  </RegistrationInfo>
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+      <UserId>$consoleUser</UserId>
+    </LogonTrigger>
+  </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <UserId>$consoleUser</UserId>
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>HighestAvailable</RunLevel>
+    </Principal>
+  </Principals>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>7</Priority>
+    <RestartOnFailure>
+      <Interval>PT1M</Interval>
+      <Count>3</Count>
+    </RestartOnFailure>
+  </Settings>
+  <Actions Context="Author">
+    <Exec>
+      <Command>$pythonExe</Command>
+      <Arguments>$taskArgs</Arguments>
+      <WorkingDirectory>$script:PROJECT_ROOT</WorkingDirectory>
+    </Exec>
+  </Actions>
+</Task>
+"@
+    $xmlPath = Join-Path $env:TEMP "vpt-windows-audio-task.xml"
+    # schtasks only accepts task XML as UTF-16 (it fails "impossible de changer
+    # d'encodage" on a UTF-8 file).
+    Set-Content -Path $xmlPath -Value $taskXml -Encoding Unicode
+
+    $createOut = & schtasks /create /tn $script:AUDIO_TASK_NAME /xml $xmlPath /f 2>&1
+    Remove-Item $xmlPath -Force -ErrorAction SilentlyContinue
+
+    if ($LASTEXITCODE -eq 0) {
+        Write-Log "Installed scheduled task: $($script:AUDIO_TASK_NAME) ($consoleUser, interactive, onlogon)"
+    } else {
+        Write-Log "Could not register scheduled task $($script:AUDIO_TASK_NAME): $createOut" "WARNING"
+        Write-Log "Desktop audio capture will need manual task creation or interactive startup" "WARNING"
+    }
+
+    # BUG-0600: same hardening as the other tasks. `schtasks /create /f`
+    # leaves the task in the Ready state on a clean install, but a
+    # `schtasks /change /disable` during debugging would stick - and
+    # again, only the next reboot reveals it.
+    Ensure-TaskEnabled -TaskName $script:AUDIO_TASK_NAME
 }
 
 function Install-HostScheduledTask {
@@ -399,6 +582,12 @@ function Install-HostScheduledTask {
         Write-Log "Could not register scheduled task $($script:HOST_TASK_NAME): $($_.Exception.Message)" "WARNING"
         Write-Log "Host API will need manual task creation or interactive startup" "WARNING"
     }
+
+    # BUG-0600: same hardening as vpt-stream - keep the task Ready so a
+    # future reboot always restarts the host wrapper. (The actual vpt-windows
+    # incident was this task stuck Disabled and vpt-windows dropping out of
+    # getAllHosts after the morning reboot at 13:20.)
+    Ensure-TaskEnabled -TaskName $script:HOST_TASK_NAME
 }
 
 function Test-Administrator {
@@ -727,7 +916,7 @@ function Setup-StorageDirectories {
 
     Write-Log "Configuring storage for $($devices.Count) device(s): $($devices -join ', ')"
 
-    # Create per-device storage structure (flat — no hot/cold split on Windows)
+    # Create per-device storage structure (flat - no hot/cold split on Windows)
     # On Linux, RAM tmpfs provides hot storage; on Windows FFmpeg writes directly to disk.
     foreach ($device in $devices) {
         $devicePath = Join-Path $script:STREAM_PATH $device
@@ -782,11 +971,13 @@ function Setup-EnvironmentConfiguration {
 
     # Create .env file if it doesn't exist
     $envFile = Join-Path $script:BACKEND_HOST_PATH "src\.env"
+    $isFreshInstall = $false
     if (-not (Test-Path $envFile)) {
         $envExample = Join-Path $script:BACKEND_HOST_PATH "src\.env.example"
         if (Test-Path $envExample) {
             Copy-Item $envExample $envFile
             Write-Log "Created .env file from .env.example"
+            $isFreshInstall = $true
         } else {
             Write-Log "No .env found and backend_host/src/.env.example not found" "ERROR"
             Write-Log "Please create backend_host/src/.env or backend_host/src/.env.example manually" "ERROR"
@@ -794,6 +985,14 @@ function Setup-EnvironmentConfiguration {
         }
     } else {
         Write-Log ".env file already exists, preserving existing configuration"
+    }
+
+    # BUG-0597: seed the host_vnc audio vars on a fresh install so the
+    # desktop audio HLS pipeline has somewhere to write its m3u8 out of
+    # the box. Don't touch the .env if the user already set these by hand
+    # (a re-run should preserve their work).
+    if ($isFreshInstall) {
+        Add-EnvLineIfMissing -EnvFile $envFile -Line "DEVICE1_HOST_VNC_AUDIO_STREAM_PATH=/host/vpt-windows/stream/device1_audio/segments/output.m3u8"
     }
 
     # Set Windows environment variables
@@ -829,7 +1028,7 @@ function Test-ServiceExists {
 
 # Cap every NSSM-managed service log at 30 MB with online rotation (NSSM
 # renames to <name>-<timestamp>.log and reopens while running). Same 30 MB
-# convention as the host_wrapper.ps1 / run_ffmpeg.ps1 caps — without this,
+# convention as the host_wrapper.ps1 / run_ffmpeg.ps1 caps - without this,
 # AppStdout/AppStderr grow unbounded and can starve the host (see the
 # take-control "Host communication timeout" incident).
 function Set-NssmLogRotation {
@@ -887,20 +1086,30 @@ function Install-WindowsServices {
     }
     Install-HostScheduledTask
 
+    # TASK-90: vpt-monitor / vpt-transcript were renamed vpt-monitor-img / vpt-monitor-audio.
+    # NSSM has no aliases, so the old services are removed before the new ones are installed.
+    foreach ($oldSvc in @("vpt-monitor", "vpt-transcript")) {
+        if (Test-ServiceExists $oldSvc) {
+            Write-Log "Removing renamed service $oldSvc" "WARNING"
+            try { Stop-Service -Name $oldSvc -Force -ErrorAction SilentlyContinue } catch { }
+            try { & $nssmPath remove $oldSvc confirm | Out-Null } catch { }
+        }
+    }
+
     # Install Monitor service
     Write-Log "Installing Monitor service..."
     $monitorScript = Join-Path $script:SCRIPTS_PATH "capture_monitor.py"
-    if (-not (Test-ServiceExists "vpt-monitor")) {
-        & $nssmPath install vpt-monitor $script:PYTHON_EXE | Out-Null
+    if (-not (Test-ServiceExists "vpt-monitor-img")) {
+        & $nssmPath install vpt-monitor-img $script:PYTHON_EXE | Out-Null
     }
-    & $nssmPath set vpt-monitor AppParameters "`"$monitorScript`"" | Out-Null
-    & $nssmPath set vpt-monitor AppDirectory $script:SCRIPTS_PATH | Out-Null
-    & $nssmPath set vpt-monitor AppEnvironmentExtra `
+    & $nssmPath set vpt-monitor-img AppParameters "`"$monitorScript`"" | Out-Null
+    & $nssmPath set vpt-monitor-img AppDirectory $script:SCRIPTS_PATH | Out-Null
+    & $nssmPath set vpt-monitor-img AppEnvironmentExtra `
         "PYTHONUTF8=1" `
         "PYTHONIOENCODING=utf-8" `
         "PYTHONPATH=$($script:PROJECT_ROOT);$($script:SHARED_PATH);$($script:BACKEND_HOST_PATH)\src" | Out-Null
-    & $nssmPath set vpt-monitor AppStdout (Join-Path $script:LOGS_PATH "monitor.log") | Out-Null
-    & $nssmPath set vpt-monitor AppStderr (Join-Path $script:LOGS_PATH "monitor_error.log") | Out-Null
+    & $nssmPath set vpt-monitor-img AppStdout (Join-Path $script:LOGS_PATH "monitor.log") | Out-Null
+    & $nssmPath set vpt-monitor-img AppStderr (Join-Path $script:LOGS_PATH "monitor_error.log") | Out-Null
 
     # Install Stream as Scheduled Task (FFmpeg gdigrab must run in interactive session, not Session 0 services).
     if (Test-ServiceExists "vpt-stream") {
@@ -910,6 +1119,10 @@ function Install-WindowsServices {
         try { sc.exe delete "vpt-stream" 2>$null | Out-Null } catch { }
     }
     Install-StreamScheduledTask
+
+    # Install vpt-windows-audio Scheduled Task (BUG-0597). Same shape as
+    # Install-StreamScheduledTask but SYSTEM-onlogon (no interactive desktop).
+    Install-WindowsAudioTask
 
     # Install Archiver service
     Write-Log "Installing Archiver service..."
@@ -929,17 +1142,17 @@ function Install-WindowsServices {
     # Install Transcript service
     Write-Log "Installing Transcript service..."
     $transcriptScript = Join-Path $script:SCRIPTS_PATH "transcript_accumulator.py"
-    if (-not (Test-ServiceExists "vpt-transcript")) {
-        & $nssmPath install vpt-transcript $script:PYTHON_EXE | Out-Null
+    if (-not (Test-ServiceExists "vpt-monitor-audio")) {
+        & $nssmPath install vpt-monitor-audio $script:PYTHON_EXE | Out-Null
     }
-    & $nssmPath set vpt-transcript AppParameters "`"$transcriptScript`"" | Out-Null
-    & $nssmPath set vpt-transcript AppDirectory $script:SCRIPTS_PATH | Out-Null
-    & $nssmPath set vpt-transcript AppEnvironmentExtra `
+    & $nssmPath set vpt-monitor-audio AppParameters "`"$transcriptScript`"" | Out-Null
+    & $nssmPath set vpt-monitor-audio AppDirectory $script:SCRIPTS_PATH | Out-Null
+    & $nssmPath set vpt-monitor-audio AppEnvironmentExtra `
         "PYTHONUTF8=1" `
         "PYTHONIOENCODING=utf-8" `
         "PYTHONPATH=$($script:PROJECT_ROOT);$($script:SHARED_PATH);$($script:BACKEND_HOST_PATH)\src" | Out-Null
-    & $nssmPath set vpt-transcript AppStdout (Join-Path $script:LOGS_PATH "transcript.log") | Out-Null
-    & $nssmPath set vpt-transcript AppStderr (Join-Path $script:LOGS_PATH "transcript_error.log") | Out-Null
+    & $nssmPath set vpt-monitor-audio AppStdout (Join-Path $script:LOGS_PATH "transcript.log") | Out-Null
+    & $nssmPath set vpt-monitor-audio AppStderr (Join-Path $script:LOGS_PATH "transcript_error.log") | Out-Null
 
     # Install KPI Executor service
     Write-Log "Installing KPI Executor service..."
@@ -958,14 +1171,14 @@ function Install-WindowsServices {
 
     # Install VNC service (always on Windows)
     # TightVNC registers its own service ("tvnserver") during install. If it is
-    # already present, skip vpt-vnc — running both binds port 5900 twice and
+    # already present, skip vpt-vnc - running both binds port 5900 twice and
     # produces "Security negotiation failed on no security types" errors.
     # See docs/agent/TROUBLESHOOT.md ("Windows VNC duplicate services").
     Write-Log "Installing VNC service..."
     $vncPath = "C:\Program Files\TightVNC\tvnserver.exe"
     if (Test-Path $vncPath) {
         if (Get-Service tvnserver -ErrorAction SilentlyContinue) {
-            Write-Log "TightVNC native service 'tvnserver' already installed — skipping vpt-vnc (port 5900 conflict)" "WARNING"
+            Write-Log "TightVNC native service 'tvnserver' already installed - skipping vpt-vnc (port 5900 conflict)" "WARNING"
             if (Test-ServiceExists "vpt-vnc") {
                 try { Stop-Service -Name "vpt-vnc" -Force -ErrorAction SilentlyContinue } catch { }
                 try { & $nssmPath remove "vpt-vnc" confirm | Out-Null } catch { }
@@ -993,16 +1206,16 @@ function Install-WindowsServices {
     & $nssmPath set vpt-websockify AppStderr (Join-Path $script:LOGS_PATH "websockify_error.log") | Out-Null
 
     # Ensure services are set to auto-start
-    & $nssmPath set vpt-monitor Start SERVICE_AUTO_START | Out-Null
+    & $nssmPath set vpt-monitor-img Start SERVICE_AUTO_START | Out-Null
     & $nssmPath set vpt-archiver Start SERVICE_AUTO_START | Out-Null
-    & $nssmPath set vpt-transcript Start SERVICE_AUTO_START | Out-Null
+    & $nssmPath set vpt-monitor-audio Start SERVICE_AUTO_START | Out-Null
     & $nssmPath set vpt-kpi Start SERVICE_AUTO_START | Out-Null
     if (Test-ServiceExists "vpt-vnc") { & $nssmPath set vpt-vnc Start SERVICE_AUTO_START | Out-Null }
     & $nssmPath set vpt-websockify Start SERVICE_AUTO_START | Out-Null
 
     # Cap every NSSM service's stdout/stderr log at 30 MB (online rotation).
     # vpt-vnc is excluded: it runs tvnserver with no AppStdout/AppStderr.
-    foreach ($svc in @("vpt-monitor", "vpt-archiver", "vpt-transcript", "vpt-kpi", "vpt-websockify")) {
+    foreach ($svc in @("vpt-monitor-img", "vpt-archiver", "vpt-monitor-audio", "vpt-kpi", "vpt-websockify")) {
         if (Test-ServiceExists $svc) { Set-NssmLogRotation -NssmPath $nssmPath -ServiceName $svc }
     }
 
@@ -1030,6 +1243,15 @@ function Setup-VNC {
             New-ItemProperty -Path $regPath -Name "RfbPort" -PropertyType DWord -Value $script:HOST_VNC_PORT -Force | Out-Null
             New-ItemProperty -Path $regPath -Name "AcceptRfbConnections" -PropertyType DWord -Value 1 -Force | Out-Null
             New-ItemProperty -Path $regPath -Name "AllowLoopback" -PropertyType DWord -Value 1 -Force | Out-Null
+            # Screen capture: poll the full screen instead of using TightVNC's
+            # screen hooks. On Windows 11 + AMD (vpt-windows, 2026-10-17) the
+            # hook capture returns an all-black framebuffer at the right
+            # geometry while the desktop itself renders, so the host_vnc tile
+            # is black. GDI polling is slower but correct. See BUG-0602 and
+            # docs/agent/TROUBLESHOOT.md ("Windows host_vnc tile is pure black").
+            New-ItemProperty -Path $regPath -Name "UseMirrorDriver" -PropertyType DWord -Value 0 -Force | Out-Null
+            New-ItemProperty -Path $regPath -Name "UseHooks" -PropertyType DWord -Value 0 -Force | Out-Null
+            New-ItemProperty -Path $regPath -Name "PollFullScreen" -PropertyType DWord -Value 1 -Force | Out-Null
         }
 
         # Restart whichever VNC service is actually registered so new settings take effect
@@ -1040,7 +1262,7 @@ function Setup-VNC {
         }
 
         Write-Log "TightVNC configured on port $($script:HOST_VNC_PORT) (no authentication)"
-        Write-Log "VNC has NO authentication on this host — the firewall rule is limited to the local subnet. Keep this machine off untrusted networks." "WARNING"
+        Write-Log "VNC has NO authentication on this host - the firewall rule is limited to the local subnet. Keep this machine off untrusted networks." "WARNING"
     } else {
         Write-Log "TightVNC not installed, skipping VNC configuration" "WARNING"
     }
@@ -1082,7 +1304,7 @@ function Setup-Firewall {
             # checklist can make safe after the fact.
             Name = "VirtualPyTest VNC"
             Port = $script:HOST_VNC_PORT
-            Description = "VirtualPyTest VNC Server (LAN only — no VNC authentication)"
+            Description = "VirtualPyTest VNC Server (LAN only - no VNC authentication)"
             RemoteAddress = "LocalSubnet"
         },
         @{
@@ -1136,9 +1358,9 @@ function Start-Services {
     Write-Log "Starting VirtualPyTest services..."
 
     $servicesToStart = @(
-        "vpt-monitor",
+        "vpt-monitor-img",
         "vpt-archiver",
-        "vpt-transcript",
+        "vpt-monitor-audio",
         "vpt-kpi",
         "vpt-vnc",
         "vpt-websockify"
@@ -1176,9 +1398,9 @@ function Set-ServiceStartup {
     Write-Log "Configuring service startup types..."
 
     $services = @(
-        "vpt-monitor",
+        "vpt-monitor-img",
         "vpt-archiver",
-        "vpt-transcript",
+        "vpt-monitor-audio",
         "vpt-kpi",
         "vpt-vnc",
         "vpt-websockify"

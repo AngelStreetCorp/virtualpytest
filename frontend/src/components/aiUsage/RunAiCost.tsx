@@ -10,6 +10,7 @@ import { useI18n } from '../../i18n/useI18n';
 
 import { RunCost, fetchRunCost } from './api';
 import { fmtCost, fmtCount, fmtTokens } from './format';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export const RunAiCost: React.FC<{ scriptResultIds: string[] }> = ({ scriptResultIds }) => {
   const P = useAgentChatPalette();
@@ -35,8 +36,8 @@ export const RunAiCost: React.FC<{ scriptResultIds: string[] }> = ({ scriptResul
   const cost = fmtCost(data.cost);
   return (
     <Box sx={{ display: 'flex', gap: 1, alignItems: 'baseline', flexWrap: 'wrap', mb: 1.5 }} data-testid="run-ai-cost">
-      <Typography sx={{ fontSize: '0.75rem', color: P.textMuted }}>{t('AI used by this run')}</Typography>
-      <Typography sx={{ fontSize: '0.85rem', fontVariantNumeric: 'tabular-nums' }}>
+      <Typography sx={{ fontSize: TYPOGRAPHY.caption.size, color: P.textMuted }}>{t('AI used by this run')}</Typography>
+      <Typography sx={{ fontSize: TYPOGRAPHY.body.size, fontVariantNumeric: 'tabular-nums' }}>
         {fmtCount(data.calls)} {t('requests')} · {fmtTokens(data.tokens_in + data.tokens_out)} {t('tokens')} ·{' '}
         {cost ?? t('no price')}
         {data.priced_calls > 0 && data.priced_calls < data.calls && ` (${t('partly priced')})`}

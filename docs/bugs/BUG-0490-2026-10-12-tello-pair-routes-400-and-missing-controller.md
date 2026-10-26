@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High                                                         |
 | Area      | backend (backend_host)                                       |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---
@@ -103,12 +103,12 @@ that it now reaches the right stage and reports real reasons):
 
 ```
 $ curl -X POST … -d '{"device_id":"device3"}' …/host/drone/tello/last_known
-{"airborne":false,"device_id":"device3","ip":"192.168.10.1","pose":{"x":100.0,"y":100.0,"yaw":0.0,"z":0.0},
+{"airborne":false,"device_id":"device3","ip":"192.168.x.1","pose":{"x":100.0,"y":100.0,"yaw":0.0,"z":0.0},
  "state":{},"state_age_s":null,"state_port":8890,"success":true}
 
 $ curl -X POST … -d '{"device_id":"device3","ssid":"TELLO-C5B142"}' …/host/drone/tello/pair
-{"error":"no reply from 192.168.10.1:8889 in 5.0s","stage":"link","success":false,
- "join":{"ok":false,"reason":"Error: No network with SSID 'TELLO-C5B142' found."},"tello_ip":"192.168.10.1"}
+{"error":"no reply from 192.168.x.1:8889 in 5.0s","stage":"link","success":false,
+ "join":{"ok":false,"reason":"Error: No network with SSID 'TELLO-C5B142' found."},"tello_ip":"192.168.x.1"}
 
 $ curl -X POST … -d '{"device_id":"device3"}' …/host/drone/tello/flight_summary
 {"device_id":"device3","log_path":null,"success":true,"summary":null}

@@ -5,7 +5,7 @@ Create, read, update, and delete test campaigns.
 """
 
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
 from ..utils.api_client import MCPAPIClient
 from ..utils.mcp_formatter import MCPFormatter
 from shared.src.lib.config.constants import APP_CONFIG, get_team_id
@@ -16,6 +16,17 @@ class CampaignTools:
     def __init__(self, api_client: MCPAPIClient):
         self.api = api_client
         self.formatter = MCPFormatter()
+
+    @staticmethod
+    def _project_id_from_header(api_client=None) -> Optional[str]:
+        """Forwarded by the MCP proxy / Atlas frontend (TASK-65 G5)."""
+        try:
+            headers = getattr(api_client, 'headers', None) or {} if api_client else {}
+            if isinstance(headers, dict):
+                return headers.get('X-Project-Id') or headers.get('x-project-id')
+        except Exception:
+            return None
+        return None
 
     def list_campaigns(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -30,8 +41,13 @@ class CampaignTools:
         team_id = get_team_id()
 
         print(f"[@MCP:list_campaigns] Listing campaigns for team: {team_id}")
+        # TASK-65 G5: forward `project_id` to the server-side filter.
+        list_params = {'team_id': team_id}
+        project_hint = params.get('project_id') or self._project_id_from_header(self.api)
+        if project_hint:
+            list_params['project_id'] = project_hint
 
-        result = self.api.get('/server/campaigns/getAllCampaigns', params={'team_id': team_id})
+        result = self.api.get('/server/campaigns/getAllCampaigns', params=list_params)
 
         if not result.get('success'):
             error_msg = result.get('error', 'Failed to list campaigns')
@@ -196,6 +212,23 @@ class CampaignTools:
         if not result.get('success'):
             error_msg = result.get('error', 'Failed to create campaign')
             return {"content": [{"type": "text", "text": f"❌ Failed to create campaign: {error_msg}"}], "isError": True}
+
+        # TASK-65 G5: Scope Atlas — auto-tag with the current project when the
+        # caller passed a `project_id` (or one is in the `X-Project-Id` header).
+        project_hint = params.get('project_id') or self._project_id_from_header(self.api)
+        project = None
+        auto_tag_ok = False
+        campaign_id = result.get('campaign', {}).get('id') or result.get('campaign', {}).get('campaign_id')
+        if project_hint and campaign_id:
+            try:
+                from shared.src.lib.database import projects_db
+                project = projects_db.current_project_from_id(project_hint)
+                if project:
+                    auto_tag_ok = projects_db.auto_tag_with_project(
+                        'campaign', str(campaign_id), project,
+                    )
+            except Exception:
+                project = None
 
         campaign = result.get('campaign', {})
 

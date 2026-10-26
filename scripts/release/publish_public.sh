@@ -65,9 +65,45 @@ if [[ -n "${LEAK_TERMS_FILE:-}" ]]; then TERMS_FILE_ABS="$(cd "$(dirname "$LEAK_
 elif [[ -f docs/agent/leak-terms.local.txt ]]; then TERMS_FILE_ABS="$REPO_ROOT/docs/agent/leak-terms.local.txt"; fi
 [[ -n "$TERMS_FILE_ABS" || -n "${LEAK_TERMS:-}" ]] || die "no term list: create docs/agent/leak-terms.local.txt or set LEAK_TERMS"
 
+# --------------------------------------------------------------- scratch purge (never PATH rm)
+# `rm` on an agent's PATH is a recoverable-delete shim: it RELOCATES its target into the
+# platform trash instead of unlinking it. A publish therefore used to park its export (a full
+# copy of the tree) and the deny-listed part of it in the trash rather than freeing the space,
+# and one publish parked two copies of the tree. This unlinks directly, so the space comes back.
+#
+# SCOPE: only the paths this run created (the work dir, the deny-listed part of the export and
+# the throwaway .git inside it). The repository working tree itself and any ancestor of it are
+# refused outright.
+purge_path() {
+  local p
+  for p in "$@"; do
+    [[ -n "$p" ]] || continue
+    case "$p" in
+      /|"$REPO_ROOT") continue ;;                 # the root itself: never
+    esac
+    [[ "$REPO_ROOT" == "$p"/* ]] && continue      # an ancestor of the working tree: never
+    [[ -e "$p" || -L "$p" ]] || continue
+    if command -v python3 >/dev/null 2>&1; then
+      python3 - "$p" <<'PY' || true
+import os, shutil, sys
+p = sys.argv[1]
+try:
+    if os.path.islink(p) or os.path.isfile(p):
+        os.remove(p)
+    elif os.path.isdir(p):
+        shutil.rmtree(p)
+except OSError:
+    pass
+PY
+    else
+      find "$p" -depth -delete 2>/dev/null || true
+    fi
+  done
+}
+
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/vpt-publish.XXXXXX")"
 EXPORT="$WORK/export"; PUBLIC="$WORK/public"; GITLEAKS_REPORT="$WORK/gitleaks.json"
-cleanup() { if [[ $KEEP -eq 0 && $DRY_RUN -eq 0 && $SELFTEST -eq 0 ]]; then rm -rf "$WORK"; else echo "work dir kept: $WORK"; fi; }
+cleanup() { if [[ $KEEP -eq 0 && $DRY_RUN -eq 0 && $SELFTEST -eq 0 ]]; then purge_path "$WORK"; else echo "work dir kept: $WORK"; fi; }
 trap cleanup EXIT
 
 echo "${BOLD}publish_public${NC} — tag ${TAG} (${SHORT}) → ${TARGET}"
@@ -94,7 +130,7 @@ for p in "${DENY[@]}"; do
   for hit in $EXPORT/${p%/}; do
     [[ -e "$hit" ]] || continue
     removed=$((removed + $(find "$hit" -type f | wc -l | tr -d ' ')))
-    rm -rf "$hit"
+    purge_path "$hit"
   done
 done
 # macOS metadata: gitignored, so never in the tag and never in the git archive, but the
@@ -131,7 +167,7 @@ while IFS= read -r f; do
   [[ $allowed -eq 1 ]] || die "path is not in the public allow-list: $rel"
 done < <(find "$EXPORT" -type f -print)
 # real env files never travel (templates *.example do)
-while IFS= read -r f; do rm -f "$f"; removed=$((removed+1)); done < <(find "$EXPORT" -type f -name '.env' -o -type f -name '.env.*' ! -name '*.example' 2>/dev/null | grep -v '\.example$' || true)
+while IFS= read -r f; do purge_path "$f"; removed=$((removed+1)); done < <(find "$EXPORT" -type f -name '.env' -o -type f -name '.env.*' ! -name '*.example' 2>/dev/null | grep -v '\.example$' || true)
 [[ ! -f "$EXPORT/BUNDLE_MANIFEST.txt" ]] || die "BUNDLE_MANIFEST.txt in the export: this is a staged customer tree, not a platform tag"
 [[ -z "$(find "$EXPORT" -name .git -maxdepth 3)" ]] || die ".git inside the export"
 n_files="$(find "$EXPORT" -type f | wc -l | tr -d ' ')"
@@ -160,7 +196,10 @@ gate_rc=0
 ( cd "$EXPORT" && LEAK_TERMS_FILE="${TERMS_FILE_ABS:-}" LEAK_TERMS="${LEAK_TERMS:-}" "$REPO_ROOT/scripts/security/leak_gate.sh" --all --require-terms ) || gate_rc=$?
 gl_rc=0
 gitleaks detect --no-git --no-banner --redact --source "$EXPORT" --config "$EXPORT/.gitleaks.toml" --report-format json --report-path "$GITLEAKS_REPORT" >/dev/null 2>&1 || gl_rc=$?
-rm -rf "$EXPORT/.git"
+# The .git removal inside the published snapshot stays — it is a security requirement of the
+# public snapshot, not scratch cleanup. It is unlinked rather than relocated, so the space the
+# throwaway repo occupied goes back to the disk instead of into the platform trash.
+purge_path "$EXPORT/.git"
 if [[ $SELFTEST -eq 1 ]]; then
   if [[ $gate_rc -ne 0 && $gl_rc -ne 0 ]]; then
     echo "${GREEN}✓ selftest: the identifier gate (rc=$gate_rc) and gitleaks (rc=$gl_rc) both refused the planted export${NC}"; exit 0

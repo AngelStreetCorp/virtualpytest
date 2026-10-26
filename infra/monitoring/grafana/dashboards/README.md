@@ -32,6 +32,27 @@ This filters what dashboards show; it is not authorization (one shared DB login)
 Grafana Editors, so nobody else can edit a panel's query. Needs migration
 `setup/db/migrations/20260929f_grafana_device_scope.sql` on the database.
 
+## The house shape — every dashboard ends with a collapsed "Details" section
+
+A dashboard opens on its overview; the detail tables live in a row at the bottom
+that is **collapsed by default**. The reference is `script-results.json`:
+`Overview` (open) → `Main` (open) → `Details` (collapsed, its panels nested
+inside the row).
+
+Every dashboard in the repo follows it — this folder and each feature's
+`grafana/` folder:
+
+```bash
+python3 _apply_details_row.py      # brings every dashboard to the house shape (idempotent)
+python3 _check_details_row.py      # fails on a dashboard that does not end with a collapsed "Details"
+```
+
+`_apply_details_row.py` collapses the last row of a dashboard that has rows
+(the panels that follow it move inside the row) and renames it to "Details",
+keeping the old title in the row's `description`. A dashboard without rows is
+split in two: the leading panels become an "Overview" row, the rest become the
+collapsed "Details" row, split at the first table panel.
+
 ## `template.json` — not a dashboard
 
 The house style Atlas starts generated dashboards from (variables, time, styling, grid, example query patterns; contract in its `description`, details in `docs/agent/ai/ATLAS_ANALYTICS.md`). The backend reads it from this path; a customer overlay that ships its own `template.json` replaces it. It is never pushed (`_push_dashboard.py` skips it) and the device-scope tools ignore it.
@@ -48,6 +69,8 @@ The house style Atlas starts generated dashboards from (variables, time, styling
 - `navigation-metrics.json` — navigation node/edge execution metrics
 - `device-information-get-info.json` — device inventory from `get_info` (model, firmware, versions)
 - `game-2048.json` — 2048 showcase (TASK-33, script `game/game_2048`): score, max tile, speed and pass rate per platform and player, plus a table of runs with report links
+- `image-telemetry.json` — image telemetry (TASK-157): frames per second the img monitor sees, JPEG throughput, frame age p95, drops, monitor and ffmpeg CPU/RSS, load per core, from `image_telemetry_buckets` (60 s buckets, 7 days). Hand-built, device-scoped like the others (the `_host` row is widened in the host variable and process panels). Push: `GRAFANA_PASS=<admin password> python3 _push_dashboard.py image-telemetry.json` — `GRAFANA_PASS` is required, there is no default and the repo does not hold it.
+- `av-check-results.json` — `av_check` (TASK-138): is the device really playing sound and video? Run overview and pass rate, the verdict split over time (PASS / VIDEO / AUDIO / NAVIGATION / SCRIPT ERROR, read from each run's own error message), pass rate per device, the per-device table, the failure reasons and the recent runs with a link to each run's report. Regenerate with `python3 _gen_av_check_dashboard.py` (the generator and `_apply_device_scope.py` agree on the file, so re-running either changes nothing) and check the panel SQL with `GRAFANA_URL=… GRAFANA_USER=… GRAFANA_PASS=… python3 _check_panel_sql.py av-check-results.json` before a push
 
 **Network / gateway tests**
 - `dns-lookup.json` — DNS resolution time

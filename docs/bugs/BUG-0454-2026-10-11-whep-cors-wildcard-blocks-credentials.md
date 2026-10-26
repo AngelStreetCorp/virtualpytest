@@ -9,7 +9,7 @@
 | Status    | Fixed (vpt-pi1 live; other MediaMTX hosts per WEBRTC.md §1)  |
 | Severity  | High                                                         |
 | Area      | host infra — `/opt/mediamtx/mediamtx.yml` (not in the repo)  |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | TBD                                                          |
 
 ---

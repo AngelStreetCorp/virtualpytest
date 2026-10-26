@@ -158,6 +158,101 @@ The `install_host.sh` script performs these steps:
     - Adds `PULSE_SERVER` environment variable to VNC xstartup for audio forwarding
     - VNC clients can stream audio through PulseAudio server
 
+## Journald Storage Mode (STEP 7b)
+
+The installer decides where the system journal lives **from the root device, not
+from the role**:
+
+| Root device | Mode | Journal |
+|---|---|---|
+| SD/eMMC card (`/dev/mmcblk*`) — the RPi capture nodes | `volatile` | `/run/log/journal` (RAM), `RuntimeMaxUse=300M` |
+| anything else — Proxmox guests, x86 boxes | `persistent` | `/var/log/journal` (disk), capped at 5 % of the free space (64 M–512 M) |
+
+**Why the SD card is special.** On the RPi capture nodes `/var/log/journal` is
+on the SD card, so every journal write competed with the live 5 fps capture I/O
+(measured ~46 % device util, ~47 ms write latency in bursts) and wore the card.
+That rationale does not hold for a host whose root is a normal disk: there is
+no card to wear there, and a RAM-only journal throws the trace of a hang away
+with the reboot. The Pi capture nodes keep `volatile` — that is a deliberate
+decision for those hosts.
+
+**The override.** `VPT_JOURNAL_MODE=volatile|persistent` (environment or
+`backend_host/src/.env`) wins over the device-based default, for a host whose
+default is wrong. Leave it unset on the Pi capture nodes.
+
+**A persistent journal needs a journal FILE, not only the directory.** journald
+adopts `/var/log/journal` only once a valid journal file exists there.
+Measured on a live Proxmox guest (2026-10-24), with `Storage=persistent` in
+every config file and the directory present with the right ownership:
+
+- `mkdir -p /var/log/journal` + `systemd-tmpfiles --create --prefix
+  /var/log/journal` → the directory stays **empty** (exit 0, no file);
+- `systemd-tmpfiles --create` (every rule, no `--prefix`) → the same: exit 0,
+  no file;
+- a planted 0-byte file → `Journal file … is truncated, ignoring file`;
+- `journalctl --flush` → writes a valid `<machine-id>/system.journal` (and
+  `<machine-id>/user-<uid>.journal`) with the right ownership, and the next
+  restart of `systemd-journald` serves it.
+
+So the installer writes the drop-in, restarts journald, runs
+`journalctl --flush` and restarts it again. The guest image path
+(`setup/proxmox/vm/shared/install_prerequisites.sh --journal-only`) does the
+same, so a guest that is **already running** is repaired too, and it fails
+loudly if the journal is still RAM-only.
+
+**Where the setting lives.** `/etc/systemd/journald.conf.d/vpt.conf` — a
+drop-in overrides the main `/etc/systemd/journald.conf`, so a `Storage=` line
+written only in the main file has no effect (that is how a guest kept a
+RAM-only journal despite `Storage=persistent`). `install_host.sh` and the guest
+script write the same drop-in. The size cap is a second drop-in,
+`90-vpt-cap.conf` (`SystemMaxUse=<cap>`, `SystemMaxFileSize=64M`): an uncapped
+journal reached 3.0 G on a 31 G disk.
+
+**The size cap follows the host (E61).** The cap is not a constant — it is
+computed from the free space of the filesystem that holds the journal
+directory, because since STEP 7b the journal lives on the same disk as the
+capture:
+
+```
+cap = min(512M, max(64M, 5 % of the free space of the journal filesystem))
+```
+
+- **Why:** a fixed 512 M journal is **19 % of the free space left** on a host
+  whose disk is 91 % full, on the very device the live capture writes to.
+  Measured on the node's guests (2026-10-24): host-clone-1 had 2.7 G free of
+  31 G → **138 M**; host-clone-2 (20 G free), labox-backend (16 G),
+  labox-mobile (24 G) and storage (12 G) keep the **512 M** default.
+- **The floor is 64 M** (a journald cap below that is not worth having) and
+  **the ceiling is 512 M**, the cap that shipped before.
+- **The override:** `VPT_JOURNAL_MAX_USE=512M` (environment or
+  `backend_host/src/.env`) wins over the computed value; when it is set,
+  nothing is computed. The installer prints which of the two it used.
+- **One number everywhere:** the `SystemMaxUse` in the drop-in and the
+  `journalctl --vacuum-size=` argument are the same number. If they disagree,
+  the vacuum trims to one size while the drop-in caps at another, and the
+  drop-in silently loses.
+- **Never fatal:** if the free space cannot be read, the 512 M default is used
+  and the install continues — a capture host must not be left half installed.
+
+The **mode** and the **cap** are independent decisions: the mode follows the
+root device (RAM on an SD card, disk everywhere else), the cap follows the
+free space of the disk the journal ends up on. A volatile journal has no
+`SystemMaxUse` — its window is the RAM one, `RuntimeMaxUse=300M`.
+
+Both provisioning paths — this installer and the guest script
+(`setup/proxmox/vm/shared/install_prerequisites.sh --journal-only`) — write
+the same `90-vpt-cap.conf`, byte for byte: they manage the same file and the
+last writer wins, so a different cap on one of them is a cap that is silently
+replaced.
+
+**Check it on a host:**
+
+```bash
+systemd-analyze cat-config systemd/journald.conf | grep -B1 '^Storage='
+systemd-analyze cat-config systemd/journald.conf | grep '^SystemMaxUse='
+journalctl --header | grep 'File path'
+```
+
 ## Services Installed
 All services use the naming convention `vpt-{service}.service`:
 
@@ -165,9 +260,9 @@ All services use the naming convention `vpt-{service}.service`:
 |---------|-------------|------|
 | `vpt-host.service` | Host API Server | 6109 |
 | `vpt-stream.service` | FFmpeg Capture Service | - |
-| `vpt-monitor.service` | Capture Monitor | - |
+| `vpt-monitor-img.service` | Capture Monitor | - |
 | `vpt-archiver.service` | Hot/Cold Archiver | - |
-| `vpt-transcript.service` | Audio Transcript | - |
+| `vpt-monitor-audio.service` | Audio Transcript | - |
 | `vpt-vnc.service` | TigerVNC Server | 5901 |
 | `vpt-websockify.service` | noVNC WebSocket Proxy | 6080 |
 
@@ -176,8 +271,8 @@ All services use the naming convention `vpt-{service}.service`:
 Put `HOST_PROFILE=lite` in `backend_host/src/.env` **before** running `install_host.sh`
 ([TASK-83](../../../../docs/tasks/TASK-83-lite-host-1gb.md)):
 
-- Only `vpt-host`, `vpt-stream`, `vpt-monitor` and `vpt-archiver` are installed. On a host that had the
-  full set, vpt-transcript / kpi / vnc / websockify / subtitle / rtsp / mediamtx / avq / companion are
+- Only `vpt-host`, `vpt-stream`, `vpt-monitor-img` and `vpt-archiver` are installed. On a host that had the
+  full set, vpt-monitor-audio / kpi / vnc / websockify / subtitle / rtsp / mediamtx / avq / companion are
   stopped and disabled (`update_core.sh` only restarts units that are running, so they stay off).
 - No desktop, VNC, PulseAudio or browser packages; a lite host has no `host_vnc` device.
 - 512 MB zram swap (`zram-tools`, zstd); a `dphys-swapfile` on the SD card is turned off.

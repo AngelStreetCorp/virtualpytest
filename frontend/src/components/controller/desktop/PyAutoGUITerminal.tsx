@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 
 import { usePyAutoGUI } from '../../../hooks/controller/usePyAutoGUI';
 import { Host } from '../../../types/common/Host_Types';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface PyAutoGUITerminalProps {
   host: Host;
@@ -89,7 +90,7 @@ export const PyAutoGUITerminal = React.memo(function PyAutoGUITerminal({
         sx={{
           margin: 0,
           fontFamily: 'monospace',
-          fontSize: '0.75rem',
+          fontSize: TYPOGRAPHY.caption.size,
           lineHeight: 1.2,
           whiteSpace: 'pre-wrap',
           wordBreak: 'break-word',
@@ -125,7 +126,7 @@ export const PyAutoGUITerminal = React.memo(function PyAutoGUITerminal({
           backgroundColor: '#1a1a2e',
           color: '#0ff',
           fontFamily: 'monospace',
-          fontSize: '0.7rem',
+          fontSize: TYPOGRAPHY.caption.size,
           overflow: 'auto',
           border: '1px solid #333',
           mb: 0.5,
@@ -146,7 +147,7 @@ export const PyAutoGUITerminal = React.memo(function PyAutoGUITerminal({
       <Box sx={{ mb: 0.5 }}>
         {/* Launch App Section */}
         <Box sx={{ mb: 1 }}>
-          <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#0ff', fontSize: '0.8rem' }}>
+          <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#0ff', fontSize: TYPOGRAPHY.body.size }}>
             Launch Application
           </Typography>
           <Box sx={{ display: 'flex', gap: 0.5, mb: 0.5 }}>
@@ -166,7 +167,7 @@ export const PyAutoGUITerminal = React.memo(function PyAutoGUITerminal({
               variant="contained"
               onClick={handleLaunchApp}
               disabled={!session.connected || isExecuting || !appName.trim()}
-              sx={{ minWidth: '60px', height: '32px', fontSize: '0.75rem' }}
+              sx={{ minWidth: '60px', height: '32px', fontSize: TYPOGRAPHY.caption.size }}
             >
               Launch
             </Button>
@@ -183,7 +184,7 @@ export const PyAutoGUITerminal = React.memo(function PyAutoGUITerminal({
                   launchApp(app);
                 }}
                 disabled={isExecuting}
-                sx={{ cursor: 'pointer', height: '24px', fontSize: '0.7rem' }}
+                sx={{ cursor: 'pointer', height: '24px', fontSize: TYPOGRAPHY.caption.size }}
               />
             ))}
           </Box>
@@ -191,7 +192,7 @@ export const PyAutoGUITerminal = React.memo(function PyAutoGUITerminal({
 
         {/* Tap Coordinates Section */}
         <Box sx={{ mb: 1 }}>
-          <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#0ff', fontSize: '0.8rem' }}>
+          <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#0ff', fontSize: TYPOGRAPHY.body.size }}>
             Tap Coordinates
           </Typography>
           <Grid container spacing={0.5} alignItems="center">
@@ -225,7 +226,7 @@ export const PyAutoGUITerminal = React.memo(function PyAutoGUITerminal({
                 onClick={handleTap}
                 disabled={!session.connected || isExecuting || !tapX || !tapY}
                 fullWidth
-                sx={{ height: '32px', fontSize: '0.75rem' }}
+                sx={{ height: '32px', fontSize: TYPOGRAPHY.caption.size }}
               >
                 Tap
               </Button>
@@ -235,7 +236,7 @@ export const PyAutoGUITerminal = React.memo(function PyAutoGUITerminal({
 
         {/* Send Keys Section */}
         <Box sx={{ mb: 1 }}>
-          <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#0ff', fontSize: '0.8rem' }}>
+          <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#0ff', fontSize: TYPOGRAPHY.body.size }}>
             Send Keys
           </Typography>
           <Box sx={{ display: 'flex', gap: 0.5, mb: 0.5 }}>
@@ -255,7 +256,7 @@ export const PyAutoGUITerminal = React.memo(function PyAutoGUITerminal({
               variant="contained"
               onClick={handleSendKeys}
               disabled={!session.connected || isExecuting || !keys.trim()}
-              sx={{ minWidth: '60px', height: '32px', fontSize: '0.75rem' }}
+              sx={{ minWidth: '60px', height: '32px', fontSize: TYPOGRAPHY.caption.size }}
             >
               Send
             </Button>
@@ -272,7 +273,7 @@ export const PyAutoGUITerminal = React.memo(function PyAutoGUITerminal({
                   sendKeys(key);
                 }}
                 disabled={isExecuting}
-                sx={{ cursor: 'pointer', height: '24px', fontSize: '0.7rem' }}
+                sx={{ cursor: 'pointer', height: '24px', fontSize: TYPOGRAPHY.caption.size }}
               />
             ))}
           </Box>
@@ -280,7 +281,7 @@ export const PyAutoGUITerminal = React.memo(function PyAutoGUITerminal({
 
         {/* Type Text Section */}
         <Box sx={{ mb: 1 }}>
-          <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#0ff', fontSize: '0.8rem' }}>
+          <Typography variant="subtitle2" sx={{ mb: 0.5, color: '#0ff', fontSize: TYPOGRAPHY.body.size }}>
             Type Text
           </Typography>
           <Box sx={{ display: 'flex', gap: 0.5 }}>
@@ -300,7 +301,7 @@ export const PyAutoGUITerminal = React.memo(function PyAutoGUITerminal({
               variant="contained"
               onClick={handleTypeText}
               disabled={!session.connected || isExecuting || !text.trim()}
-              sx={{ minWidth: '60px', height: '32px', fontSize: '0.75rem' }}
+              sx={{ minWidth: '60px', height: '32px', fontSize: TYPOGRAPHY.caption.size }}
             >
               Type
             </Button>
@@ -314,7 +315,7 @@ export const PyAutoGUITerminal = React.memo(function PyAutoGUITerminal({
             onClick={clearTerminal}
             disabled={isExecuting}
             size="small"
-            sx={{ flex: 1, height: '28px', fontSize: '0.7rem' }}
+            sx={{ flex: 1, height: '28px', fontSize: TYPOGRAPHY.caption.size }}
           >
             Clear
           </Button>

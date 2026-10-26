@@ -19,6 +19,9 @@ import {
   Button
 } from '@mui/material';
 import { ParamDefinition, ParamType, getParamDisplayType } from '../../../types/paramTypes';
+import { neutralButtonSx } from '../../common/PageChrome';
+import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface DynamicParamFormProps {
   params: Record<string, ParamDefinition>;
@@ -35,6 +38,7 @@ export const DynamicParamForm: React.FC<DynamicParamFormProps> = ({
   onAreaSelect,
   layout = 'vertical' // Default to vertical layout
 }) => {
+  const P = useAgentChatPalette();
   const isHorizontal = layout === 'horizontal';
   
   const renderParamField = (paramName: string, param: ParamDefinition) => {
@@ -57,7 +61,7 @@ export const DynamicParamForm: React.FC<DynamicParamFormProps> = ({
               minWidth: '120px',
               '& .MuiInputBase-input': {
                 padding: '4px 8px',
-                fontSize: '0.8rem',
+                fontSize: TYPOGRAPHY.body.size,
               },
             } : {}}
           />
@@ -93,7 +97,7 @@ export const DynamicParamForm: React.FC<DynamicParamFormProps> = ({
               minWidth: '70px',
               '& .MuiInputBase-input': {
                 padding: '4px 8px',
-                fontSize: '0.8rem',
+                fontSize: TYPOGRAPHY.body.size,
               },
             } : {}}
           />
@@ -115,7 +119,7 @@ export const DynamicParamForm: React.FC<DynamicParamFormProps> = ({
       case 'select':
         return (
           <FormControl fullWidth={!isHorizontal} size="small" sx={isHorizontal ? { minWidth: '120px' } : {}}>
-            <InputLabel sx={isHorizontal ? { fontSize: '0.8rem' } : {}}>{param.description}</InputLabel>
+            <InputLabel sx={isHorizontal ? { fontSize: TYPOGRAPHY.body.size } : {}}>{param.description}</InputLabel>
             <Select
               value={value ?? param.default ?? ''}
               onChange={(e) => onChange(paramName, e.target.value)}
@@ -124,7 +128,7 @@ export const DynamicParamForm: React.FC<DynamicParamFormProps> = ({
               sx={isHorizontal ? {
                 '& .MuiSelect-select': {
                   padding: '4px 8px',
-                  fontSize: '0.8rem',
+                  fontSize: TYPOGRAPHY.body.size,
                 },
               } : {}}
             >
@@ -159,8 +163,8 @@ export const DynamicParamForm: React.FC<DynamicParamFormProps> = ({
                 {!param.required && (
                   <Button
                     size="small"
-                    color="error"
                     onClick={() => onChange(paramName, null)}
+                    sx={neutralButtonSx(P)}
                   >
                     Clear
                   </Button>

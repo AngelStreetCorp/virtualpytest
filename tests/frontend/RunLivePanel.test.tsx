@@ -22,6 +22,34 @@ vi.mock('../../frontend/src/hooks/reports/useRunManagement', () => ({
   useReportScope: () => scope,
 }));
 
+// RunLivePanel reads the selected host's metadata via useHostData() (the HostManager hook).
+// The hook throws outside <HostManagerProvider>, and standing up the real provider would
+// also want a real host list. Mock at the module boundary — the host metadata isn't part of
+// what the panel asserts, only stop-permission / task-status handling is.
+vi.mock('../../frontend/src/hooks/useHostManager', () => ({
+  useHostData: () => ({
+    getAllHosts: () => [],
+    getHostByName: () => null,
+    getDevicesFromHost: () => [],
+  }),
+}));
+
+// useTargetSelection (called by the panel) reads `isDeviceAllowed` from the workspace
+// context, which throws outside <WorkspaceProvider>. Mock the hook with the same defaults
+// every other provider-mock in this file uses, so the panel renders without a real workspace
+// hook doing real Supabase fetches under the test.
+vi.mock('../../frontend/src/contexts/workspace/WorkspaceContext', () => ({
+  useWorkspaceContext: () => ({
+    userWorkspaces: [],
+    activeWorkspace: null,
+    setActiveWorkspace: () => {},
+    isLoadingWorkspaces: false,
+    isDeviceAllowed: () => true,
+    isScriptAllowed: () => true,
+    isPathHidden: () => false,
+  }),
+}));
+
 import { ApiError } from '../../frontend/src/hooks/reports/runManagementApi';
 import { RunLivePanel } from '../../frontend/src/components/reports/RunLivePanel';
 
@@ -136,9 +164,14 @@ describe('RunLivePanel', () => {
     api.fetchLiveStatus.mockResolvedValue(running({ status: 'unknown', elapsed_ms: null }));
     renderPanel();
     await flush();
+    // Status chip says "Unknown", the meta line says "not reported" for the elapsed field
+    // (the panel never infers a value it was not given), and RunNowPanel now only renders
+    // an indeterminate LinearProgress. The previous "progress not reported" sentence lived
+    // in an earlier version of the panel (commit 446b0de89 dropped it when the
+    // run-management UI was rebuilt); update the assertions to what the panel says today.
     expect(screen.getByText('Unknown')).toBeInTheDocument();
-    expect(screen.getByText(/progress not reported/i)).toBeInTheDocument();
-    expect(screen.getByText(/elapsed: not reported/i)).toBeInTheDocument();
+    expect(screen.getByText('not reported')).toBeInTheDocument();
+    expect(screen.getByText('elapsed')).toBeInTheDocument();
   });
 
   it('hides Stop when the server says the caller cannot stop the task', async () => {

@@ -13,6 +13,10 @@ export interface ScriptResult {
   script_name: string;
   script_type: string;
   success: boolean;
+  /** The run never executed (it was not configured): a skip, not a failure.
+   *  The flag comes from the run itself (BUG-0756); a payload that predates it
+   *  simply has no flag and keeps the pass / fail reading. */
+  skipped?: boolean;
   execution_time_ms: number | null;
   started_at: string;
   completed_at: string;

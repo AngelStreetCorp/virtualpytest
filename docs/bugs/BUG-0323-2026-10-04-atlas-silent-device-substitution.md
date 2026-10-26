@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                     |
 | Severity  | Medium — a canvas titled after devices the user never named         |
 | Area      | backend_server/src/lib/analytics/service.py |
-| Fixed in  | Unreleased                                 |
+| Fixed in  | build 90145 |
 | Commit    | see branch task43-w7-analytics-r3           |
 
 ---

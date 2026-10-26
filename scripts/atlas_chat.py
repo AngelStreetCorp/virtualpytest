@@ -330,7 +330,7 @@ def main() -> int:
     ap.add_argument('--team-id', default=DEFAULT_TEAM, dest='team_id',
                     help=f'Team UUID (default: {DEFAULT_TEAM}; or env TEAM_ID)')
     ap.add_argument('--agent-id', default='assistant', dest='agent_id',
-                    help='assistant | monitor | analyzer (default: assistant = Atlas)')
+                    help='assistant | scripter | monitor | analyzer (default: assistant = Atlas; scripter = Forge)')
     ap.add_argument('--host',          default=None, help='host_name context')
     ap.add_argument('--device',        default=None, help='device_id context')
     ap.add_argument('--userinterface', default=None, help='userinterface_name context')

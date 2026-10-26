@@ -1,0 +1,35 @@
+# =============================================================================
+# VirtualPyTest - Platform update, rights of the service user on a HOST or the SERVER VM (TASK-101)
+# =============================================================================
+#
+# The pull update runs four privileged commands as the service user (vpt_user), without a password:
+#   * restart the host service (applyBundle schedules it after the new code is in place)
+#   * restart the server service (the server updates itself last)
+#   * restart the frontend service (a frontend on the server VM, FRONTEND_DEPLOY_HOST=local)
+#   * reconcile the feature systemd units of the new tree
+# Nothing else. This is deliberately narrow (unlike the opt-in run-command drop-in).
+#
+# The reconcile runs a ROOT-OWNED copy of the script, /usr/local/sbin/vpt-reconcile-feature-units. Never
+# grant root on a file under /opt/virtualpytest: the service user owns that tree and could edit it.
+#
+# Install with the helper (as root, on every host and on the server VM); it installs the copy, its lib and
+# THIS file (validated with visudo -cf, 0440):
+#     sudo bash /opt/virtualpytest/setup/sudoers/install_vpt_update_sudoers.sh
+# Run it again after an update that changes reconcile_feature_units.sh (the prerequisites say
+# "installed reconcile helper is older than the tree" when it should be).
+# Verify (as the service user; each line must print the command, not "a password is required"):
+#     sudo -u vpt_user sudo -n -l systemctl restart vpt-host
+#     sudo -u vpt_user sudo -n -l /usr/local/sbin/vpt-reconcile-feature-units --project-root /opt/virtualpytest
+#
+# If the project is not under /opt/virtualpytest, run the helper with --project-root <dir>: it rewrites the
+# path in the last command (sudoers compares the whole command line). Remove again with:
+#     sudo rm /etc/sudoers.d/vpt-update /usr/local/sbin/vpt-reconcile-feature-units
+# =============================================================================
+
+Cmnd_Alias VPT_UPDATE = \
+    /usr/bin/systemctl restart vpt-host, \
+    /usr/bin/systemctl restart vpt-server, \
+    /usr/bin/systemctl restart vpt-frontend, \
+    /usr/local/sbin/vpt-reconcile-feature-units --project-root /opt/virtualpytest
+
+vpt_user ALL=(root) NOPASSWD: VPT_UPDATE

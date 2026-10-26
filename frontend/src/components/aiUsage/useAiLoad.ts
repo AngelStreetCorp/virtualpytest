@@ -8,6 +8,8 @@ export interface AiLoad<T> {
   data: T | null;
   loading: boolean;
   failed: boolean;
+  /** The last failure, for a caller that tells kinds apart (a server without the API). */
+  error: unknown;
   reload: () => void;
 }
 
@@ -15,6 +17,7 @@ export function useAiLoad<T>(name: string, fetcher: () => Promise<T>, deps: Depe
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(enabled);
   const [failed, setFailed] = useState(false);
+  const [error, setError] = useState<unknown>(null);
   const [tick, setTick] = useState(0);
   const run = useRef(0);
 
@@ -29,15 +32,17 @@ export function useAiLoad<T>(name: string, fetcher: () => Promise<T>, deps: Depe
         if ((d as { success?: boolean } | null)?.success === false) throw new Error((d as { error?: string }).error || 'request failed');
         setData(d);
         setFailed(false);
+        setError(null);
       })
       .catch((e) => {
         if (id !== run.current) return;
         console.error(`[@component:aiUsage] ${name} failed`, e);
         setFailed(true);
+        setError(e);
       })
       .finally(() => id === run.current && setLoading(false));
   }, [...deps, tick, enabled]);
 
   const reload = useCallback(() => setTick((n) => n + 1), []);
-  return { data, loading, failed, reload };
+  return { data, loading, failed, error, reload };
 }

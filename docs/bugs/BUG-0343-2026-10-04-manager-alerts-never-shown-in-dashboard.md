@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium - escalations to the owner went unseen                |
 | Area      | ghosty-sessions (codebox session dashboard): `public/app.js`, `manager-events.js` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | ghosty-sessions `15d89f9` (bell and alerts sheet), `fe971b1` (event dedupe), merged as `3b2a620` (branch `mgr-ui-alerts`) |
 
 ---

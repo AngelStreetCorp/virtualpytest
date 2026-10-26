@@ -119,6 +119,7 @@ export interface EnhancedHLSPlayerProps {
   errorTrendData?: ErrorTrendData | null;
   analysisTimestamp?: string | null;
   isAIAnalyzing?: boolean;
+  captureFps?: number | null;
   
   // Translation support (optional - for integration with external translation systems)
   transcriptTranslations?: Record<string, string[]>;  // language -> array of translated segments

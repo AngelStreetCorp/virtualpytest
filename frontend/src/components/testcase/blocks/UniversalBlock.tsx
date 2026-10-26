@@ -24,6 +24,7 @@ import { InlineActionConfig } from './InlineActionConfig';
 import { InlineNavigationConfig } from './InlineNavigationConfig';
 import { InlineStandardConfig } from './InlineStandardConfig';
 import { BlockOutputHandles, OutputType } from '../../common/builder/BlockOutputHandles';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 // Re-export for backwards compatibility (other files may import from here)
 export type { OutputType } from '../../common/builder/BlockOutputHandles';
@@ -246,6 +247,7 @@ export const UniversalBlock: React.FC<NodeProps & {
           treeId: tree_id,
           targetNodeLabel: data.target_node_label,
           hostName: currentHost.host_name,
+          host: currentHost,
           deviceId: currentDeviceId || 'device1',
           userinterfaceName: interfaceName,
           onProgress: (msg: string) => {
@@ -425,10 +427,10 @@ export const UniversalBlock: React.FC<NodeProps & {
         
         // Show different message if already at destination
         if (isNavigation && result.already_at_target) {
-          showSuccess(`ℹ️ Already at ${data.target_node_label} - ${durationText}`);
+          showSuccess(`Already at ${data.target_node_label} - ${durationText}`);
         } else {
           // Build success message with output data if available
-          let successMessage = `✓ ${commandLabel} - ${durationText}`;
+          let successMessage = `${commandLabel} - ${durationText}`;
           
           // If verification has output_data (like getMenuInfo), show key count
           if (result.output_data && typeof result.output_data === 'object') {
@@ -437,7 +439,7 @@ export const UniversalBlock: React.FC<NodeProps & {
             // Check for parsed_data (getMenuInfo, etc.)
             if (outputData.parsed_data && typeof outputData.parsed_data === 'object') {
               const parsedCount = Object.keys(outputData.parsed_data).length;
-              successMessage += `\n📋 Extracted ${parsedCount} fields`;
+              successMessage += `\nExtracted ${parsedCount} fields`;
               
               // Show first 3 key-value pairs as preview
               const entries = Object.entries(outputData.parsed_data).slice(0, 3);
@@ -477,7 +479,7 @@ export const UniversalBlock: React.FC<NodeProps & {
         unifiedExecution.completeBlockExecution(id, false, result.error || 'Action failed', result);
         
         setAnimateHandle('failure');
-        showError(`✗ ${commandLabel} - ${durationText}\n${result.error || 'Execution failed'}`);
+        showError(`${commandLabel} - ${durationText}\n${result.error || 'Execution failed'}`);
         // Clear animation after 2 seconds
         setTimeout(() => setAnimateHandle(null), 2000);
         
@@ -502,7 +504,7 @@ export const UniversalBlock: React.FC<NodeProps & {
       unifiedExecution.completeBlockExecution(id, false, errorMessage, undefined);
       
       setAnimateHandle('failure');
-      showError(`✗ ${commandLabel} - ${durationText}\nError: ${errorMessage}`);
+      showError(`${commandLabel} - ${durationText}\nError: ${errorMessage}`);
       // Clear animation after 2 seconds
       setTimeout(() => setAnimateHandle(null), 2000);
       
@@ -689,7 +691,7 @@ export const UniversalBlock: React.FC<NodeProps & {
         borderLeft: `3px solid ${color}`, // Left accent bar for type indication
         ...getExecutionStyling(), // Apply execution styling
         borderRadius: 1.5,
-        background: P.surface,
+        background: P.surfaceSolid,
         boxShadow: actualMode === 'dark' 
           ? '0 2px 8px rgba(0,0,0,0.3)' 
           : '0 2px 8px rgba(0,0,0,0.08)',
@@ -724,7 +726,7 @@ export const UniversalBlock: React.FC<NodeProps & {
             borderRadius: 1,
             px: 1,
             py: 0.5,
-            fontSize: 18,
+            fontSize: TYPOGRAPHY.cardTitle.size,
             fontWeight: 'bold',
             fontFamily: 'monospace',
             boxShadow: '0 2px 8px rgba(0,0,0,0.2)',
@@ -758,7 +760,7 @@ export const UniversalBlock: React.FC<NodeProps & {
                 size="small"
                 inputProps={{
                   maxLength: 20,
-                  style: { color: color, fontSize: 14, fontWeight: 600, padding: '2px 4px' }
+                  style: { color: color, fontSize: TYPOGRAPHY.body.size, fontWeight: 600, padding: '2px 4px' }
                 }}
                 sx={{
                   '& .MuiOutlinedInput-root': {
@@ -790,14 +792,14 @@ export const UniversalBlock: React.FC<NodeProps & {
                   },
                 }}
               >
-                <CloseIcon sx={{ fontSize: 14 }} />
+                <CloseIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
               </IconButton>
             </>
           ) : (
             <>
               <Typography 
                 fontWeight={600}
-                fontSize={14}
+                fontSize="0.875rem"
                 sx={{ 
                   flex: 1,
                   overflow: 'hidden',
@@ -820,7 +822,7 @@ export const UniversalBlock: React.FC<NodeProps & {
                     },
                   }}
                 >
-                  <EditIcon sx={{ fontSize: 14 }} />
+                  <EditIcon sx={{ fontSize: TYPOGRAPHY.body.size }} />
                 </IconButton>
               )}
             </>
@@ -830,7 +832,7 @@ export const UniversalBlock: React.FC<NodeProps & {
           {/* Amber "needs configuration" badge — explains what's missing. */}
           {!readOnly && !isValid && (
             <Tooltip title={invalidReason || 'Needs configuration'}>
-              <WarningAmberIcon sx={{ fontSize: 16, color: '#f59e0b' }} />
+              <WarningAmberIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size, color: '#f59e0b' }} />
             </Tooltip>
           )}
           {/* Run is gated on validity: a half-configured block can't be run. */}
@@ -850,7 +852,7 @@ export const UniversalBlock: React.FC<NodeProps & {
                 },
               }}
             >
-              {isExecuting ? <CircularProgress size={14} sx={{ color: color }} /> : <PlayArrowIcon sx={{ fontSize: 18 }} />}
+              {isExecuting ? <CircularProgress size={14} sx={{ color: color }} /> : <PlayArrowIcon sx={{ fontSize: TYPOGRAPHY.cardTitle.size }} />}
             </IconButton>
           )}
         </Box>
@@ -933,7 +935,7 @@ export const UniversalBlock: React.FC<NodeProps & {
           <>
             {contentLabel && (
               <Typography
-                fontSize={20}
+                fontSize="1.25rem"
                 fontWeight="medium"
                 mb={1}
                 textAlign="left"
@@ -984,7 +986,7 @@ export const UniversalBlock: React.FC<NodeProps & {
             />
           </>
         ) : (
-          <Typography fontSize={12} color="text.secondary">
+          <Typography fontSize="0.75rem" color="text.secondary">
             Click to configure
           </Typography>
         )}
@@ -1008,12 +1010,12 @@ export const UniversalBlock: React.FC<NodeProps & {
         )}
 
         {data.iterations && data.iterations > 1 && (
-          <Typography fontSize={12} color="text.secondary" mt={0.5}>
+          <Typography fontSize="0.75rem" color="text.secondary" mt={0.5}>
             × {data.iterations} iterations
           </Typography>
         )}
         {data.iterator && data.iterator > 1 && (
-          <Typography fontSize={12} color="text.secondary" mt={0.5}>
+          <Typography fontSize="0.75rem" color="text.secondary" mt={0.5}>
             × {data.iterator}
           </Typography>
         )}

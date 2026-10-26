@@ -9,7 +9,7 @@
 | Severity  | Medium — the run fails with a wrong diagnosis, sending the user to edit KPI settings that were already correct |
 | Status    | Fixed (pending deploy)                                            |
 | Area      | `test_scripts/tv/standby_measurement.py`                          |
-| Fixed in  | Unreleased                                                        |
+| Fixed in  | build 90145 |
 | Commit    | this commit                                                       |
 
 ---

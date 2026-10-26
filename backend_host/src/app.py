@@ -201,6 +201,13 @@ def start_background_services():
         except Exception as e:
             print(f"❌ [HOST] Registration error: {e}")
         
+        # TASK-90: bring the monitor units in step with the profiles in .env (restart those whose profile changed)
+        try:
+            from backend_host.src.lib.utils.monitor_profile import apply_monitor_profiles
+            apply_monitor_profiles()
+        except Exception as e:
+            print(f"❌ [HOST] Monitor profile apply failed: {e}")
+
         # ALWAYS start ping thread - even if registration failed
         # This ensures auto-reconnect when server comes back up
         try:

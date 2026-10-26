@@ -5,6 +5,9 @@ Device model to controller mappings and capabilities.
 This module is in shared/ so it can be used by both backend_host and backend_server.
 """
 
+import difflib
+from typing import Optional, Tuple
+
 # Remotes that drive the device from outside: an IR transmitter (lirc / a USB IR Toy
 # over serial / a networked IRTrans box) or an emulated BLE remote. Any device we
 # capture over HDMI or a camera can be wired to one, so every such model accepts all of
@@ -28,7 +31,7 @@ DEVICE_CONTROLLER_MAP = {
         'remote': ['android_tv', *EXTERNAL_REMOTES],
         'desktop': [],
         'web': [],
-        'power': ['tapo', 'wol'],
+        'power': ['tapo', 'api_power', 'wol'],
         'network': []
     },
     'android_tablet': {
@@ -56,7 +59,7 @@ DEVICE_CONTROLLER_MAP = {
         'remote': ['android_tv', *EXTERNAL_REMOTES],
         'desktop': [],
         'web': [],
-        'power': ['tapo', 'wol'],
+        'power': ['tapo', 'api_power', 'wol'],
         'network': []
     },
     # Fire TV on Vega OS (Amazon's Linux TV OS, TASK-57): reached by the stock adb client
@@ -139,7 +142,10 @@ DEVICE_CONTROLLER_MAP = {
     },
     'tizen': {
         'av': ['camera_stream'],
-        'remote': EXTERNAL_REMOTES,
+        # samsung_tizen = network websocket remote (samsungtvws). Listed first so a host
+        # with DEVICE<N>_TIZEN_IP set uses it; the IR/BLE remotes stay as fallbacks for
+        # hosts that drive the TV by hardware instead.
+        'remote': ['samsung_tizen', *EXTERNAL_REMOTES],
         'desktop': [],
         'web': [],
         'power': [],
@@ -338,6 +344,190 @@ def get_device_capabilities(device_model: str) -> dict:
     
     return capabilities
 
+
+# =====================================================
+# MODEL SPELLING TOLERANCE
+# =====================================================
+#
+# DEVICE{i}_MODEL is typed by hand in a host .env, and the canonical names are
+# awkward to remember: `android_tv` or `androidtv`, `apple_tv` or `appletv`,
+# `fire_tv_vega` or `firetv_vega`. A misspelling used to be fatal rather than
+# cosmetic. Every consumer looked the raw string up in DEVICE_CONTROLLER_MAP,
+# missed, and the factory returned {} -- the device registered with NO controllers
+# at all, so Take Control answered "Unsupported device" and no remote ever
+# appeared, with nothing in the log but a model name nobody could spell.
+#
+# So a spelling is resolved to the model it obviously means at every entry point
+# that reads one (.env parsing, the controller factory, the model routes), instead
+# of asking the operator to memorise a table. Three passes, cheapest first, and all
+# derived from the map keys so a model added later needs no entry here:
+#
+#   1. exact            `android_tv`
+#   2. separator-free   `androidtv`, `ANDROID_TV`, `Android TV`, `android-mobile`
+#   3. near miss        `andoridtv`, `firetv_ios`   (difflib, above the cutoff)
+#
+# Pass 3 fires only when the best match also beats the runner-up, so two names that
+# are genuinely different models are never collapsed into one.
+#
+# An unrecognised value comes back lowercased and trimmed rather than replaced by a
+# guess. The factory then still reports "Unknown device model" and lists the real
+# names: a device built out of the wrong model is worse than no device, because it
+# looks alive and answers to controls that cannot work.
+
+_MODEL_SEPARATORS = (' ', '_', '-', '.', '/')
+
+# Spellings that string similarity cannot resolve, because they name a family and
+# not a model. A bare `fire_tv` is the classic Fire TV (Fire OS): it is the common
+# case, Vega is the rarer one with its own model name, and the correction is logged
+# at every entry point so the choice is visible rather than silent. A Vega-only
+# fleet changes this one line, not its .env files.
+MODEL_ALIASES = {
+    'firetv': 'fire_tv_fireos',
+}
+
+# How close a typo has to be, as a difflib ratio. `andoridtv` -> `android_tv` scores
+# 0.889 and `firetv_ios` -> `fire_tv_fireos` 0.857, while a bare `fire_tv` ->
+# `fire_tv_vega` is only 0.75 -- that gap is why the cutoff sits just under the
+# typos, and why `fire_tv` needs an explicit alias above instead of a guess.
+MODEL_FUZZY_CUTOFF = 0.85
+
+# How much better the winner must be than the runner-up, so a near miss is only
+# taken when there is no real competitor (`stb` must not drift towards `tizen`).
+MODEL_FUZZY_MARGIN = 0.05
+
+
+def _fold_model(value: str) -> str:
+    """Lowercase a model spelling and drop the separators people skip or mistype."""
+    folded = value.lower()
+    for separator in _MODEL_SEPARATORS:
+        folded = folded.replace(separator, '')
+    return folded
+
+
+# separator-free spelling -> canonical model. setdefault because a collision would
+# mean two models differing only in separators, and the first one must win rather
+# than the dict entry silently overwriting it.
+_MODELS_BY_FOLDED = {}
+for _model in DEVICE_CONTROLLER_MAP:
+    _MODELS_BY_FOLDED.setdefault(_fold_model(_model), _model)
+
+
+def _is_ambiguous_prefix_pair(probe: str, candidate: str) -> bool:
+    """
+    True when a near miss is an unfinished name or a numbered variant, not a typo.
+
+    Two shapes are guesses rather than misspellings, so they are never resolved:
+
+    - `android` -> `android_tv`: the spelling stops early, and the android family has
+      four possible completions, so any of them would be a coin flip.
+    - `rtsp_video` -> `rtsp_video2`: the extra characters are a trailing variant
+      number, which is a different model naming convention, not a slipped letter.
+
+    A candidate that is a prefix of the probe followed by anything else (`stb` ->
+    `stbb`) IS a typo, and is deliberately left matchable.
+    """
+    if candidate.startswith(probe):
+        return True  # `android` is unfinished
+    if probe.startswith(candidate):
+        return probe[len(candidate):].isdigit()  # `rtsp_video2` is a variant
+    return False
+
+
+def _near_miss_model(folded: str) -> Optional[str]:
+    """The canonical model closest to a folded spelling, when one is close AND clear."""
+    best_model, best_score, runner_up = None, 0.0, 0.0
+    for candidate, model in _MODELS_BY_FOLDED.items():
+        if _is_ambiguous_prefix_pair(folded, candidate):
+            continue
+        score = difflib.SequenceMatcher(None, folded, candidate).ratio()
+        if score > best_score:
+            runner_up, best_score, best_model = best_score, score, model
+        elif score > runner_up:
+            runner_up = score
+    if (best_model and best_score >= MODEL_FUZZY_CUTOFF
+            and best_score - runner_up >= MODEL_FUZZY_MARGIN):
+        return best_model
+    return None
+
+
+def normalize_device_model(value, allow_fuzzy: bool = True) -> str:
+    """
+    Resolve a device model spelling to its canonical DEVICE_CONTROLLER_MAP key.
+
+    Args:
+        value: The model as written — a canonical name, an alternative spelling, a
+            near miss, or something that is not a model at all.
+        allow_fuzzy: Set False to stop at the exact and separator-free passes. Used
+            where a *whole* value is tested as a model, because a fuzzy match there
+            would swallow a platform tag (`android_tv-v2` must not become
+            `android_tv` with the tag dropped).
+
+    Returns:
+        The canonical model name, or `value` trimmed and lowercased when no model
+        matches -- unknown in, unknown out, so the caller still reports it.
+    """
+    if not isinstance(value, str):
+        return value
+    cleaned = value.strip().lower()
+    if not cleaned:
+        return 'unknown'
+    if cleaned in DEVICE_CONTROLLER_MAP:
+        return cleaned
+
+    folded = _fold_model(cleaned)
+    alias = MODEL_ALIASES.get(folded)
+    if alias:
+        return alias
+    exact = _MODELS_BY_FOLDED.get(folded)
+    if exact:
+        return exact
+    if not allow_fuzzy:
+        return cleaned
+    return _near_miss_model(folded) or cleaned
+
+
+def parse_device_model(value) -> Tuple[str, Optional[str]]:
+    """
+    Split a DEVICE{i}_MODEL value into (canonical model, platform tag).
+
+    The value may be a bare model (`stb`, `android_tv`) or carry a platform tag
+    after the first dash (`stb-example-v2`). The broad model is everything before
+    that dash and is resolved through normalize_device_model(); the tag is free
+    form, so it is passed through untouched -- it is a label, not a model name.
+    A bare value yields (model, None).
+
+    The whole value is tried as a model FIRST (without fuzzy matching), so that a
+    spelling which only differs in separators -- `android-mobile` -- is read as the
+    model `android_mobile` rather than as the unknown model `android` carrying the
+    platform tag `mobile`.
+    """
+    if not isinstance(value, str):
+        return normalize_device_model(value), None
+
+    as_one_model = normalize_device_model(value, allow_fuzzy=False)
+    if as_one_model in DEVICE_CONTROLLER_MAP:
+        return as_one_model, None
+
+    model_part, _separator, platform = value.partition('-')
+    return normalize_device_model(model_part), (platform.strip() or None)
+
+
+def model_spelling_note(raw, canonical) -> Optional[str]:
+    """
+    One line telling the operator how a spelling was read, or None when it was exact.
+
+    The correction is logged rather than applied silently: a device that silently
+    became `fire_tv_fireos` from a bare `fire_tv` is the one case where the
+    operator may have meant the other Fire TV platform, and they can only notice if
+    the log says so. Only the model part is compared, so `stb-example-v2` — which
+    is spelled exactly right — stays quiet.
+    """
+    if not isinstance(raw, str) or not isinstance(canonical, str):
+        return None
+    written = raw.partition('-')[0].strip().lower()
+    if written == canonical:
+        return None
+    return f"'{raw.strip()}' read as '{canonical}'"
 
 
 # =====================================================

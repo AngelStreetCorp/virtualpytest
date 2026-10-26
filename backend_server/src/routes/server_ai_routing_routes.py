@@ -53,6 +53,7 @@ API keys are never returned: endpoints expose ``has_secret`` only.
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import time
 from datetime import datetime, timezone
@@ -67,12 +68,13 @@ from backend_server.src.lib.auth_middleware import (
     _caller_team_ids,
     principal_holds_permission,
     _is_valid_service_api_key,
+    org_scope_team_ids,
     require_permission,
     require_platform_admin,
     require_user_auth,
 )
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
-from shared.src.lib.ai import budgets, call_log, decisions, gateway, health, prices, router, secrets_store, tracing, usage_caller, usage_report, usage_view, usages
+from shared.src.lib.ai import budgets, call_log, caller as ai_caller, decisions, gateway, health, prices, router, secrets_store, tracing, usage_caller, usage_report, usage_view, usages
 from shared.src.lib.ai.config import REACH_VALUES, THINKING_VALUES, get_preset, presets_catalogue
 from shared.src.lib.ai.provider_client import (
     classify_error,
@@ -86,7 +88,7 @@ from shared.src.lib.ai.provider_client import (
     response_text,
     single_completion,
 )
-from shared.src.lib.database import ai_decisions_db, ai_routing_db, workspaces_db
+from shared.src.lib.database import ai_benchmarks_db, ai_decisions_db, ai_routing_db, projects_db, workspaces_db
 
 server_ai_routing_bp = Blueprint('server_ai_routing', __name__, url_prefix='/server/ai')
 
@@ -164,8 +166,8 @@ def _check_fallback_chain(profile_id: Optional[str], fallback_id: Optional[str])
         seen.add(current)
         current = profiles.get(current, {}).get('fallback_profile_id')
         depth += 1
-        if depth > router.MAX_CHAIN:
-            return f'Fallback chain longer than {router.MAX_CHAIN} profiles'
+        if depth > router.MAX_STORED_CHAIN:
+            return f'Fallback chain longer than {router.MAX_STORED_CHAIN} profiles'
     return None
 
 
@@ -197,6 +199,11 @@ def _validate_profile(data: dict, profile_id: Optional[str] = None) -> Optional[
         return f"capabilities must be within {', '.join(usages.CAPABILITIES)}"
     if 'extra' in data and not isinstance(data['extra'] or {}, dict):
         return 'extra must be a JSON object'
+    existing = ai_routing_db.get_row('ai_profiles', profile_id) if profile_id else None
+    merged = {**(existing or {}), **data}
+    endpoint = ai_routing_db.get_row('ai_endpoints', merged['endpoint_id']) if merged.get('endpoint_id') else None
+    if endpoint and router.claude_off_anthropic(merged, endpoint):
+        return 'Claude models run only on an Anthropic endpoint (the owner\'s keys), never through OpenRouter'
     if 'fallback_profile_id' in data:
         return _check_fallback_chain(profile_id, data.get('fallback_profile_id'))
     return None
@@ -428,21 +435,32 @@ class _UsageArgs:
         self.groups = usage_report.CALL_GROUPS if self.source == 'calls' else usage_report.ROLLUP_GROUPS
         if self.user_only and self.source == 'rollup':
             self.error = ('Your own usage is available for up to 7 days', 400)
-        if self.group_by not in self.groups and not self.error:
-            self.error = (f'group_by must be one of {list(self.groups)} for this period', 400)
+        try:
+            wanted = usage_report.split_group_by(self.group_by)
+        except ValueError:
+            wanted = []
+        if (not wanted or any(g not in self.groups for g in wanted)) and not self.error:
+            self.error = (f'group_by must be one or two (comma-separated) of {list(self.groups)} for this period', 400)
         self.filters = {g: request.args[f'filter_{g}'] for g in usage_report.CALL_GROUPS
                         if request.args.get(f'filter_{g}')}
         if any(g not in self.groups for g in self.filters) and not self.error:
             self.error = ('A filter on this field needs a period of 7 days or less', 400)
         self.project = request.args.get('project') or None
         self.project_scope: Optional[tuple[set, set]] = None
+        # A project record (Projects page) filters on the ``project_id`` stored with each call; a workspace
+        # filters on its teams and people. The rollup has no project column, so a record needs the call list.
+        self.project_id: Optional[str] = None
         if self.project and not self.error:
             if self.source != 'calls':
                 self.error = ('A project filter needs a period of 7 days or less', 400)
             else:
                 self.project_scope = self._load_project(self.project)
                 if self.project_scope is None:
-                    self.error = ('Unknown project', 404)
+                    self.project_id = self._load_project_record(self.project)
+                    if self.project_id is None:
+                        self.error = ('Unknown project', 404)
+                    elif request.endpoint != 'server_ai_routing.usage_calls':
+                        self.error = ('A project record filters the Calls tab only', 400)
         if not self.team_id and not self.all_teams and not self.error:
             self.error = ('team_id is required', 400)
 
@@ -460,15 +478,31 @@ class _UsageArgs:
             (teams if m.get('type') == 'team' else users).add(str(m.get('team_id') if m.get('type') == 'team' else m.get('user_id')))
         return teams, users
 
+    @staticmethod
+    def _load_project_record(project_id: str) -> Optional[str]:
+        """The id of a project record the caller may see (its team is in scope), or None."""
+        try:
+            project = projects_db.get_project(project_id)
+        except Exception:  # noqa: BLE001 - not a project id (e.g. a malformed value)
+            return None
+        if not project:
+            return None
+        scope = org_scope_team_ids()
+        if scope is not None and str(project.get('team_id')) not in {str(t) for t in scope}:
+            return None
+        return str(project['id'])
+
     def in_project(self, row: dict) -> bool:
         if self.project_scope is None:
             return True
         teams, users = self.project_scope
         return str(row.get('team_id')) in teams or str(row.get('user_id')) in users
 
-    def rows(self, hours: Optional[int] = None) -> list[dict]:
+    def rows(self, hours: Optional[int] = None, source: Optional[str] = None) -> list[dict]:
+        """Rows of the last ``hours`` from the page's source, or from ``source`` ('calls': the per-call rollup, which
+        carries error types and first / last times, so health causes and provider status can be judged)."""
         hours = hours or self.hours
-        if self.source != 'calls':
+        if (source or self.source) != 'calls':
             return ai_routing_db.get_usage_rows(self.team_id, hours, all_teams=self.all_teams)
         if len(self.team_ids) > 1:  # several teams: team-less (server default) rows come back with each, keep one copy
             rows: list[dict] = []
@@ -480,10 +514,10 @@ class _UsageArgs:
         return [r for r in rows if self.in_project(r)] if self.project_scope is not None else rows
 
 
-def _banner(args: '_UsageArgs', rows24: list[dict], endpoints: list[dict]) -> dict:
+def _banner(args: '_UsageArgs', rows24: list[dict], endpoints: list[dict], all_failures: bool = False) -> dict:
     """``health.evaluate`` over the last 24 h with each cause's provider named for people."""
     skipped = ai_routing_db.get_skipped_paused(args.team_id, 24, args.all_teams)
-    banner = health.evaluate(rows24, skipped=skipped)
+    banner = health.evaluate(rows24, skipped=skipped, all_failures=all_failures)
     meta = {ep['name']: ep for ep in endpoints}
     for cause in banner['causes']:
         ep = meta.get(cause['endpoint'], {'name': cause['endpoint'], 'preset': ''})
@@ -497,21 +531,99 @@ def _banner(args: '_UsageArgs', rows24: list[dict], endpoints: list[dict]) -> di
 
 
 def _label_rows(report: dict, team_id: Optional[str]) -> None:
-    group = report['group_by']
-    keys = [r['key'] for r in report['rows'] if r['key'] != usage_report.NONE_KEY]
-    if group == 'team':
-        names = ai_routing_db.get_team_names(keys)
-        for r in report['rows']:
-            r['label'] = names.get(r['key']) or r['key']
-    elif group == 'user':
-        names = ai_routing_db.get_user_names(keys)
-        for r in report['rows']:
-            r['label'] = names.get(r['key']) or r['key']
-    elif group == 'usage':
-        for r in report['rows']:
-            r['routing'] = _routing_view(r['key'], team_id, r['profiles'], r['profile_errors'], r['profile_causes'])
-            r['label'] = usages.short_label(r['key'])
-            r['family'] = usages.family_of(r['key'])
+    """Names for the group keys: ``label`` (single group) or ``labels`` (one per level, None = the page translates)."""
+    names = usage_report.split_group_by(report['group_by'])
+    lookups: dict[str, dict] = {}
+    for level, group in enumerate(names):
+        keys = [r['parts'][level] for r in report['rows'] if r['parts'][level] != usage_report.NONE_KEY]
+        if group == 'team':
+            lookups[group] = ai_routing_db.get_team_names(keys)
+        elif group == 'user':
+            lookups[group] = ai_routing_db.get_user_names(keys)
+
+    def label_of(group: str, key: str) -> Optional[str]:
+        if group in ('team', 'user'):
+            return lookups[group].get(key) or key
+        if group == 'usage':
+            return usages.short_label(key)
+        if group == 'category':
+            return usage_caller.category_label(key)
+        return None
+
+    try:
+        model_of = {p['name']: p.get('model') for p in ai_routing_db.list_profiles()}
+    except Exception as e:  # noqa: BLE001 - names are a convenience
+        print(f'[AI usage] profile names unavailable: {e}')
+        model_of = {}
+    for r in report['rows']:
+        r['profile_labels'] = {p: usage_view.model_label(model_of.get(p.split(' (')[0]), p.split(' (')[0])
+                               for p in r.get('profiles', {})}
+        r['labels'] = [label_of(g, p) if (g in ('team', 'user') or p != usage_report.NONE_KEY) else None
+                       for g, p in zip(names, r['parts'])]
+        if len(names) == 1:
+            if r['labels'][0]:
+                r['label'] = r['labels'][0]
+            if names[0] == 'usage':
+                r['routing'] = _routing_view(r['key'], team_id, r['profiles'], r['profile_errors'], r['profile_causes'])
+                r['family'] = usages.family_of(r['key'])
+
+
+def _since_from_hours(hours) -> Optional[str]:
+    """ISO start of a ``?hours=<n>`` window (1 h to a year); None when absent or not a number."""
+    if not hours:
+        return None
+    try:
+        from datetime import timedelta
+        return (datetime.now(timezone.utc) - timedelta(hours=max(1, min(int(hours), 24 * 365)))).isoformat()
+    except (TypeError, ValueError):
+        return None
+
+
+@server_ai_routing_bp.route('/benchmarks', methods=['GET'])
+@require_user_auth
+@require_permission('monitoring.ai_queue:view')
+@handle_route_exceptions('server_ai_routing:get_benchmarks')
+def get_benchmarks():
+    """TASK-143: the benchmark results — one row per case of a usage key, run against a named model.
+
+    The cases are AI calls: they live in the call log (``ai_calls``) with the stats label
+    ``eval:<usage key>``, so the page shows them apart from the production calls of that key.
+
+    Every run and case carries ``category`` (the feature id of the usage page); ``?category=<id>`` keeps
+    only that feature's runs and cases. ``?usage_key=<key>`` narrows to one usage key, ``?model=<model>`` to one model, ``?hours=<n>`` to a
+    window (default 30 days), ``?limit=<n>`` caps the rows (default 200). A platform admin gets every
+    team (``all=1``); a team sees its own runs plus the ones with no team.
+    """
+    args = request.args
+    team_id = _team_id()
+    all_teams = bool(_is_admin() and args.get('all') in ('1', 'true', 'yes'))
+    usage_key = (args.get('usage_key') or '').strip() or None
+    model = (args.get('model') or '').strip() or None
+    category = (args.get('category') or '').strip() or None
+    try:
+        limit = max(1, min(int(args.get('limit') or 200), 2000))
+    except (TypeError, ValueError):
+        limit = 200
+    since = _since_from_hours(args.get('hours'))
+    runs = ai_benchmarks_db.list_runs(team_id, all_teams=all_teams, usage_key=usage_key, since=since, limit=limit,
+                                      category=category)
+    cases = ai_benchmarks_db.list_cases(team_id, all_teams=all_teams, usage_key=usage_key,
+                                        model=model, since=since, limit=limit * 10)
+    keys = ai_benchmarks_db.usage_keys(team_id, all_teams=all_teams, since=since)
+    if category:
+        cases = [c for c in cases if c.get('category') == category]
+        keys = [k for k in keys if ai_benchmarks_db.category_of(k) == category]
+    models = sorted({c.get('model') for c in cases if c.get('model')})
+    return jsonify({
+        'success': True,
+        'runs': runs,
+        'cases': cases,
+        'usage_keys': keys,
+        'usage_labels': {k: usages.short_label(k) for k in keys},
+        'models': models,
+        'scope': 'all' if all_teams else 'team',
+        'team_id': team_id,
+    })
 
 
 @server_ai_routing_bp.route('/usage', methods=['GET'])
@@ -544,23 +656,55 @@ def get_usage():
                   groups=list(args.groups), can_view_all=_is_admin(), restricted_to_self=bool(args.user_only))
     shown = usage_report.filter_rows(rows, args.filters)
     report['overview'] = usage_view.overview(shown)
+    report['hidden_groups'] = _hidden_groups(args, rows)
     report['options'] = _filter_options(args, rows)
     if args.user_only:
         report['providers'] = []
         report['errors'] = {'count': 0, 'causes': []}
     else:
         endpoints = ai_routing_db.list_endpoints()
-        rows24 = args.rows(24) if args.source != 'calls' else chart_rows
+        # Health and provider status are a NOW signal from the per-call rollup (last 24 h), whatever the period's source:
+        # the hourly stats behind the 30-day view have no error causes, so they read "degraded" where the log says "down".
+        rows24 = args.rows(24, source='calls') if args.source != 'calls' else usage_view.split_periods(chart_rows, 24, now)[0]
         rows24 = usage_report.filter_rows(rows24, args.filters)
-        causes = _banner(args, rows24, endpoints)['causes']
+        causes = _banner(args, rows24, endpoints, all_failures='error' in args.filters)['causes']
         for cause in causes:
-            cause['categories'] = sorted({usages.category_of(f['usage']) for f in cause['features']})
+            cause['categories'] = sorted({usages.page_category(f['usage']) for f in cause['features']})
+            by_category: dict[str, dict] = {}
+            for f in cause['features']:  # the sub-rows of the Errors tab: failed count + last failure per category
+                key = usages.page_category(f['usage'])
+                row = by_category.setdefault(key, {'category': key, 'errors': 0, 'last': f['last']})
+                row['errors'] += f['errors']
+                row['last'] = max(row['last'], f['last'])
+            cause['by_category'] = sorted(by_category.values(), key=lambda r: -r['errors'])
+            cause['category_labels'] = {k: usage_caller.category_label(k) for k in cause['categories'] if usage_caller.category_label(k)}
         report['errors'] = {'count': len(causes), 'causes': causes}
         chart_all = usage_report.aggregate(usage_report.filter_rows(chart_rows, args.filters), 'endpoint',
                                            hours=chart_hours, now=now)
         report['providers'] = usage_view.provider_view(
-            endpoints, shown, chart_all, causes, {str(ep['id']): router.endpoint_down_for(ep['id']) for ep in endpoints})
+            endpoints, shown, chart_all, causes, {str(ep['id']): router.endpoint_down_for(ep['id']) for ep in endpoints},
+            ai_routing_db.list_profiles(), now_rows=rows24)  # rows24: status is a now signal, whatever the period
     return jsonify(report)
+
+
+def _has_split_route() -> bool:
+    try:
+        return any(r.get('split_profile_id') and r.get('enabled', True) for r in ai_routing_db.list_routes_all())
+    except Exception as e:  # noqa: BLE001 - unreadable routes: decide from the data alone
+        print(f'[AI usage] split routes unreadable: {e}')
+        return True
+
+
+def _hidden_groups(args: '_UsageArgs', rows: list[dict]) -> list[str]:
+    """Grouping options that mean nothing here: every value empty in the period, "arm" without an active split
+    route, "client" (Docs visitor) without public Ask calls."""
+    hidden = [g for g in args.groups
+              if all(usage_report.row_value(r, g) == usage_report.NONE_KEY for r in rows)]
+    if 'arm' not in hidden and not _has_split_route():
+        hidden.append('arm')
+    if 'client' not in hidden and not any(r.get('usage_key') == 'public.ask' for r in rows):
+        hidden.append('client')
+    return hidden
 
 
 def _filter_options(args: '_UsageArgs', rows: list[dict]) -> dict:
@@ -589,6 +733,9 @@ def _filter_options(args: '_UsageArgs', rows: list[dict]) -> dict:
         workspaces = (workspaces_db.get_all_workspaces() if _is_admin()
                       else workspaces_db.get_user_workspaces(getattr(request, 'user_id', None) or ''))
         options['project'] = [{'key': w['id'], 'label': w.get('name') or w['id']} for w in workspaces]
+        if args.project_id:
+            record = projects_db.get_project(args.project_id) or {}
+            options['project'].append({'key': args.project_id, 'label': record.get('name') or args.project_id})
     except Exception as e:  # noqa: BLE001 - the project list is a convenience
         print(f'[AI usage] project list unavailable: {e}')
     return options
@@ -637,15 +784,26 @@ def usage_calls():
     for extra in ('script_result_id', 'request_id'):
         if request.args.get(extra):
             filters[extra] = request.args[extra]
+    if args.project_id:
+        filters['project'] = args.project_id
     limit = max(1, min(int(request.args.get('limit', 50)), 200))
     result = args.filters.get('result')
     only_errors = request.args.get('only_errors') in ('1', 'true') or result == 'failed'
-    derived = {g: v for g, v in args.filters.items() if g in ('category', 'caller')}
+    derived = {g: v for g, v in args.filters.items() if g == 'caller'}
+    usage_keys = None
+    if args.filters.get('category'):  # a category is several usage keys: resolve them so the database filters, not the newest 1000
+        usage_keys = sorted({r['usage_key'] for r in args.rows() if r.get('usage_key')
+                             and usages.page_category(r['usage_key']) == args.filters['category']})
+        if not usage_keys:
+            return jsonify({'success': True, 'calls': [], 'sampled': 0, 'latency': {'p50': None, 'p95': None, 'n': 0}})
     sample = ai_routing_db.get_recent_calls(args.team_id, args.hours, filters, 1000, args.all_teams, args.user_only,
-                                            only_errors, only_ok=result == 'success', team_ids=args.team_ids)
+                                            only_errors, only_ok=result == 'success', team_ids=args.team_ids,
+                                            usage_keys=usage_keys,
+                                            include_avoided=request.args.get('saved') in ('1', 'true'))
     if derived or args.project_scope is not None:  # derived from several columns: filter the newest 1000 here
         sample = [c for c in sample if args.in_project(c)
                   and all(usage_report.row_value(c, g) == v for g, v in derived.items())]
+    # calls answered by memory are not model calls: opt in with saved=1 (the query leaves them out, so they never eat the sample)
     latencies = sorted(int(c.get('latency_ms') or 0) for c in sample if c.get('outcome') == 'served')
 
     def pct(p: float) -> Optional[int]:
@@ -656,10 +814,36 @@ def usage_calls():
     for c in calls:
         c['trace_url'] = f"{langfuse}/{c['request_id']}" if langfuse and c.get('request_id') else None
         c['usage_label'] = usages.short_label(c['usage_key'])
-        c['category'] = usages.category_of(c['usage_key'])
+        c['category'] = usages.page_category(c['usage_key'])
+        c['category_label'] = usage_caller.category_label(c['category'])
         c['caller'] = usage_caller.caller_of(c)
     return jsonify({'success': True, 'calls': calls, 'sampled': len(sample),
                     'latency': {'p50': pct(0.5), 'p95': pct(0.95), 'n': len(latencies)}})
+
+
+@server_ai_routing_bp.route('/usage/trace/<trace_id>', methods=['GET'])
+@require_user_auth
+@require_permission('monitoring.ai_queue:view')
+@handle_route_exceptions('server_ai_routing:usage_trace')
+def usage_trace(trace_id: str):
+    """One call's conversation (prompt + answer per model attempt), read from Langfuse for the in-app dialog."""
+    import os
+    host = (os.getenv('LANGFUSE_HOST') or '').strip().rstrip('/')
+    if not host or not tracing.enabled():
+        return _bad('Tracing is off', 404)
+    if not trace_id.isalnum():
+        return _bad('Bad trace id', 400)
+    resp = requests.get(f'{host}/api/public/traces/{trace_id}', timeout=10,
+                        auth=(os.getenv('LANGFUSE_PUBLIC_KEY', ''), os.getenv('LANGFUSE_SECRET_KEY', '')))
+    if resp.status_code == 404:
+        return _bad('No conversation recorded for this call (yet).', 404)
+    resp.raise_for_status()
+    data = resp.json()
+    steps = [{'name': o.get('name'), 'model': o.get('model'), 'level': o.get('level'),
+              'status': o.get('statusMessage'), 'input': o.get('input'), 'output': o.get('output'),
+              'start': o.get('startTime')} for o in sorted(data.get('observations') or [], key=lambda o: o.get('startTime') or '')]
+    return jsonify({'success': True, 'trace': {'id': data.get('id'), 'name': data.get('name'), 'timestamp': data.get('timestamp'),
+                                              'input': data.get('input'), 'output': data.get('output'), 'steps': steps}})
 
 
 @server_ai_routing_bp.route('/usage/credits', methods=['GET'])
@@ -771,14 +955,80 @@ def usage_alerts():
 @require_permission('monitoring.ai_queue:view')
 @handle_route_exceptions('server_ai_routing:usage_budget')
 def usage_budget():
-    """This month's priced spend of the team, the linear month-end forecast and its budget (null = none set)."""
+    """Every budget bucket that may apply to a team, with each bucket's priced spend this
+    month and its month-end forecast. One record per ``(bucket_type, bucket_id)`` so the UI
+    can show one card per bucket. A team with no budget rows returns an empty list (no
+    implicit team-bucket cap).
+
+    Also ``month: {spent, forecast}`` (the team's priced month-to-date spend over every
+    provider, hourly rollup, linear forecast) and ``unbudgeted: [{endpoint, name, spent}]``:
+    endpoints (``ai_calls.endpoint``, team-filtered) with spend above 0 this month and no
+    endpoint bucket. A team bucket caps all of the team's spend, so with one ``unbudgeted``
+    is empty and ``team_budgeted`` is true.
+    """
     team_id = request.args.get('team_id')
     if not team_id:
         return _bad('team_id is required')
-    spent = ai_routing_db.get_month_spend(team_id, budgets.month_start())
-    budget = ai_routing_db.get_budget(team_id)
-    return jsonify({'success': True, 'spent': round(spent, 4), 'forecast': round(usage_report.forecast_month(spent), 4),
-                    'budget': budgets.status_from(budget, spent) if budget else None})
+    since = budgets.month_start()
+    rows = ai_routing_db.list_buckets(team_id)
+    out = []
+    for row in rows:
+        bucket_type = row.get('bucket_type') or 'team'
+        bucket_id = row.get('bucket_id') or team_id
+        spend = ai_routing_db.get_bucket_spend(row['team_scope'], bucket_type, bucket_id, since)
+        status = budgets.status_from(row, spend)
+        if status is None:
+            continue
+        out.append({
+            'bucket_type': bucket_type,
+            'bucket_id': bucket_id,
+            'team_scope': row.get('team_scope'),
+            'label': row.get('label'),
+            'limit': status['limit'],
+            'mode': status['mode'],
+            'warn_at': status['warn_at'],
+            'spent': status['spent'],
+            'forecast': status['forecast'],
+            'share': status['share'],
+            'state': status['state'],
+            'updated_by': row.get('updated_by'),
+            'updated_at': row.get('updated_at'),
+        })
+    out.sort(key=lambda r: (-budgets.SPECIFICITY.get(r['bucket_type'], 0), r['bucket_id']))
+    month_spent = ai_routing_db.get_month_spend(team_id, since)
+    team_budgeted = any(r['bucket_type'] == 'team' for r in out)
+    endpoint_ids = [r['bucket_id'] for r in out if r['bucket_type'] == 'endpoint']
+    names = {ep['name']: usage_view.provider_label(ep)['name'] for ep in ai_routing_db.list_endpoints()}
+    unbudgeted = budgets.unbudgeted_endpoints(ai_routing_db.get_month_spend_by_endpoint(team_id, since),
+                                              endpoint_ids, team_budgeted, names)
+    return jsonify({'success': True, 'team_id': team_id, 'buckets': out,
+                    'month': {'spent': round(month_spent, 4), 'forecast': round(usage_report.forecast_month(month_spent), 4)},
+                    'team_budgeted': team_budgeted, 'unbudgeted': unbudgeted})
+
+
+@server_ai_routing_bp.route('/usage/budget/evaluate', methods=['POST'])
+@require_user_auth
+@require_permission('monitoring.ai_queue:view')
+@handle_route_exceptions('server_ai_routing:usage_budget_evaluate')
+def usage_budget_evaluate():
+    """Resolve every bucket that would apply to a hypothetical call — for the UI's
+    "Active budget" preview. Body: ``{team_id, usage_key?, model?, endpoint?, user_id?,
+    project_id?}`` — empty fields are skipped (the resolver does not invent ids).
+    """
+    data = request.get_json() or {}
+    team_id = data.get('team_id')
+    if not team_id:
+        return _bad('team_id is required')
+    ctx = budgets.CallerContext(
+        team_id=team_id,
+        user_id=data.get('user_id') or None,
+        usage_key=data.get('usage_key') or None,
+        model=data.get('model') or None,
+        endpoint=data.get('endpoint') or None,
+        project_id=data.get('project_id') or None,
+    )
+    decision = budgets._decide(ctx)  # noqa: SLF001 — internal helper exposed via this route
+    return jsonify({'success': True, **decision.to_dict()})
 
 
 @server_ai_routing_bp.route('/budget', methods=['PUT'])
@@ -786,13 +1036,24 @@ def usage_budget():
 @require_platform_admin
 @handle_route_exceptions('server_ai_routing:set_budget')
 def set_budget():
-    """Set the team's monthly budget: ``{team_id, month_limit_usd > 0, mode: warn|block, warn_at: 0-1}``.
-    Platform admin only (a team admin must not lift their own limit)."""
+    """Set one monthly budget row: ``{bucket_type, bucket_id, team_scope, month_limit_usd,
+    mode: warn|block, warn_at: 0-1, label?}``. Platform admin only (a team admin must not
+    lift their own limit). Backward-compat: when ``bucket_type`` is omitted, ``team_id``
+    becomes both bucket_id and team_scope (legacy single-team row)."""
     data = request.get_json() or {}
-    team_id = data.get('team_id')
+    bucket_type = (data.get('bucket_type') or ('team' if data.get('team_id') else '')).lower()
+    if bucket_type not in budgets.BUCKET_TYPES:
+        return _bad(f"bucket_type must be one of {', '.join(budgets.BUCKET_TYPES)}")
+    bucket_id = data.get('bucket_id') or data.get('team_id') if bucket_type == 'team' else data.get('bucket_id')
+    if bucket_type == 'team' and not data.get('team_id'):
+        bucket_id = data.get('bucket_id')
+    if not bucket_id:
+        return _bad('bucket_id is required')
+    team_scope = data.get('team_scope') or data.get('team_id') or (bucket_id if bucket_type == 'team' else None)
+    if not team_scope:
+        return _bad('team_scope is required (the team the spend belongs to)')
     limit, mode, warn_at = data.get('month_limit_usd'), data.get('mode') or 'warn', data.get('warn_at', 0.8)
-    if not team_id:
-        return _bad('team_id is required')
+    label = data.get('label')
     if not isinstance(limit, (int, float)) or isinstance(limit, bool) or limit <= 0:
         return _bad('month_limit_usd must be a number above 0')
     if mode not in ('warn', 'block'):
@@ -800,11 +1061,12 @@ def set_budget():
     if not isinstance(warn_at, (int, float)) or isinstance(warn_at, bool) or not 0 < warn_at <= 1:
         return _bad('warn_at must be above 0 and at most 1')
     try:
-        ai_routing_db.set_budget(team_id, limit, mode, warn_at, getattr(request, 'user_id', None))
+        ai_routing_db.upsert_bucket(bucket_type, str(bucket_id), team_scope, limit, mode, warn_at,
+                                    label, getattr(request, 'user_id', None))
     except Exception as e:
         return _db_error(e)
-    budgets.invalidate(team_id)
-    return jsonify({'success': True})
+    budgets.invalidate(team_scope)
+    return jsonify({'success': True, 'bucket_type': bucket_type, 'bucket_id': str(bucket_id), 'team_scope': team_scope})
 
 
 @server_ai_routing_bp.route('/budget', methods=['DELETE'])
@@ -812,12 +1074,18 @@ def set_budget():
 @require_platform_admin
 @handle_route_exceptions('server_ai_routing:delete_budget')
 def delete_budget():
-    team_id = request.args.get('team_id')
-    if not team_id:
-        return _bad('team_id is required')
-    ai_routing_db.delete_budget(team_id)
-    budgets.invalidate(team_id)
-    return jsonify({'success': True})
+    """Delete one bucket row. Backward-compat: legacy callers pass ``team_id`` only — that
+    drops the team bucket (the only row in pre-BUG-0559 schemas)."""
+    args = request.args
+    bucket_type = (args.get('bucket_type') or 'team').lower()
+    bucket_id = args.get('bucket_id') or args.get('team_id')
+    if bucket_type not in budgets.BUCKET_TYPES:
+        return _bad(f"bucket_type must be one of {', '.join(budgets.BUCKET_TYPES)}")
+    if not bucket_id:
+        return _bad('bucket_id (or team_id) is required')
+    ai_routing_db.delete_bucket(bucket_type, bucket_id)
+    budgets.invalidate(args.get('team_scope') or args.get('team_id'))
+    return jsonify({'success': True, 'bucket_type': bucket_type, 'bucket_id': bucket_id})
 
 
 @server_ai_routing_bp.route('/usage/training', methods=['GET'])
@@ -838,7 +1106,8 @@ def usage_training():
     all_teams = request.args.get('scope') == 'all' and _is_admin() and not picked
     if not team_id and not all_teams:
         return _bad('team_id is required')
-    samples = ai_training_samples_db.list_for_report(team_id, all_teams)
+    since = _since_from_hours(request.args.get('hours'))
+    samples = ai_training_samples_db.list_for_report(team_id, all_teams, since=since)
     summary = training_report.summarize(samples)
     request_ids = sorted({r for r in (training_report.request_id_of(s) for s in samples
                                        if (s.get('label_source') or 'none') != 'none') if r})
@@ -958,9 +1227,11 @@ def test_endpoint(endpoint_id):
     model = (data.get('model') or '').strip()
     if model:
         try:
-            client = create_client(endpoint['preset'], api_key, base_url=endpoint.get('base_url'),
-                                   timeout=int(endpoint.get('timeout_s') or 120))
             test_hop = router.Hop(profile={'id': '', 'name': f'(test) {model}', 'model': model}, endpoint=endpoint)
+            workspace = test_hop.workspace_id if endpoint['preset'] == 'anthropic' else None
+            client = create_client(endpoint['preset'], api_key, base_url=endpoint.get('base_url'),
+                                   timeout=int(endpoint.get('timeout_s') or 120),
+                                   headers={'anthropic-workspace-id': workspace} if workspace else None)
             result['reply'] = response_text(_counted_test(test_hop, 'text', lambda: connectivity_response(client, model)))
         except Exception as e:
             result['success'] = False
@@ -977,6 +1248,13 @@ def _counted_test(hop, kind: str, call):
 
     The call is billed whatever its verdict, so it goes through ``router.record`` like any other."""
     resolution = router.test_resolution(hop, kind)
+    paused = router.no_credit_error(hop) or (
+        f'{hop.endpoint_name}: unreachable, not tried for {router.endpoint_down_for(hop.endpoint["id"])}s more'
+        if router.endpoint_down_for(hop.endpoint['id']) else None)
+    if paused:  # BUG-0514: a test must not spend a request the pause already says will fail
+        router.record(resolution, hop, ok=False, ms=0, outcome='skipped', error_type='no_credit',
+                      extra={'stop_reason': router.PAUSED_REASON})
+        raise RuntimeError(paused)
     started = time.time()
     try:
         resp = call()
@@ -1371,6 +1649,11 @@ def resolve():
     except (router.AIRoutingError, usages.UnknownUsageError) as e:
         return jsonify({'success': True, 'available': False, 'error': str(e)})
     available = any(h.has_credentials() for h in resolution.hops)
+    # BUG-0514: callers that only ask "can I use this?" (a CI browser task, a script) stop before a doomed call.
+    paused = [r for r in (router.no_credit_error(h, probe=False) if router.no_credit_for(h.endpoint['id']) else None
+                          for h in resolution.hops) if r]
+    if available and len(paused) == len(resolution.hops):
+        return jsonify({'success': True, 'available': False, 'paused': '; '.join(paused), 'routing': resolution.summary()})
     return jsonify({'success': True, 'available': available, 'routing': resolution.summary()})
 
 
@@ -1409,6 +1692,7 @@ def openai_passthrough(usage):
         resolution = router.resolve(usage, team_id)
     except (router.AIRoutingError, usages.UnknownUsageError) as e:
         return _bad(str(e), 404)
+    _attribute_unnamed_client()
     attempts: list = []
     response, answer, error = _passthrough_hops(usage, body, resolution, attempts)
     tracing.trace_call(
@@ -1419,10 +1703,34 @@ def openai_passthrough(usage):
     return response
 
 
+_IDENTITY_FIELDS = ('user_id', 'host_name', 'script_name', 'session_id', 'client_hash')
+
+
+def _client_fingerprint() -> str:
+    """Stable short hash of IP + User-Agent: traces an API client that names itself in no header (BUG-0509)."""
+    ip = (request.headers.get('X-Forwarded-For') or request.remote_addr or '').split(',')[0].strip()
+    raw = f"{ip}|{request.headers.get('User-Agent', '')}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:12]
+
+
+def _attribute_unnamed_client() -> None:
+    """A passthrough request whose caller names no user, host, script or session gets a client hash."""
+    if not any(ai_caller.current().get(k) for k in _IDENTITY_FIELDS):
+        ai_caller.update(client_hash=_client_fingerprint())
+
+
 def _passthrough_hops(usage, body, resolution, attempts):
     """Try each hop; returns (flask response, answer text or None, error or None)."""
     errors = []
+    paused_hops = 0
     for hop in resolution.hops:
+        paused = router.no_credit_error(hop)  # BUG-0510: honour the no-credit pause like the gateway
+        if paused:
+            paused_hops += 1
+            errors.append(paused)
+            router.record(resolution, hop, ok=False, ms=0, fallback=resolution.is_fallback(hop), outcome='skipped',
+                          error_type='no_credit', extra={'stop_reason': router.PAUSED_REASON})
+            continue
         if hop.reach == 'host' or get_preset(hop.preset).client != 'openai_compatible':
             errors.append(f'{hop.profile_name}: not an OpenAI-compatible server-reachable endpoint')
             continue
@@ -1459,6 +1767,10 @@ def _passthrough_hops(usage, body, resolution, attempts):
         router.record(resolution, hop, ok=upstream.status_code < 400, ms=ms,
                       tokens_in=tokens[0], tokens_out=tokens[1], fallback=resolution.is_fallback(hop), usage=used,
                       error_type=None if upstream.status_code < 400 else _http_error_type(upstream.status_code))
+        if upstream.status_code >= 400:
+            # A refused request bills nothing and logs 0 tokens; say why, or the zero-token row explains nothing.
+            print(f"[AI] passthrough {usage} {hop.endpoint_name}/{hop.model} HTTP {upstream.status_code}: "
+                  f"{upstream.text[:300]}")
         if upstream.status_code >= 500:
             errors.append(f'{hop.endpoint_name}: HTTP {upstream.status_code}')
             attempt.finish(ok=False, error=errors[-1], tokens=tokens)
@@ -1476,4 +1788,6 @@ def _passthrough_hops(usage, body, resolution, attempts):
                             content_type=upstream.headers.get('Content-Type', 'application/json'))
         return response, answer, attempt.error
     error = '; '.join(errors) or 'no usable AI profile'
+    if paused_hops and paused_hops == len(resolution.hops):
+        return (jsonify({'error': {'message': error, 'type': 'insufficient_quota', 'code': 402}}), 402), None, error
     return (jsonify({'error': {'message': error, 'type': 'gateway_error'}}), 502), None, error

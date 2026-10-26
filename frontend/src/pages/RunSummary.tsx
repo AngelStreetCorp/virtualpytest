@@ -22,6 +22,8 @@ import {
   TablePagination,
   TableRow,
   Tabs,
+  ToggleButton,
+  ToggleButtonGroup,
   Typography,
 } from '@mui/material';
 import React, { useCallback, useMemo, useState } from 'react';
@@ -30,6 +32,8 @@ import { Link as RouterLink, useNavigate, useParams, useSearchParams } from 'rea
 import { RunAiCost } from '../components/aiUsage/RunAiCost';
 import ChartCard from '../components/analytics/ChartCard';
 import StatTile from '../components/analytics/StatTile';
+import { segmentedSx } from '../components/common/PageChrome';
+import { useAgentChatPalette } from '../constants/agentChatTheme';
 import AssignmentDialog from '../components/reports/AssignmentDialog';
 import DefectsPanel from '../components/reports/DefectsPanel';
 import { ExportMenu, type ExportPayload } from '../components/reports/ExportMenu';
@@ -74,6 +78,19 @@ const parsePage = (raw: string | null): number => {
   const n = Number(raw);
   return Number.isInteger(n) && n > 0 ? n : 0;
 };
+
+// Same-test history window. The server counts UTC days, so 24 h and 48 h are 1 and 2 days.
+const TREND_RANGES = [
+  { value: '24h', days: 1, label: '24 h' },
+  { value: '48h', days: 2, label: '48 h' },
+  { value: '7d', days: 7, label: '7 d' },
+  { value: '30d', days: 30, label: '30 d' },
+] as const;
+const DEFAULT_TREND_RANGE = TREND_RANGES[3];
+
+const parseRange = (raw: string | null) => TREND_RANGES.find((r) => r.value === raw) ?? DEFAULT_TREND_RANGE;
+
+const windowText = (days: number): string => (days <= 2 ? `last ${days * 24} hours` : `last ${days} days`);
 
 const percent = (value: number, total: number): string =>
   total > 0 ? `${((value / total) * 100).toFixed(1)}%` : '—';
@@ -190,7 +207,7 @@ const MetadataPanel: React.FC<{ summary: RunSummaryResponse }> = ({ summary }) =
 const ChildrenTable: React.FC<{ items: RunChild[]; showAttempts: boolean }> = ({ items, showAttempts }) => (
   <Box sx={{ overflowX: 'auto' }}>
     <Table size="small" data-testid="children-table" sx={{ tableLayout: 'fixed', minWidth: 820, '& .MuiTableCell-root': { overflowWrap: 'anywhere' } }}>
-<colgroup><col /><col style={{ width: 110 }} /><col style={{ width: 150 }} />{showAttempts && <col style={{ width: 90 }} />}<col style={{ width: 190 }} /><col style={{ width: 100 }} /></colgroup>
+<colgroup><col style={{ width: '40%' }} /><col style={{ width: 110 }} /><col style={{ width: 260 }} />{showAttempts && <col style={{ width: 90 }} />}<col style={{ width: 190 }} /><col style={{ width: 100 }} /></colgroup>
       <TableHead>
         <TableRow>
           <TableCell>Test</TableCell>
@@ -225,8 +242,10 @@ const ChildrenTable: React.FC<{ items: RunChild[]; showAttempts: boolean }> = ({
             <TableCell>
               <StatusChip status={child.status} />
             </TableCell>
-            <TableCell>
-              {[child.host_name, child.device_name].filter(Boolean).join(' · ') || '—'}
+            <TableCell sx={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              <span title={[child.host_name, child.device_name].filter(Boolean).join(' · ')}>
+                {[child.host_name, child.device_name].filter(Boolean).join(' · ') || '—'}
+              </span>
             </TableCell>
             {showAttempts && <TableCell>{child.attempts ?? '—'}</TableCell>}
             <TableCell>{formatDateTime(child.started_at)}</TableCell>
@@ -237,6 +256,20 @@ const ChildrenTable: React.FC<{ items: RunChild[]; showAttempts: boolean }> = ({
     </Table>
   </Box>
 );
+
+// The one card every summary tab body sits on. Colours come from the active theme palette.
+const TabCard: React.FC<{ children: React.ReactNode; testId?: string }> = ({ children, testId }) => {
+  const P = useAgentChatPalette();
+  return (
+    <Card
+      variant="outlined"
+      data-testid={testId}
+      sx={{ borderRadius: 3, borderColor: P.borderColor, bgcolor: P.surface, boxShadow: 'none' }}
+    >
+      <CardContent>{children}</CardContent>
+    </Card>
+  );
+};
 
 const StatisticsTable: React.FC<{ counts: RunStatusCounts }> = ({ counts }) => (
   <Box sx={{ overflowX: 'auto' }}>
@@ -271,6 +304,7 @@ const RunSummary: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const navigate = useNavigate();
   const { canShare, canEdit } = useReportPermissions();
+  const P = useAgentChatPalette();
   const [shareOpen, setShareOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
 
@@ -281,6 +315,7 @@ const RunSummary: React.FC = () => {
   const tab = parseTab(searchParams.get('tab'));
   const statusFilter = parseStatus(searchParams.get('status'));
   const page = parsePage(searchParams.get('page'));
+  const range = parseRange(searchParams.get('range'));
   const taskId = searchParams.get('task');
 
   const params = useMemo(
@@ -288,9 +323,9 @@ const RunSummary: React.FC = () => {
       limit: CHILDREN_PAGE_SIZE,
       offset: page * CHILDREN_PAGE_SIZE,
       status: statusFilter,
-      trendDays: SUMMARY_TREND_DAYS,
+      trendDays: range.days,
     }),
-    [page, statusFilter],
+    [page, statusFilter, range.days],
   );
   const summary = useRunSummary(identity, params);
 
@@ -404,17 +439,34 @@ const RunSummary: React.FC = () => {
             <CountTiles counts={data.counts} />
             <RunAiCost scriptResultIds={identity.kind === 'script' ? [identity.id] : childIds} />
 
+            <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
+              <ToggleButtonGroup
+                exclusive
+                size="small"
+                value={range.value}
+                aria-label="Trend time range"
+                onChange={(_e, value: string | null) => value && updateParams({ range: value === DEFAULT_TREND_RANGE.value ? null : value })}
+                sx={segmentedSx(P, 'sm')}
+              >
+                {TREND_RANGES.map((r) => (
+                  <ToggleButton key={r.value} value={r.value}>
+                    {r.label}
+                  </ToggleButton>
+                ))}
+              </ToggleButtonGroup>
+            </Box>
+
             <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2, mb: 2 }}>
               <ChartCard title="Status" minHeight={140} flex="1 1 260px">
                 <RunStatusDonut counts={data.counts} exportId="run-summary-donut" />
               </ChartCard>
               <ChartCard
-                title={`Trend · last ${trendDays} days`}
+                title={`Trend · ${windowText(trendDays)}`}
                 subtitle="same test, UTC days"
                 minHeight={180}
                 flex="2 1 320px"
                 empty={trendEmpty}
-                emptyMessage={`No attempts in the last ${trendDays} days`}
+                emptyMessage={`No attempts in the ${windowText(trendDays)}`}
               >
                 <RunTrendChart points={data.trend.points} exportId="run-summary-trend" />
               </ChartCard>
@@ -434,7 +486,7 @@ const RunSummary: React.FC = () => {
             </Tabs>
 
             {tab === 'tests' && (
-              <Box>
+              <TabCard testId="tab-card-tests">
                 <Box sx={{ display: 'flex', gap: 0.5, flexWrap: 'wrap', mb: 1 }}>
                   <Chip
                     size="small"
@@ -470,33 +522,37 @@ const RunSummary: React.FC = () => {
                     />
                   </>
                 )}
-              </Box>
+              </TabCard>
             )}
 
             {tab === 'statistics' && (
-              <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 2 }}>
-                <Card variant="outlined" sx={{ flex: '1 1 280px', minWidth: 0 }}>
-                  <CardContent>
+              <TabCard testId="tab-card-statistics">
+                <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 3, alignItems: 'flex-start' }}>
+                  <Box sx={{ flex: '1 1 280px', minWidth: 0 }}>
                     <StatisticsTable counts={data.counts} />
-                  </CardContent>
-                </Card>
-                <ChartCard
-                  title={`Pass / fail per day · last ${trendDays} days`}
-                  minHeight={200}
-                  flex="2 1 320px"
-                  empty={trendEmpty}
-                  emptyMessage={`No attempts in the last ${trendDays} days`}
-                >
-                  <RunTrendChart points={data.trend.points} height={220} exportId="run-summary-trend-stats" />
-                </ChartCard>
-              </Box>
+                  </Box>
+                  <Box sx={{ flex: '2 1 320px', minWidth: 0 }}>
+                    <Typography variant="caption" sx={{ fontWeight: 600, color: 'text.secondary' }}>
+                      {`Pass / fail per day · ${windowText(trendDays)}`}
+                    </Typography>
+                    {trendEmpty ? (
+                      <EmptyState message={`No attempts in the ${windowText(trendDays)}`} />
+                    ) : (
+                      <RunTrendChart points={data.trend.points} height={220} exportId="run-summary-trend-stats" />
+                    )}
+                  </Box>
+                </Box>
+              </TabCard>
             )}
 
+
             {tab === 'defects' && (
-              <DefectsPanel
-                scriptResultIds={identity.kind === 'script' ? [identity.id] : childIds}
-                caption={identity.kind === 'script' ? undefined : 'Defects linked to results on this page'}
-              />
+              <TabCard testId="tab-card-defects">
+                <DefectsPanel
+                  scriptResultIds={identity.kind === 'script' ? [identity.id] : childIds}
+                  caption={identity.kind === 'script' ? undefined : 'Defects linked to results on this page'}
+                />
+              </TabCard>
             )}
 
             <ShareDialog open={shareOpen} identity={identity} onClose={() => setShareOpen(false)} />

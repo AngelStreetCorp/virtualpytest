@@ -206,7 +206,7 @@ WITH device_availability AS (
         count(*) AS total_minutes,
         count(
             CASE
-                WHEN ((system_device_metrics.ffmpeg_status = 'active'::text) AND (system_device_metrics.monitor_status = 'active'::text)) THEN 1
+                WHEN ((system_device_metrics.ffmpeg_status = 'active'::text) AND (system_device_metrics.monitor_status IN ('active'::text, 'off'::text))) THEN 1
                 ELSE NULL::integer
             END) AS healthy_minutes
     FROM system_device_metrics

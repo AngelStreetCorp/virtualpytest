@@ -73,10 +73,21 @@ let catalog: Catalog = {};
 let pluralRules = new Intl.PluralRules(INTL_LOCALES[current]);
 const listeners = new Set<() => void>();
 
+// Optional features add their own strings here (config/features.ts registers them at startup), so a
+// disabled feature's text is not in the bundle. They are merged over the core catalog.
+type CatalogLoader = (code: Language) => Promise<Catalog>;
+const extraLoaders: CatalogLoader[] = [];
+export const registerCatalogLoader = (loader: CatalogLoader): void => {
+  extraLoaders.push(loader);
+};
+
 const loadCatalog = async (code: Language): Promise<Catalog> => {
-  if (code === 'fr') return (await import('./locales/fr.json')).default as Catalog;
-  if (code === 'de') return (await import('./locales/de.json')).default as Catalog;
-  return {};
+  let base: Catalog = {};
+  if (code === 'fr') base = (await import('./locales/fr.json')).default as Catalog;
+  if (code === 'de') base = (await import('./locales/de.json')).default as Catalog;
+  if (code === 'en') return base;
+  const extras = await Promise.all(extraLoaders.map((load) => load(code).catch(() => ({}))));
+  return Object.assign({}, base, ...extras);
 };
 
 const applyDocumentLang = (code: Language) => {

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending Grafana re-import)                            |
 | Severity  | Medium                                                       |
 | Area      | grafana / device info                                        |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `6139cee95`                                                  |
 
 ---

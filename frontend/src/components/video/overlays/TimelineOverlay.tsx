@@ -5,6 +5,7 @@ import { PlayArrow, Pause } from '@mui/icons-material';
 import { ArchiveMetadata } from '../EnhancedHLSPlayer.types';
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
 import { getZIndex } from '../../../utils/zIndexUtils';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface TimelineOverlayProps {
   isLiveMode: boolean;
@@ -330,7 +331,7 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
                   : archiveRailGradient,
               },
               '& .MuiSlider-markLabel': {
-                fontSize: '0.7rem',
+                fontSize: TYPOGRAPHY.caption.size,
                 color: 'rgba(255,255,255,0.7)'
               }
             }}
@@ -342,11 +343,11 @@ export const TimelineOverlay: React.FC<TimelineOverlayProps> = ({
         {isLiveMode ? (
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
             {liveBufferSeconds > 0 && liveBufferSeconds < 150 && (
-              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: '0.7rem' }}>
+              <Typography variant="caption" sx={{ color: 'rgba(255, 255, 255, 0.7)', fontSize: TYPOGRAPHY.caption.size }}>
                 Buffer: {Math.floor(liveBufferSeconds)}s
               </Typography>
             )}
-            <Typography variant="caption" sx={{ color: 'white', fontWeight: 600, fontSize: '0.75rem' }}>
+            <Typography variant="caption" sx={{ color: 'white', fontWeight: 600, fontSize: TYPOGRAPHY.caption.size }}>
               {(() => {
                 const behindSeconds = Math.round(150 - liveSliderPosition);
                 if (behindSeconds === 0) return 'LIVE';

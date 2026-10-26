@@ -55,3 +55,6 @@ docs/technical/
 docs/user-guide/
 docs/videos/
 docs/goals/
+docs/dashboards/
+# Theme JSON read at runtime by backend_server/src/routes/server_themes_routes.py.
+config/themes/

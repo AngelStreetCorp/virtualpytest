@@ -53,6 +53,19 @@ echo "📦 Installing backend runtime libraries (OpenCV)..."
 sudo apt-get install -y libgl1 libglib2.0-0
 echo "✅ Backend runtime libraries installed"
 
+# `zip` builds the customer delivery archive when the GitLab page packages a version. It is a
+# SEPARATE package from tar, so a server can have one and not the other — which is exactly what
+# happened: tar.gz worked, the zip option did not, and the page only found out after staging
+# thousands of files. It is cheap and makes both archive formats work on a fresh install.
+if ! command -v zip &> /dev/null; then
+    echo "📦 Installing zip (customer delivery archives)..."
+    sudo DEBIAN_FRONTEND=noninteractive apt-get install -y zip >/dev/null 2>&1 \
+        && echo "✅ zip installed" \
+        || echo "⚠️  zip could not be installed — the GitLab page will offer tar.gz only"
+else
+    echo "✅ zip is already installed ($(zip --version 2>/dev/null | head -1))"
+fi
+
 # Create virtual environment if it doesn't exist or is incomplete
 if [ ! -f "venv/bin/activate" ]; then
     if [ -d "venv" ]; then

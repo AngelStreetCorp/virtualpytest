@@ -9,7 +9,7 @@
 | Status    | Closed                                                       |
 | Severity  | Medium                                                       |
 | Area      | backend / reports / privacy                                  |
-| Fixed in  | Unreleased |
+| Fixed in  | build 90145 |
 | Commit    | `TBD`                                                        |
 
 ---

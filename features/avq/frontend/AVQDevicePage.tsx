@@ -352,9 +352,11 @@ const AVQDevicePage: React.FC = () => {
                   ? `Selected · ${new Date(displayTime).toLocaleTimeString()}`
                   : 'Now (last minute)'}
               </span>
-              <Box component="span" sx={{ color: screen.color, fontWeight: 600 }}>
-                · {screenVerdict && !screenVerdict.node && !screenVerdict.state ? 'unknown screen' : screen.text}
-              </Box>
+              {screen && (
+                <Box component="span" sx={{ color: screen.color, fontWeight: 600 }}>
+                  · {screenVerdict && !screenVerdict.node && !screenVerdict.state ? 'unknown screen' : screen.text}
+                </Box>
+              )}
             </Typography>
             <Divider sx={{ my: 1 }} />
             {!displayMetric && isLoading && <CircularProgress size={18} />}

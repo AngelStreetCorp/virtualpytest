@@ -10,6 +10,7 @@ import {
 } from '@mui/material';
 import { Search as SearchIcon } from '@mui/icons-material';
 import React, { useMemo, useState } from 'react';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export interface SearchableSelectOption {
   value: string;
@@ -101,7 +102,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
         }}
         sx={{
           '& .MuiSelect-select': {
-            fontSize: '0.8rem',
+            fontSize: TYPOGRAPHY.body.size,
             py: 0.5,
             ...inputSx,
           },
@@ -129,12 +130,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
               InputProps={{
                 startAdornment: (
                   <InputAdornment position="start">
-                    <SearchIcon sx={{ fontSize: '1rem' }} />
+                    <SearchIcon sx={{ fontSize: TYPOGRAPHY.navbarItem.size }} />
                   </InputAdornment>
                 ),
               }}
               inputProps={{ 'aria-label': `Filter ${label}` }}
-              sx={{ '& .MuiInputBase-input': { fontSize: '0.8rem', py: 0.5 } }}
+              sx={{ '& .MuiInputBase-input': { fontSize: TYPOGRAPHY.body.size, py: 0.5 } }}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') {
                   // Enter picks the top match (true matches only — not the
@@ -155,7 +156,7 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           </ListSubheader>
         )}
         {visible.map((opt) => (
-          <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: '0.75rem' }}>
+          <MenuItem key={opt.value} value={opt.value} sx={{ fontSize: TYPOGRAPHY.caption.size }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
               {opt.icon}
               <span>{opt.label}</span>
@@ -163,12 +164,12 @@ export const SearchableSelect: React.FC<SearchableSelectProps> = ({
           </MenuItem>
         ))}
         {options.length === 0 && (
-          <MenuItem disabled value="" sx={{ fontSize: '0.75rem', fontStyle: 'italic' }}>
+          <MenuItem disabled value="" sx={{ fontSize: TYPOGRAPHY.caption.size, fontStyle: 'italic' }}>
             {emptyText}
           </MenuItem>
         )}
         {options.length > 0 && visible.length === 0 && (
-          <MenuItem disabled value="" sx={{ fontSize: '0.75rem', fontStyle: 'italic' }}>
+          <MenuItem disabled value="" sx={{ fontSize: TYPOGRAPHY.caption.size, fontStyle: 'italic' }}>
             No matches
           </MenuItem>
         )}

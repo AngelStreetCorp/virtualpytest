@@ -75,11 +75,30 @@ async function openDroneTile(page) {
   await page.locator('[role="option"]', { hasText: SERVER }).first().click();
   await page.waitForTimeout(10000); // switch + stream init
 
-  const targets = page.locator('[role="combobox"]', { hasText: 'All Targets' });
-  if (await targets.count()) {
-    await targets.first().click();
-    await page.waitForTimeout(1400);
-    await page.locator('[role="option"]', { hasText: TARGET }).first().click();
+  // The filter is not optional (28 devices on the pi, grid pages at 24, so the
+  // drone lands on page 2) and the dropdown silently no-ops on a slow render:
+  // the probe then measures a grid of HLS tiles and reports a false failure.
+  // Retry, and CONFIRM the filter landed instead of assuming the click worked.
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const targets = page.locator('[role="combobox"]', { hasText: 'All Targets' });
+    if (await targets.count()) {
+      await targets.first().click();
+      await page.waitForTimeout(1400);
+      await page
+        .locator('[role="option"]', { hasText: TARGET })
+        .first()
+        .click({ timeout: 15000 })
+        .catch(() => {});
+      await page.waitForTimeout(2500);
+    }
+    const filtered = await page.evaluate(
+      (t) => (document.body.innerText || '').includes(t),
+      TARGET
+    );
+    if (filtered) break;
+    console.log(`  (target filter did not land, retry ${attempt + 1})`);
+    await page.keyboard.press('Escape').catch(() => {});
+    await page.waitForTimeout(1500);
   }
   // Long enough for useDroneWifiStatus to finish its first poll (status -> scan).
   await page.waitForTimeout(14000);

@@ -1,0 +1,10 @@
+{
+  "reasons": "Files allowed to keep pictograph glyphs. Key = path under frontend/, value = reason. A directory key ending in / covers every file under it.",
+  "files": {
+    "src/config/remote/": "Remote-control key labels (arrows, power, play/pause) are legitimate glyphs, not decoration.",
+    "src/components/common/Footer.tsx": "Copyright sign (c) in the footer text; a legal symbol, not an emoji.",
+    "src/components/docs/DocsSearch.tsx": "The Command key cap glyph in the search shortcut hint (Cmd+K); a keyboard symbol, not an emoji.",
+    "src/components/docs/docsText.test.tsx": "Test fixture: headings with emoji on purpose, to prove the docs chrome strips them.",
+    "src/components/docs/ReleaseNotesView.test.tsx": "Test fixture: release-note markdown sample that contains an emoji heading on purpose."
+  }
+}

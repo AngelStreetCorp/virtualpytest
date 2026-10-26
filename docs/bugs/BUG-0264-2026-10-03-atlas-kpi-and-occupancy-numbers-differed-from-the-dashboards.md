@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — the same question gave different numbers in Atlas and Grafana |
 | Area      | `backend_server/src/lib/analytics/catalog.py` (KPI, occupancy, campaign/script presets) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `8ee5bd2bc`, `c31a83788`                                          |
 
 ---

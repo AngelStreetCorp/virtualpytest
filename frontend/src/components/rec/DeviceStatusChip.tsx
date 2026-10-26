@@ -1,4 +1,4 @@
-import { Box, SxProps, Theme, Tooltip, Typography } from '@mui/material';
+import { Box, SxProps, Theme, Tooltip, Typography, keyframes } from '@mui/material';
 import React, { useMemo } from 'react';
 
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
@@ -10,8 +10,19 @@ interface DeviceStatusChipProps {
   isRunning?: boolean;
   /** Optional deployment name to surface in the running-state tooltip. */
   deploymentName?: string | null;
+  /**
+   * The device's own link, for a device that joins on demand (a drone pairs over its
+   * Wi-Fi AP). Unset for everything else. 'off' = not paired (grey), 'scanning' =
+   * looking for / pairing it (pulsing yellow), 'on' = paired (normal colours).
+   */
+  link?: 'off' | 'scanning' | 'on';
   sx?: SxProps<Theme>;
 }
+
+const pulse = keyframes`
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+`;
 
 /**
  * Status indicator used in the REC preview card header on device-control.
@@ -25,8 +36,9 @@ interface DeviceStatusChipProps {
  * the same way in the grid and in the stream modal toolbar:
  *
  * - red  (`P.error`)      — any host service is stuck, OR host.status is offline / unknown
- * - blue (#3a8cff)        — a script/deployment is currently driving the device
+ * - blue (series[1])        — a script/deployment is currently driving the device
  * - green (custom green)  — host.status === 'online' and nothing else is wrong
+ * - grey / pulsing yellow — host online but the device's own `link` is off / scanning
  *
  * The dot width is fixed so a row of preview cards has uniform alignment; we
  * keep flexShrink:0 on the wrapper so a long device name can ellipsize without
@@ -36,6 +48,7 @@ export const DeviceStatusChip: React.FC<DeviceStatusChipProps> = ({
   host,
   isRunning = false,
   deploymentName = null,
+  link,
   sx,
 }) => {
   const P = useAgentChatPalette();
@@ -49,12 +62,20 @@ export const DeviceStatusChip: React.FC<DeviceStatusChipProps> = ({
   const isHostStuck = stuckServices.length > 0;
   const stuckServiceNames = stuckServices.map((s) => s.label || s.name).join(', ');
 
+  // The device's own link only speaks once the host itself is fine.
+  const linkDown = !isHostStuck && !isRunning && host.status === 'online' && link !== undefined && link !== 'on';
+  const isScanning = linkDown && link === 'scanning';
+
   const dotColor = isHostStuck
     ? P.error // red when any host service is stuck
     : isRunning
-      ? '#3a8cff' // blue while a script drives the device
+      ? P.series[1] // blue while a script drives the device
       : host.status === 'online'
-        ? '#2ecc71' // green when the host is up
+        ? linkDown
+          ? isScanning
+            ? P.warning // pulsing yellow while scanning / pairing
+            : P.textMuted // grey: online, but the device is not paired
+          : '#2ecc71' // green when the host is up
         : P.error; // red when offline / unknown
 
   const headline = isHostStuck
@@ -62,7 +83,11 @@ export const DeviceStatusChip: React.FC<DeviceStatusChipProps> = ({
     : isRunning
       ? `Running — ${deploymentName || 'script in progress'}`
       : host.status === 'online'
-        ? 'Online'
+        ? linkDown
+          ? isScanning
+            ? 'Scanning for the device'
+            : 'Not paired'
+          : 'Online'
         : host.status === 'offline'
           ? 'Offline'
           : `Status: ${host.status}`;
@@ -105,6 +130,7 @@ export const DeviceStatusChip: React.FC<DeviceStatusChipProps> = ({
             height: 10,
             borderRadius: '50%',
             backgroundColor: dotColor,
+            ...(isScanning ? { animation: `${pulse} 1.2s ease-in-out infinite` } : {}),
             // Thin halo tinted by the card edge colour so the dot stays visible
             // on both the white (light) and dark-grey (dark) card surfaces.
             boxShadow: `0 0 0 1.5px ${P.borderColor}`,

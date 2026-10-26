@@ -1,10 +1,20 @@
 # Writing Test Scripts
 
+This page explains how to write a test script. A script says what to check, which devices it can run on, and what goes in the report. The details are in the technical blocks.
+
+<div data-technical>
+
 How to create test scripts that integrate with the VirtualPyTest framework: parameter declaration, target rules, step reporting, and metadata.
+
+</div>
 
 ---
 
 ## Quick Start
+
+A test script is a Python file. It has a name, says what it does, and reports pass or fail. Start from this example.
+
+<div data-technical>
 
 Every script uses the `@script` decorator from `shared.src.lib.executors.script_decorators`:
 
@@ -45,13 +55,25 @@ if __name__ == "__main__":
     main()
 ```
 
+</div>
+
 ---
 
 ## `_script_args` — Parameter Declaration
 
+This list sets the options the user can change in the Run Tests page. Each option becomes a box or a menu there.
+
+<div data-technical>
+
 The `_script_args` list declares parameters that appear in the **Run Tests** UI. The backend parses this list and sends parameter metadata to the frontend for rendering.
 
+</div>
+
 ### Format
+
+Each option is one line: its name, its type, its default and its choices.
+
+<div data-technical>
 
 ```
 "--param_name:type:default:choices"
@@ -64,7 +86,13 @@ The `_script_args` list declares parameters that appear in the **Run Tests** UI.
 | `default` | No | Default value (empty string = no default) |
 | `choices` | No | Pipe-separated list of allowed values |
 
+</div>
+
 ### Types and UI Rendering
+
+The type decides which control the user sees.
+
+<div data-technical>
 
 | Type | Frontend Control | Notes |
 |------|-----------------|-------|
@@ -75,7 +103,13 @@ The `_script_args` list declares parameters that appear in the **Run Tests** UI.
 
 Parameters named `password`, `secret`, or `token` (case-insensitive) are automatically rendered as **masked inputs**.
 
+</div>
+
 ### Examples
+
+Examples of options with different types.
+
+<div data-technical>
 
 ```python
 _script_args = [
@@ -106,13 +140,25 @@ _script_args = [
 ]
 ```
 
+</div>
+
 ### Framework Parameters
 
+Two options are added for you. Do not declare them.
+
+<div data-technical>
+
 The parameters `--host` and `--device` are **framework-level** — they are added automatically by the execution engine based on the selected target. Do **not** declare them in `_script_args`.
+
+</div>
 
 ---
 
 ## `_target_rules` — Target Compatibility
+
+This sets which computers and devices the script can run on. Only matching targets are shown in Run Tests.
+
+<div data-technical>
 
 Controls which targets (hosts/devices) are shown in the Run Tests UI when this script is selected.
 
@@ -130,7 +176,13 @@ main._target_rules = {
 | `host_os` | `all`, `linux`, `windows`, `mac` | Filter hosts by OS (detected from `platform.system()`) |
 | `device_model` | `all`, or model name(s) | Filter by device model. Pipe-separated for multiple: `android_tv\|android_mobile` |
 
+</div>
+
 ### Examples
+
+Examples of target rules.
+
+<div data-technical>
 
 ```python
 # Windows-only host script
@@ -143,9 +195,15 @@ main._target_rules = {"target_type": "device", "host_os": "all", "device_model":
 main._target_rules = {"target_type": "all", "host_os": "all", "device_model": "all"}
 ```
 
+</div>
+
 ---
 
 ## Step Reporting — `record_step_immediately()`
+
+Record each step with its command and its checks. Each step then shows as a row in the HTML report.
+
+<div data-technical>
 
 For detailed report visibility, record steps with commands and verifications. Each step appears as a collapsible row in the HTML test report.
 
@@ -170,7 +228,13 @@ context.record_step_immediately({
 | `actions` | list | Commands executed — `{"command": "..."}` |
 | `verifications` | list | Check results — `{"success": bool, "label": "...", "details": "..."}` |
 
+</div>
+
 ### Pattern: Raw Command + Raw Output
+
+Always keep the raw command and its output, so a failure can be checked afterwards.
+
+<div data-technical>
 
 For debuggability, always capture and expose the raw command and its output:
 
@@ -198,11 +262,19 @@ context.record_step_immediately({
 return {"success": True, "raw_cmd": cmd, "raw_output": output, ...}
 ```
 
+</div>
+
 ---
 
 ## Metadata and Execution Summary
 
+Here you store what the run found, and the summary the report shows.
+
 ### `context.metadata`
+
+Stored with the run. Dashboards and debugging use it.
+
+<div data-technical>
 
 Dict stored in the `script_results` database row. Used for KPI dashboards (Grafana), report details, and debugging.
 
@@ -224,7 +296,13 @@ context.metadata = {
 }
 ```
 
+</div>
+
 ### `context.execution_summary`
+
+The text at the top of the report.
+
+<div data-technical>
 
 Multi-line string shown in the report header:
 
@@ -238,7 +316,13 @@ context.execution_summary = (
 )
 ```
 
+</div>
+
 ### `context.error_message`
+
+Set this on failure to say what went wrong.
+
+<div data-technical>
 
 Set on failure to explain what went wrong:
 
@@ -247,15 +331,27 @@ if not success:
     context.error_message = "Connection timed out after 30s"
 ```
 
+</div>
+
 ### Report languages (`<script>.i18n.json`)
+
+Reports can be read in English, French or German. This is how to translate a script's messages.
+
+<div data-technical>
 
 Reports switch between English, French and German. To translate your step messages, verification labels,
 `error_message` and summary lines, put a `<script>.i18n.json` next to the script. Each key is the exact English text,
 with `{name}` for the parts that change. See [Test reports in English, French and German](./report-languages.md#translating-your-scripts-strings).
 
+</div>
+
 ---
 
 ## Locked Targets and Queuing
+
+What happens when a device is busy with another script.
+
+<div data-technical>
 
 When running a script on a locked target (another script is already executing):
 
@@ -266,9 +362,15 @@ When running a script on a locked target (another script is already executing):
 
 No user interaction needed — the same mechanism used for multi-script runs handles the queuing.
 
+</div>
+
 ---
 
 ## File Organization
+
+Where to save each script, by category.
+
+<div data-technical>
 
 Place scripts in `test_scripts/` subdirectories by category:
 
@@ -286,9 +388,15 @@ test_scripts/
 
 Scripts in `test_campaign/` are filtered out of the Tests tab and only appear in the Campaigns tab.
 
+</div>
+
 ---
 
 ## Reference Scripts
+
+Scripts to look at for examples.
+
+<div data-technical>
 
 | Script | Demonstrates |
 |--------|-------------|
@@ -298,3 +406,5 @@ Scripts in `test_campaign/` are filtered out of the Tests tab and only appear in
 | `gw/superping.py` | Choices + integer params, multi-family network testing |
 | `tv/fullzap.py` | Boolean params, iterations, userinterface framework param |
 | `web/youtube_video_check.py` | Browser automation with headless toggle |
+
+</div>

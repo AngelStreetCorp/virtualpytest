@@ -90,6 +90,21 @@ vi.mock('../../frontend/src/contexts/auth/PermissionContext', () => ({
   }),
 }));
 
+// Dashboard reads the signed-in user via useAuthContext() (e.g. for the
+// deployment telemetry flag). It throws outside an AuthProvider. The
+// PermissionContext mock covers the permission side, but the auth hook is a
+// separate import — mock it the same way RunTests.test.tsx / Settings.test.tsx
+// already do for the same reason.
+vi.mock('../../frontend/src/contexts/auth/AuthContext', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../frontend/src/contexts/auth/AuthContext')>()),
+  useAuthContext: () => ({
+    profile: { id: 'test-user', email: 'tester@vpt.local', team_id: 'test-team' },
+    user: { id: 'test-user', email: 'tester@vpt.local' },
+    loading: false,
+    refreshProfile: async () => {},
+  }),
+}));
+
 // Dashboard renders `<WidgetArea area="dashboard" />` which throws without the
 // full AuthProvider → ModsProvider → useWidgetArea stack. The test only
 // checks for the page heading and "Servers" section — widget behaviour is
@@ -121,7 +136,7 @@ describe('Dashboard page', () => {
     mockServerHostsData.length = 0;
   });
 
-  it('renders dashboard heading and registered servers section', () => {
+  it('renders dashboard heading and the hosts tab', () => {
     render(
       <BrowserRouter>
         <Dashboard />
@@ -129,11 +144,12 @@ describe('Dashboard page', () => {
     );
 
     expect(screen.getByRole('heading', { name: 'Dashboard' })).toBeInTheDocument();
-    // Dashboard shows "Registered Servers" section
-    expect(screen.getByText(/Servers/i)).toBeInTheDocument();
+    // Tabs the dashboard exposes — overview opens by default, "Hosts and devices" hosts the
+    // hosts list (previously labelled "Registered Servers").
+    expect(screen.getByRole('tab', { name: /hosts and devices/i })).toBeInTheDocument();
   });
 
-  it('does not crash when deployment telemetry is temporarily partial', () => {
+  it('does not crash when deployment telemetry is temporarily partial', async () => {
     mockServerHostsData.push({
       server_info: {
         server_name: 'test-server',
@@ -163,6 +179,12 @@ describe('Dashboard page', () => {
       </BrowserRouter>,
     )).not.toThrow();
 
-    expect(screen.getByText('test-host')).toBeInTheDocument();
+    // Switch to the hosts tab — that's the body that renders the host card. Overview is
+    // the default tab and would silently drop the host.
+    const { default: userEvt } = await import('@testing-library/user-event');
+    const user = userEvt.setup();
+    await user.click(screen.getByRole('tab', { name: /hosts and devices/i }));
+
+    expect(await screen.findByText('test-host')).toBeInTheDocument();
   });
 });

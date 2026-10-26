@@ -1,0 +1,441 @@
+{
+  "original_sha256": "56cf9c9be3b6dd63ab3274b794989754ff751cb121446253965f5e5f4adac18c",
+  "prompt_count": 100,
+  "changes": [
+    {
+      "id": "ATLAS-004",
+      "reason": "No list_services tool in catalog; unsupported service inventory.",
+      "fields": {
+        "expected_mcp_tool": {
+          "before": "list_services",
+          "after": "none"
+        },
+        "expected_routing_level": {
+          "before": "algorithm",
+          "after": "other"
+        },
+        "expected_action": {
+          "before": "route",
+          "after": "reject"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-005",
+      "reason": "No generic system-health summary tool in this skill; clarify the requested health target.",
+      "fields": {
+        "expected_mcp_tool": {
+          "before": "list_services",
+          "after": "none"
+        },
+        "expected_routing_level": {
+          "before": "algorithm",
+          "after": "other"
+        },
+        "expected_action": {
+          "before": "route",
+          "after": "clarify"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-007",
+      "reason": "search_docs is the catalogued documentation search tool.",
+      "fields": {
+        "expected_mcp_tool": {
+          "before": "get_available_pages",
+          "after": "search_docs"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-009",
+      "reason": "list_campaigns is the catalogued campaign listing tool.",
+      "fields": {
+        "expected_mcp_tool": {
+          "before": "list_testcases",
+          "after": "list_campaigns"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-012",
+      "reason": "Coverage summary tool is absent from the Atlas catalog.",
+      "fields": {
+        "expected_mcp_tool": {
+          "before": "get_coverage_summary",
+          "after": "none"
+        },
+        "expected_routing_level": {
+          "before": "algorithm",
+          "after": "other"
+        },
+        "expected_action": {
+          "before": "route",
+          "after": "reject"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-013",
+      "reason": "list_nodes is owned by edit-tree.",
+      "fields": {
+        "expected_skill": {
+          "before": "navigate-tree",
+          "after": "edit-tree"
+        },
+        "expected_mcp_tool": {
+          "before": "list_navigation_nodes",
+          "after": "list_nodes"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-016",
+      "reason": "capture_screenshot is exposed by ai-userinterface, not device-control.",
+      "fields": {
+        "expected_skill": {
+          "before": "device-control",
+          "after": "ai-userinterface"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-017",
+      "reason": "capture_screenshot is exposed by ai-userinterface, not device-control.",
+      "fields": {
+        "expected_skill": {
+          "before": "device-control",
+          "after": "ai-userinterface"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-019",
+      "reason": "get_installed_apps is absent from the Atlas catalog.",
+      "fields": {
+        "expected_mcp_tool": {
+          "before": "get_installed_apps",
+          "after": "none"
+        },
+        "expected_parameters": {
+          "before": {
+            "device_id": "device A"
+          },
+          "after": {}
+        },
+        "expected_routing_level": {
+          "before": "algorithm",
+          "after": "other"
+        },
+        "expected_action": {
+          "before": "route",
+          "after": "reject"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-023",
+      "reason": "The available script status tool is get_script_execution_status.",
+      "fields": {
+        "expected_mcp_tool": {
+          "before": "get_execution_status",
+          "after": "get_script_execution_status"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-024",
+      "reason": "load_testcase is absent from the Atlas catalog.",
+      "fields": {
+        "expected_mcp_tool": {
+          "before": "load_testcase",
+          "after": "none"
+        },
+        "expected_parameters": {
+          "before": {
+            "name": "checkout-login"
+          },
+          "after": {}
+        },
+        "expected_routing_level": {
+          "before": "algorithm",
+          "after": "other"
+        },
+        "expected_action": {
+          "before": "route",
+          "after": "reject"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-025",
+      "reason": "list_requirements is absent from the Atlas catalog.",
+      "fields": {
+        "expected_mcp_tool": {
+          "before": "list_requirements",
+          "after": "none"
+        },
+        "expected_routing_level": {
+          "before": "algorithm",
+          "after": "other"
+        },
+        "expected_action": {
+          "before": "route",
+          "after": "reject"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-026",
+      "reason": "Analysis tool requires a platform-specific tree skill; prompt lacks platform.",
+      "fields": {
+        "expected_skill": {
+          "before": "device-control",
+          "after": "build-tree-mobile"
+        },
+        "expected_routing_level": {
+          "before": "algorithm",
+          "after": "other"
+        },
+        "expected_action": {
+          "before": "route",
+          "after": "clarify"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-027",
+      "reason": "Analysis tool requires a platform-specific tree skill; prompt lacks platform.",
+      "fields": {
+        "expected_skill": {
+          "before": "device-control",
+          "after": "build-tree-mobile"
+        },
+        "expected_routing_level": {
+          "before": "algorithm",
+          "after": "other"
+        },
+        "expected_action": {
+          "before": "route",
+          "after": "clarify"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-029",
+      "reason": "get_transcript is not exposed by the selected Atlas skill.",
+      "fields": {
+        "expected_mcp_tool": {
+          "before": "get_transcript",
+          "after": "none"
+        },
+        "expected_parameters": {
+          "before": {
+            "recording_id": "r1"
+          },
+          "after": {}
+        },
+        "expected_routing_level": {
+          "before": "algorithm",
+          "after": "other"
+        },
+        "expected_action": {
+          "before": "route",
+          "after": "reject"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-030",
+      "reason": "view_logs is owned by system-ops.",
+      "fields": {
+        "expected_skill": {
+          "before": "check-system-health",
+          "after": "system-ops"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-031",
+      "reason": "capture_screenshot is exposed by ai-userinterface; chain remains planner-driven.",
+      "fields": {
+        "expected_skill": {
+          "before": "device-control",
+          "after": "ai-userinterface"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-034",
+      "reason": "get_testcase_requirements is absent from the tool catalog; only listing the testcase is available.",
+      "fields": {
+        "expected_action": {
+          "before": "route",
+          "after": "clarify"
+        },
+        "expected_execution_plan": {
+          "before": ["list_testcases", "get_testcase_requirements"],
+          "after": ["list_testcases"]
+        }
+      }
+    },
+    {
+      "id": "ATLAS-035",
+      "reason": "Analysis tool requires a platform-specific tree skill; prompt lacks platform.",
+      "fields": {
+        "expected_skill": {
+          "before": "device-control",
+          "after": "build-tree-mobile"
+        },
+        "expected_action": {
+          "before": "route",
+          "after": "clarify"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-037",
+      "reason": "save_node_screenshot is owned by edit-tree; app and node target remain unclear.",
+      "fields": {
+        "expected_skill": {
+          "before": "navigate-tree",
+          "after": "edit-tree"
+        },
+        "expected_action": {
+          "before": "route",
+          "after": "clarify"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-038",
+      "reason": "The named execution analysis tools are absent from the Atlas catalog.",
+      "fields": {
+        "expected_mcp_tool": {
+          "before": "get_execution_results",
+          "after": "none"
+        },
+        "expected_action": {
+          "before": "route",
+          "after": "clarify"
+        },
+        "expected_execution_plan": {
+          "before": [
+            "get_execution_results",
+            "update_execution_analysis"
+          ],
+          "after": null
+        }
+      }
+    },
+    {
+      "id": "ATLAS-040",
+      "reason": "auto_discover_screen is platform-specific; prompt lacks platform.",
+      "fields": {
+        "expected_skill": {
+          "before": "navigate-tree",
+          "after": "build-tree-mobile"
+        },
+        "expected_action": {
+          "before": "route",
+          "after": "clarify"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-041",
+      "reason": "Campaign execution uses execute_campaign.",
+      "fields": {
+        "expected_mcp_tool": {
+          "before": "execute_testcase",
+          "after": "execute_campaign"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-044",
+      "reason": "Requirement creation/link tools are absent from the Atlas catalog.",
+      "fields": {
+        "expected_mcp_tool": {
+          "before": "create_requirement",
+          "after": "none"
+        },
+        "expected_parameters": {
+          "before": {
+            "testcase": "checkout"
+          },
+          "after": {}
+        },
+        "expected_action": {
+          "before": "route",
+          "after": "reject"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-058",
+      "reason": "Screenshot skill corrected; diagnosis and target need planner clarification.",
+      "fields": {
+        "expected_skill": {
+          "before": "device-control",
+          "after": "ai-userinterface"
+        },
+        "expected_action": {
+          "before": "route",
+          "after": "clarify"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-062",
+      "reason": "No single execute_testcase route represents all-device suite; clarify targets.",
+      "fields": {
+        "expected_mcp_tool": {
+          "before": "execute_testcase",
+          "after": "none"
+        },
+        "expected_parameters": {
+          "before": {
+            "campaign": "nightly"
+          },
+          "after": {}
+        }
+      }
+    },
+    {
+      "id": "ATLAS-063",
+      "reason": "list_testcases is owned by testcase-management.",
+      "fields": {
+        "expected_skill": {
+          "before": "manage-script",
+          "after": "testcase-management"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-064",
+      "reason": "crawl_app is the catalogued app exploration tool.",
+      "fields": {
+        "expected_skill": {
+          "before": "navigate-tree",
+          "after": "crawl-app"
+        },
+        "expected_mcp_tool": {
+          "before": "auto_discover_screen",
+          "after": "crawl_app"
+        }
+      }
+    },
+    {
+      "id": "ATLAS-066",
+      "reason": "No cross-platform screen comparison tool in selected skill; clarify context.",
+      "fields": {
+        "expected_mcp_tool": {
+          "before": "analyze_screen_for_verification",
+          "after": "none"
+        }
+      }
+    }
+  ]
+}

@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High (for any non-MiniMax Claude setup)                      |
 | Area      | backend_server agent manager / shared provider client        |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | aab2c4dfe                                                    |
 
 ---

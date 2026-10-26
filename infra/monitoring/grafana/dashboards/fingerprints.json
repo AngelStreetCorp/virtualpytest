@@ -1,0 +1,838 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "links": [],
+  "tags": [
+    "matcher",
+    "fingerprint",
+    "task-115",
+    "bug-0569",
+    "bug-0571"
+  ],
+  "templating": {
+    "list": [
+      {
+        "current": {
+          "text": "None",
+          "value": "none"
+        },
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "includeAll": false,
+        "label": "Workspace",
+        "multi": false,
+        "name": "workspace",
+        "query": "SELECT __text, __value FROM (SELECT 0 AS o, 'None' AS __text, 'none' AS __value UNION ALL SELECT 1, name, id FROM grafana_user_workspaces(${__user.email:sqlstring}, ${__user.login:sqlstring})) w ORDER BY o, __text",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "current": {},
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "definition": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "hide": 2,
+        "includeAll": false,
+        "label": "Allowed devices",
+        "multi": false,
+        "name": "allowed_devices",
+        "query": "SELECT string_agg(device_key, '|') FROM grafana_device_scope(${__user.email:sqlstring}, ${__user.login:sqlstring}, ${workspace:sqlstring})",
+        "refresh": 1,
+        "regex": "",
+        "sort": 0,
+        "type": "query"
+      },
+      {
+        "name": "userinterface_name",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "query": "SELECT DISTINCT userinterface_name FROM public.match_runs ORDER BY userinterface_name",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "label": "userinterface"
+      },
+      {
+        "name": "device_name",
+        "type": "query",
+        "datasource": {
+          "type": "grafana-postgresql-datasource",
+          "uid": "supabase-postgres"
+        },
+        "query": "SELECT DISTINCT device_name FROM public.match_runs WHERE device_name IS NOT NULL ORDER BY device_name",
+        "refresh": 2,
+        "includeAll": true,
+        "multi": true,
+        "current": {
+          "selected": false,
+          "text": "All",
+          "value": "$__all"
+        },
+        "label": "device"
+      }
+    ]
+  },
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Fingerprints & Matcher Runs (BUG-0569 / BUG-0571 / BUG-0571-task3)",
+  "uid": "fingerprints",
+  "version": 4,
+  "weekStart": "",
+  "panels": [
+    {
+      "type": "row",
+      "title": "Overview",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "id": 100,
+      "collapsed": false,
+      "panels": []
+    },
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Total runs (24h)",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": 1,
+          "rawSql": "SELECT COUNT(*) FROM public.match_runs WHERE started_at >= now() - interval '24 hours' AND userinterface_name = ANY(ARRAY[$userinterface_name]) AND device_name = ANY(ARRAY[$device_name])"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "Matched (24h)",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 4,
+        "y": 1
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 0
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": 1,
+          "rawSql": "SELECT COUNT(*) FILTER (WHERE verdict = 'known_node') AS matched, COUNT(*) AS total, ROUND(100.0 * COUNT(*) FILTER (WHERE verdict = 'known_node') / NULLIF(COUNT(*), 0), 1) AS pct FROM public.match_runs WHERE started_at >= now() - interval '24 hours' AND userinterface_name = ANY(ARRAY[$userinterface_name]) AND device_name = ANY(ARRAY[$device_name])"
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Uncertain (margin < 5%)",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 8,
+        "y": 1
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": 1,
+          "rawSql": "SELECT COUNT(*) FROM public.match_runs WHERE runner_up_margin < 0.05 AND verdict = 'known_node' AND started_at >= now() - interval '24 hours' AND userinterface_name = ANY(ARRAY[$userinterface_name]) AND device_name = ANY(ARRAY[$device_name])"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Unknown (24h)",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 5
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": 1,
+          "rawSql": "SELECT COUNT(*) FROM public.match_runs WHERE verdict IN ('unknown', 'low_confidence') AND started_at >= now() - interval '24 hours' AND userinterface_name = ANY(ARRAY[$userinterface_name]) AND device_name = ANY(ARRAY[$device_name])"
+        }
+      ]
+    },
+    {
+      "id": 5,
+      "type": "stat",
+      "title": "Unknowns above threshold (auto-classify candidates)",
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 16,
+        "y": 1
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 10
+              }
+            ]
+          }
+        }
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": 1,
+          "rawSql": "SELECT COUNT(*) FROM public.screen_fingerprints WHERE merged_into IS NULL AND verdict = 'unknown' AND seen_count >= 5 AND classification_attempts < 3"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Runs by verdict (24h, 1h buckets)",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 5
+      },
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "supabase-postgres"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "custom": {
+            "drawStyle": "bars",
+            "stacking": {
+              "mode": "normal"
+            }
+          }
+        }
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "format": "time_series",
+          "rawSql": "SELECT date_trunc('hour', started_at) AS time, verdict, COUNT(*) AS value FROM public.match_runs WHERE started_at >= now() - interval '24 hours' AND userinterface_name = ANY(ARRAY[$userinterface_name]) AND device_name = ANY(ARRAY[$device_name]) GROUP BY 1, 2 ORDER BY 1"
+        }
+      ]
+    },
+    {
+      "type": "row",
+      "title": "Details",
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "id": 101,
+      "collapsed": true,
+      "panels": [
+        {
+          "id": 7,
+          "type": "table",
+          "title": "Top transitions (24h, by occurrences)",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 14
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {}
+          },
+          "options": {
+            "showHeader": true
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "rawSql": "SELECT userinterface_name, from_node_id::text AS from_node, to_node_id::text AS to_node, occurrences, uncertain_occurrences, last_seen_at FROM public.v_node_transitions WHERE userinterface_name = ANY(ARRAY[$userinterface_name]) AND last_seen_at >= now() - interval '24 hours' ORDER BY occurrences DESC LIMIT 25"
+            }
+          ]
+        },
+        {
+          "id": 8,
+          "type": "table",
+          "title": "Recent uncertain hits (margin < 5%)",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 22
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {}
+          },
+          "options": {
+            "showHeader": true
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "rawSql": "SELECT started_at, userinterface_name, device_name, host_name, matched_node_id::text AS matched, (candidates_top_3->0->>'score')::float AS winner_score, (candidates_top_3->1->>'score')::float AS runner_score, runner_up_margin, source FROM public.match_runs WHERE runner_up_margin < 0.05 AND verdict = 'known_node' AND userinterface_name = ANY(ARRAY[$userinterface_name]) AND device_name = ANY(ARRAY[$device_name]) ORDER BY started_at DESC LIMIT 25"
+            }
+          ]
+        },
+        {
+          "id": 9,
+          "type": "table",
+          "title": "Recent match_runs (last 50, any verdict)",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 22
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {}
+          },
+          "options": {
+            "showHeader": true
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "rawSql": "SELECT started_at, userinterface_name, device_name, host_name, source, verdict, matched_node_id::text AS matched, (candidates_top_3->0->>'score')::float AS winner_score, runner_up_margin, candidate_floor_hit AS floor_hit FROM public.match_runs WHERE userinterface_name = ANY(ARRAY[$userinterface_name]) AND device_name = ANY(ARRAY[$device_name]) ORDER BY started_at DESC LIMIT 50"
+            }
+          ]
+        },
+        {
+          "id": 10,
+          "type": "barchart",
+          "title": "Per-profile activity (stacked by verdict)",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 30
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "custom": {
+                "drawStyle": "bars",
+                "stacking": {
+                  "mode": "normal"
+                },
+                "hideFrom": {
+                  "legend": false
+                }
+              }
+            }
+          },
+          "options": {
+            "legend": {
+              "displayMode": "list",
+              "placement": "bottom"
+            }
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "time_series",
+              "rawSql": "SELECT COALESCE(profile, '(none)') AS metric, verdict, COUNT(*) AS value FROM public.match_runs WHERE started_at >= now() - interval '24 hours' AND userinterface_name = ANY(ARRAY[$userinterface_name]) AND device_name = ANY(ARRAY[$device_name]) GROUP BY 1, 2 ORDER BY 1"
+            }
+          ]
+        },
+        {
+          "id": 11,
+          "type": "table",
+          "title": "Auto-classify backlog (seen >= 5, attempts < 3)",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 12,
+            "y": 30
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {}
+          },
+          "options": {
+            "showHeader": true
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "rawSql": "SELECT scope, dhash, seen_count, classification_attempts, first_seen_at, last_seen_at FROM public.screen_fingerprints WHERE merged_into IS NULL AND verdict = 'unknown' AND seen_count >= 5 AND classification_attempts < 3 ORDER BY seen_count DESC, last_seen_at DESC LIMIT 50"
+            }
+          ]
+        },
+        {
+          "id": 13,
+          "type": "stat",
+          "title": "Auto-classify last run (last touched unknown)",
+          "description": "BUG-0571: max(last_seen_at) for any screen_fingerprints row that has been attempted at least once.  The nightly auto-classify.timer touches one row per unknown, so this timestamp is the wall-clock of the last successful classify.  If it is older than 24h, the timer did not run.",
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 18,
+            "y": 38
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "dateTimeAsIso",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0
+                  },
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            }
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "textMode": "auto",
+            "colorMode": "background"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": 1,
+              "rawSql": "SELECT MAX(last_seen_at) AS last_classify_run FROM public.screen_fingerprints WHERE merged_into IS NULL AND classification_attempts > 0"
+            }
+          ]
+        },
+        {
+          "id": 12,
+          "type": "table",
+          "title": "Transition heatmap (from_node × to_node, last 24h)",
+          "description": "BUG-0571: cell colour = log(occurrences) so a busy pair jumps out; click a from_node in the left column to pivot (future).",
+          "gridPos": {
+            "h": 10,
+            "w": 24,
+            "x": 0,
+            "y": 42
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "custom": {
+                "align": "auto",
+                "cellOptions": {
+                  "type": "color-background",
+                  "mode": "gradient",
+                  "factor": 0.5
+                }
+              }
+            },
+            "overrides": [
+              {
+                "matcher": {
+                  "id": "byName",
+                  "options": "from_node"
+                },
+                "properties": [
+                  {
+                    "id": "custom.cellOptions",
+                    "value": {
+                      "type": "text",
+                      "mode": "static"
+                    }
+                  }
+                ]
+              }
+            ]
+          },
+          "options": {
+            "showHeader": true,
+            "cellHeight": "sm",
+            "sortBy": [
+              {
+                "displayName": "occurrences",
+                "desc": true
+              }
+            ]
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "rawSql": "SELECT from_node_id::text AS from_node, to_node_id::text AS to_node, occurrences, uncertain_occurrences, last_seen_at FROM public.v_node_transitions WHERE userinterface_name = ANY(ARRAY[$userinterface_name]) AND last_seen_at >= now() - interval '24 hours' AND occurrences >= 1 ORDER BY occurrences DESC LIMIT 200"
+            }
+          ]
+        },
+        {
+          "id": 14,
+          "type": "stat",
+          "title": "Live monitor — last row (1m freshness)",
+          "description": "BUG-0571 task 3: how long since the last match_run row from source='monitor_localize' arrived.  Goes red after 5 min, orange after 1 min, green otherwise.  A blank value means the monitor has never written (new install).",
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 0,
+            "y": 52
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "dateTimeAsIso",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 0
+                  },
+                  {
+                    "color": "green",
+                    "value": 0
+                  }
+                ]
+              }
+            }
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "textMode": "auto",
+            "colorMode": "background"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": 1,
+              "rawSql": "SELECT MAX(started_at) AS last_monitor_run FROM public.match_runs WHERE source = 'monitor_localize'"
+            }
+          ]
+        },
+        {
+          "id": 15,
+          "type": "stat",
+          "title": "Live monitor — rows / 1h",
+          "description": "BUG-0571 task 3: how many monitor_localize rows landed in the last hour.  A health signal — if a busy host goes from 200/h to 0/h, the queue is stuck.",
+          "gridPos": {
+            "h": 4,
+            "w": 6,
+            "x": 6,
+            "y": 52
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "orange",
+                    "value": 1
+                  },
+                  {
+                    "color": "green",
+                    "value": 5
+                  }
+                ]
+              }
+            }
+          },
+          "options": {
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ]
+            },
+            "textMode": "auto",
+            "colorMode": "background"
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": 1,
+              "rawSql": "SELECT COUNT(*) AS rows_per_hour FROM public.match_runs WHERE source = 'monitor_localize' AND started_at >= now() - interval '1 hour'"
+            }
+          ]
+        },
+        {
+          "id": 16,
+          "type": "table",
+          "title": "Live monitor — recent activity (last 15 min, top 25)",
+          "description": "BUG-0571 task 3: the most recent monitor_localize rows.  A blank panel means the monitor path is not flowing — check the worker and the hosts.",
+          "gridPos": {
+            "h": 8,
+            "w": 12,
+            "x": 0,
+            "y": 56
+          },
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "supabase-postgres"
+          },
+          "fieldConfig": {
+            "defaults": {}
+          },
+          "options": {
+            "showHeader": true
+          },
+          "targets": [
+            {
+              "refId": "A",
+              "format": "table",
+              "rawSql": "SELECT started_at, host_name, device_id, userinterface_name, verdict, runner_up_margin FROM public.match_runs WHERE source = 'monitor_localize' AND started_at >= now() - interval '15 minutes' ORDER BY started_at DESC LIMIT 25"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

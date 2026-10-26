@@ -1,0 +1,16 @@
+[Unit]
+Description=Play the Pokemon long-play save on the first free web host (TASK-33, TASK-164)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=jndoye
+Group=jndoye
+Environment=HOME=/home/jndoye
+Environment=PATH=/home/jndoye/.local/bin:/usr/local/bin:/bin:/usr/sbin:/sbin
+# The lane runs from its own clone, never from the shared checkout of ~/virtualpytest (whose branch
+# the other Claude Code sessions on this host switch under each other). The clone is brought back
+# to main before every tick: a clone that is not synced runs the code it was deployed with for ever.
+ExecStartPre=-/home/jndoye/.local/bin/sync_lane_clone.sh /home/jndoye/.local/share/pokemon-dispatch/repo
+Environment=POKEMON_HOSTS=host-clone-1,host-clone-2
+ExecStart=/usr/bin/python3 /home/jndoye/.local/share/pokemon-dispatch/repo/scripts/agent/pokemon_dispatch.py tick

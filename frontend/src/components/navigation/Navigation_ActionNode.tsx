@@ -14,6 +14,7 @@ import type { UINavigationNode as UINavigationNodeType, UINavigationEdge } from 
 // dark backgrounds, so we use the static dark-palette colours (no hooks in
 // this SVG-rendering component).
 import { AGENT_CHAT_PALETTE, useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = ({
   data,
@@ -130,7 +131,7 @@ export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = (
           minWidth: '200px',
           maxWidth: '200px',
           minHeight: '180px',
-          fontSize: '12px',
+          fontSize: TYPOGRAPHY.caption.size,
           color: actionColors.textColor,
           boxShadow: 'none !important', // Remove all shadows (same as navigation node)
           WebkitBoxShadow: 'none !important',
@@ -162,7 +163,7 @@ export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = (
               right: '4px',
               backgroundColor: AGENT_CHAT_PALETTE.series[1],
               color: '#fff',
-              fontSize: '10px',
+              fontSize: TYPOGRAPHY.microMeta.size,
               fontWeight: 'bold',
               padding: '2px 6px',
               borderRadius: '4px',
@@ -185,7 +186,7 @@ export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = (
               borderRadius: '50%',
               backgroundColor: UI_BADGE_COLORS.verification,
               color: 'white',
-              fontSize: '10px',
+              fontSize: TYPOGRAPHY.microMeta.size,
               fontWeight: 'bold',
               display: 'flex',
               alignItems: 'center',
@@ -211,7 +212,7 @@ export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = (
               borderRadius: '50%',
               backgroundColor: UI_BADGE_COLORS.subtree,
               color: 'white',
-              fontSize: '10px',
+              fontSize: TYPOGRAPHY.microMeta.size,
               fontWeight: 'bold',
               display: 'flex',
               alignItems: 'center',
@@ -475,7 +476,7 @@ export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = (
             whiteSpace: 'nowrap',
             color: actionColors.textColor,
             marginBottom: '0px',
-            fontSize: '18px',
+            fontSize: TYPOGRAPHY.cardTitle.size,
           }}
         >
           {data.label}
@@ -506,7 +507,7 @@ export const UIActionNode: React.FC<NodeProps<UINavigationNodeType['data']>> = (
         {!screenshotUrl && (
           <div
             style={{
-              fontSize: '11px',
+              fontSize: TYPOGRAPHY.microMeta.size,
               color: actionColors.textColor,
               textAlign: 'center',
               opacity: 0.7,

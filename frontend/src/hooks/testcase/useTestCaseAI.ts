@@ -6,12 +6,13 @@
  */
 
 import { useCallback } from 'react';
-import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
 import { TestCaseGraph } from '../../types/testcase/TestCase_Types';
 import { getErrorMessage } from '../../utils/testcase/testCaseHelpers';
+import { useHostScopedUrl } from '../allServer/useRowServerUrl';
 
 export const useTestCaseAI = () => {
+  const hostScopedUrl = useHostScopedUrl();
   
   /**
    * Generate test case graph from AI prompt
@@ -46,7 +47,7 @@ export const useTestCaseAI = () => {
     try {
       let result;
       try {
-        result = await api.post(buildServerUrl('/server/ai/generatePlan'), {
+        result = await api.post(hostScopedUrl(hostName, '/server/ai/generatePlan'), {
           prompt,
           userinterface_name: userinterfaceName,
           device_id: deviceId,
@@ -103,7 +104,7 @@ export const useTestCaseAI = () => {
         error: getErrorMessage(error),
       };
     }
-  }, []);
+  }, [hostScopedUrl]);
 
   /**
    * Save disambiguation choices and regenerate
@@ -122,7 +123,7 @@ export const useTestCaseAI = () => {
   }> => {
     try {
       // First, save disambiguation choices
-      await api.post(buildServerUrl('/server/ai-disambiguation/saveDisambiguation'), {
+      await api.post(hostScopedUrl(hostName, '/server/ai-disambiguation/saveDisambiguation'), {
         prompt,
         selections,
         userinterface_name: userinterfaceName,
@@ -138,7 +139,7 @@ export const useTestCaseAI = () => {
         error: getErrorMessage(error),
       };
     }
-  }, [generateTestCaseFromPrompt]);
+  }, [generateTestCaseFromPrompt, hostScopedUrl]);
 
   return {
     generateTestCaseFromPrompt,

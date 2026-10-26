@@ -22,8 +22,16 @@ RESEND_FROM_NAME      = "VirtualPyTest"
 binding = "STATUS_KV"
 id = "ae56a0b611f4400e93b6a21e30114c07"
 
-# Route binding — alternative to the CF dashboard route. Uncomment to bind
-# via wrangler; remove if you set the route manually in the dashboard.
+# DO NOT bind a route on this Worker. Visitor traffic must reach proxmox
+# directly (browser → CF edge → tunnel → nginx → backend). Proxying through
+# the Worker burns the 100,000 requests/day Free-plan limit and the site
+# goes back to Error 1027 within hours — see BUG-0570. The "temporarily
+# unavailable" page is provided separately via CF dashboard → Custom Pages
+# → 500_errors, sourced from `infra/cloudflare/custom-pages/5xx-error.html`.
+#
+# The earlier route binding history (`virtualtest.angelstreet.io/*` typo,
+# then `virtualpytest.angelstreet.io/*`) is preserved in BUG-0554; the
+# fix there was the dashboard route edit, not a wrangler [[routes]] entry.
 # [[routes]]
-# pattern = "virtualtest.angelstreet.io/*"
+# pattern = "virtualpytest.angelstreet.io/*"
 # zone_name = "angelstreet.io"

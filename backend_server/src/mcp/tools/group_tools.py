@@ -14,7 +14,7 @@ from shared.src.lib.config.constants import get_team_id
 from shared.src.lib.config.remote_profiles import GROUP_MAX_SIZE, build_groups
 
 from ..utils.api_client import MCPAPIClient
-from ..utils.lock_ownership import auto_lock
+from ..utils.lock_ownership import auto_lock, lock_command_error
 from ..utils.screenshot_capture import capture_image_block
 
 
@@ -111,7 +111,7 @@ class GroupTools:
                 'remote_profile': str (REQUIRED - the group's remote profile, e.g. ir:stb, ble:arris, adb_tv),
                 'actions': list (REQUIRED - remote commands: command press_key with params key, e.g. HOME),
                 'device_model': str (OPTIONAL - the group's device model; checked by the server),
-                'force_unlock': bool (OPTIONAL - stop a running script/testcase holding a device; never another user's take-control),
+                'force_unlock': bool (OPTIONAL - clears a STALE lock or your own only; never aborts another caller's live run (device_busy: wait/queue) nor another user's take-control),
                 'include_screenshot': bool (OPTIONAL - attach one screenshot per device after the last action, default false)
             }
 
@@ -128,6 +128,9 @@ class GroupTools:
                          "Get them from list_device_groups.", True)
         if len(targets) > GROUP_MAX_SIZE:
             return _text(f"Error: at most {GROUP_MAX_SIZE} devices per group call.", True)
+        lock_error = lock_command_error(actions)
+        if lock_error:
+            return lock_error
         if any(not a.get('command') for a in actions):
             return _text('Error: every action needs a command, e.g. {"command": "press_key", "params": {"key": "HOME"}}', True)
 

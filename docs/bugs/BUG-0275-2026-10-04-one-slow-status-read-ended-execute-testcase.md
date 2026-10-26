@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — the caller started the next testcase on a busy device |
 | Area      | `backend_server/src/mcp/tools/testcase_tools.py` (`_poll_testcase_completion`) |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `this commit`                                                |
 
 ---

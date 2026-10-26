@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | High — every key went nowhere while every step passed        |
 | Area      | `backend_host/src/controllers/remote/bluetooth/hid_remote.py`, `backend_host/src/controllers/remote/bluetooth.py` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `d8d100372`, `5666223f7`                                     |
 
 ---

@@ -18,6 +18,18 @@ triggers:
   - dump ui
   - show ui
   - inspect screen
+  - screenshot
+  - screen of
+  - displaying
+  - is free
+  - in use
+  - who is controlling
+  - controlling
+  - take control
+  - release control
+  - remote keys
+  - what actions
+  - awake
 
 system_prompt: |
   Control physical devices with raw hardware actions (click, swipe, press).
@@ -26,6 +38,13 @@ system_prompt: |
   1. get_device_info() → find available devices
   2. list_actions() → see valid actions for the device
   3. execute_device_action() → use ONLY actions from step 2, match parameters exactly
+
+  SHORT COMMANDS (one tool each, never analytics):
+  - screenshot / "what is on the screen" / "what is X displaying" -> capture_screenshot(host_name, device_id)
+  - "is X free", "who is controlling X", status of X -> get_device_info: is_locked, locked_by, lock_owner_name
+  - "take control of X" / "release X" -> take_control / release_control (host_name, device_id); never as an action command
+  - "what actions / remote keys" -> list_actions
+  - Name -> ids: use the Available Devices list; never pass a device name as device_id.
 
   UI TOOLS:
   - list_userinterfaces: List all available interfaces (Do not use for dump ui)
@@ -53,6 +72,9 @@ tools:
   - list_actions
   - execute_device_action
   - dump_ui_elements
+  - capture_screenshot
+  - take_control
+  - release_control
   # AI UI knowledge base (read-only access for device-control; full read+write in explore-* skills)
   - list_ai_userinterfaces
   - get_ai_userinterface
@@ -90,5 +112,7 @@ required_context:
 platform: null
 requires_device: true
 timeout_seconds: 1800
+think_budget_seconds: 120
+max_tool_calls: 40
 
 

@@ -561,13 +561,13 @@ export const useGenerateModel = ({
           });
           
           // Build detailed step message showing both action sets
-          const forwardStatus = data.action_sets.forward.result === 'success' ? '✅' : '❌';
-          const reverseStatus = data.action_sets.reverse.result === 'success' ? '✅' : '❌';
+          const forwardStatus = data.action_sets.forward.result === 'success' ? 'passed' : 'failed';
+          const reverseStatus = data.action_sets.reverse.result === 'success' ? 'passed' : 'failed';
           
           setCurrentStep(
             `Item ${data.progress.current_item}/${data.progress.total_items}: ${data.node_name}\n` +
-            `${forwardStatus} 1. ${data.action_sets.forward.source} → ${data.action_sets.forward.target}: ${data.action_sets.forward.action}\n` +
-            `${reverseStatus} 2. ${data.action_sets.reverse.source} → ${data.action_sets.reverse.target}: ${data.action_sets.reverse.action}`
+            `1. ${data.action_sets.forward.source} → ${data.action_sets.forward.target}: ${data.action_sets.forward.action} (${forwardStatus})\n` +
+            `2. ${data.action_sets.reverse.source} → ${data.action_sets.reverse.target}: ${data.action_sets.reverse.action} (${reverseStatus})`
           );
         }
         

@@ -1,54 +1,55 @@
-# 🔁 CI/CD Automation
+# CI/CD Automation
 
-**Run your test suite automatically, every time code changes.**
+**Run your test suite automatically, every time the code changes.**
 
-Launch, watch, and review automated test runs — triggered by a code push, a schedule, or a single click — without ever leaving VirtualPyTest.
-
----
-
-## The Problem
-
-Manual testing before every release doesn't scale:
-- ❌ Full regression testing gets skipped when the team is busy
-- ❌ Bugs ship because nobody ran the complete suite before merging
-- ❌ Test results live in a separate tool, disconnected from everything else you track
-- ❌ No easy way to launch a specific suite on demand and watch it run live
+Start, watch and review automated test runs. A run can start from a code push, from a schedule, or from one click. You never leave VirtualPyTest.
 
 ---
 
-## The VirtualPyTest Solution
+## Why it matters
 
-✅ **One-click launches** — pick a project, a branch, and a test suite, then run it
-✅ **Live progress** — watch a run happen job by job, in real time
-✅ **Unified reporting** — CI results land in the same reports and dashboards as every other test run, manual or scheduled
-✅ **Automatic recurring runs** — trigger a suite on a schedule or on every code push, no separate scheduler needed
-✅ **Flexible execution** — run on your own lab hardware or in the cloud, depending on what each suite needs
+Manual testing before each release does not scale.
 
----
-
-## How It Helps
-
-- Catch regressions automatically, before they ever reach a release
-- Give the whole team one place to check pass rates and trends — not scattered CI logs
-- Free QA from re-running the same suite by hand after every change
-- Prove test coverage and quality trends over time with real history, not a point-in-time log
+- Full regression testing gets skipped when the team is busy.
+- Bugs ship because nobody ran the whole suite before a merge.
+- Test results sit in a separate tool, away from everything else you track.
+- There is no easy way to start a suite on demand and watch it run.
 
 ---
 
-## Where to Find It
+## What you get
 
-- **Test → Execute → Run CI/CD** — pick a project, branch, and suite, then launch and watch it run live
-- **Test → Report → CI/CD Reports** — browse every past run with job-by-job results, filterable by time range and project
+- **One-click runs.** Pick a project, a branch and a test suite, then run it.
+- **Live progress.** Watch the run job by job, as it happens.
+- **One place for results.** CI results appear in the same reports and dashboards as every other test run, whether manual or scheduled.
+- **Recurring runs.** Run a suite on a schedule or on every code push. You do not need a separate scheduler.
+- **Your hardware or the cloud.** Run each suite on your own lab machines or in the cloud, depending on what it needs.
+
+---
+
+## What it is good for
+
+- Catch regressions before they reach a release.
+- Give the whole team one place to check pass rates and trends, instead of scattered CI logs.
+- Stop QA from running the same suite by hand after every change.
+- Show test coverage and quality over time, with real history behind it.
+
+---
+
+## Where to find it
+
+- **Test → Execute → Run CI/CD.** Pick a project, a branch and a suite, then launch it and watch it run live.
+- **Test → Report → CI/CD Reports.** Browse every past run, with job-by-job results. You can filter by time range and project.
 
 ---
 
 ## Next Steps
 
-- 🧪 [Test Automation](./test-automation.md) - What actually runs in each suite
-- 📊 [Real-time Analytics](./analytics.md) - Trends across every run
-- ⚡ [Virtual Scripts](./virtual-scripts.md) - Edit scripts instantly, no deployment
+- [Test Automation](./test-automation.md): what actually runs in each suite
+- [Real-time Analytics](./analytics.md): trends across every run
+- [Virtual Scripts](./virtual-scripts.md): edit scripts instantly, with no deployment
 
 ---
 
 **Ready to automate your regression testing?**
-➡️ [Get Started](../get-started/README.md)
+[Get Started](../get-started/README.md)

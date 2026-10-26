@@ -17,6 +17,8 @@ import { extractStandardBlockGroups } from '../../../utils/toolboxBuilder';
 
 // Shared builder components
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { useExecutableFavorites } from '../../../hooks/useExecutableFavorites';
+import { ExecutableFavoriteStar } from '../../common/DeviceFavoriteStar';
 import {
   ToolboxSearchBox,
   ToolboxMainTabs,
@@ -85,7 +87,7 @@ export const CampaignToolbox: React.FC<CampaignToolboxProps> = ({
         id: tc.testcase_id,
         type: 'testcase' as const,
         label: tc.testcase_name,
-        icon: '🌳',
+        icon: 'tree' as const,
         category: 'testcases' as const,
         executableId: tc.testcase_id,
         executableType: 'testcase' as const,
@@ -121,7 +123,7 @@ export const CampaignToolbox: React.FC<CampaignToolboxProps> = ({
         id: scriptName,
         type: 'script' as const,
         label: scriptName,
-        icon: '▶️',
+        icon: 'play' as const,
         category: 'scripts' as const,
         executableId: scriptName,
         executableType: 'script' as const,
@@ -164,8 +166,16 @@ export const CampaignToolbox: React.FC<CampaignToolboxProps> = ({
     );
   };
 
-  const filteredTestCases = filterItems(testCases);
-  const filteredScripts = filterItems(scripts);
+  // Favorites pinned first inside each list (TASK-100). A disk script's favorite id has the .py suffix.
+  const favorites = useExecutableFavorites();
+  const pinFavorites = (items: CampaignToolboxItem[], idOf: (item: CampaignToolboxItem) => string, kind: 'testcase' | 'script') => [
+    ...items.filter((item) => favorites.isFavorite(kind, idOf(item))),
+    ...items.filter((item) => !favorites.isFavorite(kind, idOf(item))),
+  ];
+  const testcaseFavoriteId = (item: CampaignToolboxItem) => item.executableId ?? item.id;
+  const scriptFavoriteId = (item: CampaignToolboxItem) => `${item.executableId ?? item.id}.py`;
+  const filteredTestCases = pinFavorites(filterItems(testCases), testcaseFavoriteId, 'testcase');
+  const filteredScripts = pinFavorites(filterItems(scripts), scriptFavoriteId, 'script');
   const isSearching = searchQuery.trim() !== '';
 
   // Transform campaign data to match ScriptIOSections interface
@@ -231,7 +241,6 @@ export const CampaignToolbox: React.FC<CampaignToolboxProps> = ({
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          bgcolor: 'background.paper',
         }}
       >
         <Typography variant="subtitle1" fontWeight="bold">
@@ -279,7 +288,7 @@ export const CampaignToolbox: React.FC<CampaignToolboxProps> = ({
                   <React.Fragment key={`standard-group-${groupIdx}`}>
                     {standardToolboxGroups.length > 1 && (
                       <Typography 
-                        fontSize={11} 
+                        fontSize="0.6875rem" 
                         sx={{ color: 'text.disabled', px: 0.5, py: 0.5, mt: groupIdx > 0 ? 1 : 0 }}
                       >
                         {group.groupName}
@@ -313,6 +322,7 @@ export const CampaignToolbox: React.FC<CampaignToolboxProps> = ({
                     label={item.label}
                     subtitle={item.folder}
                     accentColor={TOOLBOX_TAB_COLORS.testcases}
+                    trailing={<ExecutableFavoriteStar kind="testcase" itemId={testcaseFavoriteId(item)} />}
                     onDragStart={(e) => handleToolboxItemDragStart(e, item)}
                   />
                 ))}
@@ -335,6 +345,7 @@ export const CampaignToolbox: React.FC<CampaignToolboxProps> = ({
                     key={item.id}
                     label={item.label}
                     accentColor={TOOLBOX_TAB_COLORS.scripts}
+                    trailing={<ExecutableFavoriteStar kind="script" itemId={scriptFavoriteId(item)} />}
                     onDragStart={(e) => handleToolboxItemDragStart(e, item)}
                   />
                 ))}

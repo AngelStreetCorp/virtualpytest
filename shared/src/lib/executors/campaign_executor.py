@@ -42,6 +42,11 @@ from shared.src.lib.utils.report_generation_utils import generate_campaign_orche
 # Now lazy-loaded where needed
 from .script_executor import DEFAULT_TEAM_ID
 
+# The wording the run's own verdict uses for a check that was never configured
+# (shared/src/lib/utils/web_video_legibility.py). Such a check never looked at
+# anything, so it is skipped, not failed.
+NOT_CONFIGURED_SKIP_REASON = "not configured"
+
 
 class CampaignExecutionContext:
     """Context object that holds campaign execution state"""
@@ -81,6 +86,38 @@ class CampaignExecutionContext:
         return int((time.time() - self.start_time) * 1000)
 
 
+# Campaigns running in this process. Each step is its own ScriptExecutor subprocess, so between two
+# steps no script process exists: this registry is what tells the host "a campaign is still going" (BUG-0780).
+_in_flight_campaigns: Dict[str, Dict[str, Any]] = {}
+_in_flight_lock = threading.Lock()
+
+
+def get_in_flight_campaigns() -> List[Dict[str, Any]]:
+    """Snapshot of the campaigns this process is executing right now."""
+    with _in_flight_lock:
+        return [dict(v) for v in _in_flight_campaigns.values()]
+
+
+def build_script_parameter_parts(resolved_parameters: Dict[str, Any]) -> tuple[List[str], set]:
+    """The CLI flags of a campaign step's script-specific parameters, and their bare names.
+
+    A campaign stores a step's parameter keys WITH their dashes ("--userinterface": "pokemon-blue-web"),
+    so the name is normalized before the flag is rebuilt. Prefixing a dashed key again gave argparse
+    "----userinterface pokemon-blue-web" and the script died with "Unknown argument(s) for <script>"
+    before it started: the nightly web deployment failed its Pokemon step (and every other virtual
+    script with a parameter dict) every night.
+    """
+    parts: List[str] = []
+    names: set = set()
+    for param_name, param_value in (resolved_parameters or {}).items():
+        flag = str(param_name).strip().lstrip("-")
+        if not flag:
+            continue
+        names.add(flag)
+        parts.extend([f"--{flag}", str(param_value)])
+    return parts, names
+
+
 class CampaignExecutor:
     """Campaign execution orchestrator for host-level execution"""
     
@@ -116,6 +153,23 @@ class CampaignExecutor:
         }
     
     def execute_campaign(self, campaign_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Run the campaign and keep it listed as in flight until it ends, however it ends."""
+        key = uuid4().hex
+        with _in_flight_lock:
+            _in_flight_campaigns[key] = {
+                'type': 'campaign',
+                'campaign_id': campaign_config.get('campaign_id'),
+                'device_id': campaign_config.get('device_id') or campaign_config.get('device'),
+                'deployment_execution_id': campaign_config.get('deployment_execution_id'),
+                'started_at': time.time(),
+            }
+        try:
+            return self._execute_campaign(campaign_config)
+        finally:
+            with _in_flight_lock:
+                _in_flight_campaigns.pop(key, None)
+
+    def _execute_campaign(self, campaign_config: Dict[str, Any]) -> Dict[str, Any]:
         """
         Execute a test campaign with multiple scripts at host level.
         
@@ -225,11 +279,20 @@ class CampaignExecutor:
                 script_result = self._execute_single_script(
                     context, campaign_config, script_config, i
                 )
-                
+
+                # A check that never ran because it was not configured says so in
+                # the row it wrote. The row is the authority: the exit code is
+                # not (argparse also exits 2 for a usage error), the error text
+                # is not, the script name is not.
+                self._apply_row_skipped(script_result)
+
                 context.script_executions.append(script_result)
                 context.completed_scripts += 1
-                # Per-child outcome record: a skipped script has no script_results row, so this is
-                # the only persisted evidence the run summary can count it from.
+                # Per-child outcome record: it is what the run summary counts
+                # each child from. A skipped script may have a script_results row
+                # of its own (a check that was never configured writes one, and it
+                # is linked to the campaign below), so the row and this record
+                # now agree instead of contradicting each other.
                 context.metadata.setdefault('script_outcomes', []).append({
                     'execution_order': i,
                     'script_name': script_config.get('script_name'),
@@ -510,11 +573,10 @@ class CampaignExecutor:
             print(f"🧾 [Campaign] {script_name} parameters (resolved): {resolved_parameters}")
 
             # Add script-specific parameters first (they take priority)
-            for param_name, param_value in resolved_parameters.items():
-                param_parts.extend([f"--{param_name}", str(param_value)])
+            script_param_parts, script_param_names = build_script_parameter_parts(resolved_parameters)
+            param_parts.extend(script_param_parts)
 
             # Add host and device only if not already set by script-specific parameters
-            script_param_names = set(resolved_parameters.keys())
             if "host" not in script_param_names and campaign_config.get("host") and campaign_config["host"] != "auto":
                 param_parts.extend(["--host", campaign_config["host"]])
 
@@ -623,7 +685,41 @@ class CampaignExecutor:
                 "report_url": None,
                 "logs_url": None
             }
-    
+
+    def _apply_row_skipped(self, script_result: Dict[str, Any]) -> None:
+        """Let the row the run just wrote decide that this check was skipped.
+
+        A check that never ran because it was not configured records that in its
+        own ``script_results`` row (BUG-0756). The executor cannot guess it from
+        the exit code (argparse exits 2 for a usage error too), from the error
+        text, or from the script name, so it reads the row -- the thing the run
+        actually recorded.
+
+        Only a failed run is consulted: a run that succeeded is never a skip,
+        and a row that cannot be read is no evidence at all. The row is read,
+        never written: the executor changes no stored outcome, it only reads
+        the verdict the run already gave itself.
+        """
+        if script_result.get("skipped") or script_result.get("success"):
+            return
+        script_result_id = script_result.get("script_result_id")
+        if not script_result_id:
+            return
+        try:
+            from shared.src.lib.database.script_results_db import get_script_by_id
+            row = get_script_by_id(script_result_id)
+        except Exception as row_err:
+            print(f"⚠️ [Campaign] Could not read the result row {script_result_id}: {row_err}")
+            return
+        if not row or not row.get("skipped"):
+            return
+        script_result["skipped"] = True
+        script_result["skip_reason"] = NOT_CONFIGURED_SKIP_REASON
+        print(
+            f"⏭️ [Campaign] The run's own row marks script {script_result_id} as skipped: "
+            f"{NOT_CONFIGURED_SKIP_REASON}"
+        )
+
     def _resolve_template_parameters(self, context: CampaignExecutionContext, 
                                     parameters: Dict[str, Any], current_order: int) -> Dict[str, Any]:
         """
@@ -867,9 +963,12 @@ class CampaignExecutor:
             }
 
     def _build_success_result(self, context: CampaignExecutionContext) -> Dict[str, Any]:
-        """Build successful campaign result"""
+        """Build the result of a campaign that ran to the end (it may still have failed)"""
         return {
-            "success": True,
+            # One source of truth: the same verdict the campaign_executions row carries.
+            "success": context.overall_success,
+            # Routes read this to keep an abort distinct from a plain failure.
+            "aborted": self._abort_requested,
             "campaign_id": context.campaign_id,
             "campaign_execution_id": context.campaign_execution_id,
             "campaign_result_id": context.campaign_result_id,

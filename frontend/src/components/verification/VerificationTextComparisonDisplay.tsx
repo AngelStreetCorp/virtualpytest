@@ -4,6 +4,7 @@ import { useAgentChatPalette } from '../../constants/agentChatTheme';
 
 import { useHostControl } from '../../hooks/useHostManager';
 import { buildVerificationResultUrl } from '../../utils/buildUrlUtils';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface VerificationTextComparisonDisplayProps {
   searchedText: string;
@@ -144,7 +145,7 @@ export const VerificationTextComparisonDisplay: React.FC<
     >
       {sourceUrl && (
         <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', mr: 1 }}>
-          <Typography variant="caption" sx={{ fontSize: '0.6rem', mb: 0.5 }}>
+          <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.microMeta.size, mb: 0.5 }}>
             Source
           </Typography>
           <img
@@ -166,13 +167,13 @@ export const VerificationTextComparisonDisplay: React.FC<
       )}
       <Box sx={{ flex: 1, minWidth: 0 }}>
         <Box sx={{ mb: 1 }}>
-          <Typography variant="caption" sx={{ fontSize: '0.6rem', fontWeight: 600 }}>
+          <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.microMeta.size, fontWeight: 600 }}>
             Searched:
           </Typography>
           <Typography
             variant="caption"
             sx={{
-              fontSize: '0.7rem',
+              fontSize: TYPOGRAPHY.caption.size,
               display: 'block',
               color: P.series[1],
               fontFamily: 'monospace',
@@ -184,13 +185,13 @@ export const VerificationTextComparisonDisplay: React.FC<
           </Typography>
         </Box>
         <Box sx={{ mb: 1 }}>
-          <Typography variant="caption" sx={{ fontSize: '0.6rem', fontWeight: 600 }}>
+          <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.microMeta.size, fontWeight: 600 }}>
             Found:
           </Typography>
           <Typography
             variant="caption"
             sx={{
-              fontSize: '0.7rem',
+              fontSize: TYPOGRAPHY.caption.size,
               display: 'block',
               color: resultType === 'PASS' ? P.success : P.error,
               fontFamily: 'monospace',
@@ -207,7 +208,7 @@ export const VerificationTextComparisonDisplay: React.FC<
             <Typography
               variant="caption"
               sx={{
-                fontSize: '0.6rem',
+                fontSize: TYPOGRAPHY.microMeta.size,
                 color: P.warning,
                 fontWeight: 500,
               }}
@@ -217,7 +218,7 @@ export const VerificationTextComparisonDisplay: React.FC<
             <Typography
               variant="caption"
               sx={{
-                fontSize: '0.6rem',
+                fontSize: TYPOGRAPHY.microMeta.size,
                 color: P.success,
                 fontWeight: 500,
               }}
@@ -229,13 +230,13 @@ export const VerificationTextComparisonDisplay: React.FC<
         {/* Focus: green when accent coverage clears its threshold, red otherwise. */}
         {focusScore !== undefined && focusScore !== null && (
           <Box sx={{ display: 'flex', gap: 0.5, alignItems: 'center', mt: 0.5 }}>
-            <Typography variant="caption" sx={{ fontSize: '0.6rem', fontWeight: 600 }}>
+            <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.microMeta.size, fontWeight: 600 }}>
               Focus:
             </Typography>
             <Typography
               variant="caption"
               sx={{
-                fontSize: '0.6rem',
+                fontSize: TYPOGRAPHY.microMeta.size,
                 fontWeight: 600,
                 color:
                   focusThreshold !== undefined && focusScore >= focusThreshold

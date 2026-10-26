@@ -9,11 +9,12 @@
  * tab.
  */
 import { InfoOutlined as InfoIcon } from '@mui/icons-material';
-import { Box, Tooltip, Typography } from '@mui/material';
+import { Box, Tooltip, Typography, type TooltipProps } from '@mui/material';
 import React from 'react';
 
 import { useI18n } from '../../i18n/useI18n';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface Props {
   info?: Record<string, string> | null;
@@ -31,7 +32,7 @@ const Section: React.FC<{ heading: string; entries: [string, string][] }> = ({ h
     {entries.map(([key, value]) => (
       <Box
         key={key}
-        sx={{ display: 'flex', gap: 1, fontFamily: 'monospace', fontSize: '0.7rem', lineHeight: 1.5, whiteSpace: 'nowrap' }}
+        sx={{ display: 'flex', gap: 1, fontFamily: 'monospace', fontSize: TYPOGRAPHY.caption.size, lineHeight: 1.5, whiteSpace: 'nowrap' }}
       >
         <Box component="span" sx={{ opacity: 0.7 }}>
           {key}:
@@ -41,6 +42,34 @@ const Section: React.FC<{ heading: string; entries: [string, string][] }> = ({ h
     ))}
   </Box>
 );
+
+const infoTooltipSlotProps: TooltipProps['slotProps'] = {
+    // Style the tooltip surface like a small modal: opaque background,
+    // border, and shadow. MUI's default `rgba(97,97,97,0.92)` bleeds into
+    // the dark dashboard cards and made the content unreadable.
+    tooltip: {
+      sx: (theme) => ({
+        maxWidth: 'none',
+        backgroundColor: theme.palette.background.paper,
+        color: theme.palette.text.primary,
+        border: `1px solid ${theme.palette.divider}`,
+        borderRadius: 1,
+        boxShadow: theme.shadows[8],
+        px: 1.5,
+        py: 1,
+        opacity: '1 !important',
+      }),
+    },
+    arrow: {
+      sx: (theme) => ({
+        color: theme.palette.background.paper,
+        '&::before': {
+          border: `1px solid ${theme.palette.divider}`,
+          backgroundColor: theme.palette.background.paper,
+        },
+      }),
+    },
+  };
 
 export const DeviceInfoTooltipIcon: React.FC<Props> = ({
   info,
@@ -78,33 +107,7 @@ export const DeviceInfoTooltipIcon: React.FC<Props> = ({
       title={title}
       arrow
       placement="top"
-      slotProps={{
-        // Style the tooltip surface like a small modal: opaque background,
-        // border, and shadow. MUI's default `rgba(97,97,97,0.92)` bleeds into
-        // the dark dashboard cards and made the content unreadable.
-        tooltip: {
-          sx: (theme) => ({
-            maxWidth: 'none',
-            backgroundColor: theme.palette.background.paper,
-            color: theme.palette.text.primary,
-            border: `1px solid ${theme.palette.divider}`,
-            borderRadius: 1,
-            boxShadow: theme.shadows[8],
-            px: 1.5,
-            py: 1,
-            opacity: '1 !important',
-          }),
-        },
-        arrow: {
-          sx: (theme) => ({
-            color: theme.palette.background.paper,
-            '&::before': {
-              border: `1px solid ${theme.palette.divider}`,
-              backgroundColor: theme.palette.background.paper,
-            },
-          }),
-        },
-      }}
+      slotProps={infoTooltipSlotProps}
     >
       <InfoIcon
         sx={{
@@ -116,6 +119,35 @@ export const DeviceInfoTooltipIcon: React.FC<Props> = ({
         }}
         onClick={openEditor}
       />
+    </Tooltip>
+  );
+};
+
+/**
+ * Hover on the device label: name on top, Device Info / GW Info below (when the
+ * device has any). Replaces the info icon on the Rec preview tile and stream modal.
+ */
+export const DeviceInfoNameTooltip: React.FC<{
+  name: string;
+  info?: Record<string, string> | null;
+  gatewayInfo?: Record<string, string> | null;
+  children: React.ReactElement;
+}> = ({ name, info, gatewayInfo, children }) => {
+  const { t } = useI18n();
+  const deviceEntries = info ? Object.entries(info) : [];
+  const gatewayEntries = gatewayInfo ? Object.entries(gatewayInfo) : [];
+  const title = (
+    <Box>
+      <Typography variant="caption" sx={{ fontWeight: 'bold', display: 'block' }}>
+        {name}
+      </Typography>
+      {deviceEntries.length > 0 && <Section heading={t('Device Info')} entries={deviceEntries} />}
+      {gatewayEntries.length > 0 && <Section heading={t('GW Info')} entries={gatewayEntries} />}
+    </Box>
+  );
+  return (
+    <Tooltip title={title} arrow placement="top" slotProps={infoTooltipSlotProps}>
+      {children}
     </Tooltip>
   );
 };

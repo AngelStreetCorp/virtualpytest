@@ -19,6 +19,7 @@ import React, { useState } from 'react';
 import { Box, Typography, IconButton, CircularProgress, Tooltip } from '@mui/material';
 import { ExpandMore as ExpandMoreIcon, ExpandLess as ExpandLessIcon } from '@mui/icons-material';
 import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface AIStepDisplayProps {
   step: {
@@ -138,23 +139,23 @@ export const AIStepDisplay: React.FC<AIStepDisplayProps> = ({
         <Box sx={{ ml: 1.5, mt: 0.5, borderLeft: `2px solid ${P.borderColor}`, pl: 0.75 }}>
           {transitions.map((transition: any, tIdx: number) => (
             <Box key={tIdx} sx={{ mb: 0.5 }}>
-              <Typography variant="caption" sx={{ color: P.accentText, fontWeight: 'bold', display: 'block', fontSize: '0.7rem' }}>
+              <Typography variant="caption" sx={{ color: P.accentText, fontWeight: 'bold', display: 'block', fontSize: TYPOGRAPHY.caption.size }}>
                 {transition.from_node_label} → {transition.to_node_label}
               </Typography>
               {transition.actions?.map((action: any, aIdx: number) => {
                 const firstParam = action.params ? Object.values(action.params)[0] : '';
                 const paramStr = typeof firstParam === 'string' ? firstParam : JSON.stringify(firstParam);
                 return (
-                  <Typography key={aIdx} variant="caption" sx={{ color: P.textSecondary, display: 'block', ml: 0.75, fontFamily: 'monospace', fontSize: '0.65rem', lineHeight: 1.3 }}>
+                  <Typography key={aIdx} variant="caption" sx={{ color: P.textSecondary, display: 'block', ml: 0.75, fontFamily: 'monospace', fontSize: TYPOGRAPHY.microMeta.size, lineHeight: 1.3 }}>
                     - {action.command}({paramStr})
                   </Typography>
                 );
               })}
               {transition.verifications?.length > 0 && (
                 <Box sx={{ ml: 0.75, mt: 0.25 }}>
-                  <Typography variant="caption" sx={{ color: P.textMuted, fontSize: '0.6rem' }}>Verifications:</Typography>
+                  <Typography variant="caption" sx={{ color: P.textMuted, fontSize: TYPOGRAPHY.microMeta.size }}>Verifications:</Typography>
                   {transition.verifications.map((verification: any, vIdx: number) => (
-                    <Typography key={vIdx} variant="caption" sx={{ color: P.textMuted, display: 'block', ml: 0.75, fontFamily: 'monospace', fontSize: '0.6rem', lineHeight: 1.3 }}>
+                    <Typography key={vIdx} variant="caption" sx={{ color: P.textMuted, display: 'block', ml: 0.75, fontFamily: 'monospace', fontSize: TYPOGRAPHY.microMeta.size, lineHeight: 1.3 }}>
                       - {verification.command} ({verification.verification_type})
                     </Typography>
                   ))}

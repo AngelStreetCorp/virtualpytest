@@ -16,13 +16,18 @@ We land on /device-control?auto_signed=<token>, let the SPA bootstrap,
 then poll window.__hls every second.
 """
 import json
+import os
 import statistics
 import sys
 import time
 from datetime import datetime, timezone
 from playwright.sync_api import sync_playwright
 
-AUTO_SIGN = "1f36fe19e305f9b83fd97596296e2dfaa17f982b04407f2ba31f96777cad4f47"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from _auto_sign import auto_sign_token, redact
+
+# The auto-sign token is a team-admin credential: read it at runtime, never store it.
+AUTO_SIGN = auto_sign_token()
 BASE = "https://virtualpytest.angelstreet.io"
 PAGE = f"{BASE}/device-control?auto_signed={AUTO_SIGN}&host=vpt-pi3&device=device1"
 
@@ -33,11 +38,11 @@ def main():
         ctx = browser.new_context(viewport={"width": 1280, "height": 720}, ignore_https_errors=True)
         page = ctx.new_page()
 
-        page.on("pageerror", lambda e: print(f"  [pageerror] {e}", file=sys.stderr))
-        page.on("console", lambda m: print(f"  [console.{m.type}] {m.text[:300]}", file=sys.stderr) if m.type in ("error", "warning", "log") else None)
-        page.on("requestfailed", lambda r: print(f"  [requestfailed] {r.url[:120]} - {r.failure}", file=sys.stderr))
+        page.on("pageerror", lambda e: print(f"  [pageerror] {redact(e, AUTO_SIGN)}", file=sys.stderr))
+        page.on("console", lambda m: print(f"  [console.{m.type}] {redact(m.text[:300], AUTO_SIGN)}", file=sys.stderr) if m.type in ("error", "warning", "log") else None)
+        page.on("requestfailed", lambda r: print(f"  [requestfailed] {redact(r.url[:120], AUTO_SIGN)} - {r.failure}", file=sys.stderr))
 
-        print(f"Loading {PAGE}", file=sys.stderr)
+        print(redact(f"Loading {PAGE}", AUTO_SIGN), file=sys.stderr)
         page.goto(PAGE, wait_until="domcontentloaded", timeout=30000)
         # Let auto-sign + Supabase + host session mint + React mount
         page.wait_for_timeout(15000)
@@ -54,7 +59,7 @@ def main():
                 url: location.href,
             };
         }""")
-        print(f"state: {state}", file=sys.stderr)
+        print(f"state: {redact(state, AUTO_SIGN)}", file=sys.stderr)
 
         if not state.get('hasVideo') or not state.get('src'):
             # Capture a screenshot for diagnosis
@@ -121,5 +126,12 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    try:
+        main()
+    except SystemExit:
+        raise
+    except Exception as exc:
+        # A traceback would carry the ?auto_signed= URL of the page that failed.
+        print(redact(f"{type(exc).__name__}: {exc}", AUTO_SIGN), file=sys.stderr)
+        sys.exit(1)
 

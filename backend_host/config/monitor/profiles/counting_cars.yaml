@@ -1,0 +1,60 @@
+# counting_cars: count cars/trucks/buses on a camera and what colour they are (no training: COCO + HSV).
+# The detector model is NOT in git: put yolox_nano.onnx (Apache-2.0, official Megvii YOLOX release) outside the
+# project folder, e.g. /opt/virtualpytest/models/, and set MONITOR_COCO_MODEL to it. See docs/agent/devices/MONITOR_PROFILES.md.
+#
+# WHAT THIS SCENE CAN AND CANNOT SUPPORT (BUG-0927, 2026-10-26, measured on the cars clip on vpt-lenovo4)
+# The clip is a junction seen from a roof: ~150 vehicles in view, most of them parked, each 20-60 px. The whole
+# frame letterboxed into 416 shrinks them to a third: yolox_nano boxed 0-8 a frame. 2x2 tiles see them at twice the
+# size and box ~57 a frame (3x2: ~99, but 0.8 s a frame on this Celeron); 2x2 is 0.47 s, so 2 Hz is the box's rate.
+# A COUNT OF TRAFFIC is not supported at that rate: a moving vehicle covers about its own length per frame at 10 fps,
+# so five lengths between two samples at 2 Hz, and no tracker follows it. Measured against a hand count of the
+# vehicles crossing x = 0.5 in one 30 s pass (~100, read off a slit-scan of that column): line counting found 91 at
+# 10 Hz, 43 at 5 Hz, 11 at 2 Hz; per-track counting re-counts every parked car each pass. So the headline is what the
+# picture supports at 2 Hz: the vehicles in view, each boxed and coloured.
+name: counting_cars
+services: { img: true, audio: false, subtitle: false }
+img:
+  runtime: edge                 # edge = on the host; remote = reserved, not implemented
+  analyzers:
+    - type: coco_detect
+      sample_hz: 2                  # 2x2 tiles take 0.47 s a frame on vpt-lenovo4 (no AVX): 2 Hz is what the box keeps up with
+      classes: [car, truck, bus]
+      min_conf: 0.25                # with tiles: 62 vehicles on the reference frame at 0.25, 35 at 0.4
+      tiles: [2, 2]                 # whole frame: 0-8 vehicles a frame; 2x2: ~57 (BUG-0927)
+      model_env: MONITOR_COCO_MODEL
+    - type: hsv_colour
+      attr: colour
+      classes: [white, black, grey, red, blue, green, yellow, other]
+  # ocsort: at 2 Hz a car driving towards the camera moves more than its own length between samples; the IoU tracker opens a
+  # new track every sample (measured, §6), the OC-SORT-style one follows it. min_iou 0.1 because of that jump.
+  # votes: the colour is voted at each sample of a track and the majority wins; a track that leaves with fewer than min_votes
+  # votes is `unverified` (mostly a one-sample false detection).
+  track: { algo: ocsort, max_gap_s: 2.0, min_iou: 0.1, votes: 3, min_votes: 2 }
+  # the cars device plays one clip in a loop: count one pass, not the whole day
+  reset_counters: { every_s: 30 }
+events:
+  car_seen:     { attr: label, in: [car, truck, bus] }                                          # one event per track, verified or not
+  car_verified: { attr: colour, in: [white, black, grey, red, blue, green, yellow, other] }     # one per track with enough votes
+incidents: {}                                                                                   # counting raises no alerts
+kpis:
+  - { name: count_per_min, of: car_verified, window_s: 60 }
+  - { name: count_total, of: car_verified, window_s: 3600 }
+  - { name: count_by_colour, of: car_seen, group_by: colour, window_s: 600 }                    # includes `unverified`
+ui:
+  title: Car counting
+  stats:
+    - { label: Vehicles in view, observations: true }
+  counters:
+    kpi: count_by_colour
+    items:
+      - { key: white, colour: white }
+      - { key: grey, colour: grey }
+      - { key: black, colour: black }
+      - { key: blue, colour: blue }
+      - { key: red, colour: red }
+      - { key: green, colour: green }
+      - { key: yellow, colour: yellow }
+      - { key: other, colour: brown }
+      - { key: unverified, colour: amber }
+  box: { shape: rect, badge: votes, colour_by: verdict }
+  focus_panel: { crop: true, probs: true, title: Last checked }

@@ -9,6 +9,7 @@ import React from 'react';
 import type { FeatureDefinition } from '../../../frontend/src/config/features';
 
 import { blastRadiusMod } from './blastRadius/register';
+import { infoTilesMod } from './infoTiles/register';
 import { onlineUsersMod } from './onlineUsers/register';
 import { pipMod } from './pip/register';
 import { runProgressMod } from './runProgress/register';
@@ -28,7 +29,7 @@ const feature: FeatureDefinition = {
     },
   ],
   // Order = chain order: the first mod runs first.
-  mods: [runProgressMod, blastRadiusMod, onlineUsersMod, pipMod, splitViewMod, teamDevicesMod],
+  mods: [runProgressMod, blastRadiusMod, onlineUsersMod, pipMod, splitViewMod, teamDevicesMod, infoTilesMod],
 };
 
 export default feature;

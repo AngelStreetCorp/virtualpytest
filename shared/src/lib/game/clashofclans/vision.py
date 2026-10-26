@@ -488,9 +488,8 @@ def crop_tutorial_bubble(img: np.ndarray) -> np.ndarray:
 def detect_tutorial_dialog(img: Optional[np.ndarray]) -> bool:
     """``True`` when the tutorial dialog bubble is on screen.
 
-    The runner logs ``tutorial_dialog_seen`` events on every frame where
-    this returns ``True`` so the report shows what the tutorial thinks of
-    each frame even before ``tutorial.py`` decides what to do.
+    ``classify_screen`` uses it to return ``"tutorial"``; the farm runner does not
+    drive the tutorial (``game_clashofclans_llm --mode tutorial`` does).
     """
     if img is None:
         return False

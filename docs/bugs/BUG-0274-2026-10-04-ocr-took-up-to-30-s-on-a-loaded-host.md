@@ -9,7 +9,7 @@
 | Status    | Fixed (pending deploy)                                       |
 | Severity  | Medium — text checks timed out or ran out their window       |
 | Area      | `backend_host/src/controllers/verification/text_helpers.py`, `image_helpers.py` |
-| Fixed in  | Unreleased                                                   |
+| Fixed in  | build 90145 |
 | Commit    | `this commit`                                                |
 
 ---

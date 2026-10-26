@@ -19,6 +19,114 @@ setup_for_code_installer "$SOURCE_ROOT"
 
 source "$SCRIPT_DIR/common_vars.sh"
 
+# journald paths (E60): the drop-in directory holds the drop-ins we manage —
+# vpt.conf (the storage mode) and 90-vpt-cap.conf (the size cap).
+# VPT_JOURNAL_CONF_D exists so the provisioning scripts can be exercised
+# against a temp directory (tests/backend_host/test_journald_persistence.py).
+JOURNALD_CONF_D="${VPT_JOURNAL_CONF_D:-/etc/systemd/journald.conf.d}"
+JOURNAL_DIR="${VPT_JOURNAL_DIR:-/var/log/journal}"
+
+# ─── journald size cap (E61) ────────────────────────────────────────────────
+# The size cap follows the host. A fixed 512 M is 19 % of the free space left
+# on a disk that is 91 % full (measured on host-clone-1, 2026-10-24) — on the
+# very filesystem the live capture writes to. So the cap is computed from the
+# free space of the filesystem that holds the journal directory:
+#     cap = min(512M, max(64M, 5 % of the free space))
+# 64 M is the floor (a journald cap below that is not worth having) and 512 M
+# the ceiling (the cap that shipped before). VPT_JOURNAL_MAX_USE (environment
+# or the host .env) overrides the computed value; when it is set, nothing is
+# computed.
+JOURNAL_CAP_DEFAULT_MB=512
+JOURNAL_CAP_MIN_MB=64
+JOURNAL_CAP_PERCENT=5
+
+# Free space (KiB) of the filesystem that holds the journal directory. Empty
+# when it cannot be read — the caller falls back to the default cap.
+journal_free_kb() {
+    local dir="${1:-/var/log/journal}" kb="" path
+    command -v df >/dev/null 2>&1 || return 1
+    for path in "$dir" "$(dirname "$dir")"; do
+        kb="$(df -Pk "$path" 2>/dev/null | awk 'NR==2 {print $4}')"
+        case "$kb" in
+            ''|*[!0-9]*) continue ;;
+        esac
+        printf '%s\n' "$kb"
+        return 0
+    done
+    return 1
+}
+
+# The cap in MiB (journald's "M" is 1024*1024) for a free space in KiB: 5 % of
+# it, never below 64 M and never above 512 M.
+journal_cap_mb() {
+    local free_kb="${1:-0}" cap_mb
+    cap_mb=$(( free_kb * JOURNAL_CAP_PERCENT / 100 / 1024 ))
+    if [ "$cap_mb" -lt "$JOURNAL_CAP_MIN_MB" ]; then cap_mb="$JOURNAL_CAP_MIN_MB"; fi
+    if [ "$cap_mb" -gt "$JOURNAL_CAP_DEFAULT_MB" ]; then cap_mb="$JOURNAL_CAP_DEFAULT_MB"; fi
+    printf '%s\n' "$cap_mb"
+}
+
+# The cap to use: the explicit override wins and nothing is computed; without
+# it the cap follows the free space of the filesystem holding the journal
+# directory, and the default cap is used when that cannot be read.
+journal_max_use() {
+    local override="${1:-}" free_kb cap_mb
+    override="$(printf '%s' "$override" | tr -d '[:space:]')"
+    if [ -n "$override" ]; then
+        printf '%s\n' "$override"
+        return 0
+    fi
+    free_kb="$(journal_free_kb "${JOURNAL_DIR:-/var/log/journal}" || true)"
+    if [ -z "$free_kb" ]; then
+        printf '%s\n' "${JOURNAL_CAP_DEFAULT_MB}M"
+        return 0
+    fi
+    cap_mb="$(journal_cap_mb "$free_kb")"
+    printf '%s\n' "${cap_mb}M"
+}
+
+# The explicit cap override, from the environment or from the host .env.
+journal_max_use_override() {
+    local override="${VPT_JOURNAL_MAX_USE:-}"
+    if [ -z "$override" ] && [ -n "${ENV_FILE:-}" ] && [ -f "${ENV_FILE:-}" ]; then
+        override="$(grep -E '^VPT_JOURNAL_MAX_USE=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)"
+    fi
+    printf '%s\n' "$(printf '%s' "$override" | tr -d '[:space:]')"
+}
+
+# Where the cap came from, for the installer's output: the explicit override,
+# the computed value, or the default because the free space could not be read.
+journal_cap_reason() {
+    local override="${1:-}"
+    if [ -n "$override" ]; then
+        printf 'VPT_JOURNAL_MAX_USE\n'
+        return 0
+    fi
+    if journal_free_kb "${JOURNAL_DIR:-/var/log/journal}" >/dev/null 2>&1; then
+        printf '5%% of the free space of the journal filesystem\n'
+    else
+        printf 'default - the free space of the journal filesystem could not be read\n'
+    fi
+}
+
+# The cap drop-in both provisioning paths write, byte for byte: the same
+# SystemMaxUse in the file the host installer writes and in the file the guest
+# script writes, or the last writer wins with a different cap.
+journal_cap_dropin_body() {
+    local cap="${1:-${JOURNAL_CAP_DEFAULT_MB}M}"
+    cat << EOF
+# Managed by VirtualPyTest — do not hand-edit.
+# Journal size cap: 5% of the free space of the filesystem holding the journal
+# directory, clamped to [64M, 512M]; VPT_JOURNAL_MAX_USE overrides it. The
+# installers write this drop-in with the cap computed for the host. An
+# uncapped journal reached 3.0 G on a 31 G disk (TASK-156).
+[Journal]
+SystemMaxUse=${cap}
+SystemMaxFileSize=64M
+EOF
+}
+# ─── end journald size cap (E61) ────────────────────────────────────────────
+
 # Detect host type from .env (if already configured) for runner-aware installation
 HOST_TYPE_FROM_ENV=""
 if [ -f "$ENV_FILE" ]; then
@@ -303,6 +411,23 @@ echo ""
 echo "✅ System dependencies installation attempt finished"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
+# ─── journald size cap (STEP 2) ─────────────────────────────────────────────
+# The cap follows the host (E61): it is computed from the free space of the
+# filesystem that holds the journal directory, and the SAME number is written
+# to the drop-in and used for the vacuum — the two must agree, or the vacuum
+# and the cap disagree and the drop-in silently loses.
+JOURNAL_CAP_OVERRIDE="$(journal_max_use_override)"
+JOURNAL_CAP="$(journal_max_use "$JOURNAL_CAP_OVERRIDE")"
+if command -v sudo >/dev/null 2>&1; then
+    sudo mkdir -p "$JOURNALD_CONF_D"
+    journal_cap_dropin_body "$JOURNAL_CAP" | sudo tee "$JOURNALD_CONF_D/90-vpt-cap.conf" > /dev/null \
+        || echo "⚠️  could not write the journald size cap ($JOURNALD_CONF_D/90-vpt-cap.conf)"
+    sudo systemctl restart systemd-journald 2>/dev/null || true
+    sudo journalctl --vacuum-size="$JOURNAL_CAP" >/dev/null 2>&1 || true
+    echo "✅ journald capped at $JOURNAL_CAP ($(journal_cap_reason "$JOURNAL_CAP_OVERRIDE")) ($JOURNALD_CONF_D/90-vpt-cap.conf)"
+fi
+# ─── end journald size cap (STEP 2) ─────────────────────────────────────────
+
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "🐍 STEP 3: Setting up Python environment..."
@@ -426,6 +551,26 @@ EOF
     else
         echo "⚠️ LIRC service failed to start"
     fi
+fi
+
+# ── HDMI signal flag of MacroSilicon capture dongles (hdmi_signal.py) ───────
+if [ $IS_RUNNER -eq 0 ] && [ -f "$SCRIPT_DIR/udev/71-vpt-hid-signal.rules" ]; then
+    sudo cp "$SCRIPT_DIR/udev/71-vpt-hid-signal.rules" /etc/udev/rules.d/71-vpt-hid-signal.rules
+    sudo udevadm control --reload-rules || true
+    sudo udevadm trigger --subsystem-match=hidraw || true
+    echo "   → Installed /etc/udev/rules.d/71-vpt-hid-signal.rules"
+fi
+
+# ── USB ADB (phones, Fire TV): vendor udev rules + plugdev for vpt_user ─────
+# The adb server runs as vpt_user (started by vpt-host). Without a vendor rule the
+# USB node is root:root; without plugdev vpt_user cannot open it.
+if [ $IS_RUNNER -eq 0 ]; then
+    apt_noninteractive install -y --no-install-recommends android-sdk-platform-tools-common 2>&1 | grep -v "is already the newest" || true
+    sudo groupadd -f plugdev
+    sudo usermod -aG plugdev vpt_user 2>/dev/null || true
+    sudo udevadm control --reload-rules || true
+    sudo udevadm trigger --subsystem-match=usb || true
+    echo "   → Android USB udev rules installed, vpt_user added to plugdev"
 fi
 
 # ── IRToy serial transport (non-Pi hosts) ───────────────────────────────────
@@ -603,9 +748,9 @@ else
     ensure_executable "backend_host/scripts/transcript_accumulator.py"
     ensure_executable "backend_host/scripts/kpi_executor.py"
     if [ $IS_LITE -eq 1 ]; then
-        SERVICES=("host" "stream" "monitor" "archiver")
+        SERVICES=("host" "stream" "monitor-img" "archiver")
     else
-        SERVICES=("host" "stream" "monitor" "archiver" "transcript" "kpi" "vnc" "websockify")
+        SERVICES=("host" "stream" "monitor-img" "archiver" "monitor-audio" "kpi" "vnc" "websockify")
     fi
 fi
 
@@ -626,12 +771,18 @@ fi
 
 # A host switched to lite keeps its other units on disk, but they must not run (or hold RAM).
 if [ $IS_LITE -eq 1 ]; then
-    for unit in transcript kpi vnc websockify subtitle rtsp mediamtx avq companion; do
+    for unit in monitor-audio monitor-subtitle transcript subtitle kpi timeline vnc websockify rtsp mediamtx avq companion; do
         if systemctl list-unit-files "vpt-${unit}.service" 2>/dev/null | grep -q "vpt-${unit}.service"; then
             sudo systemctl disable --now "vpt-${unit}.service" 2>/dev/null || true
             echo "⏹️  vpt-${unit} stopped and disabled (lite profile)"
         fi
     done
+fi
+
+# TASK-90: an unmigrated host still has vpt-monitor / vpt-transcript / vpt-subtitle; enabling the renamed units would
+# collide with them through their Alias=, so rename them first (idempotent; nothing to do on a migrated or new host).
+if [ -f ./setup/proxmox/node/migrate_monitor_units.sh ]; then
+    sudo bash ./setup/proxmox/node/migrate_monitor_units.sh --project-root "$(pwd)" || echo "⚠️  monitor unit migration reported problems"
 fi
 
 for service in "${SERVICES[@]}"; do
@@ -643,38 +794,175 @@ for service in "${SERVICES[@]}"; do
     fi
 done
 
-echo ""
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "🗒️  STEP 7b: Configuring journald (volatile / RAM)..."
-echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+# vpt-timeline (TASK-94): the unit is installed but NOT enabled or started: opt in with DEVICE<N>_TIMELINE=true in .env and
+# `sudo systemctl enable --now vpt-timeline`. (An idle resident Python process per host is not what a plain install should add.)
+if [ $IS_RUNNER -eq 0 ] && [ $IS_LITE -eq 0 ] && [ -f ./backend_host/config/services/linux/timeline.service ]; then
+    "./setup/local/linux/backend_host/install_service.sh" timeline --no-enable || echo "⚠️  timeline unit not installed"
+fi
 
-if [ $IS_RUNNER -eq 1 ]; then
-    echo "   → Runner host — keeping default (persistent) journald"
-else
-    # Capture hosts: journal in RAM (/run/log/journal), NOT on the SD card.
-    # Rationale (docs/agent/infra/HOST_SERVICE.md §8): on the RPi capture nodes the
-    # journal lived on the SD card, so every log write contended with the live
-    # 5fps capture I/O and wore the card. Volatile removes both. Trade-off:
-    # logs do NOT survive reboot — accepted fleet-wide, incl. the WiFi-watchdog
-    # Pis (watchdog has been stable since deploy). RuntimeMaxUse bounds the
-    # in-RAM window predictably; combined with the trimmed log volume this
-    # keeps a useful multi-hour/day per-boot window.
-    # A drop-in is used so it overrides any hand-edited journald.conf (e.g. a
-    # stale duplicate Storage= line) and survives package updates.
-    sudo mkdir -p /etc/systemd/journald.conf.d
-    sudo tee /etc/systemd/journald.conf.d/vpt.conf > /dev/null << 'EOF'
-# Managed by setup/local/linux/backend_host/install_host.sh — do not hand-edit.
-# See docs/agent/infra/HOST_SERVICE.md §8 (Logging & On-Demand Verbosity).
+# ─── journald mode + setup (E60) ────────────────────────────────────────────
+# Which journal storage mode? Storage=volatile keeps the journal in RAM
+# (/run/log/journal): on the RPi capture nodes /var/log/journal is on the SD
+# card, so every journal write competed with the live 5fps capture I/O
+# (measured ~46% device util, ~47 ms write latency) and wore the card. That
+# rationale is about the SD card — it does NOT hold for a host whose root is a
+# normal disk (a Proxmox guest on the node's RAID, an x86 capture box): there
+# is no card to wear there, and a RAM-only journal throws the trace of a hang
+# away with the reboot. So the mode follows the ROOT DEVICE, not the role.
+# See docs/agent/infra/HOST_SERVICE.md §8.
+
+# The journald drop-in both provisioning paths write. install_host.sh (STEP 7b)
+# and setup/proxmox/vm/shared/install_prerequisites.sh manage the SAME file
+# (/etc/systemd/journald.conf.d/vpt.conf) and the last writer wins, so both
+# must produce byte-identical content —
+# tests/backend_host/test_journald_persistence.py asserts that they agree.
+journald_dropin_body() {
+    case "${1:-persistent}" in
+        persistent)
+            cat << 'EOF'
+# Managed by VirtualPyTest — do not hand-edit.
+# Written by setup/local/linux/backend_host/install_host.sh (STEP 7b) and
+# setup/proxmox/vm/shared/install_prerequisites.sh --journal-only.
+# See docs/agent/infra/HOST_SERVICE.md §8.
+[Journal]
+Storage=persistent
+EOF
+            ;;
+        volatile)
+            cat << 'EOF'
+# Managed by VirtualPyTest — do not hand-edit.
+# Written by setup/local/linux/backend_host/install_host.sh (STEP 7b) and
+# setup/proxmox/vm/shared/install_prerequisites.sh --journal-only.
+# See docs/agent/infra/HOST_SERVICE.md §8.
 [Journal]
 Storage=volatile
 RuntimeMaxUse=300M
 EOF
-    if sudo systemctl restart systemd-journald; then
-        echo "✅ journald set to volatile (RAM, RuntimeMaxUse=300M)"
+            ;;
+    esac
+}
+
+# The device the root filesystem lives on (/dev/mmcblk0p2 on a Pi booted from
+# the SD card, /dev/sda2 or /dev/nvme0n1p1 elsewhere).
+journal_root_source() {
+    local src=""
+    if command -v findmnt >/dev/null 2>&1; then
+        src="$(findmnt -n -o SOURCE --target / 2>/dev/null || true)"
+    fi
+    if [ -z "$src" ] && command -v df >/dev/null 2>&1; then
+        src="$(df -P / 2>/dev/null | awk 'NR==2 {print $1}')"
+    fi
+    printf '%s\n' "$src"
+}
+
+# An SD/eMMC card as the root device. /dev/root is a symlink to the real
+# device on a Pi, so it is resolved before the test.
+journal_root_is_sd_card() {
+    local dev="${1:-}"
+    [ -n "$dev" ] || return 1
+    if [ -e "$dev" ]; then
+        dev="$(readlink -f "$dev" 2>/dev/null || printf '%s' "$dev")"
+    fi
+    case "$dev" in
+        /dev/mmcblk*) return 0 ;;
+    esac
+    return 1
+}
+
+# The mode for this host: "persistent" or "volatile". An explicit
+# VPT_JOURNAL_MODE (environment or host .env) wins over the device-based
+# default, so a host whose default is wrong can be corrected without
+# patching the installer.
+journal_mode_for_host() {
+    local override="${1:-}" mode src
+    mode="$(printf '%s' "$override" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')"
+    case "$mode" in
+        volatile|persistent) printf '%s\n' "$mode"; return 0 ;;
+        "") ;;
+        *) echo "   ⚠️  VPT_JOURNAL_MODE='$override' is not volatile|persistent — using the root-device default" >&2 ;;
+    esac
+    src="$(journal_root_source)"
+    if [ -z "$src" ]; then
+        # Unknown root device: keep the SD-card rule on a Pi, persistent elsewhere.
+        if [ "${IS_PI:-0}" -eq 1 ]; then printf 'volatile\n'; else printf 'persistent\n'; fi
+        return 0
+    fi
+    if journal_root_is_sd_card "$src"; then printf 'volatile\n'; else printf 'persistent\n'; fi
+}
+
+echo ""
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+echo "🗒️  STEP 7b: Configuring journald (storage mode)..."
+echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+# An explicit override wins over the device-based default: VPT_JOURNAL_MODE
+# in the environment or in the host .env.
+JOURNAL_MODE_OVERRIDE="${VPT_JOURNAL_MODE:-}"
+if [ -z "$JOURNAL_MODE_OVERRIDE" ] && [ -f "$ENV_FILE" ]; then
+    JOURNAL_MODE_OVERRIDE=$(grep -E '^VPT_JOURNAL_MODE=' "$ENV_FILE" 2>/dev/null | cut -d= -f2- | tr -d '[:space:]' || true)
+fi
+
+if [ $IS_RUNNER -eq 1 ]; then
+    echo "   → Runner host — keeping default (persistent) journald"
+else
+    JOURNAL_MODE="$(journal_mode_for_host "$JOURNAL_MODE_OVERRIDE")"
+    JOURNAL_ROOT_SRC="$(journal_root_source)"
+    if [ "$JOURNAL_MODE" = "volatile" ]; then
+        # SD-card hosts (the RPi capture nodes): the journal lives in RAM
+        # (/run/log/journal), NOT on the SD card. Rationale (docs/agent/infra/
+        # HOST_SERVICE.md §8): on the SD card every log write contended with
+        # the live 5fps capture and wore the card. Trade-off: logs do NOT
+        # survive reboot — accepted on those hosts, incl. the WiFi-watchdog
+        # Pis (watchdog has been stable since deploy). RuntimeMaxUse bounds
+        # the in-RAM window predictably; combined with the trimmed log volume
+        # this keeps a useful multi-hour/day per-boot window.
+        # A drop-in is used so it overrides any hand-edited journald.conf (e.g. a
+        # stale duplicate Storage= line) and survives package updates.
+        echo "   → Root device: ${JOURNAL_ROOT_SRC:-unknown} (SD card) — volatile journal (RAM)"
+        sudo mkdir -p "$JOURNALD_CONF_D"
+        journald_dropin_body volatile | sudo tee "$JOURNALD_CONF_D/vpt.conf" > /dev/null
+        if sudo systemctl restart systemd-journald; then
+            echo "✅ journald set to volatile (RAM, RuntimeMaxUse=300M)"
+        else
+            echo "⚠️  journald restart failed; drop-in written, applies on next boot"
+        fi
     else
-        echo "⚠️  journald restart failed; drop-in written, applies on next boot"
+        # Every other host: the root is a disk, not a card, so there is nothing
+        # to wear and the journal must survive a reboot. A host that boots
+        # without a journal FILE keeps a RAM-only journal for the life of that
+        # boot — measured on a live Proxmox guest (2026-10-24): `mkdir` plus
+        # `systemd-tmpfiles --create` created nothing (exit 0, no file) and
+        # only `journalctl --flush` wrote the valid <machine-id>/system.journal
+        # journald adopts. So the journal is created here, not left to the
+        # first boot.
+        echo "   → Root device: ${JOURNAL_ROOT_SRC:-unknown} (not an SD card) — persistent journal"
+        sudo mkdir -p "$JOURNAL_DIR"
+        sudo systemd-tmpfiles --create --prefix "$JOURNAL_DIR" || true
+        sudo mkdir -p "$JOURNALD_CONF_D"
+        journald_dropin_body persistent | sudo tee "$JOURNALD_CONF_D/vpt.conf" > /dev/null
+        # The size cap must be in place for a persistent journal: an uncapped
+        # one reached 3.0 G on a 31 G disk (TASK-156). The cap is the one
+        # computed for this host (E61) — the same number the STEP 2 vacuum
+        # used, so the drop-in and the vacuum agree.
+        JOURNAL_CAP="${JOURNAL_CAP:-$(journal_max_use "$(journal_max_use_override)")}"
+        journal_cap_dropin_body "$JOURNAL_CAP" | sudo tee "$JOURNALD_CONF_D/90-vpt-cap.conf" > /dev/null \
+            || echo "⚠️  could not write the journald size cap ($JOURNALD_CONF_D/90-vpt-cap.conf)"
+        echo "   → journald size cap: $JOURNAL_CAP"
+        if sudo systemctl restart systemd-journald; then
+            sudo journalctl --flush || echo "⚠️  journalctl --flush failed — the journal stays RAM-only until a journal file exists under $JOURNAL_DIR"
+            sudo systemctl restart systemd-journald || echo "⚠️  journald restart failed after the flush"
+            JOURNAL_FILE_PATH="$(sudo journalctl --header 2>/dev/null | sed -n 's/^[Ff]ile [Pp]ath: //p' | head -n 1)"
+            if printf '%s\n' "$JOURNAL_FILE_PATH" | grep -q "^${JOURNAL_DIR}/"; then
+                echo "✅ journald set to persistent ($JOURNAL_DIR)"
+            else
+                echo "⚠️  the journal is not under $JOURNAL_DIR (found: ${JOURNAL_FILE_PATH:-nothing}) — it stays RAM-only for this boot"
+            fi
+        else
+            echo "⚠️  journald restart failed; drop-in written, applies on next boot"
+        fi
     fi
 fi
+# ─── end journald mode + setup (E60) ─────────────────────────────────────────
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
@@ -1019,10 +1307,11 @@ else
     services_to_check=(
         "vpt-host.service:Host API"
         "vpt-stream.service:FFmpeg Stream"
-        "vpt-monitor.service:Capture Monitor"
+        "vpt-monitor-img.service:Monitor (image)"
         "vpt-archiver.service:Archiver"
-        "vpt-transcript.service:Transcript"
+        "vpt-monitor-audio.service:Monitor (audio)"
         "vpt-kpi.service:KPI Executor"
+        "vpt-timeline.service:Timeline (thumbnail sprites, idle until DEVICE{N}_TIMELINE=true)"
         "vpt-vnc.service:VNC Server"
         "vpt-websockify.service:Websockify"
         "lircd.service:LIRC (IR Remote)"

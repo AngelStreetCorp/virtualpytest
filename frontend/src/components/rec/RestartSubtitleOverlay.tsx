@@ -1,5 +1,6 @@
 import { Box, Typography } from '@mui/material';
 import React, { useState, useEffect } from 'react';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 const FRAME_PREFIX_REGEX = /^Frame \d+: /;
 
@@ -59,7 +60,7 @@ export const RestartSubtitleOverlay: React.FC<RestartSubtitleOverlayProps> = ({
           color: subtitleStyle.color,
           p: 1.5,
           borderRadius: 1,
-          fontSize: '1.1rem',
+          fontSize: TYPOGRAPHY.cardTitle.size,
           fontWeight: 500,
           textShadow: subtitleStyle.textShadow,
         }}

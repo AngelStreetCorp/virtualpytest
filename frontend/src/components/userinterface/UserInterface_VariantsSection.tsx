@@ -51,6 +51,9 @@ import {
   type UserInterfaceVariant,
 } from '../../hooks/userinterface/useUserInterfaceVariants';
 import { TOAST_AUTO_HIDE_DURATION, TOAST_POSITION } from '../../constants/toastConfig';
+import { dangerButtonSx, dangerIconSx } from '../common/PageChrome';
+import { useAgentChatPalette } from '../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 interface UserInterface_VariantsSectionProps {
   open: boolean;
@@ -122,6 +125,7 @@ const UserInterface_VariantsSection: React.FC<UserInterface_VariantsSectionProps
   userInterfaceId,
   userInterfaceName,
 }) => {
+  const P = useAgentChatPalette();
   const {
     variants,
     loading,
@@ -407,13 +411,11 @@ const UserInterface_VariantsSection: React.FC<UserInterface_VariantsSectionProps
             <Button
               size="small"
               variant="contained"
-              color="error"
               onClick={handleDeleteSubmit}
               disabled={deleteRow.submitting}
               startIcon={
                 deleteRow.submitting ? <CircularProgress size={14} /> : undefined
-              }
-            >
+              } sx={dangerButtonSx(P)}>
               Confirm Delete
             </Button>
             <Button
@@ -438,7 +440,7 @@ const UserInterface_VariantsSection: React.FC<UserInterface_VariantsSectionProps
       <ListItem key={variant.name} divider sx={{ pr: 11 }}>
         <ListItemText
           primary={
-            <Box component="span" sx={{ display: 'inline', fontSize: '0.875rem' }}>
+            <Box component="span" sx={{ display: 'inline', fontSize: TYPOGRAPHY.body.size }}>
               <Typography component="span" variant="body2">
                 {variant.name}
               </Typography>
@@ -471,7 +473,7 @@ const UserInterface_VariantsSection: React.FC<UserInterface_VariantsSectionProps
               size="small"
               aria-label={`Delete variant ${variant.name}`}
               onClick={() => startDelete(variant)}
-              color="error"
+              sx={dangerIconSx(P)}
             >
               <DeleteIcon fontSize="small" />
             </IconButton>

@@ -20,8 +20,8 @@ list_orphans() {
     # `node (vitest N)` are the per-file worker forks tinypool spawns under
     # `pool: 'forks'`. They show up as plain "(vitest)" too (no number) when
     # they are the very first fork (vitest parent) — also kill those if PPID=1.
-    ps -axo pid,etime,pcpu,rss,command |
-        awk '$1 ~ /^[0-9]+$/ && $2 == "1" && /vitest/ {print}'
+    ps -axo pid,ppid,etime,rss,command |
+        awk '$1 ~ /^[0-9]+$/ && $2 == "1" && /vitest/ && !/awk/ {print}'
 }
 
 list_all_vitest() {

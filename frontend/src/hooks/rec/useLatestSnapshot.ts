@@ -24,6 +24,15 @@ interface UseLatestSnapshotResult {
  * Stops when `enabled` flips false, on unmount, or while `document.hidden` —
  * off-screen tiles and background tabs are free.
  *
+ * Stops polling too after `MAX_CONSECUTIVE_ERRORS` in a row: with a
+ * ffmpeg-disabled device (tv_lite dropped from .env, host restart) the path
+ * answers 404 forever, and a 1 Hz retry loop on every dead tile saturates
+ * the proxy with 404s (measured: 8 dropped devices on the device-control
+ * page = 480 wasted requests / minute, +200 ms TTFB on every other request).
+ * The host's device list refresh triggers a new `url`, which restarts the
+ * loop the moment the device comes back; until then the tile renders
+ * `error: true` and the proxy gets one request total per dead device.
+ *
  * No HLS fallback on error: hosts that haven't shipped the new `latest.jpg`
  * output simply show "Snapshot unavailable" until they do (TASK-48 G1).
  */
@@ -50,12 +59,13 @@ export function useLatestSnapshot(
     // let a stale in-flight fetch from the previous url push its frame.
     let stopped = false;
     let errorCount = 0;
+    let givenUp = false;
     let timeoutId: number | undefined;
     let shownUrl: string | null = null;
     const controller = new AbortController();
 
     const tick = async () => {
-      if (stopped) return;
+      if (stopped || givenUp) return;
       if (document.hidden) {
         // Background tab: poll the flag again next second (no request is made).
         timeoutId = window.setTimeout(tick, REFRESH_INTERVAL_MS);
@@ -81,11 +91,18 @@ export function useLatestSnapshot(
       } catch {
         if (stopped) return;
         errorCount += 1;
-        if (errorCount >= MAX_CONSECUTIVE_ERRORS) setError(true);
-        // Keep polling: the host may roll out latest.jpg later in the session.
+        if (errorCount >= MAX_CONSECUTIVE_ERRORS) {
+          setError(true);
+          // Persistent 404 means the source path is gone (ffmpeg disabled /
+          // device dropped from .env) — the host won't bring it back during
+          // this session, so stop hammering the proxy. A new `url` from the
+          // device list refresh resets `errorCount` via this effect re-run.
+          givenUp = true;
+          return;
+        }
       }
       // Chained from completion: one request in flight per tile, never a pile-up.
-      if (!stopped) timeoutId = window.setTimeout(tick, REFRESH_INTERVAL_MS);
+      if (!stopped && !givenUp) timeoutId = window.setTimeout(tick, REFRESH_INTERVAL_MS);
     };
 
     void tick();

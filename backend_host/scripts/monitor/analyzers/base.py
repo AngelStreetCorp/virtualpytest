@@ -1,0 +1,19 @@
+"""Analyzer interface (TASK-90 §4.2)."""
+from typing import Protocol
+
+from monitor.context import FrameContext
+
+
+class Analyzer(Protocol):
+    name: str
+    sample_hz: float | None   # None = every frame (tv_app); else core calls it at most this often
+
+    def start(self) -> None: ...
+    def analyze(self, ctx: FrameContext) -> dict: ...
+    """Detection for one frame; the returned dict is also what the incident manager is handed."""
+    def frame_record(self, ctx: FrameContext, result: dict, existing: dict) -> dict: ...
+    """Assemble the per-frame JSON around the result (flags for other services, caches)."""
+    def declared_events(self) -> list[str]: ...
+    def chunk_fields(self, analysis_data: dict) -> dict: ...
+    """Profile-specific fields of the 10-minute chunk entry."""
+    def register_device(self, capture_folder: str) -> None: ...

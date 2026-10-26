@@ -7,11 +7,16 @@ Binds the AI caller context (``shared/src/lib/ai/caller.py``, TASK-87) for every
   that names a host but no origin is that host's own work: ``monitoring``. ``api`` is left for real external
   callers only. The service key is the trust boundary: only a holder of it can set attribution.
 - The context is cleared when the request ends.
+- ``X-Project-Id`` is read for both signed-in and forwarded requests (BUG-0559): every AI
+  call attributed by the gateway is tagged with the project the user is working on, so the
+  per-project spend can be computed from the per-call table.
 """
 
 from flask import request
 
 from shared.src.lib.ai import caller as ai_caller
+
+PROJECT_HEADER = "X-Project-Id"
 
 
 def install_ai_caller_binding(app) -> None:
@@ -32,6 +37,13 @@ def install_ai_caller_binding(app) -> None:
             if forwarded.get('host_name') and not forwarded.get('origin'):
                 forwarded['origin'] = 'monitoring'
             fields.update(forwarded)
+        # Project: the frontend sets X-Project-Id whenever a project is active in the
+        # top-bar ProjectSelector (TASK-65 G5). MCP tools also forward it. We pick it up
+        # here so every AI call attributed by this process picks up the project tag for
+        # free; the call log row carries it through to ai_calls.project_id.
+        pid = request.headers.get(PROJECT_HEADER) or request.headers.get(PROJECT_HEADER.lower())
+        if pid:
+            fields['project_id'] = pid.strip()[:64]
         ai_caller.clear()
         ai_caller.bind(**fields)
         return None

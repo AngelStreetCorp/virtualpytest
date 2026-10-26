@@ -79,6 +79,7 @@ import {
   focusGuessSource, frameChipText, isNoBanner, isOffTree, labelWords, screenName, splitName,
   stripAnswerWords, stripDurationText, stripFrames, toGroupLabel, triageNoteText, withShow,
 } from './reviewText';
+import { loadTrainingSampleImage, useTrainingSampleImage } from './hooks/useTrainingSampleImage';
 
 const SHOW_OPTIONS: [ReviewShow, string][] = [
   ['needs_you', 'Needs you'],
@@ -861,9 +862,6 @@ const TrainingReview: React.FC = () => {
   // index === samples.length is the end state (everything after it was checked).
   const [index, setIndex] = useState(0);
   const [editing, setEditing] = useState(false);
-  // The image URL whose load finished (or failed): the question waits for it, so the text and
-  // the image of a sample always appear together.
-  const [loadedUrl, setLoadedUrl] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
   const [notice, setNotice] = useState('');
   // x of the x/K counter: answers saved since the last (re)load. Skip does not count.
@@ -884,11 +882,20 @@ const TrainingReview: React.FC = () => {
   const { groups, loading: groupsLoading } = useScreenGroups(
     sample && sample.family === 'screen-id' ? sample.userinterface : null);
   const grouped = sample && sample.family === 'screen-id' ? toGroupLabel(sample.proposed_label, groups) : null;
-  const imageReady = !sample?.image_url || loadedUrl === sample.image_url;
+  // The screenshot of the current sample, fetched through the app's API (the
+  // browser cannot read the training bucket itself, BUG-0775).
+  const {
+    url: imageUrl, error: imageError, reload: reloadImage, reportBroken: reportBrokenImage,
+  } = useTrainingSampleImage(sample?.image_path);
+  // The picture is only "ready" when it is really on screen. A sample whose
+  // screenshot could not be loaded is never judged: the answer buttons stay
+  // disabled, so nobody writes a reference answer for a picture they never
+  // saw (BUG-0775).
+  const imageReady = !sample?.image_path || (!!imageUrl && !imageError);
   // Preload the next two images: answering then shows the next sample at once.
   useEffect(() => {
     for (const next of samples.slice(index + 1, index + 3)) {
-      if (next.image_url) new Image().src = next.image_url;
+      if (next.image_path) void loadTrainingSampleImage(next.image_path);
     }
   }, [samples, index]);
   // The focused item the screen answer names ('' = none): shown, and saved by the main Yes.
@@ -1013,7 +1020,11 @@ const TrainingReview: React.FC = () => {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (editing || !imageReady || dialogState.open || isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
+      // A sample whose screenshot could not be loaded keeps the navigation
+      // keys (skip / back) alive — the reviewer must not be stuck on it — but
+      // the answer keys stay off: there is nothing to judge (BUG-0775).
+      const canAnswer = imageReady && !imageError;
+      if (editing || (!canAnswer && (e.key === 'y' || e.key === 'n')) || dialogState.open || isTyping(e.target) || e.ctrlKey || e.metaKey || e.altKey) return;
       if (e.key === 'y') { e.preventDefault(); accept(); }
       else if (e.key === 'n') {
         e.preventDefault();
@@ -1025,7 +1036,7 @@ const TrainingReview: React.FC = () => {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [editing, imageReady, dialogState.open, accept, goNext, goPrev, sample]);
+  }, [editing, imageReady, imageError, dialogState.open, accept, goNext, goPrev, sample]);
 
   const setFilter = <K extends keyof TrainingFilters>(key: K, value: TrainingFilters[K]) =>
     setFilters((prev) => ({ ...prev, [key]: value }));
@@ -1207,20 +1218,28 @@ const TrainingReview: React.FC = () => {
         // the question column (the image used to float in a tall empty box).
         <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'minmax(0, 3fr) minmax(340px, 2fr)' }, gap: 2, alignItems: 'start' }}>
           <Paper variant="outlined" sx={{ p: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', bgcolor: P.surface }}>
-            {sample.image_url
+            {sample.image_path
               // Fit the width, at most 70vh tall (a tall freeze strip shrinks, centred at the top).
-              ? <>
+              ? imageError
+                // The picture is missing: say so. A broken-image glyph looked like
+                // an empty screen and the reviewer judged a picture they never
+                // saw (BUG-0775).
+                ? <Alert severity="error" sx={{ my: 2, width: '100%' }}
+                  action={<Button size="small" color="inherit" onClick={reloadImage}>Retry</Button>}>
+                  This screenshot could not be loaded ({imageError}). It is not shown, so this
+                  sample cannot be judged — skip it, or try again.
+                </Alert>
+                : <>
                   {!imageReady && <Box sx={{ p: 4 }}><CircularProgress /></Box>}
-                  <Box component="img" key={sample.image_url} src={sample.image_url} alt={`Screenshot ${index + 1}`}
-                    ref={(img: HTMLImageElement | null) => { if (img?.complete && img.naturalWidth) setLoadedUrl(img.currentSrc || img.src); }}
-                    onLoad={() => setLoadedUrl(sample.image_url)} onError={() => setLoadedUrl(sample.image_url)}
+                  <Box component="img" key={imageUrl ?? sample.image_path} src={imageUrl ?? undefined} alt={`Screenshot ${index + 1}`}
+                    onError={() => reportBrokenImage('the picture could not be decoded')}
                     sx={{ display: imageReady ? 'block' : 'none', width: '100%', height: 'auto', maxHeight: '70vh', objectFit: 'contain', objectPosition: 'center top' }} />
                 </>
               : <Typography sx={{ color: P.textMuted, p: 4 }}>No image (training storage is not configured on this server)</Typography>}
             {strip && <StripFrameChips sample={sample} />}
           </Paper>
 
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minWidth: 0, visibility: imageReady ? 'visible' : 'hidden' }}>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minWidth: 0, visibility: imageReady || imageError ? 'visible' : 'hidden' }}>
             {(filters.show === 'all' || frozen || sample.triage) && (
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                 {filters.show === 'all' && statusChip(sample)}

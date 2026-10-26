@@ -23,6 +23,7 @@ from backend_server.src.lib.utils.server_utils import get_host_manager
 from backend_server.src.lib.utils.lock_utils import (
     resolve_lock_owner,
     abort_and_force_unlock,
+    live_foreign_execution,
     abort_running_execution,
     acquire_device_lock,
     cleanup_expired_locks,
@@ -627,6 +628,20 @@ def takeover_control():
                 'lock_info': existing_lock,
                 'can_force_takeover': bool(existing_lock.get('can_force_takeover', False)),
             }), 423
+
+        if data.get('protect_live_execution'):
+            # MCP/API callers: stop only a stale or own run, never another caller's live one.
+            refusal = live_foreign_execution(
+                host_name, device_id, [requested_by_session], requested_by_user, host_data
+            )
+            if refusal:
+                return jsonify({
+                    'success': False,
+                    'error': refusal['error'],
+                    'errorType': 'device_busy',
+                    'lock_info': existing_lock,
+                    'details': refusal.get('details'),
+                }), 409
 
         abort_result = _abort_running_execution(host_data, device_id, existing_lock.get('owner_type'))
         # aborted=False here means the host had nothing registered for this device: either a

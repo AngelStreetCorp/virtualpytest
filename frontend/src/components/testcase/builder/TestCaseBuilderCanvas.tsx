@@ -7,6 +7,7 @@ import {
 } from 'reactflow';
 import 'reactflow/dist/style.css';
 import { useAgentChatPalette } from '../../../constants/agentChatTheme';
+import { TYPOGRAPHY } from '../../../constants/typography';
 
 interface TestCaseBuilderCanvasProps {
   isSidebarOpen: boolean;
@@ -39,7 +40,7 @@ export const TestCaseBuilderCanvas: React.FC<TestCaseBuilderCanvasProps> = ({
 
   const controlSx = `
     .testcase-canvas-controls .react-flow__controls-button {
-      background: ${P.surface};
+      background: ${P.surfaceSolid};
       border-bottom: 1px solid ${P.borderColor};
       color: ${P.textSecondary};
       fill: ${P.textSecondary};
@@ -62,7 +63,7 @@ export const TestCaseBuilderCanvas: React.FC<TestCaseBuilderCanvasProps> = ({
         position="top-left"
         className="testcase-canvas-controls"
         style={{
-          background: P.surface,
+          background: P.surfaceSolid,
           border: `1px solid ${P.borderColor}`,
           borderRadius: '8px',
           overflow: 'hidden',
@@ -84,11 +85,11 @@ export const TestCaseBuilderCanvas: React.FC<TestCaseBuilderCanvasProps> = ({
             width: '26px',
             height: '26px',
             padding: '0',
-            background: P.surface,
+            background: P.surfaceSolid,
             border: `1px solid ${P.borderColor}`,
             borderRadius: '6px',
             cursor: 'pointer',
-            fontSize: '16px',
+            fontSize: TYPOGRAPHY.navbarItem.size,
             color: P.textSecondary,
             zIndex: 5,
             display: 'flex',
@@ -100,7 +101,7 @@ export const TestCaseBuilderCanvas: React.FC<TestCaseBuilderCanvasProps> = ({
             e.currentTarget.style.color = P.accentText;
           }}
           onMouseLeave={(e) => {
-            e.currentTarget.style.background = P.surface;
+            e.currentTarget.style.background = P.surfaceSolid;
             e.currentTarget.style.color = P.textSecondary;
           }}
         >
@@ -127,7 +128,7 @@ export const TestCaseBuilderCanvas: React.FC<TestCaseBuilderCanvasProps> = ({
         nodeColor={miniMapNodeColor}
         maskColor={`${P.background}b3`}
         style={{
-          background: P.surface,
+          background: P.surfaceSolid,
           border: `1px solid ${P.borderColor}`,
           borderRadius: '8px',
         }}

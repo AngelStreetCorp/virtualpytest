@@ -2,6 +2,7 @@ import { Box, FormControl, InputLabel, Select, MenuItem, ListSubheader, Button, 
 import React from 'react';
 
 import { NavigationEditorTreeControlsProps } from '../../types/pages/NavigationHeader_Types';
+import { TYPOGRAPHY } from '../../constants/typography';
 
 export const NavigationEditorTreeControls: React.FC<NavigationEditorTreeControlsProps> = ({
   focusNodeId,
@@ -31,14 +32,14 @@ export const NavigationEditorTreeControls: React.FC<NavigationEditorTreeControls
       const group = node.groupLabel ?? null;
       if (group && group !== lastGroup) {
         items.push(
-          <ListSubheader key={`group-${group}`} sx={{ fontSize: '0.7rem', lineHeight: '24px' }}>
+          <ListSubheader key={`group-${group}`} sx={{ fontSize: TYPOGRAPHY.caption.size, lineHeight: '1.5rem' }}>
             {group}
           </ListSubheader>,
         );
         lastGroup = group;
       }
       items.push(
-        <MenuItem key={value} value={value} sx={{ fontSize: '0.75rem' }}>
+        <MenuItem key={value} value={value} sx={{ fontSize: TYPOGRAPHY.caption.size }}>
           {node.label || node.id}
         </MenuItem>,
       );
@@ -57,12 +58,12 @@ export const NavigationEditorTreeControls: React.FC<NavigationEditorTreeControls
           marginRight: '8px',
         },
         '& .MuiButton-root': {
-          fontSize: '0.75rem',
+          fontSize: TYPOGRAPHY.caption.size,
           minWidth: 'auto',
           padding: '4px 8px',
         },
         '& .MuiTypography-root': {
-          fontSize: '0.75rem',
+          fontSize: TYPOGRAPHY.caption.size,
           whiteSpace: 'nowrap',
         },
       }}
@@ -75,7 +76,7 @@ export const NavigationEditorTreeControls: React.FC<NavigationEditorTreeControls
           value={focusNodeId || ''}
           onChange={(e) => onFocusNodeChange(e.target.value || null)}
           label="Focus"
-          sx={{ height: 32, fontSize: '0.75rem' }}
+          sx={{ height: 32, fontSize: TYPOGRAPHY.caption.size }}
         >
           <MenuItem value="">
             <em>None</em>
@@ -85,7 +86,7 @@ export const NavigationEditorTreeControls: React.FC<NavigationEditorTreeControls
       </FormControl>
 
       {/* Reset Focus Button */}
-      <Button onClick={onResetFocus} size="small" variant="outlined" sx={{ fontSize: '0.75rem' }}>
+      <Button onClick={onResetFocus} size="small" variant="outlined" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
         Reset
       </Button>
 

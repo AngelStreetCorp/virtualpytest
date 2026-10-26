@@ -12,6 +12,7 @@ from typing import Dict, Any, List, Optional
 
 from backend_server.src.mcp.mcp_instance import get_mcp_server
 from backend_server.src.mcp.tools.analytics_tools import ANALYTICS_TOOL_NAMES
+from backend_server.src.mcp.tools.custom_page_tools import CUSTOM_PAGE_TOOL_NAMES
 from backend_server.src.mcp.tools.masterchief_tools import MASTERCHIEF_PROPOSE_TOOL_NAMES
 from backend_server.src.mcp.utils.lock_ownership import DEVICE_LOCK_TOOL_NAMES
 from ..tools.page_interaction import (
@@ -21,7 +22,11 @@ from ..tools.page_interaction import (
     interact_with_element,
     highlight_element,
     show_toast,
+    show_page,
+    infer_followup_params,
+    _emit as _emit_ui_action,
     get_alerts,
+    COMPANION_PAGES,
     PAGE_INTERACTION_TOOLS,
 )
 
@@ -168,6 +173,24 @@ class ToolBridge:
                 })
                 continue
                 
+            if name == "show_page":
+                result.append({
+                    "name": "show_page",
+                    "description": "Show a real app page, already filtered, in the companion beside the chat. Answer in the chat first (numbers first), then call this. Pick `page` from get_available_pages; resolve names to exact values with the tool named in the page's params (list_hosts, get_execution_results for script names). Set open_now only when the user asked to open the page. If a companion page is shown (see \"Page shown beside the chat\" in your context), a follow-up edits its params: pass the same page with the changed params.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "page": {"type": "string", "enum": list(COMPANION_PAGES)},
+                            "params": {"type": "object", "description": "URL filters allowed by the page"},
+                            "path_args": {"type": "object", "description": "Values for {kind}/{id} path segments, e.g. {\"kind\": \"script\", \"id\": \"...\"}"},
+                            "title": {"type": "string"},
+                            "open_now": {"type": "boolean"}
+                        },
+                        "required": ["page"]
+                    }
+                })
+                continue
+
             if name == "interact_with_element":
                 result.append({
                     "name": "interact_with_element",
@@ -280,6 +303,13 @@ class ToolBridge:
                     "input_schema": mcp_tool['inputSchema'],
                 }
                 result.append(claude_tool)
+            elif name in getattr(self.mcp_server, 'HIDDEN_TOOLS', ()):
+                # Hidden from discovery, but a skill that lists take_control / release_control by name offers them:
+                # "take control of X" is a request the model must be able to answer (TASK-163).
+                from backend_server.src.mcp.tool_definitions.build_definitions import get_builder
+                hidden = get_builder().get_tool(name) or {}
+                result.append({"name": name, "description": hidden.get('description', name),
+                               "input_schema": hidden.get('inputSchema') or {"type": "object", "properties": {}}})
             else:
                 self.logger.warning(f"Tool not found: {name}")
         
@@ -309,6 +339,16 @@ class ToolBridge:
         # arguments. Keeping the keys private also keeps credentials/tenant mechanics out
         # of the public tool schema while making cache entries tenant-specific.
         params = dict(params or {})
+        self._fill_device_context(tool_name, params)
+        # BUG-0914: the page's devices, drones, host desktops and shell commands are a boundary, not a hint.
+        if self.session is not None and not self.is_background:
+            from agent import device_scope
+            reason = device_scope.refusal(tool_name, params, self.session.context,
+                                          device_scope.last_user_message(getattr(self.session, "messages", [])))
+            if reason:
+                self.logger.warning(f"[device-scope] refused {tool_name}: {reason}")
+                return {"content": [{"type": "text", "text": f"Refused (device scope): {reason}"}], "isError": True}
+        self._note_turn_tool(tool_name, params)
         if tool_name in ANALYTICS_TOOL_NAMES and self.session:
             params.update({
                 "_context_team_id": self.session.context.get("team_id"),
@@ -330,6 +370,20 @@ class ToolBridge:
                 "_context_known_device_names": [d.get("device_name") for d in
                                                 (self.session.context.get("available_devices") or [])
                                                 if isinstance(d, dict) and d.get("device_name")],
+            })
+
+        # Who wrote a virtual script is the agent of this session (Forge since TASK-175), never a model
+        # argument: the save tool used to stamp every script "atlas".
+        if tool_name == "save_virtual_script" and self.session:
+            params["_context_agent_id"] = self.session.context.get("agent_id")
+
+        # Custom pages (TASK-139): the caller's identity decides which blocks they may use, so it is
+        # always the runtime's, never a model argument.
+        if tool_name in CUSTOM_PAGE_TOOL_NAMES and self.session:
+            params.update({
+                "_context_team_id": self.session.context.get("team_id"),
+                "_context_user_id": self.session.context.get("user_id"),
+                "_context_user_role": self.session.context.get("user_role"),
             })
 
         # Masterchief identity: the propose tool writes the audit row directly
@@ -382,7 +436,8 @@ class ToolBridge:
             print(f"[@ToolBridge] 🔄 {tool_name} (cache miss - calling API)")
         
         # VALIDATION: Check if tool exists in the system
-        all_available = self.get_available_tool_names()
+        # Hidden MCP tools (take_control / release_control) are left out of the model's listing but stay callable.
+        all_available = self.get_available_tool_names() + sorted(getattr(self.mcp_server, 'HIDDEN_TOOLS', ()))
         if tool_name not in all_available:
             error_msg = f"❌ Tool '{tool_name}' does not exist. "
             # Suggest similar tools
@@ -411,6 +466,22 @@ class ToolBridge:
             result = get_available_pages()
             return {"result": result}
             
+        sid = self.session.id if self.session else None
+
+        if tool_name == "show_page":
+            result = show_page(
+                page=params.get("page", ""),
+                params=params.get("params"),
+                title=params.get("title"),
+                open_now=bool(params.get("open_now")) and self._user_asked_to_open(),
+                path_args=params.get("path_args"),
+                session_id=sid,
+                known=self._companion_known(),
+                run_exists=self._companion_run_exists,
+                defer=self.session.context.setdefault("_turn_offers", []) if self.session else None,
+            )
+            return {"result": result}
+
         if tool_name == "get_page_schema":
             result = get_page_schema(params.get("page_path", ""))
             return {"result": result}
@@ -418,7 +489,8 @@ class ToolBridge:
         if tool_name == "navigate_to_page":
             result = navigate_to_page(
                 page_name=params.get("page_name", ""), 
-                context=params.get("context")
+                context=params.get("context"),
+                session_id=sid,
             )
             return {"result": result}
             
@@ -426,21 +498,24 @@ class ToolBridge:
             result = interact_with_element(
                 element_id=params.get("element_id", ""),
                 action=params.get("action", ""),
-                params=params.get("params")
+                params=params.get("params"),
+                session_id=sid,
             )
             return {"result": result}
             
         if tool_name == "highlight_element":
             result = highlight_element(
                 element_id=params.get("element_id", ""),
-                duration_ms=params.get("duration_ms", 2000)
+                duration_ms=params.get("duration_ms", 2000),
+                session_id=sid,
             )
             return {"result": result}
             
         if tool_name == "show_toast":
             result = show_toast(
                 message=params.get("message", ""),
-                severity=params.get("severity", "info")
+                severity=params.get("severity", "info"),
+                session_id=sid,
             )
             return {"result": result}
         
@@ -455,7 +530,22 @@ class ToolBridge:
             return {"result": result}
 
         # MCP tools
-        result = self.mcp_server.handle_tool_call(tool_name, params)
+        call_params = params
+        if tool_name == "navigate_to_node" and self.session:
+            # Stop cancels a running goto (TASK-140 G7): the tool polls this; it never reaches the host
+            # or the tool schema, and is not part of the cache key above.
+            session = self.session
+            call_params = {**params, "_should_cancel": lambda: bool(session.cancelled)}
+        result = self.mcp_server.handle_tool_call(tool_name, call_params)
+        if tool_name == "execute_script" and self.session and isinstance(result, dict):
+            calls = self.session.context.get("_turn_tools") or []
+            task = (result.get("structuredContent") or {}).get("execution_id")
+            if calls and calls[-1][0] == tool_name and task:
+                calls[-1][1]["_task"] = task
+        if tool_name == "get_execution_results" and self.session and isinstance(result, dict):
+            calls = self.session.context.get("_turn_tools") or []
+            if calls and calls[-1][0] == tool_name:
+                calls[-1][1]["_ids"] = [r.get("id") for r in (result.get("results") or []) if r.get("id")]
         
         # Store in cache if enabled
         if cache_config and cache_config.enabled:
@@ -464,6 +554,133 @@ class ToolBridge:
         self.logger.info(f"Tool {tool_name} completed")
         return result
     
+    # Device tools that act on one device: an omitted host_name/device_id is this chat's device. The system
+    # prompt names it, yet the model drops it now and then (TASK-135: "host_name required" from
+    # dump_ui_elements). A value the model gives is kept, so it can still name another device.
+    DEVICE_CONTEXT_TOOL_NAMES = DEVICE_LOCK_TOOL_NAMES | {
+        "dump_ui_elements", "capture_screenshot", "list_actions", "list_verifications", "verify_node",
+        "save_node_screenshot", "execute_edge", "analyze_screen_for_action", "analyze_screen_for_verification"}
+
+    def _fill_device_context(self, tool_name: str, params: Dict[str, Any]) -> None:
+        if self.session is None or tool_name not in self.DEVICE_CONTEXT_TOOL_NAMES or params.get("host_name"):
+            return
+        ctx = self.session.context
+        if ctx.get("host_name"):
+            params["host_name"] = ctx["host_name"]
+            if not params.get("device_id") and ctx.get("device_id"):
+                params["device_id"] = ctx["device_id"]
+
+    # Tool-call argument -> catalogue param, for the end-of-turn companion offer.
+    _FALLBACK_ARGS = {"host_name": "host", "device_name": "device", "device_id": "device", "script_name": "script"}
+    _FALLBACK_SKIP = {"list_hosts", "list_testcases", "show_page"}
+
+    def _note_turn_tool(self, tool_name: str, params: Dict[str, Any]) -> None:
+        if self.session is None:
+            return
+        calls = self.session.context.setdefault("_turn_tools", [])
+        calls.append((tool_name, {k: v for k, v in params.items() if not k.startswith("_")}))
+
+    def companion_fallback(self) -> Optional[str]:
+        """End of an Atlas turn: if show_page was not called but a catalogue page's data tool was,
+        offer that page ourselves. Params come from the tool call's arguments and pass the same
+        show_page checks; anything that fails sends nothing."""
+        offers = (self.session.context.get("_turn_offers") if self.session else None) or []
+        if offers:
+            last = offers[-1]
+            self.session.context["_turn_offers"] = []
+            _emit_ui_action(self.session.id, last)
+            return "sent"
+        calls = (self.session.context.get("_turn_tools") if self.session else None) or []
+        if any(name == "show_page" for name, _ in calls):
+            return None
+        if not any(name not in self._FALLBACK_SKIP for name, _ in calls):
+            return self._followup_from_message()
+        for tool_name, args in reversed(calls):
+            if tool_name in self._FALLBACK_SKIP:
+                continue
+            if tool_name == "execute_script" and args.get("_task"):
+                # a run was started: its live page is the companion
+                out = show_page("run_live", {}, path_args={"taskId": args["_task"]}, session_id=self.session.id)
+                self.logger.info(f"companion fallback run_live {args['_task']}: {out}")
+                return out if out.startswith("✅") else None
+            page = next((k for k, e in COMPANION_PAGES.items() if e["data_tool"] == tool_name), None)
+            if not page:
+                continue
+            allowed = COMPANION_PAGES[page]["params"]
+            params = {self._FALLBACK_ARGS[k]: v for k, v in args.items() if k in self._FALLBACK_ARGS and v}
+            if args.get("success") in (True, False):
+                params["status"] = "passed" if args["success"] else "failed"
+            params = {k: v for k, v in params.items() if k in allowed}
+            ids = args.get("_ids") or []
+            if page == "test_reports" and args.get("limit") == 1 and len(ids) == 1:
+                # one run asked for, one run found: its summary is the page
+                out = show_page("run_summary", {}, path_args={"kind": "script", "id": ids[0]},
+                                session_id=self.session.id, run_exists=self._companion_run_exists)
+                self.logger.info(f"companion fallback run_summary {ids[0]}: {out}")
+                return out if out.startswith("✅") else None
+            out = show_page(page, params, session_id=self.session.id, known=self._companion_known())
+            self.logger.info(f"companion fallback {page} {params}: {out}")
+            return out if out.startswith("✅") else None
+        return None
+
+    def _followup_from_message(self) -> Optional[str]:
+        """No data tool and no show_page this turn, a companion page is shown: work out the changed
+        filters from the user's own message and offer the same page again. No re-query."""
+        if self.session is None:
+            return None
+        shown = str(self.session.context.get("companion") or "")
+        name, _, rest = shown.partition(" — ")
+        page = next((k for k, e in COMPANION_PAGES.items() if e["name"] == name.strip()), None)
+        msgs = [m for m in self.session.messages if m.get("role") == "user"]
+        if not page or not msgs or "{" in COMPANION_PAGES[page]["path"]:
+            return None
+        current = dict(p.split("=", 1) for p in rest.split(", ") if "=" in p)
+        known = self._companion_known()
+        params = infer_followup_params(str(msgs[-1].get("content", "")), page, current, known)
+        if not params:
+            return None
+        out = show_page(page, params, session_id=self.session.id, known=known)
+        self.logger.info(f"companion follow-up {page} {params}: {out}")
+        return out if out.startswith("✅") else None
+
+    def _user_asked_to_open(self) -> bool:
+        """open_now is honoured only when the user's last message asks to open/show a page."""
+        import re
+        msgs = [m for m in (self.session.messages if self.session else []) if m.get("role") == "user"]
+        text = str(msgs[-1].get("content", "")) if msgs else ""
+        return bool(re.search(r"\b(open|show|display|pull up|bring up)\b", text.split("Companion:")[0], re.I))
+
+    def _companion_known(self) -> Dict[str, Any]:
+        """Real host / device / script names for show_page to check against (never a guess)."""
+        ctx = self.session.context if self.session else {}
+        devices: Dict[str, List[str]] = {}
+        for d in ctx.get("available_devices") or []:
+            if isinstance(d, dict) and d.get("host_name"):
+                names = devices.setdefault(d["host_name"], [])
+                names.extend(n for n in (d.get("device_name"), d.get("device_id")) if n and n not in names)
+        hosts = sorted(set(devices) | set(ctx.get("selected_server_hosts") or []))
+        known: Dict[str, Any] = {"host": hosts, "device": devices}
+        try:
+            from shared.src.lib.utils.supabase_utils import get_supabase_client
+            rows = (get_supabase_client().table("script_results").select("script_name")
+                    .eq("team_id", ctx.get("team_id")).order("created_at", desc=True).limit(2000).execute().data)
+            known["script"] = sorted({r["script_name"] for r in rows if r.get("script_name")})
+        except Exception as e:
+            self.logger.warning(f"show_page: script names unavailable: {e}")
+        return known
+
+    def _companion_run_exists(self, kind: str, run_id: str) -> bool:
+        """Does this team have a script/campaign run with this id?"""
+        from shared.src.lib.utils.supabase_utils import get_supabase_client
+        table, col = ("script_results", "id") if kind == "script" else ("campaign_executions", "id")
+        team_id = self.session.context.get("team_id") if self.session else None
+        try:
+            rows = get_supabase_client().table(table).select(col).eq(col, run_id).eq("team_id", team_id).limit(1).execute().data
+            return bool(rows)
+        except Exception as e:
+            self.logger.warning(f"show_page: run lookup failed: {e}")
+            return False
+
     def get_available_tool_names(self) -> List[str]:
         """Get list of all available tool names"""
         base_tools = [t['name'] for t in self._get_all_tools()]

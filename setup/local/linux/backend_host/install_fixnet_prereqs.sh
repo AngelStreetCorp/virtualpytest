@@ -201,18 +201,28 @@ fi
 # cdc_acm hands out root:dialout 0660 nodes. Without group membership an AT
 # session that works under sudo fails for the service user.
 printf "\n== 3. dialout access\n"
-if id -nG "$TARGET_USER" 2>/dev/null | tr ' ' '\n' | grep -qx dialout; then
-    printf "  [ok]   %s is already in dialout\n" "$TARGET_USER"
-else
-    printf "  [MISS] %s is not in dialout\n" "$TARGET_USER"
-    if getent group dialout >/dev/null 2>&1; then
-        run "add $TARGET_USER to dialout" sudo usermod -aG dialout "$TARGET_USER"
+# The platform runs the modems as vpt_user (vpt-host), not as whoever runs this installer,
+# so both get the group.
+DIALOUT_USERS="$TARGET_USER"
+if [ "$TARGET_USER" != "vpt_user" ] && id vpt_user >/dev/null 2>&1; then
+    DIALOUT_USERS="$DIALOUT_USERS vpt_user"
+fi
+if ! getent group dialout >/dev/null 2>&1; then
+    run "create the dialout group" sudo groupadd dialout
+fi
+NEED_RESTART=0
+for u in $DIALOUT_USERS; do
+    if id -nG "$u" 2>/dev/null | tr ' ' '\n' | grep -qx dialout; then
+        printf "  [ok]   %s is already in dialout\n" "$u"
     else
-        run "create the dialout group"     sudo groupadd dialout
-        run "add $TARGET_USER to dialout"  sudo usermod -aG dialout "$TARGET_USER"
+        printf "  [MISS] %s is not in dialout\n" "$u"
+        run "add $u to dialout" sudo usermod -aG dialout "$u"
+        NEED_RESTART=1
     fi
+done
+if [ "$NEED_RESTART" = 1 ]; then
     note "group membership only applies to NEW logins: log out and back in (or run 'newgrp dialout')"
-    note "for the service to use the modems it runs as vpt_user: sudo usermod -aG dialout vpt_user"
+    note "vpt-host keeps its old groups until restarted: sudo systemctl restart vpt-host"
 fi
 
 ################################################################################
