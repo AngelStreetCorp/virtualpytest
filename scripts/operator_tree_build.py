@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """One Forge `build-tree-web` chat for an operator web app (TASK-178), reusing the UC-04 chat driver.
 
-    UC04_DIR=~/vpt-deliverables/btel-web UC04_HOST=host-clone-2 UC04_DEVICE=host \
-        python3 scripts/operator_tree_build.py --ui web-btel --max-nodes 12
+    UC04_DIR=~/vpt-deliverables/<operator>-web UC04_HOST=host-clone-2 UC04_DEVICE=host \
+        python3 scripts/operator_tree_build.py --ui web-<operator> --max-nodes 12
 
 The folder holds prompt.md and target.env (URL, and the login as `{env:<CODENAME>_APP_LOGIN}` /
 `{env:<CODENAME>_APP_PASSWORD}` placeholders: the host resolves them when it types, see secret_text.py).

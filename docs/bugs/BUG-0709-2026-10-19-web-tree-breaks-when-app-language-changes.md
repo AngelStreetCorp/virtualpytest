@@ -55,4 +55,4 @@ redirects to `/en/home`. So the URL's language segment is noise, and the path af
 ## Not fixed
 
 Edges that click a translated label are still language-bound: profile menu → Settings, the Search button, catalogue tiles,
-the TV Guide in-page controls. See WEB_UI_ORCHTNET.md §7.
+the TV Guide in-page controls. See the operator's internal web UI notes, §7.

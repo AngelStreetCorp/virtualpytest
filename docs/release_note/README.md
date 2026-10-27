@@ -6,6 +6,28 @@
 
 ### Bug fixes
 
+## build 90258 — 2026-10-27
+
+### Bug fixes
+
+- **Every release gets its Docker bundle again** — the release check that builds the ready-to-run Docker bundle failed on every release since 2026-10-13, so no release carried it: the bundle left out the documentation the server reads. The bundle now ships that documentation (about 8 MB more, compressed). In plain words: the one-download Docker install is attached to releases again · [BUG-0973](../bugs/BUG-0973-2026-10-27-docker-bundle-missing-server-docs.md)
+
+### Security
+
+- **No operator name in what a release ships** — four lines of code comments and project notes in build 90256 still named an operator the platform works with; they are reworded, the release check now also catches a name written after an underscore (`X_NAME_KEY`), and one internal helper script is no longer published. In plain words: the published code names no customer
+
+### Upgrade
+
+**Compared with** `main-2026.10.27-90256` → `main-hotfix-2026.10.27-90257` (14 files changed).
+
+**Database** — no migration.
+
+**Settings** — no new key.
+
+**Dependencies** — no new package.
+
+**Services** — restart by hand (the deploy restarts the rest itself): `vpt-discard-incidents`, `vpt-discard-scripts`, `vpt-heatmap`, `vpt-procon`, `vpt-timeline`
+
 ## build 90256 — 2026-10-27
 
 ### Features

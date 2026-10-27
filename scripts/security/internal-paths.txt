@@ -40,7 +40,6 @@ docs/tasks/
 docs/_drafts/
 docs/agent/release/
 docs/agent/devices/STB_UI_OPERATOR.md
-docs/agent/devices/WEB_UI_ORCHTNET.md
 security_report/
 docs/security/*.json
 .claude/
@@ -197,3 +196,6 @@ scripts/localize/cheap23.json
 # Customer-specific web tree smoke test (TASK-177). A glob, because this file publishes and the
 # script's name carries a customer codename (docs/agent/release/RELEASING.md, "Pair tag").
 test_scripts/web/web_r*tel_smoke.py
+
+# Agent FAQ persona builder: it reads docs/agent/ (internal) and names the operator device docs by path.
+scripts/agent/faq_grow_persona.py

@@ -20,6 +20,7 @@
 #     backend_host/src/.env.example    device config (launch.sh copies it to .env)
 #     test_scripts/ test_campaign/     the shipped tests
 #     frontend/public/docs/…  the user documentation the frontend serves at /docs
+#     docs/…                  what vpt-server mounts at /app/docs (guides, OpenAPI, videos.json)
 #     README.md               three commands
 #
 # Deliberately excluded: setup/docker/.env (secrets, per install), hetzner_custom (a
@@ -73,6 +74,13 @@ cp -R "$PROJECT_ROOT/test_campaign" "$ROOT/"
 # is what the bundle's size comment above has to mean now. Still ~50x smaller than the
 # clone, and a user running the bundle must get the docs the image serves.
 cp -R "$PROJECT_ROOT/frontend/public/docs" "$ROOT/frontend/public/"
+
+# vpt-server bind-mounts ../../docs at /app/docs (search-docs, video-library); the image has
+# no copy (.dockerignore drops docs/). Ship the text: task docs (68 MB, mostly screenshots),
+# the internal agent docs and images stay out — ~29 MB, ~8 MB gzipped.
+mkdir -p "$ROOT/docs"
+rsync -a --exclude 'tasks/' --exclude 'agent/' --exclude '*.png' --exclude '*.jpg' \
+      --exclude '*.jpeg' --exclude '*.gif' --exclude '*.mp4' "$PROJECT_ROOT/docs/" "$ROOT/docs/"
 
 # Nothing generated or secret travels with the bundle.
 find "$ROOT" -name '.env' -delete

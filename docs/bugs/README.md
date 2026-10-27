@@ -75,6 +75,10 @@ What broke and what shipped to fix it, newest first — [release notes](../relea
 - **vpt-pi1 keeps disappearing from the UI; a Cloudflare Tunnel fixed the 522s but NOT the reported symptom** — `vpt-pi1` intermittently vanishes from the UI — **root-caused 2026-09-15**: the host is *evicted from the server registry* (9 gaps >180s in one morning, ~70 min absent). The ping ran ~7 sequential WAN DB calls **before** pinging, each on a fresh TCP connection (httpx keepalive 5s vs 60s cycle), and the Pi's outbound SYNs are dropped by the router — with postgrest's 120s default timeout one dropped SYN stalled the ping thread for minutes. Fixed: metrics moved to their own thread, DB client given a 5s connect timeout + connect-retries + 300s keep-alive, ping interval 60s→30s · reported 2026-09-15 · [BUG-0093](BUG-0093-2026-09-15-rpitest-unreachable-tunnel-did-not-fix-it.md)
 - **A running script is indistinguishable from one that failed instantly** · reported 2026-09-15 · [BUG-0090](BUG-0090-2026-09-15-script-results-completed-at-set-at-insert.md)
 
+## build 90258 — 2026-10-27
+
+- **The Docker bundle was missing the docs the server mounts, so no release got its bundle** · reported 2026-10-27 · [BUG-0973](BUG-0973-2026-10-27-docker-bundle-missing-server-docs.md)
+
 ## build 90256 — 2026-10-27
 
 - **Atlas said a device did not exist when the chat sent no device list** · reported 2026-10-27 · [BUG-0969](BUG-0969-2026-10-27-atlas-said-a-device-did-not-exist-when-the-chat-sent-no-device-list.md)

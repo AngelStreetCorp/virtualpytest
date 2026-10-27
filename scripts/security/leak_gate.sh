@@ -276,7 +276,9 @@ else
     plain_re="$(printf '%s\n' "$plain" | grep -v '^$' | sed 's/[][\.^$*+?(){}|\\]/\\&/g' | paste -sd'|' - || true)"
     raw_re="$(printf '%s\n' "$regex" | grep -v '^$' | paste -sd'|' - || true)"
     line_re=""; path_re=""
-    [[ -n "$plain_re" ]] && { line_re="\\b(${plain_re})"; path_re="(${plain_re})"; }
+    # Boundary = start of line or any non-alphanumeric. `\b` alone treats `_` as part of the word, so
+    # `WEB_UI_<CODENAME>.md` and `X_<CODENAME>_KEY` slipped through (found at the 2026-10-27 cut).
+    [[ -n "$plain_re" ]] && { line_re="(^|[^[:alnum:]])(${plain_re})"; path_re="(${plain_re})"; }
     [[ -n "$raw_re" ]] && { line_re="${line_re:+${line_re}|}(${raw_re})"; path_re="${path_re:+${path_re}|}(${raw_re})"; }
     printf -v "${prefix}_LINE_RE" '%s' "$line_re"
     printf -v "${prefix}_PATH_RE" '%s' "$path_re"
