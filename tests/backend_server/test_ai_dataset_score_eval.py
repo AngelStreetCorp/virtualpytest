@@ -213,7 +213,7 @@ def test_av_fault_comparator():
 
 def _rows():
     return [{"id": f"s{i}", "ground_truth": {"node_id": "46854a27-uuid", "label": "home"},
-             "userinterface": "stb_tv", "device_model": "stb"} for i in range(3)]
+             "userinterface": "stb-testop", "device_model": "stb"} for i in range(3)]
 
 
 def _gateway_result(content, profile="qwen-vl-pc", fallback=False, success=True):
@@ -379,10 +379,10 @@ def test_focus_truth_only_on_grouped_rows_with_a_focus():
 
 
 def test_scoring_asks_the_focus_on_rows_with_a_focus_only():
-    rows = [{"id": "a", "ground_truth": GROUPED, "userinterface": "stb_tv"},
+    rows = [{"id": "a", "ground_truth": GROUPED, "userinterface": "stb-testop"},
             {"id": "b", "ground_truth": dict(GROUPED, node="n-home", node_label="home", focus=None),
-             "userinterface": "stb_tv"},
-            {"id": "c", "ground_truth": GROUPED, "userinterface": "stb_tv"}]
+             "userinterface": "stb-testop"},
+            {"id": "c", "ground_truth": GROUPED, "userinterface": "stb-testop"}]
     prompts = []
     answers = iter(['{"label": "home"}', '{"focused": "apps"}',      # a: screen ok, focus ok
                     '{"label": "home"}',                              # b: no focus question

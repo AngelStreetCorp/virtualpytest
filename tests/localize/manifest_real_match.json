@@ -2,7 +2,7 @@
   "version": 1,
   "_comment": "Real-classifier test manifest: 11 labeled UI screens from EXPERIMENT-01 §1.2 (3 broadcast promos and 1 black-frame excluded — broadcast = playback's job, black = capture-side). This is the COMPLEMENT of the existing test_localize_regression.py manifest (which mocks matcher + Tier 2): here the test calls the REAL ImageHelpers.identify_screen + scv.screen_state + scv.error, with a STUB node_fps set loaded from tests/localize/fixtures/*.json (the goal is to test the payload plumbing, not the matcher quality). The 11 userinterfaces come from the table in EXPERIMENT-01-onejev-abstain-coverage.md:39-43. Source paths follow the cold-archive convention: /Users/Shared/vpt_captures/<host>_<captureN>/capture_<NNNNNN>.jpg. Unreachable rows are SKIPPED with a warning, not failed (per the task spec). No real brand names (AGENTS.md leak-gate).",
   "userinterfaces": [
-    {"name": "stb_tv", "company": "brand_a"},
+    {"name": "stb-testop", "company": "brand_a"},
     {"name": "switch", "company": null},
     {"name": "android_tv", "company": "brand_c"},
     {"name": "game2048-web", "company": "brand_b"}

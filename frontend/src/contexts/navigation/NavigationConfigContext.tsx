@@ -395,11 +395,20 @@ export const NavigationConfigProvider: React.FC<{ children: React.ReactNode }> =
     }
   };
 
+  // Editing the prod view lands on the dev draft (TASK-173): the server marks
+  // such a save, and the editor page moves to the dev row when it hears this.
+  const notifyIfSavedToDev = (result: any) => {
+    if (result?.redirected_to_dev) {
+      window.dispatchEvent(new CustomEvent('vpt:prod-edit-saved-to-dev'));
+    }
+  };
+
   const saveNode = async (treeId: string, node: NavigationNode): Promise<void> => {
     const result = await api.post<any>(buildServerUrl(`/server/navigationTrees/${treeId}/nodes`), node) as { success: boolean; node?: any; error?: string };
     if (!result.success) {
       throw new Error(result.error);
     }
+    notifyIfSavedToDev(result);
     
     try {
       await api.post(buildServerUrl(`/server/navigation/cache/update-node`), {
@@ -417,6 +426,7 @@ export const NavigationConfigProvider: React.FC<{ children: React.ReactNode }> =
     if (!result.success) {
       throw new Error(result.error);
     }
+    notifyIfSavedToDev(result);
     if (!options?.skipCacheUpdate) {
       try {
         await api.post(buildServerUrl(`/server/navigation/cache/update-edge`), {
@@ -448,6 +458,7 @@ export const NavigationConfigProvider: React.FC<{ children: React.ReactNode }> =
   const createSubTree = async (parentTreeId: string, parentNodeId: string, treeData: any): Promise<NavigationTree> => {
     const result = await api.post<any>(buildServerUrl(`/server/navigationTrees/${parentTreeId}/nodes/${parentNodeId}/subtrees`), treeData);
     if (result.success) {
+      notifyIfSavedToDev(result);
       return result.tree;
     } else {
       throw new Error(result.error);

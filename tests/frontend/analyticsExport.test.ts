@@ -134,7 +134,7 @@ describe('disclosures and regressions', () => {
   });
 
   it('builds filenames from the title slug', () => {
-    expect(artifactFilename('KPI: v1 vs v2 / stb_tv', 'csv')).toBe('kpi-v1-vs-v2-stb-tv.csv');
+    expect(artifactFilename('KPI: v1 vs v2 / stb-testop', 'csv')).toBe('kpi-v1-vs-v2-stb-testop.csv');
     expect(artifactFilename('', 'json')).toBe('analytics.json');
   });
 });

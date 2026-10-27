@@ -212,9 +212,9 @@ def test_an_interface_is_read_from_the_node_never_guessed(monkeypatch):
     monkeypatch.setattr('shared.src.lib.screen_memory.match_screen',
                         staticmethod(lambda fp, rows: FakeMemory.match_screen(fp, rows)))
     candidates = [{'dhash': 'a' * 64, 'region_center': 'b' * 64, 'node_id': 'n1', 'label': 'home',
-                   'userinterface': 'stb_tv', 'fingerprint': {'v': 6}}]
+                   'userinterface': 'stb-testop', 'fingerprint': {'v': 6}}]
     hit = w.link_node(row(), candidates)
-    assert hit and hit['node_id'] == 'n1' and hit['userinterface'] == 'stb_tv'
+    assert hit and hit['node_id'] == 'n1' and hit['userinterface'] == 'stb-testop'
 
 
 def test_a_proposal_without_an_interface_is_skipped():
@@ -227,7 +227,7 @@ def test_a_proposal_without_an_interface_is_skipped():
 
 def test_a_proposal_with_an_interface_is_queued_not_created():
     db = FakeDB()
-    assert w.propose_node(db, 'team', row(userinterface='stb_tv'), 'a_name', {}) is True
+    assert w.propose_node(db, 'team', row(userinterface='stb-testop'), 'a_name', {}) is True
     name, op, _ = db.table_ops[0]
     assert (name, op) == ('userinterface_unknown_screens', 'upsert')
 

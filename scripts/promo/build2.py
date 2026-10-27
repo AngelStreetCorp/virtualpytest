@@ -462,7 +462,7 @@ def video_cicd():
 def video_vscript():
     m = marks_of("vscript", RAW18); v = RAW18 / "vscript.mp4"
     # raw18/vscript.mp4 (take 2026-10-05, vscript_capture.js, RPI1-server): Virtual Scripts builder, new script
-    # smoke_goto_live, goto_live pasted, Save, target stb3 (vpt-pi1) / stb_tv, Control, Run -> Passed (~14 s),
+    # smoke_goto_live, goto_live pasted, Save, target stb3 (vpt-pi1) / stb-<operator>, Control, Run -> Passed (~14 s),
     # release, report (summary, mosaic). stb3 was already on live TV: no operator home screen anywhere, no blur.
     end = m["end"] - 1.2
     return [

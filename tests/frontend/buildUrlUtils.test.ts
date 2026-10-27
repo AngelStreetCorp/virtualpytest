@@ -20,6 +20,10 @@ import {
 } from '../../frontend/src/utils/buildUrlUtils';
 import { APP_CONFIG, STORAGE_KEYS } from '../../frontend/src/config/constants';
 import { ALL_SERVERS_SENTINEL } from '../../frontend/src/lib/allServer/scope';
+import {
+  resetPlatformServersForTest,
+  setPlatformServers,
+} from '../../frontend/src/lib/allServer/platformServers';
 
 const PRIMARY = 'https://primary.example.com';
 const SECONDARY = 'https://secondary.example.com';
@@ -114,43 +118,59 @@ describe('getAllServerUrls', () => {
 
   beforeEach(() => {
     localStorage.clear();
+    resetPlatformServersForTest();
     delete (window as unknown as Record<string, unknown>).__VPT_CONFIG__;
   });
 
-  it('lists the primary and every slave URL, in order', () => {
-    setConfig({
-      VITE_SERVER_URL: PRIMARY,
-      VITE_SLAVE_SERVER_URL: `${SECONDARY},https://third.example.com`,
-    });
+  const row = (name: string, url: string, sort_order = 0, enabled = true) => ({ name, url, sort_order, enabled });
+
+  it('lists the primary and every platform server, in the table order', () => {
+    setConfig({ VITE_SERVER_URL: PRIMARY });
+    setPlatformServers([
+      row('third', 'https://third.example.com', 20),
+      row('second', SECONDARY, 10),
+    ]);
 
     expect(getAllServerUrls()).toEqual([PRIMARY, SECONDARY, 'https://third.example.com']);
   });
 
-  it('drops a slave URL that repeats the primary verbatim (BUG-0431)', () => {
-    setConfig({ VITE_SERVER_URL: PRIMARY, VITE_SLAVE_SERVER_URL: `${PRIMARY},${SECONDARY}` });
+  it('skips a disabled server', () => {
+    setConfig({ VITE_SERVER_URL: PRIMARY });
+    setPlatformServers([row('second', SECONDARY, 10, false)]);
+
+    expect(getAllServerUrls()).toEqual([PRIMARY]);
+  });
+
+  it('drops a row that repeats the primary verbatim (BUG-0431)', () => {
+    setConfig({ VITE_SERVER_URL: PRIMARY });
+    setPlatformServers([row('main', PRIMARY, 0), row('second', SECONDARY, 10)]);
 
     expect(getAllServerUrls()).toEqual([PRIMARY, SECONDARY]);
   });
 
-  it('drops a slave URL that repeats the primary as <primary>/server (BUG-0431)', () => {
+  it('drops a row that repeats the primary as <primary>/server (BUG-0431)', () => {
     // The /server suffix is stripped while parsing, so this used to produce two
     // identical rows and two identical /getAllHosts requests per refresh round.
-    setConfig({ VITE_SERVER_URL: PRIMARY, VITE_SLAVE_SERVER_URL: `${PRIMARY}/server,${SECONDARY}` });
+    setConfig({ VITE_SERVER_URL: PRIMARY });
+    setPlatformServers([row('main', `${PRIMARY}/server`, 0), row('second', SECONDARY, 10)]);
 
     expect(getAllServerUrls()).toEqual([PRIMARY, SECONDARY]);
   });
 
   it('treats a trailing slash and letter case as the same server (BUG-0431)', () => {
-    setConfig({
-      VITE_SERVER_URL: PRIMARY,
-      VITE_SLAVE_SERVER_URL: `${PRIMARY}/,${PRIMARY.toUpperCase()},${SECONDARY}`,
-    });
+    setConfig({ VITE_SERVER_URL: PRIMARY });
+    setPlatformServers([
+      row('a', `${PRIMARY}/`, 0),
+      row('b', PRIMARY.toUpperCase(), 1),
+      row('second', SECONDARY, 10),
+    ]);
 
     expect(getAllServerUrls()).toEqual([PRIMARY, SECONDARY]);
   });
 
   it('keeps the first spelling of a repeated URL', () => {
-    setConfig({ VITE_SERVER_URL: `${PRIMARY}/`, VITE_SLAVE_SERVER_URL: PRIMARY });
+    setConfig({ VITE_SERVER_URL: `${PRIMARY}/` });
+    setPlatformServers([row('main', PRIMARY)]);
 
     // The first spelling wins, so state, localStorage and built links keep using what
     // the deployment configured rather than a later duplicate's variant.

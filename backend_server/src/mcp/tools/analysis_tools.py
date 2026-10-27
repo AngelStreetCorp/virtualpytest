@@ -496,6 +496,85 @@ class AnalysisTools:
             print(f"[@analysis] Error in get_alerts: {e}")
             return {"content": [{"type": "text", "text": f"Error querying alerts: {e}"}], "isError": True}
 
+    def get_stream_status(self, params: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Live capture-stream status of every device: is its video stream running, stuck or stopped?
+        A stuck or stopped ffmpeg is a device tile that stays on "loading" for the user.
+        Use this for "is any stream down / loading / black tile / not playing" questions.
+        A Tello streams only while paired: it shows as idle, never as failing. Show the user the table as is.
+
+        Example: get_stream_status()
+        Example: get_stream_status(host_name='vpt-pi4')
+        Example: get_stream_status(only_failing=True)
+
+        Args:
+            params: {
+                'host_name': str (OPTIONAL - only this host),
+                'device_name': str (OPTIONAL - only devices whose name contains this text),
+                'only_failing': bool (OPTIONAL - list only failing streams, default False)
+            }
+
+        Returns:
+            Counts, a table of failing streams (since when), idle on-demand devices (a Tello streams only
+            while paired), then the running ones per host unless only_failing
+        """
+        try:
+            from shared.src.lib.database.system_metrics_db import get_stream_status
+
+            device_filter = (params.get('device_name') or '').lower()
+            rows = [r for r in get_stream_status(host_name=params.get('host_name'))
+                    if device_filter in (r.get('device_name') or '').lower()]
+            if not rows:
+                return {"content": [{"type": "text", "text": "No device reported its stream status in the last 10 minutes"}],
+                        "isError": False, "streams": []}
+
+            failing = [r for r in rows if r['state'] == 'failing']
+            idle = [r for r in rows if r['state'] == 'idle']
+            running = [r for r in rows if r['state'] == 'running']
+            head = f"**Streams:** {len(running)} running · {len(failing)} failing"
+            if idle:
+                head += f" · {len(idle)} idle (need pairing)"
+            lines = [head]
+            if failing:
+                lines += ["", "| Device | Host | Problem | Since |", "|---|---|---|---|"]
+                for r in failing:
+                    lines.append(f"| {r['device_name']} | {r['host_name']} | {self._stream_problem(r)} | "
+                                 f"{self._age(r.get('failing_since'))} |")
+            if idle:
+                lines += ["", "Idle, not counted (video only while paired): "
+                          + ", ".join(f"{r['device_name']} ({r['host_name']})" for r in idle)]
+            if running and not params.get('only_failing'):
+                by_host: Dict[str, list] = {}
+                for r in running:
+                    by_host.setdefault(r['host_name'], []).append(r['device_name'])
+                lines += ["", "Running:"] + [f"- {h}: {', '.join(names)}" for h, names in by_host.items()]
+            keep = ('host_name', 'device_name', 'device_model', 'state', 'ffmpeg_status', 'monitor_status',
+                    'failing_since')
+            shown = rows if not params.get('only_failing') else failing + idle
+            return {"content": [{"type": "text", "text": "\n".join(lines)}], "isError": False,
+                    "streams": [{k: r.get(k) for k in keep} for r in shown]}
+
+        except Exception as e:
+            print(f"[@analysis] Error in get_stream_status: {e}")
+            return {"content": [{"type": "text", "text": f"Error reading stream status: {e}"}], "isError": True}
+
+    @staticmethod
+    def _stream_problem(row: Dict[str, Any]) -> str:
+        if row.get('ffmpeg_status') in ('stuck', 'stopped'):
+            return f"video {row['ffmpeg_status']}"
+        return f"analysis {row.get('monitor_status')}"
+
+    @staticmethod
+    def _age(iso: Optional[str]) -> str:
+        if not iso:
+            return "?"
+        minutes = int((datetime.now(timezone.utc) - datetime.fromisoformat(iso.replace('Z', '+00:00'))).total_seconds() // 60)
+        if minutes < 60:
+            return f"{minutes} min"
+        if minutes < 48 * 60:
+            return f"{minutes // 60} h"
+        return f"{minutes // 1440} days"
+
     def _get_redis_queue_status(self) -> Dict[str, int]:
         """Get Redis queue lengths using unified Redis configuration"""
         try:

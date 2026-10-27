@@ -11,7 +11,7 @@ New API structure for normalized navigation tables:
 Clean, scalable REST endpoints without monolithic JSONB operations.
 """
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, g
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
 from backend_server.src.lib.auth_middleware import require_user_auth
 from shared.src.lib.database.navigation_trees_db import (
@@ -43,6 +43,50 @@ import threading
 from typing import Optional
 
 server_navigation_trees_bp = Blueprint('server_navigation_trees', __name__, url_prefix='/server')
+
+
+# TASK-173: prod trees are only written by Publish. A per-node / per-edge /
+# subtree write aimed at a prod tree is re-aimed at the dev tree it was
+# published from (the batch save does the same in save_tree_data_api).
+@server_navigation_trees_bp.before_request
+def _redirect_prod_tree_writes_to_dev():
+    if request.method not in ('POST', 'PUT', 'DELETE'):
+        return None
+    args = request.view_args or {}
+    key = 'tree_id' if 'tree_id' in args else 'parent_tree_id' if 'parent_tree_id' in args else None
+    if not key or request.endpoint.endswith(('save_tree_data_api', 'validate_edge_actions_api')) \
+            or '/edges/validate' in request.path or request.path.endswith('/batch'):
+        return None
+    team_id = request.args.get('team_id')
+    if not team_id:
+        return None
+    from shared.src.lib.database.userinterface_publish import resolve_dev_tree_for_prod
+    try:
+        redirect = resolve_dev_tree_for_prod(args[key], team_id)
+    except Exception as exc:
+        # The redirect exists so that an edit never lands on a prod tree. When
+        # the lookup itself fails we cannot prove the tree is not a prod tree,
+        # so the write is refused — with a body the caller can read instead of
+        # an empty 500.
+        message = f'Could not check whether the tree is a prod tree: {exc}'
+        return jsonify({'success': False, 'error': message, 'message': message}), 503
+    if not redirect:
+        return None
+    if redirect.get('error'):
+        return jsonify({'success': False, 'error': redirect['error'], 'message': redirect['error']}), 409
+    request.view_args[key] = redirect['dev_tree_id']
+    g.redirected_to_dev = True
+    return None
+
+
+@server_navigation_trees_bp.after_request
+def _mark_redirected_to_dev(response):
+    if getattr(g, 'redirected_to_dev', False) and response.is_json:
+        body = response.get_json(silent=True)
+        if isinstance(body, dict):
+            body['redirected_to_dev'] = True
+            response.set_data(jsonify(body).get_data())
+    return response
 
 # ============================================================================
 # IN-MEMORY CACHE FOR NAVIGATION TREES (reduces DB queries from 3 to 0)

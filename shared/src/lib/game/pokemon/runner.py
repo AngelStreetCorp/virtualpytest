@@ -22,7 +22,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 from . import battle, gym, hm, learn, names, overworld, shop, strategy, strength
 from .memory import ADDR, busy, decode, dex_page_open, screen_rows, text_box, text_box_open
-from .milestones import (CERULEAN_MART, FUCHSIA_CENTER, GAME_CORNER, LAVENDER_CENTER, OAKS_LAB, PEWTER_MART, POKE_FLUTE, ROCKET_B4F,
+from .milestones import (CERULEAN_MART, FUCHSIA_CENTER, GAME_CORNER, LAVENDER_CENTER, OAKS_LAB, PEWTER_MART, POKE_FLUTE, ROCKET_B1F, ROCKET_B2F, ROCKET_B4F,
                          HM03_SURF, HM04_STRENGTH, MART_ROOF, ROUTE7_GATE, ROCKET_HIDEOUT, ROCKET_LIFT, SAFARI_ZONE, SURF, ROUTE2, ROUTE4, ROUTE24, TOWER_6F, TOWER_7F, VERMILION_GYM, VIRIDIAN_FOREST,
                          VIRIDIAN_MART, badges, bag, current, party_knows, MT_MOON_B2F, CELADON, SAFFRON,
                          DEFERRED_BY, FUCHSIA, GOOD_ROD, GOOD_ROD_HOUSE, ROAD_TO_FUCHSIA, STRENGTH, CINNABAR_ISLAND, MANSION, MANSION_1F, MANSION_2F, MANSION_3F, MANSION_B1F,
@@ -1026,16 +1026,25 @@ class Runner:
             # puts the boulders of the floor back where they were, and the floor can be solved.
             if maps[i] == here and (self.hop_blocked(here, nxt)
                                     or not self.world.route(here, nxt, start_part=(info.get("parts") or {}).get("player"))):
-                back = next((m for m in reversed(maps[:i])
-                             if not self.hop_blocked(here, m)
-                             and self.world.route(here, m, start_part=(info.get("parts") or {}).get("player"))), None)
-                if back is not None:
-                    if self.memo.get("waypoint_unreachable") != [here, nxt, back]:
-                        self.memo["waypoint_unreachable"] = [here, nxt, back]
-                        self.event("waypoint_unreachable", map=here, wanted=nxt, back=back)
-                    nxt, goal_part = back, None
-                else:
+                part = (info.get("parts") or {}).get("player")
+                if self.way_on_in_area(here, ms.area, part):
+                    # BUG-0963: the way on is in the milestone's area (Cerulean's trashed house, the door
+                    # to the path under Route 5): the runner explores it instead of walking back to the
+                    # waypoint it came from, which sent it back and forth between Cerulean and Route 24
+                    # for ever (the run of 20261026-204910: no milestone, no new map and no new square
+                    # for 5 min of game time).
                     self.memo.pop("waypoint_unreachable", None)
+                else:
+                    back = next((m for m in reversed(maps[:i])
+                                 if not self.hop_blocked(here, m)
+                                 and self.world.route(here, m, start_part=(info.get("parts") or {}).get("player"))), None)
+                    if back is not None:
+                        if self.memo.get("waypoint_unreachable") != [here, nxt, back]:
+                            self.memo["waypoint_unreachable"] = [here, nxt, back]
+                            self.event("waypoint_unreachable", map=here, wanted=nxt, back=back)
+                        nxt, goal_part = back, None
+                    else:
+                        self.memo.pop("waypoint_unreachable", None)
         else:
             # off the route (a detour to heal, a building): back to the route map last reached,
             # or the closest route map we know a way to
@@ -1962,7 +1971,7 @@ class Runner:
         world graph cannot know where its door leads: to the floor last chosen)."""
         wing = here == ROCKET_B4F and self.in_giovanni_wing(info)
         if here == ROCKET_LIFT:
-            return self.ride_lift("4EME" if ms.id == "silph_scope" and not self.memo.get("healing") else "1ER")
+            return self.ride_lift(self.lift_floor(ms))
         if ms.id == "silph_scope":
             return self.giovanni() if wing else self.go_to_map(here, ROCKET_LIFT, info, explore=ROCKET_HIDEOUT)
         return self.go_to_map(here, ROCKET_LIFT, info) if wing else None
@@ -1981,6 +1990,22 @@ class Runner:
         """The player's part of the map holds a warp to the elevator."""
         part = overworld.reachable(self.grid(sprites_block=False), self.pos())
         return any((w[0], w[1]) in part for w in info["warps"] if w[2] == ROCKET_LIFT)
+
+    def lift_floor(self, ms) -> str:
+        """BUG-0966: the floor the elevator takes. The cabin is a leaf of the world graph (its warps lead
+        back to the floor it came from), so the graph cannot say where the elevator goes: the floor to
+        take is the one the graph knows a way out of. The way out of the Rocket Hideout is the Game
+        Corner's hole (map 135): from the landing part of B1F (the elevator's corridor, part 2) the
+        graph knows no way out, but from B2F's (part 15) it does - the ledges and the stairs at (27, 8).
+        Riding "1ER" (B1F) would bring the player back to the corridor he came from, for ever."""
+        if ms.id == "silph_scope" and not self.memo.get("healing"):
+            return "4EME"     # Giovanni's floor: the Silph Scope is there
+        for floor, label in ((ROCKET_B1F, "1ER"), (ROCKET_B2F, "2EME"), (ROCKET_B4F, "4EME")):
+            part = self.world.part_with_warp_to(floor, ROCKET_LIFT)
+            if part is None or not self.world.route(floor, GAME_CORNER, start_part=part):
+                continue
+            return label
+        return "1ER"
 
     def ride_lift(self, floor: str) -> str:
         """In the Rocket elevator: the panel (on the wall above its left square) asks for a floor; pick the
@@ -2066,6 +2091,28 @@ class Runner:
         branch = "explore" if exploring else "route"   # BUG-0655: the label of the target in the walk_target event
         if not route:
             route, branch = self.unvisited_door(here, first_hop_ok, start_part), "explore"
+        if not route:
+            # BUG-0966: the player stands ON a door (he came through it) and the graph knows no way out
+            # of his part. The only door next to him is its twin, and moving between the two halves of
+            # a door never triggers a warp: the runner walked from one half to the other for 300 s (the
+            # run of 20261027-033452, the elevator corridor of the Rocket Hideout's B1F, (24, 19) and
+            # (25, 19)) and the lane was dead. The door under his feet is the one to fire, and the game
+            # fires it when he presses into the wall next to it (the Rocket elevator's door is drawn in
+            # a wall: the press is refused and the warp happens instead).
+            fired = self.fire_door(here, info, walk)
+            if fired:
+                return fired
+            # BUG-0965: the runner is sealed in a part of the map whose only way out is the door next
+            # to it. A door square is not part of the walkable fill (stepping on it warps the player),
+            # so the part of the player and the part of the door can differ and the world graph knows
+            # no way out: the runner answered "no route" on every tick - 607 of them on the house of
+            # Route 5 (map 70), where the player stood on the one square next to the door (the run of
+            # 20261026-223502) until the stall detector wrote the run down. The door is one step away:
+            # step on it and the player is out.
+            door = self.door_beside(here, info, walk)
+            if door is not None:
+                self.note_walk_target(here, door, None, "door")
+                return self.walk(door)
         if not route:
             back = self.retreat(here, info, part) if self.no_route_ticks >= NO_ROUTE_TICKS else None
             if back:
@@ -2201,6 +2248,67 @@ class Runner:
             self.memo["exploring"] = route[-1][0]
             self.event("explore", map=here, toward=route[-1][0])
         return route, exploring
+
+    def door_beside(self, here: int, info: Dict, walk=None) -> Optional[Tuple[int, int]]:
+        """BUG-0965: the door (a warp square of this map) next to the player, when the world graph knows
+        no way out of the player's part. The door square is not part of the walkable fill (stepping on
+        it warps the player), so the square the player stands on and the door can be in two parts and
+        the graph sees no way out. The door is one step away, so the runner can step on it and be out.
+        None when there is no door next to the player, or when the game refused it before (a door
+        marked unusable)."""
+        px, py = self.pos()
+        bad = {tuple(b)[1:3] for b in self.memo.get("bad_warps", []) if b[0] == here}
+        near = [(w[0], w[1]) for w in (info.get("warps") or [])
+                if abs(w[0] - px) + abs(w[1] - py) == 1 and (w[0], w[1]) not in bad]
+        if not near:
+            return None
+        grid = walk if walk is not None else self.grid()
+        return next(((x, y) for x, y in near if grid.get((x, y))), None)
+
+    def fire_door(self, here: int, info: Dict, walk=None) -> Optional[str]:
+        """BUG-0966: fire the door the player stands on. The world graph knows no way out of his part and
+        the only door next to him is the twin of the one under his feet; moving between the two halves
+        of a door never triggers a warp, so the runner walked from one half to the other for 300 s (the
+        run of 20261027-033452: the elevator corridor of the Rocket Hideout's B1F, (24, 19) and
+        (25, 19)). The door under his feet is the one to fire, and the game fires it when he presses
+        into the wall next to it: the Rocket elevator's door is drawn in a wall, so the press is refused
+        and the warp happens instead (measured on the stalled save: pressing DOWN on (24, 19) takes the
+        player to the elevator's cabin, map 203). None when he does not stand on a door, or when no side
+        of it is a wall (an exit mat on the border of the map)."""
+        x, y = self.pos()
+        warps = info.get("warps") or []
+        if not any((w[0], w[1]) == (x, y) for w in warps):
+            return None
+        twins = {(w[0], w[1]) for w in warps}
+        grid = walk if walk is not None else self.grid(sprites_block=False)
+        sides = [d for _, d in sorted([(y, "UP"), (info["height"] - 1 - y, "DOWN"),
+                                       (x, "LEFT"), (info["width"] - 1 - x, "RIGHT")])]
+        walls = [d for d in sides
+                 if (x + overworld.STEP[d][0], y + overworld.STEP[d][1]) not in twins
+                 and not grid.get((x + overworld.STEP[d][0], y + overworld.STEP[d][1]), True)]
+        if not walls:
+            return None
+        key = f"{here}:{x}:{y}"
+        tries = self.memo.setdefault("door_presses", {}).get(key, 0)
+        side = walls[tries % len(walls)]
+        self.memo["door_presses"][key] = tries + 1
+        if tries >= 2 * len(walls) and [here, x, y] not in self.memo.setdefault("bad_warps", []):
+            # the door never fired: it is unusable, and an unusable door is dead for the milestone
+            self.memo["bad_warps"].append([here, x, y])
+            self.event("warp_unusable", map=here, warp=[x, y])
+        self.event("door_press", map=here, at=[x, y], side=side)
+        self.step(side)      # the press into the wall fires the warp (the game refuses the step)
+        return "door press"
+
+    def way_on_in_area(self, here: int, area, part) -> bool:
+        """BUG-0963: the milestone's area holds the way on when the next waypoint cannot be reached.
+        Cerulean City cannot walk south to Route 5: its south exit is in another part of the city (the
+        trashed house's two doors are the only way between the parts, and stepping on them warps the
+        player into the house), so the world graph knows no route to Route 5. The guide then walked the
+        runner back to the waypoint it came from (Route 24) and the two swapped it for ever (the run of
+        20261026-204910). The area's unvisited maps (the trashed house, the path under Route 5, the
+        underground path) are the way on: the runner explores them instead."""
+        return bool(area) and bool(self.world.explore(here, area, None, start_part=part))
 
     def unvisited_door(self, here: int, first_hop_ok, start_part) -> Optional[List]:
         """BUG-0640: the one-hop route through a door or edge of the player's part into a map never visited, or None.
@@ -2987,23 +3095,19 @@ class Runner:
             # the gym leader stands at the back of the gym: the topmost sprite (of those with a picture of their own:
             # Koga's jugglers share one and some stand higher up)
             people = overworld.sprite_list(self.read)
-            leader = self.gym_leader(people)      # BUG-0716: the person standing in the player's room
-            if leader is None and people:
-                alone = [p for p in people if self.is_person(p, people)] or \
-                        [p for p in people if self.is_person(p, people, alone=False)]
-                leader = min(alone, key=lambda p: p[1][1]) if alone else None
-                if leader is None and self.not_leaders:
-                    # BUG-0719: every candidate of the gym was judged "not the leader" and there is
-                    # nobody left: the blacklist is a memory of this visit, it must never empty the gym,
-                    # or the runner stands still on the spot for ever (the "same_spot" stall of run
-                    # 20261020-134355: 533 "at goal" ticks with Giovanni wrongly in the blacklist).
-                    # Forget it and start again.
-                    forgotten = len(self.not_leaders)
-                    self.memo["not_leaders"] = []
-                    self.memo.pop("leader_talked", None)
-                    self.answer_texts = []
-                    self.event("leaders_forgotten", milestone=ms.id, forgotten=forgotten)
-                    return "forget the blacklist"
+            leader = self.leader_candidate(people)   # BUG-0957: the candidate does not change under the runner's feet
+            if leader is None and people and self.not_leaders:
+                # BUG-0719: every candidate of the gym was judged "not the leader" and there is
+                # nobody left: the blacklist is a memory of this visit, it must never empty the gym,
+                # or the runner stands still on the spot for ever (the "same_spot" stall of run
+                # 20261020-134355: 533 "at goal" ticks with Giovanni wrongly in the blacklist).
+                # Forget it and start again.
+                forgotten = len(self.not_leaders)
+                self.memo["not_leaders"] = []
+                self.memo.pop("leader_talked", None)
+                self.answer_texts = []
+                self.event("leaders_forgotten", milestone=ms.id, forgotten=forgotten)
+                return "forget the blacklist"
             if leader:
                 if self.read(ADDR["map"])[0] == VERMILION_GYM and \
                         overworld.astar(self.grid(sprites_block=False), self.pos(), leader[1]) is None:
@@ -3059,6 +3163,10 @@ class Runner:
                     self.answer_texts = []   # the game's answer to this talk is what tells a trainer from a passer-by
                     self.answer_since = time.time()   # BUG-0719: the answer is settled a quiet while after this talk
                     self.memo.pop("leader_challenged", None)   # BUG-0723: a new talk, a new set of tries
+                elif talked == "no path":
+                    # BUG-0957: the candidate cannot be walked to (he is in another room): the next person
+                    # of the gym is tried instead of walking the same unreachable square for ever.
+                    self.memo.pop("leader_candidate", None)
                 return talked
         self.io.wait(300)
         return "at goal"
@@ -3125,6 +3233,37 @@ class Runner:
     def not_leaders(self) -> set:
         """The people the runner has already talked to without a battle (BUG-0718: the Viridian gym's kid)."""
         return {tuple(s) for s in self.memo.get("not_leaders", [])}
+
+    def leader_candidate(self, people) -> Optional[tuple]:
+        """The person of the gym the runner is going to talk to (None when the gym has nobody to talk to).
+
+        BUG-0957: the candidate was picked again on every tick, and who is on screen depends on where the
+        player stands: in the Cerulean gym (65) the trainer at (8, 7) was on screen while the player stood
+        at (5, 11), the runner walked one square down to reach him, the trainer went off screen, the leader
+        at the top of the room (4, 2) became the candidate again, and the runner walked back up: it
+        ping-ponged between two squares for ever (the `no_progress` stall of the run 20261026-163011: 220
+        walks and no other action in 100 s of play).
+        The candidate is remembered now (in the memo, so a run that ends on the way keeps it). It only
+        changes when the person is gone (beaten) or judged not to be the leader, or when the runner is in
+        another gym.
+        """
+        here = self.read(ADDR["map"])[0]
+        remembered = self.memo.get("leader_candidate")
+        if remembered:
+            spot = list(remembered[1:]) if remembered[0] == here else None
+            if spot:
+                for pic, pos in people:
+                    if list(pos) == spot and self.is_person((pic, pos), people):
+                        return (pic, tuple(pos))
+            self.memo.pop("leader_candidate", None)   # another gym, or he is gone (beaten): look for a new one
+        leader = self.gym_leader(people)      # BUG-0716: the person standing in the player's room
+        if leader is None and people:
+            alone = [p for p in people if self.is_person(p, people)] or \
+                    [p for p in people if self.is_person(p, people, alone=False)]
+            leader = min(alone, key=lambda p: p[1][1]) if alone else None
+        if leader:
+            self.memo["leader_candidate"] = [here, leader[1][0], leader[1][1]]
+        return leader
 
     def gym_leader(self, people) -> Optional[tuple]:
         """The gym leader among the people: the one standing in the player's room (on screen, not hidden) whose

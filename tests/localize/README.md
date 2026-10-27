@@ -47,12 +47,12 @@ The manifest is `tests/localize/manifest.json`. Schema:
 {
   "version": 1,
   "userinterfaces": [
-    {"name": "stb_tv", "company": "brand_a"}
+    {"name": "stb-testop", "company": "brand_a"}
   ],
   "rows": [
     {
       "id": "stb_tv_home_static",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "local:/abs/path/to/frame.jpg",
       "motion": {"kind": "static", "state": "static", "pct": 0.0},
       "expected": {
@@ -138,7 +138,7 @@ Six lines is the typical case:
 ```json
 {
   "id": "my_new_scenario",
-  "userinterface": "stb_tv",
+  "userinterface": "stb-testop",
   "source": "local:/path/to/frame.jpg",
   "motion": {"kind": "static", "state": "static", "pct": 0.0},
   "expected": {"node": "home", "loaded": "yes", "overlay": "none",

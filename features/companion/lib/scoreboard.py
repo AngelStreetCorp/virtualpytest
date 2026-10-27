@@ -134,7 +134,12 @@ class ScoreStabiliser:
         if self._pending_n < (STEP_READS if step else OTHER_READS):
             return
         event = self.steps.get(delta) if step else None
-        if event:
+        if sum(candidate) < sum(self.score) and not (one_side and -delta in self.steps):
+            # The total fell by more than one disallowed score: the stream restarted (a looping
+            # clip, a new match). Old events and the old clock belong to the previous run.
+            self.events.clear()
+            self._clock_s = None
+        elif event:
             self.events.append({"minute": parse_clock(read.get("clock")) or self.minute or 0,
                                 "type": event, "home": dh != 0, "points": delta, "player": None})
         elif one_side and -delta in self.steps and self.steps[-delta]:

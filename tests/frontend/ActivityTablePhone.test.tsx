@@ -25,7 +25,7 @@ const activityRows = [
     at: '2026-10-22T10:00:00Z',
     event: 'deploy.started',
     tone: 'running',
-    target: 'device/labox-1/interface/stb_tv',
+    target: 'device/labox-1/interface/stb-testop',
     details: 'A long detail that explains what the activity did',
     actor: 'agent-runner',
     source: 'vpt-server',
@@ -53,7 +53,7 @@ describe('the Activity audit table on a phone (BUG-0817)', () => {
     const cell = (await screen.findByText('agent-runner')) as HTMLElement;
     expect(window.getComputedStyle(cell).whiteSpace).toBe('normal');
 
-    const target = screen.getByText('device/labox-1/interface/stb_tv') as HTMLElement;
+    const target = screen.getByText('device/labox-1/interface/stb-testop') as HTMLElement;
     expect(window.getComputedStyle(target).overflowWrap).toBe('anywhere');
 
     // The table fills its box instead of sizing itself to the longest cell.

@@ -162,7 +162,7 @@ def run_localize(monkeypatch):
             calls.append(site)
             return dict(match_result or {'candidates': [], 'excluded_count': 2, 'total': 2})
         monkeypatch.setattr(nav, 'run_identify_screen', fake_match)
-        result = ex.localize('team', 'stb_tv', tree_id='tree-1', motion=motion)
+        result = ex.localize('team', 'stb-testop', tree_id='tree-1', motion=motion)
         result['_grabbed'] = av.n
         return result, calls
     return _run
@@ -268,12 +268,12 @@ def _monitor(monkeypatch, tmp_path, node_fps, helpers):
     frame = str(tmp_path / 'frame.jpg')
     cv2.imwrite(frame, ui_frame())
     m = ml.MonitorLocalizer(team_id='t1')
-    m._resolve_ui = lambda device_id: ('stb_tv', 'base')
+    m._resolve_ui = lambda device_id: ('stb-testop', 'base')
     m._load_node_fps = lambda ui: node_fps
     m._get_helpers = lambda: helpers
     m._record_change = lambda *a, **k: None
     m._screen_state = lambda *a, **k: None
-    m._fps_by_ui['stb_tv'] = {'ts': 0, 'node_fps': node_fps, 'live_node': {'node_id': 'n-live', 'label': 'live'}}
+    m._fps_by_ui['stb-testop'] = {'ts': 0, 'node_fps': node_fps, 'live_node': {'node_id': 'n-live', 'label': 'live'}}
     return m, frame
 
 
@@ -375,7 +375,7 @@ def test_executor_abstain_then_known_screen(run_localize, monkeypatch):
 
 
 def test_a_slow_scene_is_still_live():
-    """Live check on stb_tv: a close-up film scene gave one full pair and one minor pair over ~1 s."""
+    """Live check on stb-testop: a close-up film scene gave one full pair and one minor pair over ~1 s."""
     a = noise()
     b = noise()
     c = b.copy()

@@ -27,7 +27,6 @@ export interface ServerConfig {
 export interface FrontendConfig {
   [key: string]: string;
   VITE_SERVER_URL: string;
-  VITE_SLAVE_SERVER_URL: string;
   VITE_GRAFANA_URL: string;
   VITE_CLOUDFLARE_R2_PUBLIC_URL: string;
   VITE_DEV_MODE: string;
@@ -191,7 +190,6 @@ const getDefaultConfig = (): SettingsConfig => ({
     // These show the EFFECTIVE values, so they go through getEnv: a container that
     // overrode them at runtime (public/config.js) must not display the baked-in ones.
     VITE_SERVER_URL: getEnv('VITE_SERVER_URL'),
-    VITE_SLAVE_SERVER_URL: getEnv('VITE_SLAVE_SERVER_URL'),
     VITE_GRAFANA_URL: getEnv('VITE_GRAFANA_URL'),
     VITE_CLOUDFLARE_R2_PUBLIC_URL: getEnv('VITE_CLOUDFLARE_R2_PUBLIC_URL'),
     VITE_DEV_MODE: getEnv('VITE_DEV_MODE', 'true'),

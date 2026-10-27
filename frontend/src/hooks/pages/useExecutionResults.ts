@@ -13,6 +13,7 @@ export interface ExecutionResult {
   team_id: string;
   tree_id: string;
   tree_name: string;
+  variant?: string | null;
   node_id?: string;
   edge_id?: string;
   element_name: string;
@@ -35,13 +36,15 @@ export const useExecutionResults = () => {
    * Get all execution results
    */
   const getAllExecutionResults = useMemo(
-    () => async (): Promise<ExecutionResult[]> => {
+    () => async (treeIds?: string[]): Promise<ExecutionResult[]> => {
       try {
         console.log(
           '[@hook:useExecutionResults:getAllExecutionResults] Fetching all execution results from server',
         );
 
-        const response = await apiClient(buildServerUrl('/server/execution-results/getAllExecutionResults'));
+        const response = await apiClient(buildServerUrl(
+            `/server/execution-results/getAllExecutionResults${treeIds?.length ? `?tree_ids=${treeIds.join(',')}` : ''}`,
+          ));
 
         console.log(
           '[@hook:useExecutionResults:getAllExecutionResults] Response status:',

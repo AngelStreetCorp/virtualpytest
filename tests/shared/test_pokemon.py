@@ -1949,17 +1949,93 @@ def test_seafoam_b4f_layout_has_currents_and_pushes_up():
 
 
 def test_victory_road_2f_layout_returns_three_pushes_in_canonical_order():
-    """Victory Road 2F has 3 boulders blocking the path; the canonical order (south first, then
-    middle, then north) lets the runner reach each next boulder without backtracking around blocks."""
+    """Victory Road 2F has 3 boulders blocking the path; the canonical order (the boulder of the
+    south first, then the switch) lets the runner reach each next boulder without backtracking."""
     from shared.src.lib.game.pokemon import strength
     layout = strength.PUZZLES[strength.VICTORY_ROAD_2F]
     assert layout.boulders_open == 3 and layout.name == "Victory Road 2F"
-    boulders = [(10, 12), (12, 8), (8, 6)]
+    boulders = [(4, 14), (5, 5), (23, 16)]
     read = _strength_read(boulders, strength.VICTORY_ROAD_2F)
     plan = strength.plan_strength_puzzle(read, strength.VICTORY_ROAD_2F)
     assert plan is not None and len(plan) == 3
-    expected = [((10, 12), "UP", 4), ((12, 8), "RIGHT", 5), ((8, 6), "DOWN", 4)]
+    expected = [((4, 14), "LEFT", 1), ((3, 14), "DOWN", 2), ((3, 16), "LEFT", 2)]
     assert plan == expected                                     # the exact canonical order
+
+
+def test_the_plan_of_victory_road_2f_pushes_the_boulder_of_the_south_onto_the_switch():
+    """BUG-0955: the plan of Victory Road 2F named boulders the floor does not have ((10, 12),
+    (12, 8), (8, 6)), so the chain never found a rock of the floor, the plan was given up and the
+    lane ping-ponged between the two floors until the detector wrote no_progress (the run
+    20261026-145622, map 194). The plan is the published walkthrough's (Bulbapedia,
+    "Walkthrough:Pokemon Red and Blue/Part 15", §2F: "Push this boulder left, down, down, and left
+    onto the button"): the boulder to the south of the landing square (0, 8) - the one at (4, 14) -
+    is pushed southwestward onto the switch at (1, 16)."""
+    from shared.src.lib.game.pokemon import strength
+    layout = strength.PUZZLES[strength.VICTORY_ROAD_2F]
+    assert layout.switch_at == (1, 16), "BUG-0955: the plan ends on the switch of the floor"
+
+    # the boulders of the fresh floor, measured on the live save
+    live = {(4, 14), (5, 5), (23, 16)}
+    step = strength.chain_step(layout.plan, live)
+    assert step is not None, "BUG-0955: the chain finds no rock of the floor's plan"
+    index, rock, target, direction, steps = step
+    assert (index, rock, target, direction, steps) == (0, (4, 14), (3, 14), "LEFT", 1), (
+        "BUG-0955: the chain starts at the boulder to the south of the landing square")
+
+    # every push starts where the previous one leaves the rock
+    after = strength.chain_step(layout.plan, {(3, 14), (5, 5), (23, 16)}, upto=1)
+    assert after is not None and after[1] == (3, 14) and after[2] == (3, 16) and after[3] == "DOWN"
+    last = strength.chain_step(layout.plan, {(3, 16), (5, 5), (23, 16)}, upto=2)
+    assert last is not None and last[1] == (3, 16) and last[2] == (1, 16) and last[3] == "LEFT"
+
+    # the last push lands the rock on the switch of the floor
+    assert strength.switch_step(layout) == 2, "BUG-0955: the last push is the one on the switch"
+
+
+def test_the_way_to_the_elite_four_does_not_go_through_the_dead_end_of_victory_road():
+    """BUG-0962: the waypoints of the `hall_of_fame` milestone sent the runner from Victory Road 2F
+    into Victory Road 3F - a floor whose four exits all lead back to Victory Road 2F. The runner
+    climbed up, could not use the exit that leads to the way out (the warp at (26, 8), the one that
+    lands next to Route 23: a boulder was in the way), fell back to 2F and was sent up again: the
+    lane ping-ponged between the two floors until the detector wrote no_progress (the run
+    20261026-193346, map 194 at (6, 8)). Victory Road's floors are a detour: the way to Indigo
+    Plateau is Route 23's north edge."""
+    from shared.src.lib.game.pokemon import milestones as M, strength
+    from shared.src.lib.game.pokemon.world import World
+
+    # the world graph as measured on the live save (the run 20261026-193346)
+    world = World({
+        198: {"width": 30, "height": 18, "edges": {}, "warps": [(23, 7, 194, 3), (26, 8, 194, 5),
+                                                                 (27, 15, 194, 4), (2, 0, 194, 6)]},
+        194: {"width": 30, "height": 18, "edges": {}, "warps": [(0, 8, 108, 2), (29, 7, 34, 3),
+                                                                 (29, 8, 34, 3), (23, 7, 198, 0),
+                                                                 (25, 14, 198, 2), (27, 7, 198, 1),
+                                                                 (1, 1, 198, 3)]},
+        108: {"width": 20, "height": 18, "edges": {}, "warps": [(8, 17, 34, 2), (9, 17, 34, 2),
+                                                                 (1, 1, 194, 0)]},
+        34: {"width": 20, "height": 144, "edges": {"north": 9, "south": 33},
+             "warps": [(7, 139, 193, 2), (8, 139, 193, 3), (4, 31, 108, 0), (14, 31, 194, 1)]},
+    })
+
+    # Victory Road 3F is a dead end: every one of its exits leads back to Victory Road 2F
+    assert {w[2] for w in world.maps[198]["warps"]} == {194}, "BUG-0962: 3F is a dead end"
+    assert not world.maps[198]["edges"], "BUG-0962: 3F has no edge exit either"
+
+    # the way to Indigo Plateau leaves Victory Road over Route 23 (its north edge)
+    route = world.route(198, strength.INDIGO_PLATEAU)
+    assert route is not None and [m for m, _ in route] == [194, 34, strength.INDIGO_PLATEAU], (
+        "BUG-0962: the way to Indigo Plateau goes over Route 23")
+
+    # the floors of Victory Road above 1F are not waypoints to the Elite Four any more
+    ms = {m.id: m for m in M.MILESTONES}["hall_of_fame"]
+    for floor in (strength.VICTORY_ROAD_2F, strength.VICTORY_ROAD_3F):
+        assert floor not in ms.maps, f"BUG-0962: Victory Road's floor {floor} is not a waypoint"
+    # the way out (Route 23) is on the waypoints, and Indigo Plateau comes right after it
+    assert ms.maps.index(strength.ROUTE_23) < ms.maps.index(strength.INDIGO_PLATEAU), (
+        "BUG-0962: Indigo Plateau comes after Route 23")
+    # the floors stay in the area: the runner is in one of them and has to get out
+    for floor in strength.VICTORY_ROAD:
+        assert floor in ms.area, "BUG-0962: the floors stay in the milestone's area"
 
 
 def test_plan_returns_none_for_a_map_with_no_strength_puzzle():
@@ -2204,7 +2280,7 @@ def test_strength_puzzle_step_walks_to_each_boulder_in_order_and_presses_a(monke
     # BUG-0874: the push uses the field move (START, POKéMON, the Strength user, FORCE) the way Surf
     # and Cut are used: pressing A on the boulder alone never moves it.
     monkeypatch.setattr(hm, "use_strength", lambda runner: True)
-    r = _strength_puzzle_runner(strength.VICTORY_ROAD_2F, [(10, 12), (12, 8), (8, 6)])
+    r = _strength_puzzle_runner(strength.VICTORY_ROAD_2F, [(4, 14), (5, 5), (23, 16)])
     plan = strength.PUZZLES[strength.VICTORY_ROAD_2F].plan
     for push_idx, push in enumerate(plan):
         # First tick of the push: walk to the square the push starts from.
@@ -2218,7 +2294,7 @@ def test_strength_puzzle_step_walks_to_each_boulder_in_order_and_presses_a(monke
 
     # One walk per push, each to the square the push starts from (the boulder, one square back).
     assert len(r._test_walks) == 3
-    assert [tuple(t) for t in r._test_walks] == [(10, 13), (11, 8), (8, 5)]
+    assert [tuple(t) for t in r._test_walks] == [(5, 14), (3, 13), (4, 16)]
 
     # Each push emits a boulder_push event with the right shape and plan_index 0..2 in order.
     pushes = [e for e in r.log if e["kind"] == "boulder_push"]
@@ -3674,6 +3750,55 @@ def test_viridian_gym_leader_is_not_the_poke_ball_and_the_kid_is_skipped(monkeyp
     assert r.memo.get("not_leaders", []) == []
 
 
+def test_the_gym_candidate_does_not_change_under_the_runners_feet(monkeypatch):
+    """BUG-0957: host run 20261026-163011 stalled `no_progress` on `cascade_badge` in the Cerulean gym (65) at
+    (5, 11): the trainer at (8, 7) was on screen, the runner walked one square down to reach him, the trainer went
+    off screen, the leader at the top of the room (4, 2) became the candidate again and the runner walked back up:
+    it ping-ponged between (5, 11) and (5, 12) for ever (220 walks and no other action in 100 s of play). The
+    candidate is remembered now: it stays the same until the person is gone or judged not to be the leader."""
+    from shared.src.lib.game.pokemon import runner as runner_mod
+    people = [(29, (4, 2)), (6, (2, 3)), (34, (8, 7)), (36, (7, 10))]
+    where = {"pos": (5, 11)}
+    r = object.__new__(runner_mod.Runner)
+    r.memo = {"done": [], "leaders_seen": [], "not_leaders": [[7, 10]]}   # the trainer of (7, 10) is known
+    r.read = lambda addr, n=1: ([where["pos"][0]] if addr == runner_mod.ADDR["x"] else
+                                 [where["pos"][1]] if addr == runner_mod.ADDR["y"] else
+                                 [M.CERULEAN_GYM] * n if addr == runner_mod.ADDR["map"] else [0] * n)
+    r.pos = lambda: where["pos"]
+    r.grid = lambda sprites_block=True: {}
+    r.io = type("IO", (), {"wait": lambda self, ms: None})()
+    r.event = lambda *a, **k: None
+    r.answer_texts = []
+    monkeypatch.setattr(runner_mod.overworld, "sprite_list", lambda read: people)
+
+    def screen(read):
+        px, py = read(runner_mod.ADDR["x"], 1)[0], read(runner_mod.ADDR["y"], 1)[0]
+        return [(pic, pos, False) for pic, pos in people
+                if -4 <= pos[0] - px <= 5 and -4 <= pos[1] - py <= 4]
+    monkeypatch.setattr(runner_mod.overworld, "screen_sprites", screen)
+    walked = []
+    r.walk = lambda target, edge=None: walked.append(tuple(target)) or "walk"
+    r.talk_at = lambda who: walked.append(tuple(who)) or "talk"
+    # the player stands at (5, 11): the trainer at (8, 7) is on screen and is the candidate
+    assert r.goal_action(type("M", (), {"id": "cascade_badge"})()) == "talk"
+    assert walked == [(8, 7)]
+    # the runner walks one square down: the trainer goes off screen, but the candidate does not change
+    where["pos"] = (5, 12)
+    assert r.goal_action(type("M", (), {"id": "cascade_badge"})()) == "talk"
+    assert walked == [(8, 7), (8, 7)]
+    assert r.memo["leader_candidate"] == [M.CERULEAN_GYM, 8, 7]
+    # the trainer is beaten and gone: the leader at the top of the room is the next candidate
+    where["pos"] = (5, 11)
+    people.remove((34, (8, 7)))
+    assert r.goal_action(type("M", (), {"id": "cascade_badge"})()) == "talk"
+    assert walked[-1] == (4, 2)
+    # the candidate cannot be walked to: the next person of the gym is tried instead
+    r.memo["leader_candidate"] = [M.CERULEAN_GYM, 4, 2]
+    r.talk_at = lambda who: "no path"
+    assert r.goal_action(type("M", (), {"id": "cascade_badge"})()) == "no path"
+    assert "leader_candidate" not in r.memo
+
+
 def test_a_gym_hop_tile_that_threw_the_player_back_is_never_walked_on_again(monkeypatch):
     """BUG-0718: the Viridian gym (45) has one-way hop tiles (the chevron squares): the game throws the player
     back down when he steps on one from the south, so the runner walked up and was thrown back for ever
@@ -4543,12 +4668,16 @@ def test_the_hall_of_fame_waypoints_walk_route_23_to_victory_road_1f():
     """BUG-0880: the waypoints of the last mile walked Victory Road 1F -> Route 23 -> Victory Road 2F, so a
     runner standing on Route 23 was asked for Victory Road 2F - a map it cannot reach: the only warp to 194
     sits in another part of Route 23 (the plaza). The way on from the gate is Route 23 -> Victory Road 1F, the
-    warp at (4, 31), which is 81 steps away and reachable."""
+    warp at (4, 31), which is 81 steps away and reachable.
+    BUG-0962: the floors above Victory Road 1F are no waypoints: Victory Road 3F is a dead end (all four of
+    its exits lead back to Victory Road 2F) and the runner ping-ponged between the two floors for ever."""
     from shared.src.lib.game.pokemon import milestones as M
     ms = [m for m in M.MILESTONES if m.id == "hall_of_fame"][0]
     assert ms.maps.count(M.ROUTE_23) == 1
-    assert ms.maps.index(M.ROUTE_23) < ms.maps.index(M.VICTORY_ROAD_1F) < ms.maps.index(M.VICTORY_ROAD_2F)
-    assert ms.maps.index(M.VICTORY_ROAD_2F) < ms.maps.index(M.VICTORY_ROAD_3F) < ms.maps.index(M.INDIGO_PLATEAU)
+    assert ms.maps.index(M.ROUTE_23) < ms.maps.index(M.VICTORY_ROAD_1F)
+    assert ms.maps.index(M.VICTORY_ROAD_1F) < ms.maps.index(M.INDIGO_PLATEAU)
+    assert M.VICTORY_ROAD_2F not in ms.maps and M.VICTORY_ROAD_3F not in ms.maps, (
+        "BUG-0962: the floors of Victory Road above 1F are a dead end, not waypoints")
 
 
 def test_the_guide_asks_for_victory_road_1f_from_route_23_and_not_for_the_unreachable_2f():
@@ -4568,12 +4697,14 @@ def test_the_guide_asks_for_victory_road_1f_from_route_23_and_not_for_the_unreac
 def test_a_waypoint_the_runner_cannot_reach_sends_it_back_instead_of_standing_still():
     """BUG-0880: Victory Road 1F's stairs (1, 1) -> Victory Road 2F sit in another part of the floor than the
     player, so the next waypoint cannot be reached: the answer was "no route" on every tick and the player
-    stood still (the same_spot stall). The runner walks back to the waypoint it came from instead."""
+    stood still (the same_spot stall). The runner walks back to the waypoint it came from instead.
+    BUG-0962: the next waypoint of Victory Road 1F is Indigo Plateau now (the floors above it are a dead
+    end), but the answer is the same: the runner goes back to Route 23 instead of standing still."""
     r, asked = _victory_road_runner(here=108, guide_i=5)
     r.overworld_tick()
     assert asked == [M.ROUTE_23], f"the runner must go back to Route 23, asked for {asked}"
     events = [e for e in r.log if e["kind"] == "waypoint_unreachable"]
-    assert events and events[0]["map"] == 108 and events[0]["wanted"] == M.VICTORY_ROAD_2F
+    assert events and events[0]["map"] == 108 and events[0]["wanted"] == M.INDIGO_PLATEAU
     assert events[0]["back"] == M.ROUTE_23
 
 
@@ -5037,8 +5168,10 @@ def test_a_sealed_hop_sends_the_runner_back_to_the_waypoint_it_came_from():
     # and the waypoint it came from is walkable, so the runner goes on playing the story
     r, asked = _victory_road_runner(here=108, guide_i=5)
     r.world.maps[108]["parts"] = {"warp": [0, 0, 0], "edge": {}, "down": [], "player": 0}
+    # BUG-0962: the north edge of Route 23 (the way to Indigo Plateau) is in the player's part of it
+    r.world.maps[34]["parts"]["edge"]["north"] = [4]
     r.overworld_tick()
-    assert asked == [M.VICTORY_ROAD_2F], f"without a sealed hop the guide asks for 2F, asked for {asked}"
+    assert asked == [M.INDIGO_PLATEAU], f"without a sealed hop the guide asks for the goal, asked for {asked}"
 
 
 def test_the_marking_of_a_sealed_hop_is_forgotten_on_the_next_floor():
@@ -5629,3 +5762,262 @@ def test_the_rock_that_seals_the_player_in_is_pushed_aside(monkeypatch):
     pushes = [e for e in events if e["kind"] == "boulder_push"]
     assert len(pushes) == 1 and pushes[0]["boulder"] == [2, 10] and pushes[0]["direction"] == "DOWN", (
         "BUG-0948: the corridor rock is pushed the way the plan wants it pushed")
+
+
+def test_the_way_to_route_5_goes_through_the_trashed_house_and_not_back_to_route_24():
+    """BUG-0963: the `vermilion` milestone asks for Route 5 from Cerulean City, but Cerulean's south
+    exit is in another part of the city: the trashed house's two doors, (27, 11) and (27, 9), are the
+    only way between the parts and stepping on them warps the player into the house. The world graph
+    therefore knows no route to Route 5, and the guide walked the runner back to the waypoint it came
+    from (Route 24) - whose own next waypoint is Cerulean again. The two swapped the runner for ever:
+    no milestone, no new map and no new square for 5 min of game time (the run of 20261026-204910, the
+    `second` lane, map 35 at (10, 35)). The milestone's area holds the way on (the trashed house, the
+    path under Route 5, the underground path): the runner explores it."""
+    from shared.src.lib.game.pokemon import milestones as M
+    from shared.src.lib.game.pokemon.runner import Runner
+    from shared.src.lib.game.pokemon.world import World
+
+    # the world graph measured on the live save (the run 20261026-204910)
+    world = World({
+        3: {"width": 40, "height": 36, "edges": {"north": 35, "south": 16, "west": 15, "east": 20},
+            "spans": {"north": [10, 30], "south": [10, 30], "west": [8, 26], "east": [8, 26]},
+            "warps": [(27, 11, 62, 0), (13, 15, 63, 0), (19, 17, 64, 0), (30, 19, 65, 0), (13, 25, 66, 0),
+                      (25, 25, 67, 0), (4, 11, 228, 0), (27, 9, 62, 2), (9, 11, 230, 1), (9, 9, 230, 0)],
+            "parts": {"player": 0, "down": [], "warp": [0, 0, 0, 0, 0, 0, 5, 4, 0, 3],
+                      "edge": {"north": [0, 1], "south": [4, 9], "west": [0, 5, 8], "east": [2, 4, 6, 7]}}},
+        35: {"width": 20, "height": 36, "edges": {"south": 3, "east": 36},
+             "spans": {"south": [0, 20], "east": [0, 18]}, "warps": [],
+             "parts": {"player": 0, "down": [], "warp": [], "edge": {"south": [0, 2], "east": [0, 1, 2]}}},
+    })
+    ms = {m.id: m for m in M.MILESTONES}["vermilion"]
+
+    # the next waypoint cannot be reached: the south exit of Cerulean is in another part of the city
+    assert not world.route(3, M.ROUTE5, start_part=0), "BUG-0963: Route 5 is out of reach from Cerulean"
+    # the way back to the waypoint the runner came from is open: that is the ping-pong
+    assert world.route(3, M.ROUTE24, start_part=0), "BUG-0963: Route 24 is the way back"
+
+    r = Runner(_FakeIO(_Mem()), _rom(), world=world)
+    # the milestone's area holds the way on: the door of the trashed house is one step away
+    assert r.way_on_in_area(3, ms.area, 0), "BUG-0963: the area holds the way on (the trashed house)"
+    # and the runner explores it: the house is the first hop of the way to Route 5
+    route, exploring = r.find_route(3, M.ROUTE5, lambda how: True, 0, None, ms.area, True)
+    assert exploring and [m for m, _ in route] == [M.TRASHED_HOUSE], (
+        "BUG-0963: the runner goes through the trashed house")
+
+
+def test_the_runner_walks_out_through_the_door_next_to_it_when_the_graph_knows_no_way_out():
+    """BUG-0965: the runner was sealed in the one square of the house of Route 5 (map 70) next to its
+    door. A door square is not part of the walkable fill (stepping on it warps the player), so the
+    square the player stands on and the door can be in two different parts, and the world graph knows
+    no way out of the player's part. The runner then answered "no route" on every tick - 607 of them
+    (the run of 20261026-223502) - and stood still until the stall detector wrote the run down. The
+    door is one step away: the runner steps on it and is out."""
+    from shared.src.lib.game.pokemon.runner import Runner
+    from shared.src.lib.game.pokemon.world import World
+
+    # the world graph measured on the live save (the run of 20261026-223502)
+    world = World({
+        70: {"width": 8, "height": 6, "edges": {},
+             "warps": [(3, 5, 16, 2), (4, 5, 16, 2), (3, 0, 16, 1), (4, 0, 16, 0)],
+             "parts": {"player": 0, "down": [], "warp": [2, 2, 2, 2], "edge": {}}},
+        16: {"width": 20, "height": 36, "edges": {"north": 3, "south": 10},
+             "warps": [(10, 29, 70, 3), (9, 29, 70, 2), (10, 33, 70, 0), (17, 27, 71, 0), (10, 21, 72, 0)]},
+    })
+    # the graph knows no way out of the part the player stands in: every door is in another part
+    assert not world.route(70, 16, start_part=0), "BUG-0965: the graph knows no way out of the house"
+
+    mem = _Mem()
+    mem.m[ADDR["map"]] = 70
+    mem.m[ADDR["x"]], mem.m[ADDR["y"]] = 2, 0            # the one square next to the door
+    r = Runner(_FakeIO(mem), _rom(), world=world)
+    info = {"warps": [(3, 5, 16, 2), (4, 5, 16, 2), (3, 0, 16, 1), (4, 0, 16, 0)]}
+    grid = {(2, 0): True, (3, 0): True}
+
+    # the door next to the player is the way out
+    assert r.door_beside(70, info, grid) == (3, 0), "BUG-0965: the door is one step away"
+    # a door the game refused before is not tried again
+    r.memo["bad_warps"] = [[70, 3, 0]]
+    assert r.door_beside(70, info, grid) is None, "BUG-0965: a broken door is not tried again"
+
+
+def _elevator_world():
+    """The world graph of the stalled save (the Rocket Hideout's floors, the elevator's cabin and the
+    Game Corner), measured on the run of 20261027-033452."""
+    from shared.src.lib.game.pokemon.world import World
+    return World({
+        199: {"width": 30, "height": 28, "edges": {}, "spans": {},
+              "warps": [(23, 2, 200, 0), (21, 2, 135, 2), (24, 19, 203, 0), (21, 24, 200, 3), (25, 19, 203, 1)],
+              "parts": {"player": 2, "warp": [0, 0, 2, 1, 2], "edge": {}, "down": []}},
+        200: {"width": 30, "height": 28, "edges": {}, "spans": {},
+              "warps": [(27, 8, 199, 0), (21, 8, 201, 0), (24, 19, 203, 0), (21, 22, 199, 3), (25, 19, 203, 1)],
+              "parts": {"player": 15, "warp": [1, 1, 15, 15, 15], "edge": {}, "down": [(15, 1)]}},
+        202: {"width": 30, "height": 24, "edges": {}, "spans": {},
+              "warps": [(19, 10, 201, 1), (24, 15, 203, 0), (25, 15, 203, 1)],
+              "parts": {"player": 1, "warp": [0, 1, 1], "edge": {}, "down": []}},
+        203: {"width": 6, "height": 8, "edges": {}, "spans": {},
+              "warps": [(2, 1, 199, 4), (3, 1, 199, 4)],
+              "parts": {"player": 0, "warp": [0, 0], "edge": {}, "down": []}},
+        135: {"width": 20, "height": 18, "edges": {}, "spans": {},
+              "warps": [(15, 17, 6, 7), (16, 17, 6, 7), (17, 4, 199, 1)],
+              "parts": {"player": 0, "warp": [0, 0, 0], "edge": {}, "down": []}},
+    })
+
+
+def _elevator_grid():
+    """The layout of the elevator's corridor (the tiles of the Rocket Hideout's B1F, measured on the
+    stalled save): the two door squares at the bottom of a two-square room, the floor above them and
+    the walls around. The player stands on (24, 19)."""
+    from shared.src.lib.game.pokemon import overworld
+    walkable = {(24, 17), (25, 17), (26, 17), (24, 18), (25, 18), (26, 18), (24, 19), (25, 19)}
+    walls = {(23, 16), (24, 16), (25, 16), (26, 16), (23, 17), (23, 18), (23, 19),
+             (26, 19), (24, 20), (25, 20), (26, 20)}
+    g = overworld.Grid({sq: True for sq in walkable})
+    g.update({sq: False for sq in walls})
+    return g
+
+
+def test_the_runner_fires_the_door_it_stands_on_when_the_graph_knows_no_way_out():
+    """BUG-0966: the player stands ON the elevator's door of the Rocket Hideout's B1F (24, 19) and the
+    world graph knows no way out of his part: the corridor is a dead end (the only warp of the part is
+    the elevator, and the elevator's cabin leads back to the floor it came from). The only door next to
+    him is the twin of the one under his feet, and moving between the two halves of a door never
+    triggers a warp: the runner walked from (24, 19) to (25, 19) and back for 300 s (the run of
+    20261027-033452) and the lane was dead. The door under his feet is fired instead: the game fires
+    it when the player presses into the wall next to it (measured on the stalled save: pressing DOWN on
+    (24, 19) takes him to the elevator's cabin, map 203)."""
+    from shared.src.lib.game.pokemon import runner as runner_mod
+
+    world = _elevator_world()
+    # the graph knows no way out of the corridor: the elevator's cabin leads back to B1F
+    assert not world.route(199, 135, start_part=2), "BUG-0966: the graph knows no way out of the corridor"
+
+    r = object.__new__(runner_mod.Runner)
+    r.memo = {}
+    r.world = world
+    r.read = lambda addr, n=1: [0] * max(n, 1)
+    r.pos = lambda: (24, 19)                       # the player stands on the left door square
+    r.grid = lambda sprites_block=True: _elevator_grid()
+    r.event = lambda kind, **facts: None
+    r.step = lambda direction: True
+    r.find_route = lambda *a, **k: (None, False)   # the graph knows no route to the way out
+    r.unvisited_door = lambda *a, **k: None
+    walked = []
+    r.walk = lambda target, edge=None: walked.append(target) or "walk"
+
+    info = {"map": 199, "width": 30, "height": 28, "edges": {}, "spans": {},
+            "warps": [(23, 2, 200, 0), (21, 2, 135, 2), (24, 19, 203, 0), (21, 24, 200, 3), (25, 19, 203, 1)],
+            "parts": {"player": 2, "warp": [0, 0, 2, 1, 2], "edge": {}, "down": []}}
+
+    assert r.go_to_map(199, 135, info) == "door press", "BUG-0966: the door under his feet is fired"
+    assert walked == [], "BUG-0966: the runner does not walk onto the twin of the door he stands on"
+    assert r.memo["door_presses"] == {"199:24:19": 1}, "BUG-0966: the press is counted"
+
+
+def test_the_door_the_player_stands_on_is_fired_into_the_wall():
+    """BUG-0966: the Rocket elevator's door is drawn in a wall: the warp fires when the player presses
+    into the wall next to the square he stands on (the press is refused and the warp happens instead).
+    The twin of the door is not a wall and is never pressed into: moving between the two halves of a
+    door never triggers a warp."""
+    from shared.src.lib.game.pokemon import runner as runner_mod
+
+    r = object.__new__(runner_mod.Runner)
+    r.memo = {}
+    r.pos = lambda: (24, 19)
+    r.grid = lambda sprites_block=True: _elevator_grid()
+    r.event = lambda kind, **facts: None
+    pressed = []
+    r.step = lambda direction: pressed.append(direction) or True
+    info = {"map": 199, "width": 30, "height": 28, "edges": {}, "spans": {},
+            "warps": [(23, 2, 200, 0), (21, 2, 135, 2), (24, 19, 203, 0), (21, 24, 200, 3), (25, 19, 203, 1)]}
+
+    assert r.fire_door(199, info) == "door press", "BUG-0966: the door is fired"
+    assert pressed == ["DOWN"], f"BUG-0966: the press goes into the wall below the door, got {pressed!r}"
+    # the twin is never pressed into: the two halves of a door do not warp
+    r.memo = {}
+    r.pos = lambda: (24, 19)
+    pressed.clear()
+    r.fire_door(199, info)
+    r.memo["door_presses"] = {"199:24:19": 1}
+    r.fire_door(199, info)
+    assert pressed == ["DOWN", "LEFT"], f"BUG-0966: the other wall side is tried next, got {pressed!r}"
+    # a player who does not stand on a door has no door to fire
+    r.pos = lambda: (24, 18)
+    assert r.fire_door(199, info) is None, "BUG-0966: no door under his feet"
+
+
+def test_the_elevator_takes_the_floor_the_graph_knows_a_way_out_of():
+    """BUG-0966: the elevator's cabin is a leaf of the world graph (its warps lead back to the floor it
+    came from), so the graph cannot say where the elevator goes: the floor to take is the one the graph
+    knows a way out of. The way out of the Rocket Hideout is the Game Corner's hole: from B1F's landing
+    part (the corridor, part 2) the graph knows no way out, but from B2F's (part 15) it does - the
+    ledges and the stairs at (27, 8). Riding "1ER" would bring the player back to the corridor."""
+    from shared.src.lib.game.pokemon import runner as runner_mod
+
+    world = _elevator_world()
+    assert not world.route(199, 135, start_part=2), "BUG-0966: B1F's landing part is a dead end"
+    assert world.route(200, 135, start_part=15), "BUG-0966: B2F's landing part has a way out"
+
+    r = object.__new__(runner_mod.Runner)
+    r.memo = {}
+    r.world = world
+    ms = types.SimpleNamespace(id="poke_flute")
+    assert r.lift_floor(ms) == "2EME", "BUG-0966: the elevator takes the floor with a way out"
+    silph = types.SimpleNamespace(id="silph_scope")
+    assert r.lift_floor(silph) == "4EME", "BUG-0966: Giovanni's floor for the Silph Scope"
+
+
+def _route15_world():
+    """The world graph of the stalled save (Route 15 and the Route 14 below it), measured on the run of
+    20261027-052520: the routes of Fuchsia, the parts of Route 15 (the upper strip the player lands in,
+    the lower strip under the ledge, the strip west of the gate house) and the gate house's four doors."""
+    from shared.src.lib.game.pokemon.world import World
+    return World({
+        26: {"width": 60, "height": 18, "edges": {"west": 7, "east": 25},
+             "spans": {"west": [0, 18], "east": [0, 18]},
+             "warps": [(7, 8, 184, 0), (7, 9, 184, 1), (14, 8, 184, 2), (14, 9, 184, 3)],
+             "parts": {"player": 1, "warp": [2, 2, 3, 3], "down": [(1, 3)],
+                       "edge": {"west": [0, 2, 4], "east": [1, 3, 4]}}},
+        25: {"width": 20, "height": 54, "edges": {"west": 26, "east": 24},
+             "spans": {"west": [36, 54], "east": [0, 18]}, "warps": [],
+             "parts": {"player": 2, "warp": [], "down": [],
+                       "edge": {"west": [2, 3], "east": [1, 2]}}},
+        24: {"width": 60, "height": 18, "edges": {"north": 23, "west": 25},
+             "spans": {"north": [40, 60], "west": [0, 18]}, "warps": [],
+             "parts": {"player": 1, "warp": [], "down": [], "edge": {"north": [1], "west": [0, 1]}}},
+    })
+
+
+def test_the_way_to_fuchsia_goes_through_the_gate_house_of_route_15_and_not_back_to_route_14():
+    """BUG-0968: the `fuchsia` milestone asks for Fuchsia City from Route 15, but the road to Fuchsia
+    passes through the gate house across Route 15: its two doors are on the route, (7, 8) and (14, 8),
+    and the route is cut in two without them (the lower strip west of the house is the only way to the
+    west edge, where Fuchsia is). The world graph learns a map's links only when the runner has been
+    inside it, so the graph knew the door led to a map it had never seen and knew no way on to
+    Fuchsia. The guide then walked the runner back to the waypoint it came from (Route 14) - whose own
+    next waypoint is Route 15 again: the two swapped the runner for ever (the run of 20261027-052520,
+    the `second` lane, map 26 at (59, 6): 2261 walk_targets, no milestone, no new map and no new square
+    for 5 min of game time). The milestone's area holds the way on (the gate house of Route 15): the
+    runner explores it, learns its doors and walks on to Fuchsia."""
+    from shared.src.lib.game.pokemon import milestones as M
+    from shared.src.lib.game.pokemon.runner import Runner
+
+    world = _route15_world()
+    ms = {m.id: m for m in M.MILESTONES}["fuchsia"]
+
+    # the graph knows no way on to Fuchsia: the gate house is a map it has never been inside
+    assert not world.route(26, M.FUCHSIA, start_part=1), (
+        "BUG-0968: the graph knows no way to Fuchsia from Route 15")
+    # the way back is open: that is the other half of the ping-pong
+    assert world.route(26, 25, start_part=1), "BUG-0968: Route 14 is the way back"
+
+    r = Runner(_FakeIO(_Mem()), _rom(), world=world)
+    # without the gate house the area holds no way on: the guide walks the runner back to Route 14
+    assert not r.way_on_in_area(26, (M.ROUTE12_GATE,), 1), (
+        "BUG-0968: the area without the gate house holds no way on (the ping-pong of the stall)")
+    # the gate house of Route 15 is the way on
+    assert r.way_on_in_area(26, ms.area, 1), (
+        "BUG-0968: the area holds the way on (the gate house of Route 15)")
+    # and the runner explores it: the gate house is the first hop of the way to Fuchsia
+    route, exploring = r.find_route(26, M.FUCHSIA, lambda how: True, 1, None, ms.area, True)
+    assert exploring and [m for m, _ in route] == [M.ROUTE15_GATE], (
+        "BUG-0968: the runner goes through the gate house")

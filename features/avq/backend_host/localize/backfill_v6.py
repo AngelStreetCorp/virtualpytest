@@ -7,7 +7,7 @@ stored screenshot this (re)computes regions + crop from that screenshot and sets
 
   python3 features/avq/backend_host/localize/backfill_v6.py                       # dry-run, default UIs (no writes)
   python3 features/avq/backend_host/localize/backfill_v6.py --apply                # write fp back to navigation_nodes.data
-  python3 features/avq/backend_host/localize/backfill_v6.py stb_tv stb_tv_settings [--apply]   # chosen UIs
+  python3 features/avq/backend_host/localize/backfill_v6.py stb-<operator> stb_tv_settings [--apply]   # chosen UIs
   ... --full    recompute the WHOLE fingerprint (dhash, focus, title, regions, crop) with compute_fingerprint,
                 for UIs whose stored fp is v1-v4: their old dhash/focus/title no longer agree with what v6 computes
                 live, so the additive default leaves them half-stale (measured TASK-47 G13: 59 right / 10 wrong

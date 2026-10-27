@@ -6,14 +6,14 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', 'scripts'
 import audit  # noqa: E402
 
 
-def _n(label, x, title='q home tv', kind='nav', width=0.026, ui='stb_tv'):
+def _n(label, x, title='q home tv', kind='nav', width=0.026, ui='stb-testop'):
     return {'userinterface_name': ui, 'label': label,
             'fingerprint': {'title': title, 'focus': {'kind': kind, 'x': x, 'width': width}}}
 
 
 def test_same_underline_and_title_is_flagged():
     flags = audit.dup_fp_flags([_n('home_settings', 0.896), _n('tvguide', 0.896), _n('home_profile', 0.933)])
-    assert flags == ['DUP_FP stb_tv: home_settings/tvguide']
+    assert flags == ['DUP_FP stb-testop: home_settings/tvguide']
 
 
 def test_different_tab_or_title_is_not():

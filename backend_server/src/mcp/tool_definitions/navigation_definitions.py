@@ -81,7 +81,7 @@ def get_tools() -> List[Dict[str, Any]]:
     },
     {
         "name": "localize",
-        "description": "Where is the device now? Reads the live screen and returns ONE verdict, the same answer as the Localize button: kind = signal (black screen / no signal), live (video playing; node_id = the tree's live node when one is flagged), node (a saved screen, with node_id and confidence), overlay (a popup / keyboard / notification; node_id = the screen under it when recognised), known_screen (not in the tree, but this device has shown it before) or unknown. Use it before navigating from an unknown position, or to check a step landed. Refused on a device whose monitoring profile runs no image monitor (lite). Example: localize(host_name='host1', device_id='device1', userinterface_name='stb_tv')",
+        "description": "Where is the device now? Reads the live screen and returns ONE verdict, the same answer as the Localize button: kind = signal (black screen / no signal), live (video playing; node_id = the tree's live node when one is flagged), node (a saved screen, with node_id and confidence), overlay (a popup / keyboard / notification; node_id = the screen under it when recognised), known_screen (not in the tree, but this device has shown it before) or unknown. Use it before navigating from an unknown position, or to check a step landed. Refused on a device whose monitoring profile runs no image monitor (lite). Example: localize(host_name='host1', device_id='device1', userinterface_name='stb-<operator>')",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -107,7 +107,7 @@ def get_tools() -> List[Dict[str, Any]]:
     },
     {
         "name": "localize_coverage",
-        "description": "How much of each navigation tree can Localize name? Per userinterface: screen nodes, % with a pixel fingerprint, % with a device identity (android activity / web URL), the live node (or none), fingerprint age in days and active Wrong-screen corrections. Use it before relying on localize for a tree: an interface at 0% answers only signal / live / unknown. Example: localize_coverage(userinterface_name='stb_tv')",
+        "description": "How much of each navigation tree can Localize name? Per userinterface: screen nodes, % with a pixel fingerprint, % with a device identity (android activity / web URL), the live node (or none), fingerprint age in days and active Wrong-screen corrections. Use it before relying on localize for a tree: an interface at 0% answers only signal / live / unknown. Example: localize_coverage(userinterface_name='stb-<operator>')",
         "inputSchema": {
             "type": "object",
             "properties": {

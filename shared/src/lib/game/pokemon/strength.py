@@ -158,14 +158,23 @@ PUZZLES: Dict[int, PuzzleLayout] = {
     ),
     VICTORY_ROAD_2F: PuzzleLayout(
         name="Victory Road 2F",
-        # Three boulders arranged S, middle, N. The south boulder is pushed first (the runner
-        # needs that gap to reach the middle), the middle next, the north last.
+        # BUG-0955: the plan of this floor was measured on a save whose boulders had already been
+        # pushed: it named (10, 12), (12, 8) and (8, 6), and none of them is a boulder of the
+        # floor (the live boulders of the floor are (4, 14), (5, 5) and (23, 16)), so the chain
+        # never found a rock, the floor's plan was given up and the lane ping-ponged between
+        # Victory Road 1F and 2F until the detector wrote no_progress (the run of 20261026-145622).
+        # The published walkthrough (Bulbapedia, "Walkthrough:Pokemon Red and Blue/Part 15", §2F):
+        # "Another boulder can be found to the south. Push this one southwestward (←1, ↓2, ←2) to
+        # reach the switch and clear the next barrier." The boulder to the south of the landing
+        # square (0, 8) is the one at (4, 14): ←1 puts it on (3, 14), ↓2 on (3, 16) and ←2 on the
+        # switch at (1, 16) - the tile 45 of the floor, measured on the live save.
         plan=(
-            ((10, 12), "UP", 4),
-            ((12, 8), "RIGHT", 5),
-            ((8, 6), "DOWN", 4),
+            ((4, 14), "LEFT", 1),
+            ((3, 14), "DOWN", 2),
+            ((3, 16), "LEFT", 2),
         ),
         boulders_open=3,
+        switch_at=(1, 16),
     ),
     VICTORY_ROAD_3F: PuzzleLayout(
         name="Victory Road 3F",

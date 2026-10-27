@@ -237,6 +237,12 @@ def _chat(args, server: str, verify: bool, session_id: str) -> int:
             'device_id':          args.device or '',
             'userinterface_name': args.userinterface or '',
         }
+        if args.scope:
+            # TASK-179 P4: the picker scope plus the login Atlas acts with for this turn (as the browser sends it).
+            payload['server_scope'] = args.scope
+            payload['selected_host_server'] = args.selected_host_server or ''
+            if args.auto_sign:
+                payload['turn_auth'] = {'auto_sign': args.auto_sign}
         sio.emit('send_message', payload, namespace='/agent')
 
     @sio.on('connect', namespace='/agent')
@@ -335,6 +341,10 @@ def main() -> int:
     ap.add_argument('--device',        default=None, help='device_id context')
     ap.add_argument('--userinterface', default=None, help='userinterface_name context')
     ap.add_argument('--current-page',  default='/', dest='current_page')
+    ap.add_argument('--scope', default=None,
+                    help="Server picker scope: 'all' or a server name (TASK-179); sends the auto-sign login as turn_auth")
+    ap.add_argument('--selected-host-server', default=None, dest='selected_host_server',
+                    help='Server that owns --host, as the picker knows it')
     ap.add_argument('--allow-auto-navigation', action='store_true',
                     dest='allow_auto_navigation')
     ap.add_argument('--types', default=None,

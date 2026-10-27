@@ -501,7 +501,7 @@ function dashboardChecks(variant) {
 const ASKED_BY = {
   host: /\b(device|host)s?\b|named|my |selected|current/i,
   device_name: /\b(device|host)s?\b|named|my |selected|current/i,
-  user_interface: /interface|\bui\b|web_tv|stb_tv|mobile_app/i,
+  user_interface: /interface|\bui\b|web_tv|stb-testop|mobile_app/i,
   environment: /environment|\b(prod|production|dev|staging)\b/i,
   flag: /\b(flag|tag|label)s?\b/i,
 };
@@ -612,7 +612,7 @@ const PROMPTS = {
   },
   compare: {
     servers: ['pi'],
-    text: 'compare Base and variant1 KPI for stb_tv over the last 30 days and show only regressions over 10%',
+    text: 'compare Base and variant1 KPI for stb-testop over the last 30 days and show only regressions over 10%',
     checks: {
       'BUG-0306 comparison layout': (snap) => {
         const c = snap.dom.cmp;
@@ -701,7 +701,7 @@ const PROMPTS = {
   },
   kpimain: {
     servers: ['main'],
-    text: 'compare Base and variant1 KPI for stb_tv over the last 30 days',
+    text: 'compare Base and variant1 KPI for stb-testop over the last 30 days',
     checks: {
       'BUG-0345 KPI compare with no data: few calls, explains': (snap) => {
         const n = snap.ev.calls.length; const probs = [];

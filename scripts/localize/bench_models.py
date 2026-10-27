@@ -23,11 +23,11 @@ Models compared (pass ``--models`` to pick a subset, comma-separated)::
 
 Usage::
 
-    python3 scripts/localize/bench_models.py pick [--ui stb_tv] [--top 20]
-    python3 scripts/localize/bench_models.py run  [--ui stb_tv] [--top 20] \
+    python3 scripts/localize/bench_models.py pick [--ui stb-<operator>] [--top 20]
+    python3 scripts/localize/bench_models.py run  [--ui stb-<operator>] [--top 20] \
         [--models baseline,haiku,m3,m2.7,jev-1.14] [--out FILE]
 
-The default UI is ``stb_tv`` (the deployed set-top box); pass ``--ui
+The UI comes from ``--ui`` or ``VPT_LOCALIZE_UI`` (e.g. ``--ui stb-<operator>``); pass ``--ui
 android_tv`` for the Android TV variant or ``--ui web_player`` for
 the web player.
 
@@ -921,13 +921,13 @@ def main() -> int:
     sub = p.add_subparsers(dest="cmd", required=True)
 
     pp = sub.add_parser("pick", help="print the top-N most-executed nodes for a UI")
-    pp.add_argument("--ui", default=os.environ.get("VPT_LOCALIZE_UI", "stb_tv"))
+    pp.add_argument("--ui", default=os.environ.get("VPT_LOCALIZE_UI"), required="VPT_LOCALIZE_UI" not in os.environ)
     pp.add_argument("--top", type=int, default=20)
     pp.add_argument("--team-id", default=os.environ.get("TEAM_ID", DEFAULT_TEAM))
     pp.set_defaults(func=cmd_pick)
 
     pr = sub.add_parser("run", help="benchmark every candidate model on the chosen set")
-    pr.add_argument("--ui", default=os.environ.get("VPT_LOCALIZE_UI", "stb_tv"))
+    pr.add_argument("--ui", default=os.environ.get("VPT_LOCALIZE_UI"), required="VPT_LOCALIZE_UI" not in os.environ)
     pr.add_argument("--top", type=int, default=20)
     pr.add_argument("--team-id", default=os.environ.get("TEAM_ID", DEFAULT_TEAM))
     pr.add_argument("--models", default="baseline,haiku,m3,m2.7,jev-1.14",

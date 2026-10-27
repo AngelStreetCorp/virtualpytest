@@ -9,9 +9,9 @@ const OUT = path.join(__dirname, 'raw16'); fs.mkdirSync(OUT, { recursive: true }
 const { VIEW_CSS, DPR, url, CURSOR, redact, startRecorder, glide } = require('./promo_lib')(OUT, { viewCss: { width: 1600, height: 900 } });
 const PROMPTS = (process.env.PROMPTS || [
   'Compare pass rate by device',
-  'Provide the last known KPI radar for userinterface stb_tv',
-  'Show only KPI regressions over 10% for stb_tv over the last 30 days',
-  'Build a canvas for stb3 and stb4 with 3 panels: pass rate, KPI averages for stb_tv, and incidents over the last 7 days',
+  `Provide the last known KPI radar for userinterface ${process.env.ATLAS_UI}`,
+  `Show only KPI regressions over 10% for ${process.env.ATLAS_UI} over the last 30 days`,
+  `Build a canvas for stb3 and stb4 with 3 panels: pass rate, KPI averages for ${process.env.ATLAS_UI}, and incidents over the last 7 days`,
 ].join('|')).split('|');
 const FOOTER = /\b\d+\.\ds\b/g;   // one per completed agent turn
 

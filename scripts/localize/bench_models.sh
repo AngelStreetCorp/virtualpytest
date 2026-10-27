@@ -5,8 +5,8 @@
 # scripts/localize/bench_models.py.
 #
 # Examples:
-#   scripts/localize/bench_models.sh pick --ui stb_tv --top 20
-#   scripts/localize/bench_models.sh run --ui stb_tv --top 20 \
+#   scripts/localize/bench_models.sh pick --ui stb-<operator> --top 20
+#   scripts/localize/bench_models.sh run --ui stb-<operator> --top 20 \
 #       --models baseline,haiku,m3,m2.7,jev-1.14 --out /tmp/localize-models.jsonl
 #
 # Defaults to all five models. Add '--models baseline,haiku' to subset.

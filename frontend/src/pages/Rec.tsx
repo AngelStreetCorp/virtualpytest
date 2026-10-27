@@ -402,8 +402,13 @@ const RecContent: React.FC<ReturnType<typeof useRec>> = memo(({
       if (favoriteTargetOptions.length === 0) return;
       setTargetFilter(favoriteTargetOptions);
     }
+    // The link is the whole selection: a model/profile/tag filter left over from an earlier visit would
+    // hide the very device the link points at ("No targets match" with the device in the picker).
+    setDeviceModelFilter([]);
+    setProfileFilter([]);
+    setFlagFilter([]);
     appliedLink.current = linkKey;
-  }, [linkParams, targetOptions, targetKeys, favoriteTargetOptions, setTargetFilter]);
+  }, [linkParams, targetOptions, targetKeys, favoriteTargetOptions, setTargetFilter, setDeviceModelFilter, setProfileFilter, setFlagFilter]);
 
   // Filter devices based on selected filters
   const filteredDevices = useMemo(() => {

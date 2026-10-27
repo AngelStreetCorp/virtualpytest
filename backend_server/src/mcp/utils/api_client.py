@@ -8,6 +8,7 @@ Returns raw API responses - formatting is handled by callers.
 import requests
 from typing import Dict, Any, Optional
 from shared.src.lib.utils.build_url_utils import server_auth_headers
+from backend_server.src.lib.servers import turn
 import os
 
 
@@ -27,7 +28,17 @@ class MCPAPIClient:
         # `set_header('X-Project-Id', project_id)` and every subsequent
         # `get()` / `post()` until the next `clear_headers()` carries it.
         self.headers: Dict[str, str] = {}
-    
+
+    def _url(self, endpoint: str) -> str:
+        """Base URL for this call: the server a chat turn pointed us at (TASK-179 P4), else this server."""
+        return f"{turn.target_url() or self.base_url}{endpoint}"
+
+    @staticmethod
+    def _auth() -> Dict[str, str]:
+        """Service key for plain callers; the signed-in user's credential during a chat turn (never the service
+        key, which must not reach another server)."""
+        return turn.request_headers(server_auth_headers())
+
     def resolve_userinterface_name(self, userinterface_name: str, team_id: str) -> tuple:
         """
         Resolve userinterface name to get tree_id, userinterface_id, and device_model.
@@ -118,9 +129,9 @@ class MCPAPIClient:
         Returns:
             Raw API response dict with 'success', 'error', and data fields
         """
-        url = f"{self.base_url}{endpoint}"
+        url = self._url(endpoint)
         read_timeout = timeout or self.timeout
-        merged_headers = {**server_auth_headers(), **self.headers, **(headers or {})}
+        merged_headers = {**self._auth(), **self.headers, **(headers or {})}
 
         try:
             response = requests.post(
@@ -174,12 +185,12 @@ class MCPAPIClient:
         Returns:
             Raw API response dict
         """
-        url = f"{self.base_url}{endpoint}"
+        url = self._url(endpoint)
         
         try:
             response = requests.put(
                 url,
-                headers=server_auth_headers(),
+                headers=self._auth(),
                 json=data or {},
                 params=params or {},
                 timeout=self.timeout
@@ -218,12 +229,12 @@ class MCPAPIClient:
         Returns:
             Raw API response dict
         """
-        url = f"{self.base_url}{endpoint}"
+        url = self._url(endpoint)
         
         try:
             response = requests.delete(
                 url,
-                headers=server_auth_headers(),
+                headers=self._auth(),
                 params=params or {},
                 timeout=self.timeout
             )
@@ -264,8 +275,8 @@ class MCPAPIClient:
         Returns:
             Raw API response dict
         """
-        url = f"{self.base_url}{endpoint}"
-        merged_headers = {**server_auth_headers(), **self.headers, **(headers or {})}
+        url = self._url(endpoint)
+        merged_headers = {**self._auth(), **self.headers, **(headers or {})}
 
         try:
             response = requests.get(

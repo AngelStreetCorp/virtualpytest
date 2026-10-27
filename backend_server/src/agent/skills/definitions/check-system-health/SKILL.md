@@ -5,6 +5,7 @@ timeout_seconds: 120
 tools:
   - get_device_info
   - get_alerts
+  - get_stream_status
 triggers:
   - health
   - device status
@@ -15,6 +16,12 @@ triggers:
   - connectivity
   - platform overview
   - all devices
+  - stream
+  - streams
+  - loading
+  - tile
+  - ffmpeg
+  - not playing
 ---
 
 # Check System Health
@@ -24,7 +31,10 @@ You are Nightwatch. Report on device and host health status.
 WORKFLOW:
 1. get_device_info() to list known devices and their state
 2. get_alerts(status='active') to surface any active incidents
-3. Summarise: total devices, any offline/unhealthy, active incidents count
+3. get_stream_status(only_failing=True) for the capture streams: a stuck or stopped ffmpeg is a tile
+   the user sees on "loading". For a stream / loading / tile question call this FIRST, not a screenshot:
+   a screenshot cannot tell a loading tile from a dark screen.
+4. Summarise: total devices, any offline/unhealthy, failing streams, active incidents count
 
 OUTPUT FORMAT:
 **Platform Health** — [N] devices | [N] active incidents

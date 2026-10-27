@@ -95,6 +95,21 @@ def _get_public_methods(tool_class: Type) -> List[str]:
     return methods
 
 
+SERVER_ARGUMENT = {
+    'type': 'string',
+    'description': ("Optional. Name of the server that owns host_name (e.g. when the same host name exists on two "
+                    "servers). Leave it out and the owner is found automatically."),
+}
+
+
+def _add_server_argument(tool_def: Dict[str, Any]) -> None:
+    """TASK-179 P4: every tool that takes host_name also takes an optional `server` (routing only)."""
+    schema = tool_def.get('inputSchema')
+    props = schema.get('properties') if isinstance(schema, dict) else None
+    if isinstance(props, dict) and 'host_name' in props and 'server' not in props:
+        props['server'] = dict(SERVER_ARGUMENT)
+
+
 # Auto-discover all tool classes at module load (silent - errors only)
 TOOL_REGISTRY = _discover_tool_classes()
 
@@ -139,6 +154,8 @@ class ToolDefinitionBuilder:
                 
                 # Generate definitions for all methods
                 definitions = generate_from_class(tool_class, methods)
+                for tool_def in definitions:
+                    _add_server_argument(tool_def)
                 self._definitions[category] = definitions
                 
                 # Build tool name -> definition map

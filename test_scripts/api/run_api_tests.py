@@ -360,6 +360,7 @@ ALLOW_400 = {
     '/server/settings/host-grabbers':                'needs ?host_name=<host>',
     '/server/settings/host-monitor-profiles':        'needs ?host_name=<host>',
     '/server/settings/host-monitor-profiles/status': 'needs ?host_name=<host>',
+    '/server/stream/hostFile':                       'needs ?host_name=<host> + ?path=/host/<host_name>/stream/<file> — a real capture on a real host, which the sweep cannot synthesize',
     '/server/userinterface/domReport/url':           'needs ?userinterface=<name>',
 }
 

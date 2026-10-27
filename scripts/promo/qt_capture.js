@@ -1,5 +1,5 @@
 // Assets for the QuickTest video: a test built in a few clicks (CH+, detect motion) on a set-top
-// box, run, passed, then its report. rpitest, stb4 on vpt-pi1, interface stb_tv.
+// box, run, passed, then its report. rpitest, stb4 on vpt-pi1, interface from env QT_UI.
 // Needs a local frontend pointed at rpitest (frontend/.env.local: VITE_SERVER_URL=https://rpitest.angelstreet.io)
 // on PROMO_BASE (default http://localhost:5075), like zap_capture.js: rpitest's CORS only allows :5073, so the
 // browser relays rpitest API calls and adds the CORS headers itself. The test is run, not saved.
@@ -14,7 +14,7 @@ const VIEW = { width: 1920, height: 1080 };
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36';
 const url = (p) => `${BASE}${p}${p.includes('?') ? '&' : '?'}auto_signed=${TOKEN}`;
 const CURSOR = fs.readFileSync(path.join(DIR, 'capture.js'), 'utf8').match(/const CURSOR_SCRIPT = `([\s\S]*?)`;/)[1];
-const TARGET = /^stb4 \(vpt-pi1\)/, IFACE = 'stb_tv', HOST = 'vpt-pi1', DEVICE = 'device4';
+const TARGET = /^stb4 \(vpt-pi1\)/, IFACE = process.env.QT_UI, HOST = 'vpt-pi1', DEVICE = 'device4';
 const NAME = process.env.QT_NAME || 'Zap and check';
 
 function api(method, p, body) {

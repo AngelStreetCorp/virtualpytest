@@ -19,7 +19,7 @@ failure, not a coverage gap. `surface_failure` tells the two apart: a node
 that is absent from the tree is a coverage gap (this UI has no such
 surface), a node that is in the tree and failed to open is a defect.
 
-Platform facts this adapter is built on (stb_tv tree, read live on
+Platform facts this adapter is built on (stb-<operator> tree, read live on
 2026-10-23):
 
   * the radio app is IR-only: `apps_radio` is the app tile under `apps`,
@@ -65,6 +65,7 @@ from test_scripts.content._harness import (  # noqa: E402
     CAUSE_COVERAGE,
     CAUSE_INFRA,
     CAUSE_PRODUCT,
+    STATUS_PASS,
     audio_probe,
     capture,
     exception_cause,
@@ -81,7 +82,7 @@ class StbAdapter(Adapter):
 
     platform = "stb"
 
-    # -- the tree labels (stb_tv, verified live on 2026-10-23) --------------
+    # -- the tree labels (stb-<operator>, verified live on 2026-10-23) --------------
     DEFAULT_RADIO_NODES = ("apps_radio", "radio_home")
     DEFAULT_REPLAY_NODES = ("replay",)
     # The tree's own path into a catch-up asset: open the asset, play its
@@ -109,7 +110,7 @@ class StbAdapter(Adapter):
     def _nodes(self, ctx: CaseContext, name: str, default):
         """The node labels to try for a surface, as a tuple.
 
-        The default is the verified stb_tv label; `--stb_<x>_nodes` (a comma
+        The default is the verified stb-<operator> label; `--stb_<x>_nodes` (a comma
         separated list) overrides it for another STB UI.
         """
         raw = ctx.arg(name, "")
@@ -154,7 +155,7 @@ class StbAdapter(Adapter):
         """
         detail = ""
         for node in nodes:
-            ok, nav_detail = navigate_to(ctx, node)
+            ok, nav_detail = navigate_to(ctx, node, timeout_s=self._seconds(ctx, 'stb_nav_timeout_s', 180))
             if ok:
                 ctx.log(f"on '{node}'")
                 return True, node, ""
@@ -223,6 +224,27 @@ class StbAdapter(Adapter):
                     if word.strip() == "radio":
                         return True, line, frame
         return False, seen, (frames[-1] if frames else None)
+
+    def _radio_key_route(self, ctx: CaseContext):
+        """Open the radio tile by the keys of the tree's edges, no picture check.
+
+        The edge `apps_dazn -> apps_radio` is one DOWN, `apps_radio ->
+        radio_home` is OK. The tree's reference picture for the tile is the
+        part that is stale on some boxes; the keys are not. Every station
+        is still judged by its own sound, so a wrong landing cannot pass.
+        """
+        settle = self._settle(ctx)
+        ok, detail = navigate_to(ctx, "apps_dazn",
+                                 timeout_s=self._seconds(ctx, "stb_nav_timeout_s", 180))
+        if not ok:
+            return False, f"apps_dazn: {detail}"
+        for key in ("DOWN", "OK"):
+            pressed, press_detail = press_key(ctx, key, settle=settle)
+            if not pressed:
+                return False, press_detail
+            sleep(ctx, self._seconds(ctx, "stb_list_settle_s", 2.0))
+        sleep(ctx, self._seconds(ctx, "stb_item_settle_s", 3.0))
+        return True, ""
 
     def _probe_audio(self, ctx: CaseContext):
         """Is there sound on the box right now?
@@ -366,6 +388,145 @@ class StbAdapter(Adapter):
         return {"played": False, "node": "", "detail": "no tree asset path played"}
 
     # ------------------------------------------------------------------
+    # the per-item sweep (opt-in: --sweep N)
+    # ------------------------------------------------------------------
+
+    def _sweep_count(self, ctx: CaseContext) -> int:
+        """How many items a sweep visits per section (0 = sweep off)."""
+        try:
+            return max(0, int(float(ctx.arg("sweep", 0) or 0)))
+        except (TypeError, ValueError):
+            return 0
+
+    def _item_title(self, ctx: CaseContext, index: int, frame):
+        """The text the list shows for the focused row, or a stable id.
+
+        The focused row is not located on the frame: the first readable
+        line of the list area is the best stable label OCR can give. When
+        there is none the row is named by its position, never left blank.
+        """
+        lines = self._screen_lines(frame, 0.25) if frame else None
+        for line in lines or []:
+            # OCR noise (symbols, one-letter words) is not a title.
+            words = [w for w in re.split(r"\s+", line) if len(w) >= 3 and w.isalpha()]
+            letters = sum(c.isalpha() for c in line)
+            if len(words) >= 2 and letters >= 0.7 * len(line.replace(" ", "")):
+                return line[:60]
+        return f"item-{index + 1}"
+
+    def _judge_item(self, ctx: CaseContext, index: int, title: str):
+        """The verdict of one opened item: the existing proof, nothing new.
+
+        Video: the picture moved. Audio: the sound was measured. A still
+        picture never passes. Returns one item dict (status OK / KO).
+        """
+        retries = self._count(ctx, "stb_probe_retries", 2)
+        item = {"index": index + 1, "title": title, "status": "KO", "cause": "",
+                "level_db": None, "frames_moved": None, "reason": ""}
+        probe = self._probe_playback(ctx, retries)
+        item["frames_moved"] = probe.get("detail", "")
+        if probe.get("playing"):
+            item.update(status="OK", reason=f"the picture moved ({probe.get('detail')})")
+            return item
+        audio = self._probe_audio(ctx)
+        item["level_db"] = audio.get("level_db")
+        if audio.get("audible") is True:
+            item.update(status="OK",
+                        reason=f"sound measured at {audio.get('level_db')} dB")
+        elif audio.get("audible") is False:
+            item.update(cause=CAUSE_PRODUCT,
+                        reason=f"the item opened and nothing came out: the picture "
+                               f"was still and the sound absent ({audio.get('detail')})")
+        else:
+            item.update(cause=CAUSE_INFRA,
+                        reason=f"the picture was still and the capture carried no audio "
+                               f"reading, so the playback cannot be concluded "
+                               f"({audio.get('detail')})")
+        return item
+
+    def _sweep_list(self, ctx: CaseContext, limit: int):
+        """Open up to `limit` rows of the list on screen, one verdict per row.
+
+        Unlike `_walk_list` it never stops at the first success. The end of
+        the list is found when the DOWN key no longer changes the screen:
+        that is `items_found`. A row that fails to open is a KO with a
+        cause, never skipped.
+        """
+        select_key = self._key(ctx, "stb_select_key", self.DEFAULT_SELECT_KEY)
+        back_key = self._key(ctx, "stb_back_key", self.DEFAULT_BACK_KEY)
+        next_key = self._key(ctx, "stb_next_key", self.DEFAULT_NEXT_KEY)
+        settle = self._settle(ctx)
+        play_s = self._seconds(ctx, "play_seconds", 12)
+        item_settle_s = self._seconds(ctx, "stb_item_settle_s", 3.0)
+        list_settle_s = self._seconds(ctx, "stb_list_settle_s", 2.0)
+        end_pct = self._seconds(ctx, "stb_list_end_diff_pct", 0.5)
+
+        items = []
+        end_of_list = False
+        previous = None
+        for index in range(limit):
+            frame = self._capture(ctx, f"sweep-row-{index + 1}")
+            if previous is not None and frame:
+                diff = self._frame_diff(frame, previous, 0.0)
+                if diff is not None and diff < end_pct:
+                    end_of_list = True
+                    break
+            previous = frame or previous
+            title = self._item_title(ctx, index, frame)
+
+            ok, detail = press_key(ctx, select_key, settle=settle)
+            if not ok:
+                items.append({"index": index + 1, "title": title, "status": "KO",
+                              "cause": CAUSE_INFRA, "level_db": None,
+                              "frames_moved": None,
+                              "reason": f"the remote refused '{select_key}': {detail}"})
+                break
+            sleep(ctx, item_settle_s + play_s)
+            items.append(self._judge_item(ctx, index, title))
+
+            back_ok, back_detail = press_key(ctx, back_key, settle=settle)
+            sleep(ctx, list_settle_s)
+            if not back_ok:
+                items[-1]["reason"] += f"; the remote then refused '{back_key}'"
+                break
+            if index + 1 < limit:
+                next_ok, _next_detail = press_key(ctx, next_key, settle=settle)
+                sleep(ctx, list_settle_s)
+                if not next_ok:
+                    break
+        return {"items": items, "end_of_list": end_of_list}
+
+    def _sweep_outcome(self, subject: str, limit: int, swept, extra_items=None,
+                       evidence=None):
+        """The section row of a sweep: counts, plus one entry per item."""
+        items = list(swept.get("items") or []) + list(extra_items or [])
+        tested = len(items)
+        ok = sum(1 for i in items if i["status"] == "OK")
+        ko = tested - ok
+        causes = {}
+        for i in items:
+            if i["status"] == "KO":
+                causes[i["cause"] or CAUSE_PRODUCT] = causes.get(i["cause"] or CAUSE_PRODUCT, 0) + 1
+        # items_found: the rows seen. Fewer than the limit with list_ended means
+        # the box has no more; otherwise the sweep stopped on a refusal.
+        found = tested
+        summary = {"items_found": found, "items_tested": tested, "ok": ok, "ko": ko,
+                   "ko_causes": causes, "list_ended": bool(swept.get("end_of_list"))}
+        data = dict(evidence or {})
+        data["sweep"] = summary
+        data["items"] = items
+        text = (f"{subject} sweep: {tested} tested, {ok} OK, {ko} KO"
+                + (f" ({', '.join(f'{n} {c}' for c, n in sorted(causes.items()))})" if ko else ""))
+        if tested == 0:
+            return CaseOutcome.skipped(f"{subject} sweep: no item could be opened",
+                                       cause=CAUSE_INFRA, evidence=data)
+        if ko == 0:
+            return CaseOutcome.passed(text, evidence=data)
+        cause = CAUSE_PRODUCT if causes.get(CAUSE_PRODUCT) else (
+            CAUSE_INFRA if causes.get(CAUSE_INFRA) else CAUSE_COVERAGE)
+        return CaseOutcome.failed(text, cause=cause, evidence=data)
+
+    # ------------------------------------------------------------------
     # screen reading (the recordings list has no node per entry)
     # ------------------------------------------------------------------
 
@@ -481,7 +642,8 @@ class StbAdapter(Adapter):
             node = ""
             detail = ""
             for candidate in nodes:
-                ok, nav_detail = navigate_to(ctx, candidate)
+                ok, nav_detail = navigate_to(
+                    ctx, candidate, timeout_s=self._seconds(ctx, "stb_nav_timeout_s", 180))
                 if ok:
                     opened, node = True, candidate
                     ctx.log(f"on '{candidate}'")
@@ -495,6 +657,14 @@ class StbAdapter(Adapter):
                 # reach it (a stale reference picture, a layout that moved
                 # the tile). That is never a defect of the product.
                 found, matched, _frame = self._radio_tile_on_screen(ctx)
+                if found and self._sweep_count(ctx):
+                    # Sweep mode: the tile is there, so open it by the tree's
+                    # own key edge instead of its stale reference picture.
+                    keyed, key_detail = self._radio_key_route(ctx)
+                    if keyed:
+                        opened, node = True, f"{candidate} (key route)"
+                        break
+                    detail = f"{detail}; key route: {key_detail}"
                 if found:
                     evidence = {"nodes": list(nodes),
                                 "radio_tile_on_screen": True,
@@ -514,6 +684,12 @@ class StbAdapter(Adapter):
                     ctx, nodes, detail,
                     reason=f"the radio surface could not be opened ({detail})",
                     evidence={"nodes": list(nodes)})
+
+            if self._sweep_count(ctx):
+                return self._sweep_outcome(
+                    "radio station", self._sweep_count(ctx),
+                    self._sweep_list(ctx, self._sweep_count(ctx)),
+                    evidence={"surface": node})
 
             walk = self._walk_list(ctx, max_items)
             evidence = {"surface": node, "items_tried": walk["items_tried"]}
@@ -570,6 +746,12 @@ class StbAdapter(Adapter):
                     ctx, nodes, detail,
                     reason=f"the replay surface could not be opened ({detail})",
                     evidence={"nodes": list(nodes)})
+
+            if self._sweep_count(ctx):
+                return self._sweep_outcome(
+                    "replay programme", self._sweep_count(ctx),
+                    self._sweep_list(ctx, self._sweep_count(ctx)),
+                    evidence={"surface": node})
 
             walk = self._walk_list(ctx, max_items)
             evidence = {"surface": node, "items_tried": walk["items_tried"]}
@@ -650,6 +832,12 @@ class StbAdapter(Adapter):
                     reason=f"the VOD surface could not be opened ({detail})",
                     evidence={"nodes": list(nodes)})
 
+            if self._sweep_count(ctx):
+                return self._sweep_outcome(
+                    "VOD title", self._sweep_count(ctx),
+                    self._sweep_list(ctx, self._sweep_count(ctx)),
+                    evidence={"surface": node})
+
             walk = self._walk_list(ctx, max_items)
             evidence = {"surface": node, "items_tried": walk["items_tried"]}
             if walk.get("transport_error"):
@@ -673,6 +861,45 @@ class StbAdapter(Adapter):
                 f"{cause}: the VOD case raised {type(exc).__name__}", cause=cause)
 
     def run_recording(self, ctx: CaseContext) -> CaseOutcome:
+        """One recording case, or (with --sweep N) every listed recording too."""
+        limit = self._sweep_count(ctx)
+        if not limit:
+            return self._run_recording_once(ctx)
+        try:
+            nodes = self._nodes(ctx, "stb_recordings_nodes", self.DEFAULT_RECORDINGS_NODES)
+            opened, node, detail = self._open_surface(ctx, nodes)
+            if not opened:
+                opened, node, detail = self._open_surface(ctx, nodes)
+            swept = {"items": [], "end_of_list": False}
+            if opened:
+                swept = self._sweep_list(ctx, limit)
+            else:
+                swept["items"].append({
+                    "index": 1, "title": "existing recordings (list not opened)",
+                    "status": "KO", "cause": CAUSE_INFRA, "level_db": None,
+                    "frames_moved": None,
+                    "reason": f"the recordings list could not be opened, so the "
+                              f"existing recordings were not visited ({detail})"})
+            for entry in swept["items"]:
+                entry["title"] = f"existing recording: {entry['title']}"
+            once = self._run_recording_once(ctx)
+            new_item = {"index": len(swept["items"]) + 1,
+                        "title": "new recording (record, listed, plays back)",
+                        "status": "OK" if once.status == STATUS_PASS else "KO",
+                        "cause": "" if once.status == STATUS_PASS else (once.cause or CAUSE_PRODUCT),
+                        "level_db": None, "frames_moved": None, "reason": once.reason}
+            evidence = {"surface": node if opened else "", "record_case": once.status}
+            if not opened:
+                evidence["list_error"] = detail
+            return self._sweep_outcome("recording", limit, swept, extra_items=[new_item],
+                                       evidence=evidence)
+        except Exception as exc:                                   # noqa: BLE001
+            cause = exception_cause(exc)
+            ctx.log(f"the recording sweep raised: {exc}")
+            return CaseOutcome.failed(
+                f"{cause}: the recording sweep raised {type(exc).__name__}", cause=cause)
+
+    def _run_recording_once(self, ctx: CaseContext) -> CaseOutcome:
         """Record a live programme, find it in the list, play it back.
 
         Three steps in one case, because each of them alone would prove

@@ -55,7 +55,7 @@ def tb():
 
 def _row(sid, family="screen-id", **kw):
     row = {"id": sid, "team_id": TEAM, "family": family, "object_key": f"{TEAM}/{family}/stb/{sid}.jpg",
-           "dhash": HASH, "device_model": "stb", "userinterface": "stb_tv", "node_id": None,
+           "dhash": HASH, "device_model": "stb", "userinterface": "stb-testop", "node_id": None,
            "focus_label": None, "model_answer": None, "ground_truth": None, "label_source": "none",
            "is_failure": False, "label_conflict": False, "split": "train", "eval_version": None,
            "source_ref": None, "created_at": "2026-09-30T10:00:00Z"}
@@ -109,7 +109,7 @@ def _export(tb, tmp_path, rows, *extra, storage=None):
     out = tmp_path / "tri"
     args = tb.build_arg_parser().parse_args(["export", "--team", TEAM, "--family", rows[0]["family"] if rows else "screen-id",
                                              "--out", str(out), *extra])
-    rc = tb.run_export(args, list_fn=_list_fn(rows), screen_fn=lambda t, ui: SCREENS if ui == "stb_tv" else None,
+    rc = tb.run_export(args, list_fn=_list_fn(rows), screen_fn=lambda t, ui: SCREENS if ui == "stb-testop" else None,
                        storage=storage or FakeStorage(), prompts=_prompts())
     assert rc == 0
     lines = [json.loads(line) for line in (out / "batch.jsonl").read_text(encoding="utf-8").splitlines()]
@@ -130,7 +130,7 @@ def test_blind_export_never_leaks_the_run_label(tb, tmp_path):
     assert key["samples"]["r1"]["run_label"] == {"node_id": HOME, "label": "home"}
     assert key["samples"]["f1"]["model_answer"]["expected_label"] == "live"
     assert key["blind"] is True
-    assert key["screen_labels"]["stb_tv"] == SCREENS
+    assert key["screen_labels"]["stb-testop"] == SCREENS
 
 
 def test_no_blind_adds_run_label_only(tb, tmp_path):
@@ -160,7 +160,7 @@ def test_export_order_and_exclusions(tb, tmp_path):
 
 def test_export_include_triaged_limit_and_userinterface(tb, tmp_path):
     rows = [_run_row("tri1", triage={"status": "agreed"}), _row("u1"), _row("u2"), _row("w1", userinterface="web_tv")]
-    _out, lines, _key = _export(tb, tmp_path, rows, "--include-triaged", "--limit", "2", "--userinterface", "stb_tv")
+    _out, lines, _key = _export(tb, tmp_path, rows, "--include-triaged", "--limit", "2", "--userinterface", "stb-testop")
     assert [line["id"] for line in lines] == ["u1", "u2"]
 
 
@@ -193,7 +193,7 @@ def test_strip_allowed_answers_are_the_three_step_4g_answers(tb):
 
 def _key(samples, family="screen-id"):
     return {"batch_id": "tri-test", "team_id": TEAM, "family": family,
-            "screen_labels": {"stb_tv": SCREENS}, "samples": samples}
+            "screen_labels": {"stb-testop": SCREENS}, "samples": samples}
 
 
 def _ks(row):
@@ -796,8 +796,8 @@ def test_screen_list_is_the_groups(tb, monkeypatch):
             return [{"node_id": "n-apps", "label": "apps"}, {"node_id": "n-home", "label": "home"}]
     scope = tb._load_lib("screen_group_scope")
     monkeypatch.setattr(tb, "_load_lib", lambda name: scope if name == "screen_group_scope" else None)
-    monkeypatch.setattr(scope, "groups_for", lambda team, ui: Groups() if ui == "stb_tv" else None)
-    assert tb.tree_screen_labels("t", "stb_tv") == [{"node_id": "n-apps", "label": "apps"},
+    monkeypatch.setattr(scope, "groups_for", lambda team, ui: Groups() if ui == "stb-testop" else None)
+    assert tb.tree_screen_labels("t", "stb-testop") == [{"node_id": "n-apps", "label": "apps"},
                                                     {"node_id": "n-home", "label": "home"}]
     assert tb.tree_screen_labels("t", "nope") is None
 
@@ -1065,8 +1065,8 @@ def test_jev_settled_rows_keep_the_spot_check(tb):
 
 def test_import_jev_cli_reads_a_bundle(tb, tmp_path):
     bundle = tmp_path / "bundle"
-    (bundle / "ui" / "stb_tv").mkdir(parents=True)
-    (bundle / "ui" / "stb_tv" / "groups.json").write_text(json.dumps([
+    (bundle / "ui" / "stb-testop").mkdir(parents=True)
+    (bundle / "ui" / "stb-testop" / "groups.json").write_text(json.dumps([
         {"node_id": "g-home", "label": "home", "members": []}]), encoding="utf-8")
     row = _row("a")
     (bundle / "rows.jsonl").write_text(json.dumps({**row, "set": "open"}) + "\n", encoding="utf-8")

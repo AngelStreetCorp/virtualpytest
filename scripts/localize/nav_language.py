@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Does the nav (tab-bar underline) fingerprint hold across UI languages? (TASK-133, 2026-10-19)
 
-Runs the deployed Localize cascade on frames named `<lang>_<node>.jpg` against the base `stb_tv` node
+Runs the deployed Localize cascade on frames named `<lang>_<node>.jpg` against the base `stb-<operator>` node
 fingerprints resolved through a variant (`node_overrides`, same as NavigationExecutor), and prints per frame
 the predicted node, right / wrong / unknown, and the measured vs stored underline x / width.
 
-    python3 scripts/localize/nav_language.py --dir FRAMES --ui stb_tv --variant vip7002w-6.04
+    python3 scripts/localize/nav_language.py --dir FRAMES --ui stb-<operator> --variant vip7002w-6.04
 
 Reads the database of the shell it runs in: run it on vpt-pi1 (/opt/virtualpytest), like audit.py.
 """
@@ -23,7 +23,7 @@ import bench  # noqa: E402
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument('--dir', required=True)
-    ap.add_argument('--ui', default='stb_tv')
+    ap.add_argument('--ui', default=os.environ.get('VPT_LOCALIZE_UI'), required='VPT_LOCALIZE_UI' not in os.environ)
     ap.add_argument('--variant')
     ap.add_argument('--team', default=bench.DEFAULT_TEAM)
     a = ap.parse_args()

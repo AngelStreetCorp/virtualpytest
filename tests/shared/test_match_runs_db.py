@@ -115,7 +115,7 @@ def test_record_match_run_known_node_when_winner_clears_floor(monkeypatch):
         = types.SimpleNamespace(data=[])  # no prior event
     monkeypatch.setattr(match_runs_db, 'get_supabase_client', lambda: fake_db)
     out = match_runs_db.record_match_run(
-        team_id='t1', host_name='h1', userinterface_name='stb_tv', source='localize_button',
+        team_id='t1', host_name='h1', userinterface_name='stb-testop', source='localize_button',
         result=_result(candidates=[
             {'node_id': 'home', 'label': 'home', 'confidence': 0.92},
             {'node_id': 'movies', 'label': 'movies', 'confidence': 0.88},
@@ -143,7 +143,7 @@ def test_record_match_run_low_confidence_when_winner_below_floor(monkeypatch):
         = types.SimpleNamespace(data=[])
     monkeypatch.setattr(match_runs_db, 'get_supabase_client', lambda: fake_db)
     out = match_runs_db.record_match_run(
-        team_id='t1', host_name='h1', userinterface_name='stb_tv', source='localize_button',
+        team_id='t1', host_name='h1', userinterface_name='stb-testop', source='localize_button',
         result=_result(candidates=[
             {'node_id': 'home', 'label': 'home', 'confidence': 0.65},
             {'node_id': 'movies', 'label': 'movies', 'confidence': 0.60},
@@ -166,7 +166,7 @@ def test_record_match_run_unknown_when_candidates_empty(monkeypatch):
         = types.SimpleNamespace(data=[])
     monkeypatch.setattr(match_runs_db, 'get_supabase_client', lambda: fake_db)
     out = match_runs_db.record_match_run(
-        team_id='t1', host_name='h1', userinterface_name='stb_tv', source='localize_button',
+        team_id='t1', host_name='h1', userinterface_name='stb-testop', source='localize_button',
         result=_result(candidates=[], ranked=[]),
         device_id='d1', confidence_floor=0.80,
     )
@@ -223,7 +223,7 @@ def test_record_match_run_stores_live_fingerprint_with_regions(monkeypatch):
     fp = {'v': 6, 'dhash': 'ab', 'regions': {'tl': 'ff'}}
     res = _result(candidates=[{'node_id': 'home', 'label': 'home', 'confidence': 0.9}])
     res['live_fingerprint'] = fp
-    match_runs_db.record_match_run(team_id='t1', host_name='h1', userinterface_name='stb_tv',
+    match_runs_db.record_match_run(team_id='t1', host_name='h1', userinterface_name='stb-testop',
                                    source='localize_button', result=res, device_id='d1')
     assert fake_db.table.return_value.insert.call_args.args[0]['live_fingerprint'] == fp
 
@@ -233,7 +233,7 @@ def test_record_match_run_live_fingerprint_null_without_regions(monkeypatch):
     monkeypatch.setattr(match_runs_db, 'get_supabase_client', lambda: fake_db)
     res = _result(candidates=[])
     res['live_fingerprint'] = {'v': 6, 'dhash': 'ab'}
-    match_runs_db.record_match_run(team_id='t1', host_name='h1', userinterface_name='stb_tv',
+    match_runs_db.record_match_run(team_id='t1', host_name='h1', userinterface_name='stb-testop',
                                    source='monitor_localize', result=res, device_id='d1')
     assert fake_db.table.return_value.insert.call_args.args[0]['live_fingerprint'] is None
 

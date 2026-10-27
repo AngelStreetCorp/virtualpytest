@@ -8,7 +8,7 @@ screenshot) and once on the new code (Localize verdict; a screenshot only when i
 confirm the target).
 
     python3 scripts/localize/goto_image_probe.py --server https://localhost --host vpt-pi1 \
-        --device device3 --ui stb_tv --targets home_tvguide,live,home_tvguide,home --insecure
+        --device device3 --ui stb-<operator> --targets home_tvguide,live,home_tvguide,home --insecure
 
 Image tokens use the Claude vision rule (width x height / 750, after the API's resize to at most
 1568 px on the long side): the cost of the image in the call that receives it and in every later

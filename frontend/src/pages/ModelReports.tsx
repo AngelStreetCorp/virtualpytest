@@ -26,6 +26,7 @@ import {
   SelectChangeEvent,
   IconButton,
   Link,
+  TableSortLabel,
 } from '@mui/material';
 import { ExpandMore, ExpandLess, OpenInNew } from '@mui/icons-material';
 import React, { useState, useEffect, useMemo } from 'react';
@@ -41,6 +42,8 @@ import { TYPOGRAPHY } from '../constants/typography';
 
 type FilterType = 'all' | 'action' | 'verification';
 
+type SortKey = 'type' | 'name' | 'success' | 'volume' | 'duration' | 'confidence' | 'executed';
+
 const ModelReports: React.FC = () => {
   const P = useAgentChatPalette();
   const { getAllExecutionResults } = useExecutionResults();
@@ -52,6 +55,8 @@ const ModelReports: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [treeToInterfaceMap, setTreeToInterfaceMap] = useState<Record<string, string>>({});
+  const [selectedVariant, setSelectedVariant] = useState<string>(''); // '' = base runs
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' } | null>(null);
   const [filter, setFilter] = useState<FilterType>('all');
   const [showFailuresOnly, setShowFailuresOnly] = useState(false);
   const [showUnexecutedOnly, setShowUnexecutedOnly] = useState(false);
@@ -148,17 +153,19 @@ const ModelReports: React.FC = () => {
                 });
                 
                 // Also fetch metrics for the tree (this will update the metricsHook state)
-                await metricsHook.fetchMetrics(selectedUI.root_tree.id);
+                await metricsHook.fetchMetrics(selectedUI.root_tree.id, selectedVariant);
               }
             }
           } catch (hierarchyErr) {
             console.warn('[@ModelReports] Failed to fetch tree hierarchy, using root tree only:', hierarchyErr);
             // Still try to fetch metrics even if hierarchy fetch fails
-            await metricsHook.fetchMetrics(selectedUI.root_tree.id);
+            await metricsHook.fetchMetrics(selectedUI.root_tree.id, selectedVariant);
           }
           
           // Load execution results and filter using the extended tree map
-          const results = await getAllExecutionResults();
+          const results = await getAllExecutionResults(
+            Object.keys(extendedTreeMap).filter(id => extendedTreeMap[id] === selectedUserInterface),
+          );
           const filteredResults = results.filter(result => 
             extendedTreeMap[result.tree_id] === selectedUserInterface
           );
@@ -179,7 +186,17 @@ const ModelReports: React.FC = () => {
     if (selectedUserInterface && userInterfaces.length > 0 && Object.keys(treeToInterfaceMap).length > 0) {
       loadExecutionResultsForInterface();
     }
-  }, [selectedUserInterface, userInterfaces, treeToInterfaceMap]);
+  }, [selectedUserInterface, selectedVariant, userInterfaces, treeToInterfaceMap]);
+
+  // Variants this interface has runs for; base runs have no variant.
+  const variants = useMemo(
+    () => Array.from(new Set(executionResults.map(r => (r.variant || '').toLowerCase()).filter(Boolean))).sort(),
+    [executionResults],
+  );
+  const variantResults = useMemo(
+    () => executionResults.filter(r => (r.variant || '').toLowerCase() === selectedVariant),
+    [executionResults, selectedVariant],
+  );
 
   // Transform execution results into direction-specific entries for display
   const transformedResults = useMemo(() => {
@@ -197,7 +214,7 @@ const ModelReports: React.FC = () => {
     // Group execution results by element and direction
     const elementGroups = new Map<string, any[]>();
     
-    executionResults.forEach(result => {
+    variantResults.forEach(result => {
       let groupKey: string;
       
       if (result.execution_type === 'action' && result.action_set_id) {
@@ -246,12 +263,12 @@ const ModelReports: React.FC = () => {
     });
 
     return entries;
-  }, [executionResults]);
+  }, [variantResults]);
 
   // Filter transformed results based on execution type and additional filters
-  const filteredResults = transformedResults.filter((result: any) => {
+  const passesFilters = (result: any, applyTypeFilter: boolean) => {
     // Filter by execution type
-    if (filter !== 'all' && result.execution_type !== filter) return false;
+    if (applyTypeFilter && filter !== 'all' && result.execution_type !== filter) return false;
     
     // Get metrics for additional filtering
     let metrics = null;
@@ -271,8 +288,8 @@ const ModelReports: React.FC = () => {
     
     // Filter by failure rate (not 100% success)
     if (showFailuresOnly) {
-      const successRate = metrics?.success_rate || 0;
-      if (successRate >= 1.0) return false; // Hide 100% success rate items
+      // Executed at least once and not always successful; never-executed items are the Vol=0 filter.
+      if ((metrics?.volume || 0) === 0 || (metrics?.success_rate || 0) >= 1.0) return false;
     }
     
     // Filter by unexecuted (volume = 0)
@@ -282,20 +299,56 @@ const ModelReports: React.FC = () => {
     }
     
     return true;
-  }); // Note: Dependencies handled by React's automatic dependency detection
+  };
+  const filteredResults = transformedResults.filter((r: any) => passesFilters(r, true));
+
+  const metricsFor = (r: any) =>
+    r.execution_type === 'action' && r.action_set_id
+      ? metricsHook.getEdgeDirectionMetrics(r.element_id, r.action_set_id)
+      : r.execution_type === 'action'
+        ? metricsHook.getEdgeMetrics(r.element_id)
+        : metricsHook.getNodeMetrics(r.element_id);
+
+  // Rows that were never executed sort below executed ones in either direction.
+  const sortValue = (r: any, key: SortKey): number | string => {
+    const m: any = metricsFor(r);
+    const ran = (m?.volume || 0) > 0;
+    switch (key) {
+      case 'type': return r.execution_type;
+      case 'name': return (r.element_name || '').toLowerCase();
+      case 'volume': return m?.volume || 0;
+      case 'success': return ran ? m.success_rate || 0 : -1;
+      case 'confidence': return ran ? m.confidence || 0 : -1;
+      case 'duration': return (m && ('avg_action_time' in m ? m.avg_action_time : m.avg_verification_time)) || -1;
+      case 'executed': return new Date(r.executed_at).getTime();
+    }
+  };
+  const sortedResults = sort
+    ? [...filteredResults].sort((a: any, b: any) => {
+        const x = sortValue(a, sort.key);
+        const y = sortValue(b, sort.key);
+        const c = typeof x === 'string' ? x.localeCompare(y as string) : (x as number) - (y as number);
+        return sort.dir === 'asc' ? c : -c;
+      })
+    : filteredResults;
+  const sortCell = (key: SortKey, label: string) => (
+    <TableSortLabel
+      active={sort?.key === key}
+      direction={sort?.key === key ? sort.dir : 'asc'}
+      onClick={() =>
+        setSort(sort?.key === key ? (sort.dir === 'asc' ? { key, dir: 'desc' } : null) : { key, dir: 'asc' })
+      }
+    >
+      <strong>{label}</strong>
+    </TableSortLabel>
+  );
 
   // Calculate stats based on filtered results and their metrics
-  const totalElements = filteredResults.length;
-  
   // Calculate aggregated stats from metrics
-  const { totalVolume, totalSuccessful, totalExecutionTime, thisWeekCount } = useMemo(() => {
+  const { totalVolume, totalSuccessful, totalExecutionTime } = useMemo(() => {
     let volume = 0;
     let successful = 0;
     let executionTime = 0;
-    let weekCount = 0;
-    
-    const oneWeekAgo = new Date();
-    oneWeekAgo.setDate(oneWeekAgo.getDate() - 7);
     
     filteredResults.forEach((result: any) => {
       let metrics = null;
@@ -319,18 +372,12 @@ const ModelReports: React.FC = () => {
         const t = ('avg_action_time' in metrics ? metrics.avg_action_time : metrics.avg_verification_time) || 0;
         executionTime += t * (metrics.volume || 0);
       }
-      
-      // Count this week executions (approximate based on last execution date)
-      if (new Date(result.executed_at) >= oneWeekAgo) {
-        weekCount += metrics?.volume || 0;
-      }
     });
     
     return {
       totalVolume: volume,
       totalSuccessful: successful,
-      totalExecutionTime: executionTime,
-      thisWeekCount: weekCount
+      totalExecutionTime: executionTime
     };
   }, [filteredResults, metricsHook]);
 
@@ -350,10 +397,10 @@ const ModelReports: React.FC = () => {
     loading ? <ValueSkeleton width={width} height={22} /> : node;
 
   // Separate by execution type (for current interface stats)
-  const actionExecutions = executionResults.filter((result) => result.execution_type === 'action');
-  const verificationExecutions = executionResults.filter(
-    (result) => result.execution_type === 'verification',
-  );
+    // The Edges / Nodes tiles ignore the type switch so both stay visible; the other filters still apply.
+  const countable = transformedResults.filter((r: any) => passesFilters(r, false));
+  const uniqueEdges = countable.filter((r: any) => r.execution_type === 'action').length;
+  const uniqueNodes = countable.filter((r: any) => r.execution_type !== 'action').length;
 
   // Handle filter change
   const handleFilterChange = (_event: React.MouseEvent<HTMLElement>, newFilter: FilterType) => {
@@ -365,6 +412,7 @@ const ModelReports: React.FC = () => {
   // Handle user interface selection change
   const handleUserInterfaceChange = (event: SelectChangeEvent) => {
     setSelectedUserInterface(event.target.value);
+    setSelectedVariant('');
   };
 
   // Format duration helper
@@ -397,7 +445,7 @@ const ModelReports: React.FC = () => {
         <PageTitle title="Model Analysis Reports" subtitle="How reliably each node and edge of an interface's navigation model executes" />
 
         {/* User Interface Selector */}
-        <FormControl size="small" sx={{ minWidth: 250, zIndex: 9999, position: 'relative' }}>
+        <FormControl size="small" sx={{ minWidth: 250 }}>
           <Select
             value={selectedUserInterface}
             onChange={handleUserInterfaceChange}
@@ -436,6 +484,24 @@ const ModelReports: React.FC = () => {
             ))}
           </Select>
         </FormControl>
+        {selectedUserInterface && (
+          <FormControl size="small" sx={{ minWidth: 160, ml: 1 }}>
+            <Select
+              value={selectedVariant}
+              onChange={(e: SelectChangeEvent) => setSelectedVariant(e.target.value)}
+              displayEmpty
+              renderValue={(v) => (v ? `Variant: ${v}` : 'Base (no variant)')}
+              aria-label="variant"
+            >
+              <MenuItem value="">Base (no variant)</MenuItem>
+              {variants.map(v => (
+                <MenuItem key={v} value={v}>
+                  {v}
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+        )}
       </Box>
 
       {error && (
@@ -463,21 +529,15 @@ const ModelReports: React.FC = () => {
           {/* Quick Stats */}
           <StatTiles
             tiles={[
-              { label: filter === 'all' ? 'Elements' : 'Filtered elements', value: tileValue(totalElements, 34) },
               { label: 'Executions', value: tileValue(totalVolume, 34) },
-              { label: 'This week', value: tileValue(thisWeekCount, 34) },
               {
                 label: 'Success rate',
                 value: tileValue(successRate === null ? '—' : `${successRate.toFixed(1)}%`, 56),
                 color: successRate === null ? P.textMuted : rateColor(successRate, P),
               },
               { label: 'Avg duration', value: tileValue(avgDuration ?? '—', 48) },
-              ...(filter === 'all'
-                ? [
-                    { label: 'Edges', value: tileValue(actionExecutions.length, 34) },
-                    { label: 'Nodes', value: tileValue(verificationExecutions.length, 34) },
-                  ]
-                : []),
+              { label: 'Edges', value: tileValue(uniqueEdges, 34) },
+              { label: 'Nodes', value: tileValue(uniqueNodes, 34) },
             ]}
           />
 
@@ -497,11 +557,11 @@ const ModelReports: React.FC = () => {
                 selected={showFailuresOnly}
                 onChange={() => setShowFailuresOnly(!showFailuresOnly)}
                 size="small"
-                title="Only elements below 100% success"
+                title="Only elements executed with a success rate below 100%"
                 sx={{ minWidth: 'auto', px: 1, textTransform: 'none', borderRadius: 2, '&.Mui-selected': { color: P.accentText, bgcolor: `${P.accent}26`, borderColor: P.accent } }}
               >
                 <Typography variant="caption" sx={{ fontSize: TYPOGRAPHY.caption.size }}>
-                  ≠100%
+                  &lt;100%
                 </Typography>
               </ToggleButton>
               
@@ -545,36 +605,33 @@ const ModelReports: React.FC = () => {
           </Box>
 
           <TableContainer component={Paper} variant="outlined">
-            <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 1000, '& .MuiTableCell-root': { overflowWrap: 'anywhere' }, '& .MuiTableRow-root': { height: '36px' } }}>
-<colgroup><col style={{ width: 40 }} /><col style={{ width: 100 }} /><col style={{ width: 130 }} /><col /><col style={{ width: 90 }} /><col style={{ width: 90 }} /><col style={{ width: 100 }} /><col style={{ width: 110 }} /><col style={{ width: 150 }} /><col style={{ width: 90 }} /></colgroup>
+            <Table size="small" sx={{ tableLayout: 'fixed', minWidth: 1000, '& .MuiTableCell-root': { overflowWrap: 'anywhere' }, '& .MuiTableHead-root .MuiTableCell-root': { whiteSpace: 'nowrap', overflowWrap: 'normal' }, '& .MuiTableRow-root': { height: '36px' } }}>
+<colgroup><col style={{ width: 40 }} /><col style={{ width: 100 }} /><col /><col style={{ width: 115 }} /><col style={{ width: 85 }} /><col style={{ width: 120 }} /><col style={{ width: 140 }} /><col style={{ width: 150 }} /><col style={{ width: 80 }} /></colgroup>
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ py: 1, px: 0.5, width: 40 }}>
                     {/* Expand column */}
                   </TableCell>
                   <TableCell sx={{ py: 1 }}>
-                    <strong>Type</strong>
+                    {sortCell('type', 'Type')}
                   </TableCell>
                   <TableCell sx={{ py: 1 }}>
-                    <strong>Interface</strong>
+                    {sortCell('name', 'Name')}
                   </TableCell>
                   <TableCell sx={{ py: 1 }}>
-                    <strong>Name</strong>
+                    {sortCell('success', 'Success')}
                   </TableCell>
                   <TableCell sx={{ py: 1 }}>
-                    <strong>Success</strong>
+                    {sortCell('volume', 'Count')}
                   </TableCell>
                   <TableCell sx={{ py: 1 }}>
-                    <strong>Volume</strong>
+                    {sortCell('duration', 'Duration')}
                   </TableCell>
                   <TableCell sx={{ py: 1 }}>
-                    <strong>Duration</strong>
+                    {sortCell('confidence', 'Confidence')}
                   </TableCell>
                   <TableCell sx={{ py: 1 }}>
-                    <strong>Confidence</strong>
-                  </TableCell>
-                  <TableCell sx={{ py: 1 }}>
-                    <strong>Executed</strong>
+                    {sortCell('executed', 'Executed')}
                   </TableCell>
                   <TableCell sx={{ py: 1 }}>
                     <strong>Report</strong>
@@ -587,12 +644,12 @@ const ModelReports: React.FC = () => {
                      Report action last, both icon-sized. */
                   <TableRowsSkeleton
                     rows={8}
-                    widths={[null, '56%', '52%', '64%', '72%', '64%', '68%', '70%', '74%', null]}
+                    widths={[null, '56%', '64%', '72%', '64%', '68%', '70%', '74%', null]}
                     rowHeight={46}
                   />
                 ) : filteredResults.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={10} sx={{ textAlign: 'center', py: 4 }}>
+                    <TableCell colSpan={9} sx={{ textAlign: 'center', py: 4 }}>
                       <Typography variant="body2" color="textSecondary">
                         {filter === 'all'
                           ? 'No execution results available yet'
@@ -601,7 +658,7 @@ const ModelReports: React.FC = () => {
                     </TableCell>
                   </TableRow>
                 ) : (
-                  filteredResults.map((result: any) => {
+                  sortedResults.map((result: any) => {
                     // Get metrics for this element using direction-specific lookup
                     const isAction = result.execution_type === 'action';
                     let metrics = null;
@@ -643,22 +700,12 @@ const ModelReports: React.FC = () => {
                           </TableCell>
                           <TableCell sx={{ py: 0.5 }}>
                             <Chip
-                              icon={
-                                result.execution_type === 'action' ? (
-                                  <ActionIcon />
-                                ) : (
-                                  <VerificationIcon />
-                                )
-                              }
                               label={result.execution_type === 'action' ? 'Edge' : 'Node'}
                               size="small"
                               variant="outlined"
-                              sx={{ height: 22, fontSize: TYPOGRAPHY.caption.size, borderColor: P.borderColor, color: P.textSecondary, '& .MuiChip-icon': { fontSize: TYPOGRAPHY.navbarItem.size, color: P.accentText } }}
+                              sx={{ height: 22, fontSize: TYPOGRAPHY.caption.size, borderColor: P.borderColor, color: P.textSecondary }}
                             />
                           </TableCell>
-                        <TableCell sx={{ py: 0.5 }}>
-                          {treeToInterfaceMap[result.tree_id] || 'Unknown'}
-                        </TableCell>
                         <TableCell sx={{ py: 0.5 }}>{result.element_name}</TableCell>
                         <TableCell sx={{ py: 0.5 }}>
                           <Typography variant="body2" sx={{ 
@@ -708,9 +755,10 @@ const ModelReports: React.FC = () => {
                               href={reportUrl}
                               target="_blank"
                               rel="noopener noreferrer"
-                              sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: P.accentText }}
+                              aria-label="Report"
+                              title="Report"
+                              sx={{ display: 'inline-flex', alignItems: 'center', color: P.accentText }}
                             >
-                              Report
                               <OpenInNew sx={{ fontSize: TYPOGRAPHY.body.size }} />
                             </Link>
                           ) : (
@@ -724,7 +772,7 @@ const ModelReports: React.FC = () => {
                       {/* Expandable Details Row */}
                       {isExpanded && (
                         <TableRow sx={{ '&:hover': { backgroundColor: 'transparent !important' } }}>
-                          <TableCell sx={{ py: 0, border: 0 }} colSpan={10}>
+                          <TableCell sx={{ py: 0, border: 0 }} colSpan={9}>
                             <Box sx={{ py: 1, px: 2 }}>
                               <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                                 {result.execution_type === 'action' 

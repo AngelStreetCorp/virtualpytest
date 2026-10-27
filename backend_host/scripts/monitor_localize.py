@@ -174,7 +174,7 @@ def gate_motion_decision(motion: Optional[dict]) -> Optional[str]:
 
 
 # Live needs the motion to LAST, as on the Localize button (one full pair and no still pair over
-# ~1 s): a single raw 'full' frame also happens on a menu with a hero trailer behind it (stb_tv
+# ~1 s): a single raw 'full' frame also happens on a menu with a hero trailer behind it (stb-<operator>
 # home: static / box / full frames alternate). The fused 'state' cannot tell them apart — it read
 # 'ui' on a live SRF 1 channel too (2026-10-15). So the loop keeps the last LIVE_WINDOW raw kinds
 # per device: 'live' only when none of them was still; otherwise the frame is plain motion (skip,
@@ -297,7 +297,7 @@ def frame_unchanged(prev_thumb, thumb) -> bool:
 
 
 # --- Moving-box skip (TASK-115 §5) ---------------------------------------------
-# A menu with a looping hero trailer (stb_tv home) changes cells on every tick, so the unchanged
+# A menu with a looping hero trailer (stb-<operator> home) changes cells on every tick, so the unchanged
 # skip never fires there. A cell is MOVING when it changed tick-to-tick on the last
 # MOVING_BOX_TICKS ticks in a row (a trailer does; a focus move changes a tile once, then holds).
 # A frame is skipped when every cell changed against the last matched frame is moving now AND was
@@ -985,7 +985,7 @@ class MonitorLocalizer:
                     self._log_gate_skip(device_id, GATE_UNCHANGED, force_match=False)
                     return dict(cached)
                 # Also on a forced settle tick: on a trailer screen the trailer's own cuts make the
-                # motion -> still edges (~6/min on stb_tv home), so an edge whose only change is
+                # motion -> still edges (~6/min on stb-<operator> home), so an edge whose only change is
                 # that box carries no news. A still screen keeps its one forced re-read (above).
                 if age < MOVING_BOX_REFRESH_SECONDS and not settled_tick and moving_box_skip(changed, moving_now, prev[2]):
                     self._log_gate_skip(device_id, GATE_MOVING_BOX, force_match=False)

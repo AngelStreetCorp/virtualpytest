@@ -41,7 +41,7 @@ from backend_server.scripts import match_runs_worker as w  # noqa: E402
 
 def test_build_payload_has_required_fields():
     p = q.build_payload(
-        team_id='t1', host_name='h1', userinterface_name='stb_tv',
+        team_id='t1', host_name='h1', userinterface_name='stb-testop',
         source='monitor_localize', result={'kind': 'node'},
         device_id='d1', profile='tv_app', dhash=12345, frame_url='/tmp/x.png',
     )

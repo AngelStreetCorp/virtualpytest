@@ -3,7 +3,7 @@
   "_comment": "Regression harness for MonitorLocalizer.localize_frame(). Each row drives the per-frame payload through one labeled scenario. Schema: `expected` fields are all optional \u2014 the harness treats absent as 'don't care, but warn if a value comes through that the manifest didn't list' so adding a new field to the payload does not break older rows. Rows with `source == 'synthetic'` are SKIPPED unless `RUN_SYNTHETIC=1` is set. Customer / brand names are placeholders (brand_a/b/c); real brand tokens go in the `note` field only when they describe a known app-grid node (e.g. apps_netflix) \u2014 see AGENTS.md leak-gate rule.",
   "userinterfaces": [
     {
-      "name": "stb_tv",
+      "name": "stb-testop",
       "company": "brand_a"
     },
     {
@@ -22,7 +22,7 @@
   "rows": [
     {
       "id": "stb_tv_home_static",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "local:/Users/Shared/vpt_captures/vpt-pi1_capture4/capture_000000.jpg",
       "motion": {
         "kind": "static",
@@ -39,11 +39,11 @@
         "userinterface_company": "brand_a",
         "confidence": 0.93
       },
-      "note": "Switch HOME menu (174 of 200 frames in pi3 widened). Caption: home, no focus, frozen UI. Pin: stb_tv home is recognized, no overlay, playback N/A on a frozen menu."
+      "note": "Switch HOME menu (174 of 200 frames in pi3 widened). Caption: home, no focus, frozen UI. Pin: stb-testop home is recognized, no overlay, playback N/A on a frozen menu."
     },
     {
       "id": "stb_tv_home_focused",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "local:/Users/Shared/vpt_captures/vpt-pi1_capture4/capture_000065.jpg",
       "motion": {
         "kind": "static",
@@ -64,7 +64,7 @@
     },
     {
       "id": "stb_tv_channel_promo_a",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "local:/Users/Shared/vpt_captures/vpt-pi1_capture4/capture_108000.jpg",
       "motion": {
         "kind": "static",
@@ -84,7 +84,7 @@
     },
     {
       "id": "stb_tv_channel_promo_b",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "local:/Users/Shared/vpt_captures/vpt-pi1_capture4/capture_108195.jpg",
       "motion": {
         "kind": "static",
@@ -104,7 +104,7 @@
     },
     {
       "id": "stb_tv_channel_promo_c",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "static",
@@ -347,7 +347,7 @@
     },
     {
       "id": "blackscreen_static",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "static",
@@ -367,7 +367,7 @@
     },
     {
       "id": "blackscreen_static_b",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "static",
@@ -387,7 +387,7 @@
     },
     {
       "id": "live_tv_full_motion",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture3/capture_000000.jpg",
       "motion": {
         "kind": "full",
@@ -403,7 +403,7 @@
     },
     {
       "id": "screensaver_forest_no_keyboard_fp",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture3/capture_000000.jpg",
       "motion": {
         "kind": "static",
@@ -423,7 +423,7 @@
     },
     {
       "id": "live_tv_full_motion_b",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "local:/Users/Shared/vpt_captures/vpt-pi3_capture3/capture_108000.jpg",
       "motion": {
         "kind": "full",
@@ -439,7 +439,7 @@
     },
     {
       "id": "transition_motion_to_static",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "static",
@@ -459,7 +459,7 @@
     },
     {
       "id": "transition_static_to_motion",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "band",
@@ -475,7 +475,7 @@
     },
     {
       "id": "transition_sustained_live",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "full",
@@ -491,7 +491,7 @@
     },
     {
       "id": "transition_app_grid_focus",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "box",
@@ -511,7 +511,7 @@
     },
     {
       "id": "tier2_error_visible",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "static",
@@ -531,7 +531,7 @@
     },
     {
       "id": "tier2_error_none",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "static",
@@ -551,7 +551,7 @@
     },
     {
       "id": "tier2_overlay_popup",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "static",
@@ -571,7 +571,7 @@
     },
     {
       "id": "tier2_overlay_none",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "static",
@@ -591,7 +591,7 @@
     },
     {
       "id": "tier2_playback_playing",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "band",
@@ -607,7 +607,7 @@
     },
     {
       "id": "tier2_playback_n_a",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "static",
@@ -627,7 +627,7 @@
     },
     {
       "id": "tier2_loaded_no",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "minor",
@@ -647,7 +647,7 @@
     },
     {
       "id": "tier2_loaded_yes",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "static",
@@ -667,7 +667,7 @@
     },
     {
       "id": "company_brand_a_error_visible",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "static",
@@ -688,7 +688,7 @@
     },
     {
       "id": "company_brand_a_gate_skip_cached",
-      "userinterface": "stb_tv",
+      "userinterface": "stb-testop",
       "source": "synthetic",
       "motion": {
         "kind": "full",

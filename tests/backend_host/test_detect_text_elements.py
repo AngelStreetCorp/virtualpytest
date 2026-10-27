@@ -3,7 +3,7 @@ tests/backend_host/test_detect_text_elements.py — /detectText can return each 
 
 A full-frame OCR check on a set-top box picture background reads almost nothing (stb4 show
 detail, 2026-10-04: "01:40" only), while a crop of the button row reads its labels in 0.3 s.
-stb_tv's checks are all cropped; a caller building a tree needs the areas to do the same.
+stb-testop's checks are all cropped; a caller building a tree needs the areas to do the same.
 """
 import importlib
 import os

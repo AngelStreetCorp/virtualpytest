@@ -72,6 +72,7 @@ import AppearanceSettings from '../components/settings/AppearanceSettings';
 import { AiRoutingSettings } from '../components/settings/AiRoutingSettings';
 import { AtlasMemorySettings } from '../components/settings/AtlasMemorySettings';
 import { MaintenanceSettings } from '../components/settings/MaintenanceSettings';
+import { ServerListSettings } from '../components/settings/ServerListSettings';
 import { useProfile } from '../hooks/auth/useProfile';
 import { useServerManager } from '../hooks/useServerManager';
 import { lookupHostServerUrl } from '../hooks/allServer/useRowServerUrl';
@@ -190,7 +191,6 @@ const KNOWN_SERVER_KEYS = new Set<string>([
 
 const KNOWN_FRONTEND_KEYS = new Set<string>([
   'VITE_SERVER_URL',
-  'VITE_SLAVE_SERVER_URL',
   'VITE_GRAFANA_URL',
   'VITE_CLOUDFLARE_R2_PUBLIC_URL',
   'VITE_DEV_MODE',
@@ -1067,17 +1067,6 @@ const Settings: React.FC = () => {
               </Grid>
               <Grid item xs={12} md={6}>
                 <TextField
-                  label="Slave Server URLs"
-                  value={config.frontend.VITE_SLAVE_SERVER_URL}
-                  onChange={(e) => updateFrontendConfig('VITE_SLAVE_SERVER_URL', e.target.value)}
-                  placeholder="[]"
-                  fullWidth
-                  size="small"
-                  helperText="JSON array of additional server URLs"
-                />
-              </Grid>
-              <Grid item xs={12} md={6}>
-                <TextField
                   label="Grafana URL"
                   value={config.frontend.VITE_GRAFANA_URL}
                   onChange={(e) => updateFrontendConfig('VITE_GRAFANA_URL', e.target.value)}
@@ -1112,6 +1101,7 @@ const Settings: React.FC = () => {
             />
           </CardContent>
         </Card>
+        <ServerListSettings />
       </SettingsTabPanel>
 
       {/* Tab 4: Branding */}

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """ABSTAIN-DOOR HISTOGRAM — TASK-68 row 7, the measurement EXPERIMENT-01 waits on.
 
-`identify_screen` abstains on ~61.6% of `stb_tv` frames. That one number hides six different
+`identify_screen` abstains on ~61.6% of `stb-<operator>` frames. That one number hides six different
 exits, and only THREE of them (doors 2, 5, 6) are addressable by a local decision model:
 door 1 is already named by `classify_special_state`, doors 3 and 4 are calibration/OCR fixes.
 So the question this answers is not "how much does it abstain" but "which door does the
@@ -31,7 +31,7 @@ the offline-test convention, no DB). Nothing else about the environment is touch
 
 Usage on a host:
     /opt/virtualpytest/venv/bin/python features/avq/backend_host/localize/abstain_histogram.py \
-        --capture /var/www/html/stream/capture1 --ui stb_tv --limit 3000 \
+        --capture /var/www/html/stream/capture1 --ui stb-<operator> --limit 3000 \
         --out /tmp/abstain_histogram.md
 Locally (no DB):
     python3 features/avq/backend_host/localize/abstain_histogram.py \

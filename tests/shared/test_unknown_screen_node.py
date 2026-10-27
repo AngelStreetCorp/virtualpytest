@@ -21,7 +21,7 @@ V6 = {
 def test_full_v6_fingerprint_is_stored_on_the_node():
     row = {'fingerprint': V6, 'proposed_name': 'settings_menu',
            'image_url': '/host/h1/stream/capture/captures/x.jpg', 'dom': {'screen_type': 'menu'}}
-    data = node_mod.build_unknown_node_data(row, 'stb_tv', 'row-1')
+    data = node_mod.build_unknown_node_data(row, 'stb-testop', 'row-1')
     assert data['data']['fingerprint'] == V6
     assert data['node_id'] == 'settings_menu'
     assert data['data']['screenshot'] == row['image_url']
@@ -30,19 +30,19 @@ def test_full_v6_fingerprint_is_stored_on_the_node():
 
 def test_legacy_dhash_fingerprint_is_preserved_unchanged():
     row = {'fingerprint': {'dhash': 'abc'}, 'proposed_name': 'old_screen'}
-    data = node_mod.build_unknown_node_data(row, 'stb_tv', 'row-2')
+    data = node_mod.build_unknown_node_data(row, 'stb-testop', 'row-2')
     assert data['data']['fingerprint'] == {'dhash': 'abc'}
 
 
 def test_label_fallback_and_sanitized_id():
     row = {'proposed_name': None}
-    data = node_mod.build_unknown_node_data(row, 'stb_tv', 'abcdef12-3456-7890')
-    assert data['label'] == 'stb_tv_unknown_abcdef12'
-    assert data['node_id'] == 'stb_tv_unknown_abcdef12'
+    data = node_mod.build_unknown_node_data(row, 'stb-testop', 'abcdef12-3456-7890')
+    assert data['label'] == 'stb-testop_unknown_abcdef12'
+    assert data['node_id'] == 'stb_testop_unknown_abcdef12'
 
 
 def test_explicit_label_wins():
     data = node_mod.build_unknown_node_data(
-        {'fingerprint': V6, 'proposed_name': 'ai_name'}, 'stb_tv', 'row-3', label='Human Name')
+        {'fingerprint': V6, 'proposed_name': 'ai_name'}, 'stb-testop', 'row-3', label='Human Name')
     assert data['label'] == 'Human Name'
     assert data['node_id'] == 'human_name'

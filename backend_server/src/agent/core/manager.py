@@ -414,16 +414,19 @@ class QAManagerAgent:
         """Build context section for system prompt"""
         ctx = ctx or {}
 
+        # The server scope line is not filtered by a skill's required_context: it says which servers a question covers.
+        scope_line = f"{ctx['scope_line']}\n\n" if ctx.get('scope_line') else ''
+
         # If no skill specified (router mode), include all context
         if skill is None or not hasattr(skill, 'required_context') or not skill.required_context:
-            return self._build_full_context_section(ctx)
+            return self._build_full_context_section(ctx) + scope_line
 
         # Filter context based on skill's required_context
         required_keys = set(skill.required_context)
         filtered_ctx = {k: v for k, v in ctx.items() if k in required_keys}
 
         # Build context section with filtered data
-        return self._build_full_context_section(filtered_ctx)
+        return self._build_full_context_section(filtered_ctx) + scope_line
 
     def _build_full_context_section(self, ctx: Dict[str, Any]) -> str:
         """Build complete context section (used by router and when no filtering needed)"""

@@ -187,3 +187,13 @@ start-native-emulator.bat
 start_emulator.sh
 install_host_windows_ascii.ps1
 install_host_windows_fixed.ps1
+
+# TASK-176: operator-only scripts and data keyed by the operator's real tree names (used live,
+# never imported by shared code); publish_public.sh drops them with the rest of this list.
+scripts/agent/vod_radio_dispatch.py
+scripts/agent/vod_radio_offline_check.py
+scripts/localize/cheap23.json
+
+# Customer-specific web tree smoke test (TASK-177). A glob, because this file publishes and the
+# script's name carries a customer codename (docs/agent/release/RELEASING.md, "Pair tag").
+test_scripts/web/web_r*tel_smoke.py

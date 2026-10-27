@@ -119,8 +119,8 @@ async function walkFresh(page, mark, shot, log) {
   await pickTarget(page, BOXES[0]); mark('target'); await page.waitForTimeout(1200);
   await clickBox(page, page.locator('.MuiFormControl-root:has(label:has-text("Interface")) .MuiSelect-select').first(), 800);
   await page.waitForTimeout(2500);
-  const io = page.locator('[role="option"]').filter({ hasText: /^stb_tv$/ }).first(); await io.scrollIntoViewIfNeeded(); await page.waitForTimeout(500); await clickBox(page, io, 1000);
-  await page.waitForTimeout(800); if (!(await page.locator('.MuiSelect-select').filter({ hasText: /^stb_tv$/ }).count())) throw new Error('interface stb_tv not selected');
+  const io = page.locator('[role="option"]').filter({ hasText: new RegExp('^' + process.env.TP_UI + '$') }).first(); await io.scrollIntoViewIfNeeded(); await page.waitForTimeout(500); await clickBox(page, io, 1000);
+  await page.waitForTimeout(800); if (!(await page.locator('.MuiSelect-select').filter({ hasText: new RegExp('^' + process.env.TP_UI + '$') }).count())) throw new Error('interface ' + process.env.TP_UI + ' not selected');
   mark('interface'); await shot('interface');
   const ctl = page.getByRole('button', { name: /^control$/i }).first();
   for (let i = 0; i < 20 && !(await ctl.isEnabled().catch(() => false)); i++) await page.waitForTimeout(1000);

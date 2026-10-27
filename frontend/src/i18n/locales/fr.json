@@ -2343,5 +2343,16 @@
   "No ad break in the last 24 h.": "Aucune coupure pub ces dernières 24 h.",
   "marked not an ad": "marquée pas une pub",
   "No picture kept for this break (recorded before pictures were kept).": "Aucune image gardée pour cette coupure (enregistrée avant que les images soient gardées).",
-  "Not an ad": "Pas une pub"
+  "Not an ad": "Pas une pub",
+  "Servers": "Serveurs",
+  "URL": "URL",
+  "Order": "Ordre",
+  "Enabled": "Activé",
+  "Remove server": "Retirer le serveur",
+  "Add server": "Ajouter un serveur",
+  "Save servers": "Enregistrer les serveurs",
+  "No servers in the list.": "Aucun serveur dans la liste.",
+  "This server is {name}.": "Ce serveur est {name}.",
+  "The servers of the platform, shown in the server picker. Only a platform admin can edit this list.": "Les serveurs de la plateforme, affichés dans le sélecteur de serveur. Seul un administrateur de la plateforme peut modifier cette liste.",
+  "The servers of the platform, shown in the server picker. The server in Server URL above is always the first one. A server of this list that is turned off leaves the picker.": "Les serveurs de la plateforme, affichés dans le sélecteur de serveur. Le serveur de l'URL du serveur ci-dessus est toujours le premier. Un serveur désactivé de cette liste disparaît du sélecteur."
 }

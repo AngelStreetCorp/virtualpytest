@@ -43,6 +43,7 @@ from .tool_definitions import (
 from .utils.api_client import MCPAPIClient
 from .utils.mcp_formatter import MCPFormatter, ErrorCategory
 from .utils.input_validator import InputValidator
+from backend_server.src.lib.servers import owner, turn
 
 
 # Global security: keywords in tool parameters that indicate secret/credential access
@@ -152,9 +153,18 @@ class VirtualPyTestMCPServer:
                     error_response = self.formatter.format_validation_error(tool_name, validation_error)
                     raise ValueError(error_response['content'][0]['text'])
             
-            # Execute tool (synchronous)
+            # Execute tool (synchronous). In a chat turn a tool that names a host runs against the server that
+            # owns it (TASK-179 P4); `server` is routing, not a tool argument.
             handler = self.tool_handlers[tool_name]
-            result = handler(params)
+            server_arg = params.get('server') if turn.current() is not None else None
+            if 'server' in params:
+                params = {k: v for k, v in params.items() if k != 'server'}
+            try:
+                with owner.route_for_call(params.get('host_name'), server_arg):
+                    result = handler(params)
+            except owner.OwnerError as exc:
+                error_response = self.formatter.format_error(str(exc), ErrorCategory.NOT_FOUND)
+                raise ValueError(error_response['content'][0]['text'])
             
             # Check if result indicates an error
             if result.get('isError', False):

@@ -207,11 +207,11 @@ CTX = {"screen_labels": [{"node_id": "n-home", "label": "home"}, {"node_id": "n-
 
 
 def _eval_result(score_eval, source="human", eval_version=None):
-    rows = [{"id": "a", "ground_truth": GROUPED, "userinterface": "stb_tv", "device_model": "stb",
+    rows = [{"id": "a", "ground_truth": GROUPED, "userinterface": "stb-testop", "device_model": "stb",
              "object_key": "t/screen-id/stb/a.jpg", "split": "eval", "eval_version": eval_version},
-            {"id": "b", "ground_truth": dict(GROUPED, focus=None), "userinterface": "stb_tv", "device_model": "stb",
+            {"id": "b", "ground_truth": dict(GROUPED, focus=None), "userinterface": "stb-testop", "device_model": "stb",
              "object_key": "t/screen-id/stb/b.jpg", "split": "eval", "eval_version": eval_version},
-            {"id": "c", "ground_truth": GROUPED, "userinterface": "stb_tv", "device_model": "stb",
+            {"id": "c", "ground_truth": GROUPED, "userinterface": "stb-testop", "device_model": "stb",
              "object_key": "t/screen-id/stb/c.jpg", "split": "eval", "eval_version": eval_version}]
     answers = iter([('{"label": "home"}', "tr-a"), ('{"focused": "Search"}', "tr-a-focus"),
                     ('{"label": "apps"}', "tr-b")])

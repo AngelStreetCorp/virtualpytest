@@ -548,7 +548,7 @@ def test_screen_id_label_is_the_group_and_the_row_keeps_its_node(executor, calls
     _focus(monkeypatch, {'kind': 'none'})
     executor.unified_graph = _stb_graph()
     executor._record_training_samples(_verification(frame), 'n-apps', 'home_apps', 'tree-root', 'team-1',
-                                      'stb_tv', runner=_sync)
+                                      'stb-testop', runner=_sync)
     kw = calls[0][1]
     assert kw['ground_truth'] == {'node_id': 'n-home', 'label': 'home', 'node': 'n-apps',
                                   'node_label': 'home_apps', 'focus': 'apps'}
@@ -559,7 +559,7 @@ def test_the_group_node_itself_has_no_focus(executor, calls, frame, monkeypatch)
     _focus(monkeypatch, {'kind': 'none'})
     executor.unified_graph = _stb_graph()
     executor._record_training_samples(_verification(frame), 'n-store', 'apps', 'tree-root', 'team-1',
-                                      'stb_tv', runner=_sync)
+                                      'stb-testop', runner=_sync)
     assert calls[0][1]['ground_truth'] == {'node_id': 'n-store', 'label': 'apps', 'node': 'n-store',
                                            'node_label': 'apps', 'focus': None}
 
@@ -574,7 +574,7 @@ def test_no_graph_keeps_the_per_node_label(executor, calls, frame, monkeypatch):
 def test_failed_verification_stores_the_expected_group(executor, calls, frame):
     executor.unified_graph = _stb_graph()
     executor._record_failed_verification_sample(_failed_verification(frame), 'n-tvguide', 'home_tvguide',
-                                                'tree-root', 'team-1', 'stb_tv', runner=_sync)
+                                                'tree-root', 'team-1', 'stb-testop', runner=_sync)
     assert calls[0][1]['model_answer'] == {'expected_node_id': 'n-tvguide', 'expected_label': 'home_tvguide',
                                            'expected_group': 'home', 'verified': False}
 
@@ -588,12 +588,12 @@ def test_grouping_error_never_escapes(executor, calls, frame, monkeypatch):
     executor.unified_graph = _stb_graph()
     monkeypatch.setattr(screen_groups, 'from_graph', boom)
     executor._record_training_samples(_verification(frame), 'n-apps', 'home_apps', 'tree-root', 'team-1',
-                                      'stb_tv', runner=_sync)
+                                      'stb-testop', runner=_sync)
     assert calls[0][1]['ground_truth'] == {'node_id': 'n-apps', 'label': 'home_apps'}
 
 
 def _stb_apps_graph():
-    """The live stb_tv Apps shape: home_apps -OK-> apps, apps -> apps_netflix is DOWN, HOME,
+    """The live stb-testop Apps shape: home_apps -OK-> apps, apps -> apps_netflix is DOWN, HOME,
     DOWN (both ways), and the tiles are chained by RIGHT."""
     import networkx as nx
     g = nx.DiGraph()
@@ -617,10 +617,12 @@ def _stb_apps_graph():
 
 
 def test_hook_applies_the_core_override_apps_tiles_are_apps(executor, calls, frame, monkeypatch):
+    from shared.src.lib.ai import screen_groups
+    monkeypatch.setitem(screen_groups.SCREEN_GROUP_OVERRIDES, 'stb-testop', {'apps': 'apps_netflix', 'ge': 'en'})
     _focus(monkeypatch, {'kind': 'none'})
     executor.unified_graph = _stb_apps_graph()
     executor._record_training_samples(_verification(frame), 'apps_disney', 'apps_disney', 'tree-root', 'team-1',
-                                      'stb_tv', runner=_sync)
+                                      'stb-testop', runner=_sync)
     assert calls[0][1]['ground_truth'] == {'node_id': 'apps', 'label': 'apps', 'node': 'apps_disney',
                                            'node_label': 'apps_disney', 'focus': 'disney'}
 

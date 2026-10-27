@@ -23,6 +23,8 @@ from backend_server.src.lib.platform_update import frontend_ssh
 from backend_server.src.lib.utils.response_cache import get_cached_response, set_cached_response
 from backend_server.src.lib.utils.server_utils import get_host_manager, get_server_system_stats
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
+from backend_server.src.lib.servers.merges import merge_hosts
+from backend_server.src.lib.servers.scope import supports_all_servers
 from backend_server.src.lib.auth_middleware import require_permission, require_role, require_user_auth
 from backend_server.src.routes.server_system_socket_routes import emit_system_update
 from shared.src.lib.config.constants import CACHE_CONFIG
@@ -1661,6 +1663,7 @@ def _host_heartbeat_is_stale(host_info) -> bool:
 
 @server_system_bp.route('/getAllHosts', methods=['GET'])
 @handle_route_exceptions('server_system:getAllHosts')
+@supports_all_servers(merge_hosts)
 def getAllHosts():
     """
     Return all registered hosts - single REST endpoint for host listing
@@ -1670,6 +1673,8 @@ def getAllHosts():
                         Set to true only when you need action/verification schemas (for control pages)
         include_system_stats: boolean (default: false) - Include full system stats and device details
                         Set to true when you need system metrics (CPU, RAM, disk) for dashboard/monitoring
+        scope: 'all' - also ask every other server of the list with the caller's login (TASK-179); hosts get
+               `server`/`server_url`, plus a `servers` summary. 'local' or absent: this server only.
     """
     include_actions = request.args.get('include_actions', 'false').lower() == 'true'
     include_system_stats = request.args.get('include_system_stats', 'false').lower() == 'true'

@@ -1,4 +1,4 @@
-# BUG-0577: Windows host_vnc device — wrong stream URL, missing from All Targets dropdown, noVNC iframe 401s
+# BUG-0580: Windows host_vnc device — wrong stream URL, missing from All Targets dropdown, noVNC iframe 401s
 
 **Date:** 2026-10-16
 **Discovered on:** vpt-windows (joach's Windows PC, French locale, `desktop-uni4mdl`)

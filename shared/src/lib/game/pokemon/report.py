@@ -30,6 +30,7 @@ KIND_LABEL = {
     "hm_taught": "Move taught", "hm_failed": "Move not taught", "cut_tree": "Tree cut", "cut_failed": "Cut failed",
     "trash_can": "Trash can", "exit_blocked": "Map exit blocked", "struggle": "Struggle (no PP)",
     "milestone_done": "Milestone done", "dead_end": "Dead end (back out)", "poster_switch": "Poster switch", "lift_floor": "Elevator floor", "flute_used": "Poké Flute",
+    "door_press": "Door fired",
 }
 
 

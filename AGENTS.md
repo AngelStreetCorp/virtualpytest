@@ -27,7 +27,7 @@ Dedicated agent docs in `docs/agent/` — self-sufficient, no prior knowledge ne
 6. **`docs/agent/infra/CICD.md` _(internal-only — not in the public snapshot)_** — CI/CD pipeline: job graph, runners, report storage, email notifications, improvements.
 7. **`docs/agent/infra/DEPLOY.md` _(internal-only — not in the public snapshot)_** — Exact deploy workflow (main only) via proxmox `update_core.sh`, including frontend-only deploys and post-deploy verification.
 8. **`docs/agent/infra/PARALLEL_AGENTS.md` _(internal-only — not in the public snapshot)_** — Splitting one task across several agents: worktrees, which files may never be owned by two slices, the merge order, and what "shipped" means. Read before fanning work out.
-9. **`docs/agent/infra/UPLINK.md` _(internal-only — not in the public snapshot)_** — Internet bandwidth at the home site (vpt-pi4 proxy behind the rougetel box): Status page Uplink tile, vnstat history, nginx bytes log, and the 1G vs 5G/8G upgrade rule.
+9. **Internet bandwidth at the home site** _(the vpt-pi4 proxy path)_ — the status-page Uplink tile (`frontend/src/pages/Status.tsx`) and its measurement (`backend_server/src/lib/utils/uplink_utils.py`). The runbook itself is still unwritten: the `docs/agent/infra/UPLINK.md` pointer came with the item on 2026-10-19 and the file never landed, so the `vnstat` history, the nginx bytes log and the 1G vs 5G/8G upgrade rule are not written down yet.
 
 ### Finding a doc fast
 
@@ -263,12 +263,14 @@ A turn without the line is sent back once by a Stop hook — reply with the same
 ## Navigation Tree (Userinterface) Naming (owner, 2026-10-26)
 One operator = one family of trees, named **`<platform>-<operator>`**, lowercase, hyphen, no `ui`, no underscore.
 - `<platform>` is one of `web`, `stb`, `androidtv`, `androidmobile`, `androidtablet`, `firetv`, `appletv`, `ios`.
-- `<operator>` is the operator's codename (the table is in the internal task doc `docs/tasks/TASK-176-tree-naming.md`; never the real brand).
+- `<operator>` is the operator's codename (the codenames are in the internal task doc `docs/tasks/TASK-176-tree-naming.md`; never the real brand).
 - Examples: `web-<operator>`, `stb-<operator>`, `androidmobile-<operator>`; a new operator gets the same set (`stb-<operator>`, `web-<operator>`, …).
 - Named variants (firmware, profile) stay inside the tree, never a new interface. Experiments and builder runs use a `tmp-` prefix and are folded or deleted, never published.
 - The same stem names the knowledge-base row, the skill (`<platform>-<operator>`) and the doc (`docs/agent/devices/` file). Publish to prod (`POST /server/userinterface/publish/<id>`) only a validated tree.
+- **Dev vs prod is the validation signal (owner, 2026-10-26).** A tree that is built and validated is published to prod in the same turn (`POST /server/userinterface/publish/<id>`), and republished after every later validated change; a tree that only exists as `dev` is not validated yet. Never publish an unvalidated tree.
 - The codename, never the real brand, is used in **every identifier**: `.env` keys (`<CODENAME>_<WHAT>_*`, e.g. `<CODENAME>_HGW_LOGIN`, `<CODENAME>_APP_PASSWORD`), script and file names, skills, profiles, branches. Real brands appear only in external facts (a vendor URL, a Wi-Fi name, a firmware string).
-- Rename of the existing generic names (`stb_tv`, `stb_android_tv`, `stb_android_mobile`) is TASK-176; until it lands, new trees use the new pattern and the old ones keep their name.
+- **Every tree has a `settings` node and an `info` node that reads the software version (owner, 2026-10-26).** A tree without them is not finished: the version under test must be readable from the tree. Web: the settings page and its version row (read it with a page script); STB, Android: Settings, then About / app info. Example: `docs/tasks/UI-BTEL-INVENTORY.md` §2b.
+- The existing generic names were renamed under TASK-176 (2026-10-26): `web-<operator>`, `stb-<operator>`, `androidtv-<operator>`, `androidmobile-<operator>`.
 
 ## UI Style (pages, bars, dialogs, popups)
 - One look everywhere: **[docs/agent/platform/UI_STYLE.md](docs/agent/platform/UI_STYLE.md)** (contract #28). Read it before building or restyling UI.

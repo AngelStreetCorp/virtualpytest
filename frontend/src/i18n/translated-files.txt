@@ -142,3 +142,4 @@ src/pages/Notifications.tsx
 src/components/aiUsage/BenchmarksTab.tsx
 src/pages/Status.tsx
 src/components/settings/AtlasMemorySettings.tsx
+src/components/settings/ServerListSettings.tsx

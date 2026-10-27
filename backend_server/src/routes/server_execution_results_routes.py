@@ -33,9 +33,11 @@ def get_all_execution_results():
         return error
         
     team_id = request.args.get('team_id')
-    
-    # Get execution results from database
-    result = get_execution_results(team_id, limit=200)
+    # tree_ids: the trees of one interface, so its results are not crowded out by the
+    # 200 newest rows of every other interface.
+    tree_ids = [t for t in request.args.get('tree_ids', '').split(',') if t]
+
+    result = get_execution_results(team_id, tree_ids=tree_ids or None, limit=1000 if tree_ids else 200)
     
     if result['success']:
         return jsonify(result['execution_results'])

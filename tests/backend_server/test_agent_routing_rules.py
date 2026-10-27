@@ -122,7 +122,8 @@ def test_a_device_that_is_not_there_is_named_back():
     assert qs.missing_device({"device_name": "Phone slot 1"}, devices) is None
     assert qs.missing_device({"host_name": "h", "device_id": "device7"}, devices) == "h/device7"
     assert "Phone slot 1" in qs.missing_device_text("phone slot 9", devices)
-    assert "don't see any device" in qs.missing_device_text("x", [])
+    # No list sent (an API client): nothing is "missing", the model and the owner lookup decide (BUG-0969).
+    assert qs.missing_device({"host_name": "lenovo-local-low", "device_id": "device1"}, []) is None
 
 
 def test_a_saved_script_is_credited_to_the_agent_that_wrote_it():

@@ -118,7 +118,7 @@ def main():
     ap.add_argument('--capture', action='append', default=[])
     ap.add_argument('--windows', type=int, default=12)
     ap.add_argument('--per-window', type=int, default=20)
-    ap.add_argument('--ui', default='stb_tv')
+    ap.add_argument('--ui', default=os.environ.get('VPT_LOCALIZE_UI'), required='VPT_LOCALIZE_UI' not in os.environ)
     ap.add_argument('--out', default='/tmp/coverage.json')
     args = ap.parse_args()
 

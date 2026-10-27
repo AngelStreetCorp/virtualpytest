@@ -206,7 +206,7 @@ def main():
 
 
 main._script_args = [
-    '--userinterface:str:stb_tv',
+    '--userinterface:str:',
     '--variant:str:',
     '--node:str:home',
 ]

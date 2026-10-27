@@ -58,7 +58,7 @@ def test_upsert_proposal_writes_minimal_payload(monkeypatch):
         = types.SimpleNamespace(data=[{'id': 'u1'}])
     ok = auto_classify_unknowns.upsert_proposal(
         fake_db, 't1',
-        {'dhash': 'abc', 'scope': 'h1/d1', 'userinterface': 'stb_tv', 'seen_count': 7,
+        {'dhash': 'abc', 'scope': 'h1/d1', 'userinterface': 'stb-testop', 'seen_count': 7,
          'sample_image_path': '/tmp/a.png'},
         {'screen_type': 'dialog', 'screen_summary': 'subscription expired'},
         'dialog_subscription_expired',
@@ -66,7 +66,7 @@ def test_upsert_proposal_writes_minimal_payload(monkeypatch):
     assert ok is True
     call = fake_db.table.return_value.upsert.call_args
     payload = call.args[0]
-    assert payload['userinterface'] == 'stb_tv'
+    assert payload['userinterface'] == 'stb-testop'
     assert payload['proposed_name'] == 'dialog_subscription_expired'
     assert payload['classification'] == 'unknown'
     assert payload['frame_count'] == 7
@@ -138,7 +138,7 @@ def test_resolve_sample_path_relative_host_url_fetches(monkeypatch):
     captured = {}
     _patch_fetch(monkeypatch, b'\xff\xd8\xff\xe0fake-jpeg', capture=captured)
     path, reason = auto_classify_unknowns.resolve_sample_path(
-        '/host/h1/stream/capture1/captures/capture_0001.jpg', scope='h1/stb_tv')
+        '/host/h1/stream/capture1/captures/capture_0001.jpg', scope='h1/stb-testop')
     assert path and os.path.exists(path) and reason is None
     assert captured['url'].startswith('/host/h1/')
     assert captured['host_name'] == 'h1'
@@ -157,7 +157,7 @@ def test_classify_one_fetches_live_url_and_cleans_temp(monkeypatch):
     monkeypatch.setattr(auto_classify_unknowns, 'classify_open', fake_classify)
     out = auto_classify_unknowns.classify_one(
         {'sample_image_path': '/host/h1/stream/capture1/captures/capture_0001.jpg',
-         'scope': 'h1/stb_tv', 'dhash': 'abc'}, 't1')
+         'scope': 'h1/stb-testop', 'dhash': 'abc'}, 't1')
     assert out['ok'] is True
     assert seen['exists_during'] is True
     assert not os.path.exists(seen['path'])  # temp file removed after classification
@@ -220,7 +220,7 @@ def test_resolve_sample_path_host_local_path_maps_to_host_route(monkeypatch):
     captured = {}
     _patch_fetch(monkeypatch, b'\xff\xd8\xff\xe0fake-jpeg', capture=captured)
     path, reason = auto_classify_unknowns.resolve_sample_path(
-        '/var/www/html/stream/capture/hot/captures/capture_000535741.jpg', scope='h1/stb_tv')
+        '/var/www/html/stream/capture/hot/captures/capture_000535741.jpg', scope='h1/stb-testop')
     assert path and os.path.exists(path) and reason is None
     assert captured['url'] == '/host/h1/stream/capture/captures/capture_000535741.jpg'
     assert captured['host_name'] == 'h1'
@@ -258,7 +258,7 @@ def test_upsert_proposal_preserves_full_fingerprint():
         = types.SimpleNamespace(data=[{'id': 'u1'}])
     ok = auto_classify_unknowns.upsert_proposal(
         fake_db, 't1',
-        {'dhash': 'ab' * 32, 'scope': 'h1/d1', 'userinterface': 'stb_tv', 'seen_count': 7,
+        {'dhash': 'ab' * 32, 'scope': 'h1/d1', 'userinterface': 'stb-testop', 'seen_count': 7,
          'sample_image_path': '/host/h1/x.jpg', 'fingerprint': V6},
         {'screen_type': 'menu', 'screen_summary': 'main menu'}, 'main_menu')
     assert ok is True
@@ -272,7 +272,7 @@ def test_upsert_proposal_legacy_row_falls_back_to_dhash():
         = types.SimpleNamespace(data=[{'id': 'u1'}])
     auto_classify_unknowns.upsert_proposal(
         fake_db, 't1',
-        {'dhash': 'abc', 'scope': 'h1/d1', 'userinterface': 'stb_tv', 'seen_count': 7,
+        {'dhash': 'abc', 'scope': 'h1/d1', 'userinterface': 'stb-testop', 'seen_count': 7,
          'sample_image_path': '/host/h1/x.jpg'},
         {'screen_type': 'menu', 'screen_summary': 'main menu'}, 'main_menu')
     payload = fake_db.table.return_value.upsert.call_args.args[0]
@@ -349,9 +349,9 @@ def test_interface_options_empty_for_a_legacy_row_or_unknown_interface():
 
 def test_row_userinterface_prefers_the_recorded_interface():
     assert auto_classify_unknowns.row_userinterface(
-        {'scope': 'h1/stb_tv', 'userinterface': 'stb_ui'}) == 'stb_ui'
+        {'scope': 'h1/stb-testop', 'userinterface': 'stb_ui'}) == 'stb_ui'
     # G6: the device part of the scope is no interface
-    assert auto_classify_unknowns.row_userinterface({'scope': 'h1/stb_tv'}) == ''
+    assert auto_classify_unknowns.row_userinterface({'scope': 'h1/stb-testop'}) == ''
 
 
 def test_pick_candidates_selects_the_userinterface_column():
@@ -445,7 +445,7 @@ def test_upsert_proposal_uses_the_recorded_interface_and_stays_pending():
         = types.SimpleNamespace(data=[{'id': 'u1'}])
     ok = auto_classify_unknowns.upsert_proposal(
         fake_db, 't1',
-        {'dhash': 'abc', 'scope': 'h1/stb_tv', 'userinterface': 'stb_ui',
+        {'dhash': 'abc', 'scope': 'h1/stb-testop', 'userinterface': 'stb_ui',
          'seen_count': 7, 'sample_image_path': '/tmp/a.png'},
         {'screen_type': None}, 'settings')
     assert ok is True
@@ -462,7 +462,7 @@ def test_upsert_proposal_keeps_the_captured_fingerprint_for_a_known_node_choice(
         = types.SimpleNamespace(data=[{'id': 'u1'}])
     auto_classify_unknowns.upsert_proposal(
         fake_db, 't1',
-        {'dhash': V6['dhash'], 'scope': 'h1/stb_tv', 'userinterface': 'stb_ui',
+        {'dhash': V6['dhash'], 'scope': 'h1/stb-testop', 'userinterface': 'stb_ui',
          'seen_count': 7, 'sample_image_path': '/host/h1/x.jpg', 'fingerprint': V6},
         {'screen_type': None, 'screen_summary': 'Settings',
          'known_node_id': 'settings'}, 'Settings')
@@ -473,7 +473,7 @@ def test_upsert_proposal_keeps_the_captured_fingerprint_for_a_known_node_choice(
 
 
 def test_run_once_apply_passes_the_row_interface_and_only_upserts(monkeypatch):
-    row = {'id': 'r1', 'dhash': 'abc', 'scope': 'h1/stb_tv', 'userinterface': 'stb_ui',
+    row = {'id': 'r1', 'dhash': 'abc', 'scope': 'h1/stb-testop', 'userinterface': 'stb_ui',
            'seen_count': 9, 'sample_image_path': '/tmp/a.png', 'classification_attempts': 0}
     seen = {}
     monkeypatch.setattr(auto_classify_unknowns, 'get_supabase_client', lambda: object())
@@ -599,7 +599,7 @@ def test_classify_one_default_is_qwen_and_never_calls_jev(monkeypatch, tmp_path)
 
 
 def test_run_once_default_is_qwen_and_skips_interface_options(monkeypatch):
-    row = {'id': 'r1', 'dhash': 'abc', 'scope': 'h1/stb_tv', 'userinterface': 'stb_ui',
+    row = {'id': 'r1', 'dhash': 'abc', 'scope': 'h1/stb-testop', 'userinterface': 'stb_ui',
            'seen_count': 9, 'sample_image_path': '/tmp/a.png', 'classification_attempts': 0}
     seen = {}
     monkeypatch.setattr(auto_classify_unknowns, 'get_supabase_client', lambda: object())

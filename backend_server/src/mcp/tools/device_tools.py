@@ -4,7 +4,7 @@ Device Tools - Device information and status
 Get device information, capabilities, and execution status.
 """
 
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import json
 import requests
 from ..utils.api_client import MCPAPIClient
@@ -12,6 +12,7 @@ from ..utils.mcp_formatter import MCPFormatter
 from shared.src.lib.config.constants import APP_CONFIG, get_team_id
 from shared.src.lib.config.device_capabilities import model_matches_any
 from backend_server.src.lib.utils.lock_utils import get_device_lock_info
+from backend_server.src.lib.servers import registry, turn
 
 
 class DeviceTools:
@@ -32,6 +33,62 @@ class DeviceTools:
             return resp.status_code == 200
         except (requests.ConnectionError, requests.Timeout, requests.RequestException):
             return False
+
+    @staticmethod
+    def _is_all_mode() -> bool:
+        """A chat turn asked about all servers and no tool call is pointed at one of them."""
+        user = turn.current()
+        return bool(user and user.is_all and turn.target_url() is None)
+
+    @staticmethod
+    def _host_is_local(host: Dict[str, Any]) -> bool:
+        """Whether this server can probe the host itself. A host of another server sits behind that server's
+        network: trust the status its own server reported (TASK-179 section 6), never probe from here."""
+        if turn.target_url():
+            return False
+        server = host.get('server')
+        return server is None or server == (registry.self_name() or 'this server')
+
+    def _hosts_result(self, all_mode: bool) -> Dict[str, Any]:
+        """getAllHosts: this server's hosts, or every server's in All mode (`server` on each row + `servers` summary)."""
+        return self.api.get('/server/system/getAllHosts', params={'scope': 'all'} if all_mode else None)
+
+    @staticmethod
+    def _servers_summary(result: Dict[str, Any]) -> str:
+        """Per-server lines and a platform total, with each failed server named and why (e.g. `gcloud-standalone: 401`)."""
+        summary = result.get('servers') or []
+        if not summary:
+            return ''
+        lines = ["Servers:"]
+        for entry in summary:
+            if entry.get('ok'):
+                lines.append(f"- {entry.get('name')}: {entry.get('host_count', 0)} hosts, "
+                             f"{entry.get('device_count', 0)} devices")
+            else:
+                lines.append(f"- {entry.get('name')}: {entry.get('error') or 'failed'} (not included)")
+        answered = [e for e in summary if e.get('ok')]
+        lines.append(f"Platform total: {sum(e.get('host_count', 0) for e in answered)} hosts, "
+                     f"{sum(e.get('device_count', 0) for e in answered)} devices "
+                     f"({len(answered)} of {len(summary)} servers answered)")
+        return '\n'.join(lines)
+
+    def _lock_index(self, all_mode: bool) -> Optional[Dict[str, Dict[str, Any]]]:
+        """Lock table of the server this call is pointed at (every server in All mode), keyed like the route:
+        `<host>:<device>`, or `<server>:<host>:<device>` in All mode. None when this server's own table is the
+        right one. The local table of this process never stands in for another server's devices (section 6)."""
+        if not all_mode and turn.target_url() is None:
+            return None
+        reply = self.api.get('/server/control/lockedDevices', params={'scope': 'all'} if all_mode else None)
+        locks = reply.get('locked_devices') if isinstance(reply, dict) else None
+        return locks if isinstance(locks, dict) else {}
+
+    @staticmethod
+    def _lock_for(index: Optional[Dict[str, Dict[str, Any]]], host: str, device_id: str,
+                  server: Optional[str]) -> Optional[Dict[str, Any]]:
+        if index is None:
+            return get_device_lock_info(host, device_id)
+        key = f"{host}:{device_id}"
+        return index.get(f"{server}:{key}") if server else index.get(key)
     
     def list_hosts(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -39,6 +96,8 @@ class DeviceTools:
         
         Returns list of all hosts with their device counts and status.
         Use this to discover available hosts before calling other tools.
+        When the chat covers all servers, the list spans every server (each host shows its server,
+        and failed servers are named).
         
         Args:
             params: {} (no parameters required)
@@ -46,7 +105,8 @@ class DeviceTools:
         Returns:
             MCP-formatted response with host list
         """
-        result = self.api.get('/server/system/getAllHosts')
+        all_mode = self._is_all_mode()
+        result = self._hosts_result(all_mode)
         
         if not result.get('success'):
             return self.formatter.format_api_response(result)
@@ -60,14 +120,15 @@ class DeviceTools:
             host_url = host.get('host_url', '')
             host_port = host.get('host_port', 6109)
 
-            # Verify connectivity for hosts reported as "online"
+            # Verify connectivity for hosts reported as "online" - only hosts this server can reach itself
             host_api_url = host.get('host_api_url', '')
-            if status == 'online' and host_api_url:
+            if status == 'online' and host_api_url and self._host_is_local(host):
                 if not self._check_host_reachable(host_api_url):
                     status = 'unreachable'
 
             host_summary = {
                 'host_name': host.get('host_name'),
+                'server': host.get('server') or (turn.target().name if turn.target() else None),
                 'device_count': len(host.get('devices', [])),
                 'deployed_version': host.get('deployed_version'),
                 'status': status
@@ -89,9 +150,15 @@ class DeviceTools:
                 status_emoji = "❌"
             version = host.get('deployed_version', 'unknown')
             response_text += f"{status_emoji} {host['host_name']}\n"
+            if host.get('server'):
+                response_text += f"   Server: {host['server']}\n"
             response_text += f"   Version: {version}\n"
             response_text += f"   Status: {host_status}\n"
             response_text += f"   Devices: {host['device_count']}\n\n"
+
+        summary = self._servers_summary(result)
+        if summary:
+            response_text += summary + "\n\n"
         
         response_text += "💡 Use get_device_info(host_name='...') for device details"
         
@@ -115,8 +182,10 @@ class DeviceTools:
         device_id = params.get('device_id')
         host_name = params.get('host_name')
         
-        # Use getAllHosts as source of truth (matches frontend behavior)
-        result = self.api.get('/server/system/getAllHosts')
+        # Use getAllHosts as source of truth (matches frontend behavior). In All mode without a host filter it
+        # spans every server; a named host was already routed to its owner server by the tool call.
+        all_mode = self._is_all_mode() and not host_name
+        result = self._hosts_result(all_mode)
         
         if not result.get('success'):
             return self.formatter.format_api_response(result)
@@ -129,6 +198,10 @@ class DeviceTools:
             if not hosts:
                 return {"content": [{"type": "text", "text": f"❌ Error: Host '{host_name}' not found"}], "isError": True}
         
+        # Lock state comes from the server that owns the device, never from this process's own table
+        lock_index = self._lock_index(all_mode)
+        default_server = turn.target().name if turn.target() else None
+
         # Collect all devices
         all_devices = []
         for host in hosts:
@@ -136,6 +209,7 @@ class DeviceTools:
                 'host_name': host.get('host_name'),
                 'status': host.get('status')
             }
+            host_server = host.get('server') or default_server
             
             for device in host.get('devices', []):
                 # Filter by device_id if provided
@@ -145,7 +219,7 @@ class DeviceTools:
                 # Expose more fields including version, capabilities, lock status
                 current_host = host_info.get('host_name', '')
                 current_device_id = device.get('device_id', '')
-                lock_info = get_device_lock_info(current_host, current_device_id)
+                lock_info = self._lock_for(lock_index, current_host, current_device_id, host.get('server') if all_mode else None)
 
                 device_clean = {
                     'device_id': current_device_id,
@@ -153,6 +227,7 @@ class DeviceTools:
                     'device_model': device.get('device_model'),
                     'device_capabilities': device.get('device_capabilities'),
                     'host_name': current_host,
+                    **({'server': host_server} if host_server else {}),
                     'host_version': host_info.get('deployed_version'),
                     'status': host_info.get('status'),
                     'has_running_deployment': device.get('has_running_deployment', False),
@@ -168,7 +243,12 @@ class DeviceTools:
         if device_id and not all_devices:
              return {"content": [{"type": "text", "text": f"❌ Error: Device '{device_id}' not found"}], "isError": True}
              
-        return self.formatter.format_success({"devices": all_devices})
+        payload = {"devices": all_devices}
+        summary = self._servers_summary(result) if all_mode else ''
+        if summary:
+            payload["servers"] = result.get('servers')
+            payload["summary"] = summary
+        return self.formatter.format_success(payload)
     
     def get_compatible_hosts(self, params: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -213,8 +293,8 @@ class DeviceTools:
         if not models:
             return {"content": [{"type": "text", "text": f"❌ Error: Userinterface '{userinterface_name}' has no device models defined"}], "isError": True}
         
-        # Get all hosts
-        hosts_result = self.api.get('/server/system/getAllHosts')
+        # Get all hosts (every server's in All mode: the owner is found again when the host is used)
+        hosts_result = self._hosts_result(self._is_all_mode())
         
         if not hosts_result.get('success'):
             return {"content": [{"type": "text", "text": "❌ Error: Failed to get hosts"}], "isError": True}
@@ -241,6 +321,7 @@ class DeviceTools:
             if compatible_devices:
                 compatible_hosts.append({
                     'host_name': host.get('host_name'),
+                    'server': host.get('server'),
                     'host_url': host.get('host_url'),
                     'status': host.get('status', 'online'),
                     'devices': compatible_devices
@@ -266,6 +347,8 @@ class DeviceTools:
         response_text = f"✅ Found {len(compatible_hosts)} compatible host(s) for '{userinterface_name}'\n\n"
         response_text += f"🎯 RECOMMENDED (Auto-selected):\n"
         response_text += f"   Host: {first_host['host_name']}\n"
+        if first_host.get('server'):
+            response_text += f"   Server: {first_host['server']}\n"
         response_text += f"   Device: {first_device.get('device_name', 'Unknown')} ({first_device.get('device_model')})\n"
         response_text += f"   Device ID: {first_device.get('device_id')}\n"
         if tree_id:
@@ -297,6 +380,7 @@ class DeviceTools:
             "compatible_hosts": [
                 {
                     "host_name": h.get("host_name"),
+                    **({"server": h["server"]} if h.get("server") else {}),
                     "devices": [
                         {
                             "device_id": d.get("device_id"),

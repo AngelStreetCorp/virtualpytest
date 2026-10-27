@@ -1,10 +1,10 @@
 // Virtual Scripts promo (video 18): in the builder, paste the goto_live script, name it smoke_goto_live, save it,
-// pick stb3 (vpt-pi1) + stb_tv, take control, Run, PASS, open the report and scroll it, release control.
+// pick stb3 (vpt-pi1) + the VS_UI interface, take control, Run, PASS, open the report and scroll it, release control.
 // Lease vpt-pi1/device3 first (deploy skill). Main site loads directly (PROMO_BASE=https://virtualpytest.angelstreet.io).
 // Usage: node vscript_capture.js scout   -> raw18/scout-vs-*.png + scout-vs.log (no recording)
 //        node vscript_capture.js         -> raw18/vscript.mp4 + vscript.marks.json + take-vs-*.png + take.log
 // Env: VS_NAME (default smoke_goto_live), VS_BOX (regex source for the Target option, default ^stb3 \(vpt-pi1\)),
-//      VS_UI (default stb_tv), VS_SERVER (default RPI1-server), VS_NO_RUN=1 (stop after save, scout only),
+//      VS_UI (required), VS_SERVER (default RPI1-server), VS_NO_RUN=1 (stop after save, scout only),
 //      VS_REUSE=1 (scout only: keep an already saved script of that name instead of deleting it).
 // The Execution Logs of the run are never opened (they print secrets); the report is scrubbed (promo_lib scrubSecrets) before it is filmed.
 const { chromium } = require(require('path').join(__dirname, '../../tests/e2e/playwright/node_modules/playwright-core'));
@@ -14,7 +14,8 @@ const OUT = path.join(__dirname, 'raw18'); fs.mkdirSync(OUT, { recursive: true }
 const { VIEW_CSS, DPR, url, CURSOR, redact, scrubSecrets, startRecorder, glide } = require('./promo_lib')(OUT, { viewCss: { width: 1600, height: 900 } });
 const NAME = process.env.VS_NAME || 'smoke_goto_live';
 const BOX = new RegExp(process.env.VS_BOX || '^stb3 \\(vpt-pi1\\)');
-const UI = process.env.VS_UI || 'stb_tv';
+const UI = process.env.VS_UI;
+if (!UI) throw new Error('set VS_UI to the interface name');
 const SERVER = process.env.VS_SERVER || 'RPI1-server';
 const CODE = fs.readFileSync(path.join(OUT, 'smoke_goto_live.py'), 'utf8');
 const scout = process.argv[2] === 'scout';

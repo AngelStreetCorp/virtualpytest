@@ -254,6 +254,8 @@ export const HostManagerProvider: React.FC<HostManagerProviderProps> = ({
         // never re-runs and its spinner hangs forever.
         if (oldHost.last_seen !== newHost.last_seen) return true;
         if (oldHost.system_stats?.operational_status !== newHost.system_stats?.operational_status) return true;
+        // A device's monitoring profile drives its tile badge and filter chip (BUG-0956).
+        if (JSON.stringify(oldHost.system_stats?.monitor_profiles) !== JSON.stringify(newHost.system_stats?.monitor_profiles)) return true;
 
         return false;
       });

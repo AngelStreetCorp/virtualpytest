@@ -13,7 +13,7 @@ describe('isTestInterface', () => {
     'web-copy',
   ])('%s is a test interface', (n) => expect(isTestInterface(n)).toBe(true));
 
-  it.each(['stb_tv', 'stb_android_tv', 'web_tv', 'copyright_ui'])('%s is real', (n) =>
+  it.each(['stb-testop', 'androidtv-testop', 'web_tv', 'copyright_ui'])('%s is real', (n) =>
     expect(isTestInterface(n)).toBe(false),
   );
 });

@@ -45,9 +45,9 @@ for a real run, the training bucket must be in the environment; nothing loads a 
 Usage
 -----
     python3 features/ai-dataset/scripts/seed_from_trees.py --team <uuid> \\
-        --userinterfaces stb_tv,iad_gui,youtube-web,web_tv --dry-run
+        --userinterfaces stb-<operator>,iad_gui,youtube-web,web_tv --dry-run
     python3 features/ai-dataset/scripts/seed_from_trees.py --team <uuid> \\
-        --userinterfaces stb_tv,iad_gui,youtube-web,web_tv [--split train] [--limit N]
+        --userinterfaces stb-<operator>,iad_gui,youtube-web,web_tv [--split train] [--limit N]
 """
 from __future__ import annotations
 

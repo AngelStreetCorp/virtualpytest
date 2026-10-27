@@ -55,7 +55,7 @@ def main() -> int:
         shot("bug-0774-nav-editor-not-found.png", "/navigation-editor/does-not-exist-xyz")
 
         # BUG-0813 — the unknown-screens table headers at 390 px.
-        shot("bug-0813-unknown-screens-phone-headers.png", "/configuration/interface/stb_tv/unknown",
+        shot("bug-0813-unknown-screens-phone-headers.png", f"/configuration/interface/{os.environ['QA_UI']}/unknown",
              viewport={"width": 390, "height": 844})
 
         # BUG-0795 — the unknown-screens page for an interface that does not exist.

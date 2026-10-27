@@ -66,7 +66,7 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--dry-run", action="store_true", help="report only, no writes")
     ap.add_argument("--team-id", help="optional: restrict to one team_id")
-    ap.add_argument("--ui-name", help="optional: restrict to one userinterface_name (e.g. stb_tv)")
+    ap.add_argument("--ui-name", help="optional: restrict to one userinterface_name (e.g. stb-<operator>)")
     args = ap.parse_args()
 
     sb = get_supabase_client()

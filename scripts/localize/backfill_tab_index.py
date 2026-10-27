@@ -9,7 +9,7 @@ index is read from reference frames of the same layout (`--ref-frames DIR`, Germ
 of the variant's box), matched on the underline x. Only those two keys are written; the rest of the
 fingerprint is untouched.
 
-    python3 scripts/localize/backfill_tab_index.py --ui stb_tv --variant vip7002w-6.04 --ref-frames DIR [--apply]
+    python3 scripts/localize/backfill_tab_index.py --ui stb-<operator> --variant vip7002w-6.04 --ref-frames DIR [--apply]
 
 Dry run by default; --apply writes the DB of the shell it runs in (run it on vpt-pi1) and saves the
 old rows to --backup (JSON). Run again to confirm: an already filled node is skipped.
@@ -37,7 +37,7 @@ def _nav(helpers, img):
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
-    ap.add_argument('--ui', default='stb_tv')
+    ap.add_argument('--ui', default=os.environ.get('VPT_LOCALIZE_UI'), required='VPT_LOCALIZE_UI' not in os.environ)
     ap.add_argument('--variant', action='append', default=[])
     ap.add_argument('--ref-frames')
     ap.add_argument('--team', default=bench.DEFAULT_TEAM)

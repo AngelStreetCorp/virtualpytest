@@ -19,6 +19,7 @@ import json
 import os
 from pathlib import Path
 from ..base_controller import RemoteControllerInterface
+from shared.src.lib.utils.secret_text import has_secret_placeholder, resolve_secret_text, adb_type_secret
 
 # Import ADB utilities from shared library
 import sys
@@ -195,7 +196,15 @@ class AndroidTVRemoteController(RemoteControllerInterface):
         try:
             print(f"Remote[{self.device_type.upper()}]: Inputting text: '{text}'")
             
-            success = self.adb_utils.input_text(self.android_device_id, text)
+            if has_secret_placeholder(text):
+                try:
+                    value, _ = resolve_secret_text(text)
+                except KeyError as missing:
+                    print(f"Remote[{self.device_type.upper()}]: Host environment has no {missing.args[0]}")
+                    return False
+                success = adb_type_secret(self.android_device_id, value)
+            else:
+                success = self.adb_utils.input_text(self.android_device_id, text)
             
             if success:
                 print(f"Remote[{self.device_type.upper()}]: Successfully input text")

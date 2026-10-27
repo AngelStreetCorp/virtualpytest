@@ -110,7 +110,7 @@ def main():
 
 # --name:type:default[:choice1|choice2]  (--host/--device are added by the platform)
 main._script_args = [
-    '--userinterface:str:stb_tv',
+    '--userinterface:str:stb-<operator>',
     '--variant:str:',
     '--node:str:home',
 ]

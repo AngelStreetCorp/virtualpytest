@@ -20,6 +20,7 @@ from flask import Blueprint, request, jsonify
 from backend_server.src.lib import socket_auth
 from backend_server.src.lib.auth_middleware import authorize_socket_connection, require_platform_admin
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
+from backend_server.src.lib.servers import registry as server_registry, turn
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,33 @@ def log_agent_event(event_type: str, session_id: str, data: dict):
             f.write(json.dumps(log_entry, default=str) + '\n')
     except Exception as e:
         logger.error(f"Failed to write agent log: {e}")
+
+def _turn_args(data: dict) -> dict:
+    """The chat turn's server scope and login from a send_message payload (TASK-179 P4).
+
+    ``turn_auth`` is ``{token, auto_sign}``, the browser's current login. It only ever goes to ``turn.bind_turn``;
+    ``scope`` and the selected host's server are plain names and may be stored in the session context."""
+    auth = data.get('turn_auth') if isinstance(data.get('turn_auth'), dict) else {}
+    scope = str(data.get('server_scope') or '').strip()[:100]
+    return {
+        'scope': scope,
+        'bind': {
+            'token': auth.get('token'),
+            'auto_sign': auth.get('auto_sign'),
+            'scope': scope,
+            'selected_host': data.get('host_name') or '',
+            'selected_host_server': str(data.get('selected_host_server') or '').strip()[:100],
+        },
+    }
+
+
+def _scope_line(scope: str) -> str:
+    try:
+        names = [row['name'] for row in server_registry.servers(include_disabled=False)]
+    except Exception:  # noqa: BLE001 - a prompt line must never fail a chat turn
+        names = []
+    return turn.scope_line(scope, names)
+
 
 # Blueprint for REST endpoints
 server_agent_bp = Blueprint('server_agent', __name__, url_prefix='/server/agent')
@@ -797,6 +825,9 @@ def register_agent_socketio_handlers(socketio):
         grafana_base_url = data.get('grafana_base_url', '')
         available_devices = data.get('available_devices', [])
         available_userinterfaces = data.get('available_userinterfaces', [])
+        # TASK-179 P4: the user's login for this turn and the picker's scope. The credential stays in this closure
+        # and in the turn's ContextVar; it is never stored in the session, logged or put in the prompt.
+        turn_args = _turn_args(data)
         
         if not session_id or not message:
             socketio.emit('error', {
@@ -917,6 +948,8 @@ def register_agent_socketio_handlers(socketio):
         session.set_context('selected_server', selected_server)
         session.set_context('selected_server_name', selected_server_name)
         session.set_context('selected_server_hosts', selected_server_hosts if isinstance(selected_server_hosts, list) else [])
+        session.set_context('server_scope', turn_args['scope'])
+        session.set_context('scope_line', _scope_line(turn_args['scope']))
         # Link text only: the web app's own Grafana base, accepted when it is a plain http(s) URL.
         from backend_server.src.lib.analytics.grafana_push import clean_grafana_base
         session.set_context('grafana_base_url', clean_grafana_base(grafana_base_url))
@@ -1026,6 +1059,7 @@ def register_agent_socketio_handlers(socketio):
             final_answer = None
             error_event_text = None
             tool_calls_log = []
+            turn_token = turn.bind_turn(**turn_args['bind'])
             
             try:
                 event_counter = 0
@@ -1105,6 +1139,7 @@ def register_agent_socketio_handlers(socketio):
                 execution_status = 'failed'
                 error_msg = str(e)
             finally:
+                turn.reset_turn(turn_token)
                 # Log execution to database for leaderboard tracking
                 registry = get_agent_registry()
                 agent = registry.get(agent_id)

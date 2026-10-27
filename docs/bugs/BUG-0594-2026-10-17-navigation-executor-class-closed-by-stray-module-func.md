@@ -1,4 +1,4 @@
-# BUG-0590 — `def _now_iso()` at module level closed the `NavigationExecutor` class early, hiding `load_navigation_tree` and `get_navigation_preview`
+# BUG-0594 — `def _now_iso()` at module level closed the `NavigationExecutor` class early, hiding `load_navigation_tree` and `get_navigation_preview`
 
 ## Summary
 `backend_host/src/services/navigation/navigation_executor.py` accidentally had a

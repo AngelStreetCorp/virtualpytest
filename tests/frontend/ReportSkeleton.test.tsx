@@ -319,7 +319,7 @@ describe('report pages — first-load state', () => {
   describe('Model Reports and Dependency Report', () => {
     it('ModelReports never renders an N/A% success rate while the executions are pending', async () => {
       // One interface is available; the executions behind it never arrive.
-      results.userInterfaces = async (): Promise<unknown[]> => [{ id: 'stb_tv', name: 'STB TV' }];
+      results.userInterfaces = async (): Promise<unknown[]> => [{ id: 'stb-testop', name: 'STB TV' }];
       results.executionResults = neverResolves as never;
       results.metrics = neverResolves as never;
 
@@ -339,7 +339,7 @@ describe('report pages — first-load state', () => {
     });
 
     it('ModelReports shows a muted dash, not a red rate, when the load lands empty', async () => {
-      results.userInterfaces = async (): Promise<unknown[]> => [{ id: 'stb_tv', name: 'STB TV' }];
+      results.userInterfaces = async (): Promise<unknown[]> => [{ id: 'stb-testop', name: 'STB TV' }];
       results.executionResults = async (): Promise<unknown[]> => [];
 
       const { container } = render(

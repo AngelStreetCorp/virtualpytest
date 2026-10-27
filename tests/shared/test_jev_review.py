@@ -120,7 +120,7 @@ def test_seed_bits():
 
 # ---- export: set selection --------------------------------------------------------------------
 
-def _row(i, ui='stb_tv', source='run', triage=None):
+def _row(i, ui='stb-testop', source='run', triage=None):
     return {'id': f'r{i}', 'userinterface': ui, 'label_source': source, 'triage': triage,
             'ground_truth': {'node_id': 'n1', 'label': 'home'}}
 
@@ -136,7 +136,7 @@ def test_set_selection_on_fake_rows():
             _row(8, ui='acceptance-stb4-tv-20260901', source='human'),
             _row(9, ui=None, triage={'status': 'agreed'}),
             _row(10, triage=None)]
-    has_tree = lambda ui: ui == 'stb_tv'  # noqa: E731
+    has_tree = lambda ui: ui == 'stb-testop'  # noqa: E731
     selected, skipped, taken = export.select_sets(rows, export.SETS, has_tree)
     assert [(s, r['id']) for s, r in selected] == [('agreed', 'r1'), ('disputed', 'r2'), ('human', 'r3'),
                                                    ('human', 'r4'), ('agreed', 'r6'), ('open', 'r10')]
@@ -203,7 +203,7 @@ def test_evidence_end_to_end_on_a_synthetic_bundle(tmp_path):
 # ---- decide: blindness ------------------------------------------------------------------------
 
 def _decision_inputs():
-    row = {'id': 's1', 'set': 'disputed', 'userinterface': 'stb_tv', 'device_model': 'stb4',
+    row = {'id': 's1', 'set': 'disputed', 'userinterface': 'stb-testop', 'device_model': 'stb4',
            'label_source': 'run', 'ground_truth': {'node_id': 'g1', 'label': 'RUNLABEL_home'},
            'triage': {'status': 'excluded', 'teacher_label': {'node_id': 'g2', 'label': 'TEACHER_settings'},
                       'first_pass': {'teacher_label': {'label': 'FIRST_apps'}}}}

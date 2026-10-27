@@ -99,6 +99,7 @@ _READ_ONLY_TOOLS = frozenset({
     "list_hosts", "get_device_info", "get_installed_apps", "capture_screenshot",
     "list_userinterfaces", "list_navigation_nodes", "list_campaigns", "list_scripts",
     "list_testcases", "list_docs", "search_docs", "get_alerts", "view_logs",
+    "get_stream_status",
 })
 
 

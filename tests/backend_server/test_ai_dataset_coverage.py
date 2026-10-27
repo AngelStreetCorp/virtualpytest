@@ -32,7 +32,7 @@ OTHER = "22222222-2222-2222-2222-222222222222"
 
 # ---- scope ------------------------------------------------------------------------------------
 
-@pytest.mark.parametrize("name", ["stb_tv", "youtube-web", "web_tv"])
+@pytest.mark.parametrize("name", ["stb-testop", "youtube-web", "web_tv"])
 def test_canonical_apps_are_in_scope(name):
     assert scope.scope_refusal(name) is None
 
@@ -54,14 +54,14 @@ def test_exclusion_wins_even_if_added_to_the_canonical_list(monkeypatch):
     assert "exclusion pattern" in scope.scope_refusal("stb3_autobuild")
 
 
-@pytest.mark.parametrize("name", ["google_tv", "sauce-demo", "stb_android_tv", "youtube-android-mobile"])
+@pytest.mark.parametrize("name", ["google_tv", "sauce-demo", "androidtv-testop", "youtube-android-mobile"])
 def test_other_apps_are_not_in_the_canonical_list(name):
     assert "not in CANONICAL_USERINTERFACES" in scope.scope_refusal(name)
 
 
 def test_platforms():
-    assert scope.platform_of("stb_tv") == "stb" and scope.platform_of("web_tv") == "web"
-    assert scope.platform_of("stb_android_tv", ["android_tv", "fire_tv_fireos"]) == "android_tv"
+    assert scope.platform_of("stb-testop") == "stb" and scope.platform_of("web_tv") == "web"
+    assert scope.platform_of("androidtv-testop", ["android_tv", "fire_tv_fireos"]) == "android_tv"
     assert scope.platform_of("phone_home", ["phone_agent"]) == "android_mobile"
     assert scope.device_model_for(["android_mobile", "android_tv"]) == "android_mobile"
     assert scope.device_model_for([]) is None
@@ -110,7 +110,7 @@ def test_screenshot_keys_resolved_then_label_fallback():
 
 
 def test_app_screen_nodes_keeps_only_the_apps_trees():
-    ui = {"id": "ui1", "name": "stb_tv"}
+    ui = {"id": "ui1", "name": "stb-testop"}
     trees = [{"id": "r", "userinterface_id": "ui1", "is_root_tree": True, "parent_tree_id": None},
              {"id": "c", "userinterface_id": "ui1", "is_root_tree": False, "parent_tree_id": "r"},
              {"id": "x", "userinterface_id": "ui2", "is_root_tree": True, "parent_tree_id": None}]
@@ -122,7 +122,7 @@ def test_app_screen_nodes_keeps_only_the_apps_trees():
 
 # ---- coverage maths --------------------------------------------------------------------------------
 
-def s(node_id, ui="stb_tv", family="screen-id", source="run", split="train", label=None, **kw):
+def s(node_id, ui="stb-testop", family="screen-id", source="run", split="train", label=None, **kw):
     row = {"family": family, "userinterface": ui, "device_model": "stb", "label_source": source,
            "split": split, "eval_version": None, "reference": None,
            "ground_truth": None if source == "none" else {"node_id": node_id, "label": label or node_id}}
@@ -140,7 +140,7 @@ def test_app_coverage_ge1_gek_missing_thin():
                [s("a", reference="navigation")] +                        # seeded
                [s(None, family="focus", source="human", split="eval",
                   ground_truth={"focused": "x"})])
-    a = cov.app_coverage("stb_tv", "stb", ["stb"], rows, samples, k=3)
+    a = cov.app_coverage("stb-testop", "stb", ["stb"], rows, samples, k=3)
     assert (a["screens"], a["node_rows"]) == (4, 5)
     assert a["screens_ge1"] == 3          # a, b, d
     assert a["screens_gek"] == 1          # a has 4 (3 + seeded)
@@ -154,14 +154,14 @@ def test_app_coverage_ge1_gek_missing_thin():
 
 
 def test_failed_verification_row_counts_by_its_label_not_its_node_column():
-    a = cov.app_coverage("stb_tv", "stb", ["stb"], [node("a")],
+    a = cov.app_coverage("stb-testop", "stb", ["stb"], [node("a")],
                          [dict(s("a", source="human"), node_id=None)], k=1)
     assert a["screens_gek"] == 1
 
 
 def test_summary_per_platform_and_global():
     apps = [
-        {"name": "stb_tv", "platform": "stb", "screens": 10, "screens_ge1": 6, "screens_gek": 3,
+        {"name": "stb-testop", "platform": "stb", "screens": 10, "screens_ge1": 6, "screens_gek": 3,
          "eval_verified": 5, "screen_id_labelled": 30},
         {"name": "iad_gui", "platform": "web", "screens": 6, "screens_ge1": 6, "screens_gek": 6,
          "eval_verified": 0, "screen_id_labelled": 6},
@@ -186,7 +186,7 @@ def test_summary_of_nothing_is_zero_not_an_error():
 
 
 def _world():
-    uis = [{"id": "u1", "name": "stb_tv", "models": ["stb"]},
+    uis = [{"id": "u1", "name": "stb-testop", "models": ["stb"]},
            {"id": "u2", "name": "stb3_autobuild", "models": ["stb"]},
            {"id": "u3", "name": "google_tv", "models": ["android_mobile", "android_tv"]},
            {"id": "u4", "name": "youtube-web", "models": ["web"]}]
@@ -201,7 +201,7 @@ def _world():
 def test_compute_scopes_apps_and_lists_the_rest():
     uis, trees, nodes, samples = _world()
     out = cov.compute(uis, trees, nodes, samples, k=3)
-    assert [a["name"] for a in out["apps"]] == ["stb_tv", "youtube-web"]
+    assert [a["name"] for a in out["apps"]] == ["stb-testop", "youtube-web"]
     assert out["global"]["screens"] == 3 and out["global"]["screens_gek"] == 1
     others = {o["name"]: o for o in out["not_in_scope"]}
     assert others["stb3_autobuild"]["reason"] == "excluded (*_autobuild*)"
@@ -224,7 +224,7 @@ def test_build_coverage_passes_the_team_to_every_reader_and_clamps_k():
     out = cov.build_coverage(TEAM, 999, load_uis=rec("uis", uis), load_trees=rec("trees", trees),
                              load_nodes=rec("nodes", nodes), load_sample_rows=rec("samples", samples),
                              load_groups=rec("groups", None))
-    # step 4k: one screen-group read per in-scope app (stb_tv, youtube-web)
+    # step 4k: one screen-group read per in-scope app (stb-testop, youtube-web)
     assert {t for _n, t in seen} == {TEAM} and len(seen) == 6
     assert out["k"] == cov.MAX_K and out["team_id"] == TEAM
     with pytest.raises(ValueError):
@@ -312,30 +312,30 @@ class FakeSeedDeps:
 
 
 def _seed_world(**kw):
-    uis = [{"id": "u1", "name": "stb_tv", "models": ["stb"]},
+    uis = [{"id": "u1", "name": "stb-testop", "models": ["stb"]},
            {"id": "u2", "name": "web_tv", "models": ["web", "host_vnc"]}]
     trees = [{"id": "r1", "userinterface_id": "u1", "is_root_tree": True, "parent_tree_id": None},
              {"id": "c1", "userinterface_id": "u1", "is_root_tree": False, "parent_tree_id": "r1"},
              {"id": "r2", "userinterface_id": "u2", "is_root_tree": True, "parent_tree_id": None}]
     nodes = [
-        node("home-node", "home", tree="r1", screenshot="navigation/stb_tv/home.jpg"),
-        node("guide", tree="r1", screenshot="navigation/stb_tv/guide.jpg"),
-        node("guide", tree="c1", screenshot="navigation/stb_tv/guide.jpg"),   # nested copy, same image
+        node("home-node", "home", tree="r1", screenshot="navigation/stb-testop/home.jpg"),
+        node("guide", tree="r1", screenshot="navigation/stb-testop/guide.jpg"),
+        node("guide", tree="c1", screenshot="navigation/stb-testop/guide.jpg"),   # nested copy, same image
         node("noshot", tree="r1", shot=False),
-        node("gone", tree="r1", screenshot="navigation/stb_tv/gone.jpg"),     # object missing
-        node("act", node_type="action", tree="r1", screenshot="navigation/stb_tv/act.jpg"),
+        node("gone", tree="r1", screenshot="navigation/stb-testop/gone.jpg"),     # object missing
+        node("act", node_type="action", tree="r1", screenshot="navigation/stb-testop/act.jpg"),
         node("home-node", "home", tree="r2", screenshot="https://old/navigation/perseus/home.jpg"),
     ]
-    objects = {"navigation/stb_tv/home.jpg": b"H1", "navigation/stb_tv/guide.jpg": b"G1",
-               "navigation/stb_tv/act.jpg": b"A1", "navigation/web_tv/home.jpg": b"W1"}
+    objects = {"navigation/stb-testop/home.jpg": b"H1", "navigation/stb-testop/guide.jpg": b"G1",
+               "navigation/stb-testop/act.jpg": b"A1", "navigation/web_tv/home.jpg": b"W1"}
     hashes = {b"H1": "h1", b"G1": "g1", b"A1": "a1", b"W1": "w1"}
     return FakeSeedDeps(uis, trees, nodes, objects, hashes, **kw)
 
 
-ARGS = ["--team", TEAM, "--userinterfaces", "stb_tv,web_tv"]
+ARGS = ["--team", TEAM, "--userinterfaces", "stb-testop,web_tv"]
 
 
-@pytest.mark.parametrize("names", ["stb_tv,stb3_autobuild", "google_tv", "stb_tv_settings", "__ci_x", ""])
+@pytest.mark.parametrize("names", ["stb-testop,stb3_autobuild", "google_tv", "stb_tv_settings", "__ci_x", ""])
 def test_seed_refuses_non_canonical_and_excluded_names_before_reading(names):
     deps = _seed_world()
     with pytest.raises(seed.SeedError):
@@ -355,7 +355,7 @@ def test_seed_real_run_records_train_samples_with_the_run_label():
     assert first["force"] is False and first["team_id"] == TEAM and first["device_model"] == "stb"
     assert first["ground_truth"] == {"node_id": "home-node", "label": "home"}
     assert first["source_ref"] == {"reference": "navigation", "tree_id": "r1", "node_id": "home-node",
-                                   "userinterface": "stb_tv", "screenshot": "navigation/stb_tv/home.jpg"}
+                                   "userinterface": "stb-testop", "screenshot": "navigation/stb-testop/home.jpg"}
     # the web_tv screenshot URL points at another folder: the label fallback found it
     assert deps.rows[-1]["source_ref"]["screenshot"] == "navigation/web_tv/home.jpg"
     assert deps.rows[-1]["device_model"] == "web" and deps.rows[-1]["userinterface"] == "web_tv"
@@ -370,12 +370,12 @@ def test_seed_is_idempotent():
     assert len(deps.rows) == n
     assert len(deps.reads) == reads                    # nothing downloaded a second time
     assert again["totals"].get("seeded", 0) == 0
-    assert again["totals"]["skipped-exists"] == 4      # 2 stb_tv + nested copy + web_tv
+    assert again["totals"]["skipped-exists"] == 4      # 2 stb-testop + nested copy + web_tv
 
 
 def test_same_node_id_in_another_app_is_not_skipped_as_existing():
     deps = _seed_world()
-    seed.run(["--team", TEAM, "--userinterfaces", "stb_tv"], deps=deps)
+    seed.run(["--team", TEAM, "--userinterfaces", "stb-testop"], deps=deps)
     out = seed.run(["--team", TEAM, "--userinterfaces", "web_tv"], deps=deps)
     assert out["apps"][0]["counts"] == {"seeded": 1}   # home-node of web_tv is its own screen
 
@@ -384,7 +384,7 @@ def test_seed_classifies_duplicate_and_cap():
     deps = _seed_world()
     deps.group_rows[("stb", "home-node")] = [("old", "h1", {"node_id": "home-node"}, False)]
     deps.group_rows[("stb", "guide")] = [(f"r{i}", f"x{i}", None, False) for i in range(20)]
-    out = seed.run(["--team", TEAM, "--userinterfaces", "stb_tv"], deps=deps)
+    out = seed.run(["--team", TEAM, "--userinterfaces", "stb-testop"], deps=deps)
     counts = out["apps"][0]["counts"]
     assert counts["skipped-duplicate"] == 1 and counts["skipped-cap"] == 2 and "seeded" not in counts
     assert deps.rows == []
@@ -515,7 +515,7 @@ def test_screens_are_groups_and_states_are_their_nodes():
                [dict(s("x"), ground_truth=grouped)] +               # group label, node home_apps
                [s("home_tvguide")] +                                # pre-4k label of a tab
                [s("apps")])
-    a = cov.app_coverage("stb_tv", "stb", ["stb"], rows, samples, k=3, groups=groups)
+    a = cov.app_coverage("stb-testop", "stb", ["stb"], rows, samples, k=3, groups=groups)
     assert (a["screens"], a["node_screens"], a["grouped"]) == (3, 5, True)
     by = {g["label"]: g for g in a["groups"]}
     assert set(by) == {"home", "apps", "live"}
@@ -528,7 +528,7 @@ def test_screens_are_groups_and_states_are_their_nodes():
 
 def test_coverage_without_groups_is_per_node():
     rows = [node("home"), node("home_apps")]
-    a = cov.app_coverage("stb_tv", "stb", ["stb"], rows, [s("home")], k=1)
+    a = cov.app_coverage("stb-testop", "stb", ["stb"], rows, [s("home")], k=1)
     assert (a["screens"], a["grouped"]) == (2, False)
 
 
@@ -539,10 +539,10 @@ def test_seed_labels_every_node_frame_with_its_group():
                           [{"source_node_id": "home-node", "target_node_id": "guide", "default_action_set_id": "s",
                             "action_sets": [{"id": "s", "actions": [key]}]}])
     deps = _seed_world()
-    deps.groups = lambda team_id, ui: groups if ui == "stb_tv" else None
+    deps.groups = lambda team_id, ui: groups if ui == "stb-testop" else None
     out = seed.run(ARGS, deps=deps)
     assert out["apps"][0]["groups"] == 1 and out["apps"][1]["groups"] is None
-    by_node = {r["node_id"]: r for r in deps.rows if r["userinterface"] == "stb_tv"}
+    by_node = {r["node_id"]: r for r in deps.rows if r["userinterface"] == "stb-testop"}
     assert set(by_node) == {"home-node", "guide"}              # every node frame is still seeded
     assert by_node["guide"]["ground_truth"] == {"node_id": "home-node", "label": "home", "node": "guide",
                                                 "node_label": "guide", "focus": "guide"}

@@ -856,9 +856,9 @@ defer_busy_host_restart() {   # 0 = the restart was deferred (caller must not re
   return 0
 }
 
-# ---- Python dependencies the server runs on -----------------------------------------------------
+# ---- Python dependencies the services run on ---------------------------------------------------
 #
-# A server deploy ships code, but the Python packages live in the venv on the target and nothing
+# A deploy ships code, but the Python packages live in the venv on the target and nothing
 # ever reinstalls them. A change to a pinned dependency -- a security bump, for example -- therefore
 # never reached the running service: the repository said one version, the venv kept the old one, and
 # the deploy restarted the service happily on the old bundle and looked green (BUG-0946, 2026-10-26:
@@ -872,12 +872,20 @@ defer_busy_host_restart() {   # 0 = the restart was deferred (caller must not re
 #
 # Only exact pins (name==version) are handled. A range (>=) would need a full resolve of the whole
 # file, which is a much bigger decision than a deploy should make on its own.
+#
+# The server and the host each have their own manifest: a host deploy installs the pins
+# backend_host/requirements.txt declares, a server deploy the ones backend_server/requirements.txt
+# declares. Before this, a host deploy shipped no Python package at all, so the Pillow 13.0.0 bump
+# (BUG-0954) reached the server venv and never the host venvs -- the host service kept running on the
+# vulnerable Pillow it was installed with.
 VENV_USER="vpt_user"
 SERVER_REQS="backend_server/requirements.txt"
+HOST_REQS="backend_host/requirements.txt"
 
-repo_python_pins() {   # the exact pins the repository declares, one "name==version" per line
-  [[ -f "${REPO_DIR}/${SERVER_REQS}" ]] || return 0
-  sed -e 's/#.*//' -e 's/;.*//' "${REPO_DIR}/${SERVER_REQS}" \
+repo_python_pins() {   # [<manifest>]: the exact pins the repository declares, one "name==version" per line
+  local reqs="${1:-$SERVER_REQS}"
+  [[ -f "${REPO_DIR}/${reqs}" ]] || return 0
+  sed -e 's/#.*//' -e 's/;.*//' "${REPO_DIR}/${reqs}" \
     | grep -E '^[A-Za-z0-9._-]+==' \
     | tr 'A-Z' 'a-z' \
     | awk -F'==' '{gsub(/_/,"-",$1); print $1"=="$2}' \
@@ -893,22 +901,22 @@ installed_version() {   # <freeze text> <name>: the version the venv has, empty 
         '{gsub(/_/,"-",$1); if (tolower($1)==n) {print tolower($2); exit}}'
 }
 
-pins_to_install() {   # <freeze text>: the repository pins the venv does not have at that version
-  local installed="$1" pin name want have
+pins_to_install() {   # <freeze text> [<manifest>]: the repository pins the venv does not have at that version
+  local installed="$1" reqs="${2:-$SERVER_REQS}" pin name want have
   while IFS= read -r pin; do
     [[ -z "${pin}" ]] && continue
     name="${pin%%==*}"; want="${pin#*==}"
     have="$(installed_version "${installed}" "${name}")"
     [[ "${have}" == "${want}" ]] && continue
     printf '%s\n' "${pin}"
-  done < <(repo_python_pins)
+  done < <(repo_python_pins "${reqs}")
 }
 
-install_server_python_pins() {   # <host> <freeze text>: 0 = ok, 1 = a pin could not be installed
-  local host="$1" installed="$2" pin rc=0 list
-  list="$(pins_to_install "${installed}")"
+install_python_pins() {   # <host> <freeze text> <manifest>: 0 = ok, 1 = a pin could not be installed
+  local host="$1" installed="$2" reqs="$3" pin rc=0 list
+  list="$(pins_to_install "${installed}" "${reqs}")"
   [[ -z "${list}" ]] && return 0
-  echo "==> [${host}] Python pins the venv does not have yet: $(printf '%s' "${list}" | tr '\n' ' ')"
+  echo "==> [${host}] Python pins the venv does not have yet (${reqs}): $(printf '%s' "${list}" | tr '\n' ' ')"
   # The venv belongs to the user the installer created it for. If a package was ever installed as
   # root, pip as that user cannot write the distribution metadata and leaves an invalid
   # distribution behind, so the ownership is put back before installing anything.
@@ -920,37 +928,51 @@ install_server_python_pins() {   # <host> <freeze text>: 0 = ok, 1 = a pin could
     # command that reads it swallows the rest of the list -- the loop then stops after the first
     # package and the deploy quietly installs one pin out of seven.
     if ! run_ssh "${host}" "sudo -n -u ${VENV_USER} ${TARGET_DIR}/venv/bin/pip install --no-cache-dir --disable-pip-version-check ${pin}" </dev/null; then
-      echo "==> [${host}] FAILED to install ${pin} -- the service is NOT restarted on a half-installed dependency"
-      rc=1
+      # A host whose sudoers lets the ssh user reach root but not the venv's user refuses the
+      # first form (a password is required to become vpt_user). As root the install still works;
+      # the ownership is put back right after, so the venv is left the way the installer made it.
+      echo "==> [${host}] ${VENV_USER} cannot run pip here -- installing as root and putting the venv ownership back"
+      if ! run_ssh "${host}" "sudo -n ${TARGET_DIR}/venv/bin/pip install --no-cache-dir --disable-pip-version-check ${pin}" </dev/null; then
+        echo "==> [${host}] FAILED to install ${pin} -- the service is NOT restarted on a half-installed dependency"
+        rc=1
+      else
+        run_ssh "${host}" "sudo -n chown -R ${VENV_USER}:${VENV_USER} ${TARGET_DIR}/venv" </dev/null >/dev/null 2>&1 || true
+      fi
     fi
   done <<< "${list}"
   return ${rc}
 }
 
+install_server_python_pins() {   # <host> <freeze text>: 0 = ok, 1 = a pin could not be installed
+  install_python_pins "$1" "$2" "${SERVER_REQS}"
+}
+
+install_host_python_pins() {   # <host> <freeze text>: 0 = ok, 1 = a pin could not be installed
+  install_python_pins "$1" "$2" "${HOST_REQS}"
+}
+
 # rsync, then restart <service> on <host> unless the code it runs from is unchanged since its last healthy restart
 # (HOST_CODE_ID / SERVER_CODE_ID, the marker lives in the ssh user's home on that host). 0 = ok (restarted or skipped), 1 = failed.
 sync_and_restart() {
-  local host="$1" service="$2" id="" marker="" installed=""
+  local host="$1" service="$2" id="" marker="" installed="" reqs=""
   case "${service}" in
-    "${HOST_SERVICE}") id="${HOST_CODE_ID}"; marker="${HOST_CODE_MARKER}" ;;
-    "${SERVER_SERVICE}") id="${SERVER_CODE_ID}"; marker="${SERVER_CODE_MARKER}" ;;
+    "${HOST_SERVICE}") id="${HOST_CODE_ID}"; marker="${HOST_CODE_MARKER}"; reqs="${HOST_REQS}" ;;
+    "${SERVER_SERVICE}") id="${SERVER_CODE_ID}"; marker="${SERVER_CODE_MARKER}"; reqs="${SERVER_REQS}" ;;
   esac
-  if [[ "${service}" == "${SERVER_SERVICE}" ]]; then
-    # What the venv has right now, before anything is installed: one line, so read_remote can carry it.
-    installed="$(read_remote "${host}" "sudo -n -u ${VENV_USER} ${TARGET_DIR}/venv/bin/pip list --format=freeze 2>/dev/null | tr '\n' ','")"
-    [[ -z "${installed}" ]] && installed="$(read_remote "${host}" "${TARGET_DIR}/venv/bin/pip list --format=freeze 2>/dev/null | tr '\n' ','")"
-  fi
+  # What the venv has right now, before anything is installed: one line, so read_remote can carry it.
+  installed="$(read_remote "${host}" "sudo -n -u ${VENV_USER} ${TARGET_DIR}/venv/bin/pip list --format=freeze 2>/dev/null | tr '\n' ','")"
+  [[ -z "${installed}" ]] && installed="$(read_remote "${host}" "${TARGET_DIR}/venv/bin/pip list --format=freeze 2>/dev/null | tr '\n' ','")"
   if [[ -z "${id}" ]]; then
     rsync_push "${host}" || return 1
     [[ "${service}" == "${HOST_SERVICE}" ]] && defer_busy_host_restart "${host}" && return 0
-    [[ "${service}" == "${SERVER_SERVICE}" ]] && { install_server_python_pins "${host}" "${installed}" || return 1; }
+    install_python_pins "${host}" "${installed}" "${reqs}" || return 1
     restart_and_status "${host}" "${service}"; return
   fi
   rsync_push "${host}" || return 1
-  # The venv is compared with what the repository declares on EVERY server deploy, not only when the
+  # The venv is compared with what the repository declares on EVERY deploy, not only when the
   # code changed: a venv that drifted (a package installed by hand, a failed install, an image built
   # elsewhere) must be able to catch up even when the code on disk is the same.
-  [[ "${service}" == "${SERVER_SERVICE}" ]] && { install_server_python_pins "${host}" "${installed}" || return 1; }
+  install_python_pins "${host}" "${installed}" "${reqs}" || return 1
   local seen active
   seen="$(read_remote "${host}" "cat ~/${marker} 2>/dev/null || true")"
   active="$(read_remote "${host}" "systemctl is-active ${service} 2>/dev/null || true")"

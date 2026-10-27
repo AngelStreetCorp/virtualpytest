@@ -197,7 +197,7 @@ def test_moving_box_skip_pure():
 
 
 def test_trailer_cuts_do_not_force_a_matcher_run(mon):
-    """stb_tv home: each trailer cut is a few gated motion frames, then a motion -> still edge
+    """stb-testop home: each trailer cut is a few gated motion frames, then a motion -> still edge
     whose forced settle tick sees only the trailer box changed: no matcher run."""
     _settle_on_trailer(mon, ml.MOVING_BOX_TICKS + 1)
     before = len(mon.calls)

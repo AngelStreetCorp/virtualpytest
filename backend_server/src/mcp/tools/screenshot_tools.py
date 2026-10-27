@@ -15,6 +15,7 @@ import requests
 
 from shared.src.lib.config.constants import APP_CONFIG, get_team_id
 from shared.src.lib.utils.build_url_utils import call_host
+from backend_server.src.lib.servers import turn
 from ..utils.api_client import MCPAPIClient
 from ..utils.mcp_formatter import MCPFormatter
 from shared.src.lib.utils import cv2_io
@@ -54,6 +55,12 @@ def _fetch_screenshot_bytes(screenshot_url: str, host_name: Optional[str] = None
         name = _host_name_from_url(screenshot_url) or host_name
         if not name:
             return None, f"cannot tell which host serves {screenshot_url}"
+        if turn.target_url():
+            # The host belongs to another server (TASK-179 section 6): this process has no such host in its
+            # registry. Its owner serves the file through /server/stream/hostFile, with the user's login.
+            content, reason = turn.get_bytes('/server/stream/hostFile',
+                                             {'host_name': name, 'path': screenshot_url.split('?', 1)[0]})
+            return (content, None) if content is not None else (None, f"{reason} for host {name}")
         from backend_server.src.lib.utils.server_utils import get_host_manager
         host_info = get_host_manager().get_host(name)
         if not host_info:

@@ -38,7 +38,7 @@ sys.path.insert(0, REPO)
 DATA = os.environ.get('LOCBENCH_DIR', '/tmp/claude-1000/locbench')
 BUNDLE = os.environ.get('LOCBENCH_BUNDLE', os.path.expanduser('~/jr'))
 BORDER = 0.10                       # verification borderline band: |score - threshold| <= BORDER
-LOC_UIS = ('stb_tv', 'youtube-web', 'web_tv', 'iad_gui')
+LOC_UIS = tuple(filter(None, [os.environ.get('VPT_LOCALIZE_UI'), 'youtube-web', 'web_tv', 'iad_gui']))
 GATES = (0.9, 0.8)
 PRICE_IN = 0.042e-6                 # $ per input token (docs/agent/ai/JEV.md); decide() returns the real cost too
 

@@ -1831,7 +1831,7 @@ def _replay_to(client: "MCPClient", run_dir: Path, state: Dict[str, Any],
     if bool(node.get("fingerprint")) and _same_screen(node["fingerprint"], fp):
         return True
     # Commit-strip pane / pane row: the rigid path replay strands on the tab (or row) cache;
-    # fall back to the bounded repeat_until-style re-anchor (the way stb_tv navigates).
+    # fall back to the bounded repeat_until-style re-anchor (the way stb-<operator> navigates).
     return (_reanchor_strip(client, run_dir, state, target, node)
             or _reanchor_row(client, run_dir, state, target, node))
 
@@ -1842,7 +1842,7 @@ STRIP_WALK_MAX = 7      # bound on the repeat_until-style walk (stb3 has 6 setti
 def _reanchor_strip(client: "MCPClient", run_dir: Path, state: Dict[str, Any],
                     target: Dict[str, Any], node: Dict[str, Any]) -> bool:
     """Re-anchor to a COMMITTED strip pane by a bounded repeat_until-style walk — the way
-    stb_tv navigates — instead of the rigid exact-path replay that strands on the tab cache.
+    stb-<operator> navigates — instead of the rigid exact-path replay that strands on the tab cache.
 
     The strip remembers its last committed tab, so entering settings lands on an arbitrary
     pane and the fixed 'RIGHT×n then OK' replay never arrives. Instead: enter the strip

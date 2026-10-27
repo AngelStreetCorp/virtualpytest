@@ -47,7 +47,7 @@ export const useMetrics = (props?: UseMetricsProps) => {
   /**
    * Fetch metrics from backend API
    */
-  const fetchMetrics = useCallback(async (targetTreeId: string) => {
+  const fetchMetrics = useCallback(async (targetTreeId: string, variant?: string) => {
     if (!targetTreeId || !enabled) return;
 
     setIsLoading(true);
@@ -56,7 +56,9 @@ export const useMetrics = (props?: UseMetricsProps) => {
     try {
       console.log(`[@useMetrics] Fetching metrics for tree: ${targetTreeId}`);
       
-      const data = await api.get(buildServerUrl(`/server/metrics/tree/${targetTreeId}`));
+      const data = await api.get(
+        buildServerUrl(`/server/metrics/tree/${targetTreeId}${variant ? `?variant=${encodeURIComponent(variant)}` : ''}`),
+      );
 
       if (!data.success) {
         throw new Error(data.error || 'Failed to fetch metrics');

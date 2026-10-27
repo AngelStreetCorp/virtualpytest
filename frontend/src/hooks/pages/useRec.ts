@@ -1,12 +1,18 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Host, Device } from '../../types/common/Host_Types';
 import { useHostData } from '../useHostManager';
+import { getDeviceMonitorProfile } from '../useDeviceFilters';
 import { calculateVncScaling } from '../../utils/vncUtils';
 
 import { buildServerUrl } from '../../utils/buildUrlUtils';
 import { api } from '../../utils/apiClient';
 
 const log = (..._args: unknown[]): void => {};
+
+// What makes a device tile re-render: its running deployment (lock icon) and its monitoring
+// profile (badge and filter chip, BUG-0956).
+const deviceSignature = (host: Host, device: Device) =>
+  `${host.host_name}-${device.device_id}:${Boolean(device.has_running_deployment)}:${getDeviceMonitorProfile(host, device)}`;
 // Removed global state - no longer needed for simple monitoring patterns
 
 interface UseRecReturn {
@@ -101,11 +107,11 @@ export const useRec = (): UseRecReturn => {
         
         // Include deployment running state so lock icon can update without page reload
         const prevSignature = prev
-          .map(({ host, device }) => `${host.host_name}-${device.device_id}:${Boolean(device.has_running_deployment)}`)
+          .map(({ host, device }) => deviceSignature(host, device))
           .sort()
           .join(',');
         const newSignature = devices
-          .map(({ host, device }) => `${host.host_name}-${device.device_id}:${Boolean(device.has_running_deployment)}`)
+          .map(({ host, device }) => deviceSignature(host, device))
           .sort()
           .join(',');
         
@@ -137,15 +143,11 @@ export const useRec = (): UseRecReturn => {
     prevHostCountRef.current = currentHostCount;
   }, [availableHosts.length, isHostDataLoading, refreshHosts]);
 
-  // Also refresh device mappings when deployment lock flags change
+  // Also refresh device mappings when deployment lock flags or monitoring profiles change
   const deploymentSignature = useMemo(
     () =>
       availableHosts
-        .flatMap((host) =>
-          (host.devices || []).map(
-            (device) => `${host.host_name}-${device.device_id}:${Boolean(device.has_running_deployment)}`
-          )
-        )
+        .flatMap((host) => (host.devices || []).map((device) => deviceSignature(host, device)))
         .sort()
         .join(','),
     [availableHosts]

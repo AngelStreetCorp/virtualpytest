@@ -21,9 +21,9 @@ def test_no_userinterface_resolves_to_the_default(monkeypatch):
 
 
 def test_a_configured_userinterface_wins(monkeypatch):
-    monkeypatch.setenv('DEVICE3_USERINTERFACE', 'stb_tv')
+    monkeypatch.setenv('DEVICE3_USERINTERFACE', 'stb-testop')
     monkeypatch.setenv('DEVICE3_VARIANT', 'v2')
-    assert ml.MonitorLocalizer()._resolve_ui('device3') == ('stb_tv', 'v2')
+    assert ml.MonitorLocalizer()._resolve_ui('device3') == ('stb-testop', 'v2')
 
 
 def test_device5_and_up_arrive_as_their_capture_folder(monkeypatch):

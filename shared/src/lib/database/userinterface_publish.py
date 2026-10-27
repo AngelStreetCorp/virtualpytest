@@ -495,6 +495,12 @@ def resolve_dev_tree_for_prod(tree_id: str, team_id: str) -> Optional[Dict]:
     {dev_tree_id, dev_userinterface_id, prod_userinterface_id} or {error}.
     """
     supabase = get_supabase()
+    if supabase is None:
+        # No DB client in this process (BUG-0109): there is no prod tree to
+        # redirect to, and nothing the write could be persisted to either.
+        # "Not a prod tree" is the honest answer — without this the caller
+        # dereferences None and every tree write dies on an empty 500.
+        return None
     rows = supabase.table('navigation_trees')\
         .select('id,userinterface_id,published_from_tree_id')\
         .eq('id', tree_id).eq('team_id', team_id).limit(1).execute().data

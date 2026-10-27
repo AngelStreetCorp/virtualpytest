@@ -532,7 +532,7 @@ def device_userinterface(request) -> str:
     trees happen to expose a `home` node, so the graph needs no change:
 
         SERVER_URL=http://<rpi1>:5109 \
-        DEVICE_HOST=vpt-pi1 DEVICE_ID=device3 DEVICE_USERINTERFACE=stb_tv \
+        DEVICE_HOST=vpt-pi1 DEVICE_ID=device3 DEVICE_USERINTERFACE=stb-testop \
         pytest tests/backend_server/test_quicktest.py -m device
 
     Verified on stb3 (IR remote) on 2026-09-07: navigated to `home`, verified against the

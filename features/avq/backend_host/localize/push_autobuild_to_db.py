@@ -367,7 +367,7 @@ def _action_set(state, src_nid, dst_nid, set_id, keys, strip=False, dst_node_id=
 
     strip=True marks a commit-strip compound [DIR, OK]: the DIRECTIONAL press becomes
     position-independent — `repeat_until` the destination pane appears (max 7), then OK — so the
-    edge works no matter which tab the strip remembers (the tab cache). Mirrors stb_tv's authored
+    edge works no matter which tab the strip remembers (the tab cache). Mirrors stb-<operator>'s authored
     `RIGHT repeat_until(target) + OK`."""
     keys = [keys] if isinstance(keys, str) else list(keys)
     actions = []
@@ -413,7 +413,7 @@ def _collapse_strip_hovers(state):
 
     A settings-tab hover (nav focus, underline NOT on the bold tab) is not a resting state —
     the meaningful node is the committed pane its OK reaches. Collapse `P --DIR--> H --OK--> C`
-    into `P --[DIR,OK]--> C` and drop H, so only committed panes remain (the stb_tv shape).
+    into `P --[DIR,OK]--> C` and drop H, so only committed panes remain (the stb-<operator> shape).
 
     STRICTLY lateral only: H is collapsed iff its OK lands on a nav COMMITTED pane on the SAME
     titled bar. This spares the home ring — home_tvguide is also focus≠selected, but its OK
@@ -985,7 +985,7 @@ def main() -> int:
                     # arbitrator/human-authored — never overwritten.
                     #
                     # SUGGESTION (printed below): for production reliability, replace this
-                    # default with the ANCHOR UI's (stb_tv's) position-independent recipe
+                    # default with the ANCHOR UI's (stb-<operator>'s) position-independent recipe
                     # (RIGHT repeat_until(home) + OK style), and ultimately keep a HARDCODED
                     # per-known-STB recipe — edited once after learning, reused thereafter.
                     def _press(key, wait):
@@ -998,7 +998,7 @@ def main() -> int:
                     }).eq("id", ee["id"]).execute()
                     print("authored Entry→home: TVGUIDE(5000)+HOME(4000); retry HOME(4000)")
                     print("  [suggestion] Entry→home is a seeded device recipe, not explored — "
-                          "for production, copy the anchor UI's (stb_tv) recipe or a hardcoded "
+                          "for production, copy the anchor UI's (stb-<operator>) recipe or a hardcoded "
                           "per-STB one; a human edits it ONCE, exploration does the other 99%.")
 
         if nodes:

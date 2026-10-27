@@ -54,7 +54,7 @@ CASES: List[Dict[str, Any]] = [
      "atlas": {"source_id": "zapping", "dimensions": [], "metrics": ["zap_count"]},
      "key": [], "values": [("Total Zaps", "zap_count", 0)]},
     {"id": "kpi_radar_stb_tv", "family": "kpi", "dashboard": "kpi-measurement.json", "panel": {"id": 19},
-     "atlas": {"preset": "kpi_radar", "filters": {"userinterface_name": "stb_tv"}},
+     "atlas": {"preset": "kpi_radar", "filters": {"userinterface_name": "stb-testop"}},
      "key": [("variant", "variant"), ("action_set_id", "kpi_label")],
      "values": [("avg_kpi", "avg_kpi_ms", 1)],
      "known_divergence": "The panel groups by the raw variant and action-set id, so a NULL variant and 'Base' "

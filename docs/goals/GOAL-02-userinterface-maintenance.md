@@ -89,7 +89,7 @@ fingerprint step are not yet reliable. Audit before building.
 - 2026-07-16 — Ladder A-G COMPLETE + first live test on stb4/vpt-pi1 (rpitest). Live
   results: init+explore built 3 nodes/4 edges/9 probes on the customer home menu with
   DOM-cache sibling reuse; validate (oracle) correctly REFUSED the graph — root causes
-  found: (1) old stb_tv tree's home_red.jpg is focus-dependent (ENTRY→home fails 0.000
+  found: (1) old stb-<operator> tree's home_red.jpg is focus-dependent (ENTRY→home fails 0.000
   when home keeps last focus), (2) stb4 BLE presses drop/land late even at 2s waits.
   ARBITRATOR RULING implemented: builds are fully self-contained — all references to
   existing userinterfaces removed from the builder (init precondition = device on home;
@@ -97,7 +97,7 @@ fingerprint step are not yet reliable. Audit before building.
   (fixtures/traces/stb4_ladder_test_2026-07-16). Open follow-ups: BLE press-verify-retry
   during explore; focus-sibling verifications (unique-text yields [] for same-screen
   focus nodes); auto-DOM needs a non-OpenAI vision fallback (only OpenRouter key has a
-  value); stb_tv home_red reference fix (feeds the maintenance loop).
+  value); stb-<operator> home_red reference fix (feeds the maintenance loop).
 
 - 2026-07-16 — Consolidation: main + feat/ai-test-generation merged into feat/demo
   (arbitrator: demo is the integration line). feat/demo now carries auto_builder +

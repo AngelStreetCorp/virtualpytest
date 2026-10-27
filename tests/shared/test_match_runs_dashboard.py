@@ -148,7 +148,7 @@ def test_sequence_returns_chain_for_device_and_ui(monkeypatch):
     chain.execute.return_value = types.SimpleNamespace(data=rows_in)
     monkeypatch.setattr(match_runs_db, 'get_supabase_client', lambda: fake_db)
     rows = match_runs_db.sequence(
-        'team_x', device_id='d1', userinterface_name='stb_tv', limit=5)
+        'team_x', device_id='d1', userinterface_name='stb-testop', limit=5)
     assert len(rows) == 2
     assert rows[0]['id'] == 'a'
     assert rows[1]['verdict'] == 'unknown'
@@ -164,7 +164,7 @@ def test_sequence_returns_empty_on_db_error(monkeypatch):
              .order.return_value.limit.return_value)
     chain.execute.side_effect = Exception('boom')
     monkeypatch.setattr(match_runs_db, 'get_supabase_client', lambda: fake_db)
-    rows = match_runs_db.sequence('team_x', device_id='d1', userinterface_name='stb_tv')
+    rows = match_runs_db.sequence('team_x', device_id='d1', userinterface_name='stb-testop')
     assert rows == []
 
 

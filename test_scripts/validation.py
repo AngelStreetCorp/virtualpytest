@@ -33,7 +33,8 @@ _script_args = [
     '--variant:str:',                              # Optional named variant; empty = base
     '--max-iteration:int:0',                       # Script-specific param
     '--edges:str:',                                # Script-specific param
-    '--subtree-root:str:'                          # Script-specific param
+    '--subtree-root:str:',                         # Script-specific param
+    '--time-budget-min:int:30'                     # Wall-clock budget; 0 = unlimited
 ]
 _script_description = "Validate all navigation tree transitions."
 _arg_descriptions = {
@@ -42,6 +43,7 @@ _arg_descriptions = {
     'max-iteration': 'Max transitions to test (0=all)',
     'edges': 'Comma-separated step numbers to test (matches the preview ordering)',
     'subtree-root': 'node_id of subtree entry — validate only that linked child tree',
+    'time-budget-min': 'Stop after this many minutes and fail the run with the coverage reached (0 = no limit)',
 }
 
 
@@ -223,7 +225,8 @@ def capture_edge_results_summary(context) -> str:
     return "\n".join(lines)
 
 
-def validate_with_recovery(max_iteration: int = None, edges: str = None, subtree_root: str = None) -> bool:
+def validate_with_recovery(max_iteration: int = None, edges: str = None, subtree_root: str = None,
+                           time_budget_min: int = 0) -> bool:
     """Execute validation - test all transitions using NavigationExecutor directly"""
     context = get_context()
 
@@ -339,9 +342,20 @@ def validate_with_recovery(max_iteration: int = None, edges: str = None, subtree
     #      `NavigationExecutor` clears its tracked position on every failure, so
     #      after an earlier verify fail this turns into "pathfind from entry".
     #   2) execute the precomputed step (single-edge action+verify).
+    import time
+    started = time.monotonic()
+    budget_hit = False
     for i, step in enumerate(validation_sequence):
         target = step.get('to_node_label', 'unknown')
         from_node = step.get('from_node_label', 'unknown')
+
+        # A healthy run covers the tree well inside the budget; a box that is
+        # asleep or off Home burns hours on recoveries. Stop and say so.
+        if time_budget_min and time.monotonic() - started > time_budget_min * 60:
+            budget_hit = True
+            _record_skipped(i, from_node, target, step, f"time budget of {time_budget_min} min exceeded")
+            continue
+
         from_node_id = step.get('from_node_id')
         to_node_id = step.get('to_node_id')
         action_set_id = step.get('action_set_id')
@@ -422,6 +436,13 @@ def validate_with_recovery(max_iteration: int = None, edges: str = None, subtree
     
     # Set overall success based on actual recorded steps
     context.overall_success = (successful_steps == total_steps and total_steps > 0)
+    if budget_hit:
+        context.overall_success = False
+        context.error_message = (
+            f"Time budget of {time_budget_min} min exceeded: {successful_steps}/{len(validation_sequence)} steps "
+            f"succeeded. Check the box is awake and on Home (STB_STANDBY.md) before blaming the tree."
+        )
+        print(f"⏱️ [validation] {context.error_message}")
     
     coverage = (successful_steps / total_steps * 100) if total_steps else 0
     print(f"🎉 [validation] Results: {successful_steps}/{total_steps} steps successful ({coverage:.1f}%)")
@@ -436,7 +457,8 @@ def main():
     
     # Execute validation with selected edges if provided
     subtree_root = getattr(args, 'subtree_root', None) or None
-    result = validate_with_recovery(args.max_iteration, args.edges, subtree_root)
+    result = validate_with_recovery(args.max_iteration, args.edges, subtree_root,
+                                    getattr(args, 'time_budget_min', 0) or 0)
 
     # Resolve the active variant the same way _get_validation_plan does
     # (device.navigation_context is canonical; args is the fallback).

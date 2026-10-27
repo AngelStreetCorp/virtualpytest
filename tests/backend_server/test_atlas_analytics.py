@@ -48,7 +48,7 @@ def _request(**overrides):
         "source_id": "kpi_measurements",
         "dimensions": ["kpi_name", "variant"],
         "metrics": ["avg_kpi_ms", "sample_count"],
-        "filters": {"userinterface_name": "stb_tv"},
+        "filters": {"userinterface_name": "stb-testop"},
         "from_time": "2026-09-01T00:00:00Z",
         "to_time": "2026-10-01T00:00:00Z",
     }
@@ -125,7 +125,7 @@ def test_phase6_presets_cover_every_priority_family():
 def test_every_preset_compiles_for_an_admin():
     service = AnalyticsService(dsn="unused")
     for name, preset in ARTIFACT_PRESETS.items():
-        filters = {field: "stb_tv" for field in preset.get("required_filters", [])}
+        filters = {field: "stb-testop" for field in preset.get("required_filters", [])}
         request = service.preset_request({"preset": name, "filters": filters})
         sql, values, fields = service.build_query(request, ADMIN)
         assert fields == list(preset["dimensions"]) + list(preset["metrics"]), name
@@ -154,7 +154,7 @@ def test_elevated_role_uses_grafana_admin_login():
 
 
 def test_model_values_are_parameters_not_sql():
-    hostile = "stb_tv' OR true --"
+    hostile = "stb-testop' OR true --"
     sql, values, _ = AnalyticsService(dsn="unused").build_query(_request(filters={"userinterface_name": hostile}), CTX)
     assert hostile not in sql
     assert [hostile] in values
@@ -229,7 +229,7 @@ def test_time_grain_buckets_time_dimensions_from_an_allowlist():
 
 def test_flag_filter_is_parameterized_scoped_and_has_no_team_column():
     sql, values, _ = AnalyticsService(dsn="unused").build_query(
-        _request(filters={"userinterface_name": "stb_tv", "flags": ["lab", "nightly"]}, flag_match_mode="OR"), CTX
+        _request(filters={"userinterface_name": "stb-testop", "flags": ["lab", "nightly"]}, flag_match_mode="OR"), CTX
     )
     assert "df.flags && %s::text[]" in sql
     assert "df.team_id" not in sql  # device_flags has no team_id column
@@ -386,14 +386,14 @@ def test_radar_overflow_keeps_best_sampled_kpis_and_discloses_the_rest():
     rows = [{"action_set_id": f"as_{i}", "variant": "Base", "kpi_label": f"KPI-{i:02d}", "avg_kpi_ms": i, "sample_count": i}
             for i in range(25)]
     captured = _fake_query(service, rows, "kpi_measurements", ["action_set_id", "variant", "kpi_label", "avg_kpi_ms", "sample_count"])
-    spec = service.render({"preset": "kpi_radar", "filters": {"userinterface_name": "stb_tv"}}, CTX)["content_data"]["artifact_spec"]
-    assert captured[0]["filters"] == {"environment": ["dev", "test", "prod"], "userinterface_name": "stb_tv"}
+    spec = service.render({"preset": "kpi_radar", "filters": {"userinterface_name": "stb-testop"}}, CTX)["content_data"]["artifact_spec"]
+    assert captured[0]["filters"] == {"environment": ["dev", "test", "prod"], "userinterface_name": "stb-testop"}
     assert spec["mark"] == "radar"
     assert spec["encoding"]["x"] == "kpi_label" and spec["encoding"]["series"] == "variant" and spec["encoding"]["y"] == "avg_kpi_ms"
     assert spec["options"]["category_overflow"]["kept"] == 20
     assert spec["options"]["category_overflow"]["omitted_categories"] == [f"KPI-{i:02d}" for i in range(5)]
     resolved = spec["provenance"].pop("resolved_request")
-    assert resolved["filters"]["userinterface_name"] == "stb_tv" and resolved["preset"] == "kpi_radar"
+    assert resolved["filters"]["userinterface_name"] == "stb-testop" and resolved["preset"] == "kpi_radar"
     assert spec["provenance"] == {"source_id": "kpi_measurements", "preset": "kpi_radar", "dashboard_ref": "kpi-measurement.json"}
 
 
@@ -596,11 +596,11 @@ def test_empty_result_is_not_a_readability_fallback():
     """Live: 0 rows showed 'Shown as bar … got 0 categories' and an empty chart."""
     service = AnalyticsService(dsn="unused")
     _fake_query(service, [], "kpi_measurements", ["action_set_id", "variant", "kpi_label", "avg_kpi_ms", "sample_count"])
-    spec = service.render({"preset": "kpi_radar", "filters": {"userinterface_name": "stb_tv"}}, CTX)["content_data"]["artifact_spec"]
+    spec = service.render({"preset": "kpi_radar", "filters": {"userinterface_name": "stb-testop"}}, CTX)["content_data"]["artifact_spec"]
     assert spec["mark"] == "radar" and spec["options"]["fallback_applied"] is None and spec["data"]["rows"] == []
     tools = analytics_tools.AnalyticsTools()
     tools.service = service
-    text = tools.render_analytics_artifact({"preset": "kpi_radar", "filters": {"userinterface_name": "stb_tv"},
+    text = tools.render_analytics_artifact({"preset": "kpi_radar", "filters": {"userinterface_name": "stb-testop"},
                                             "_context_team_id": TEAM})["content"][0]["text"]
     assert "NO DATA matched" in text
 
@@ -613,13 +613,13 @@ def test_selected_server_scope_is_disclosed():
     _fake_query(service, [], "kpi_measurements", ["action_set_id", "variant", "kpi_label", "avg_kpi_ms", "sample_count"])
     ctx = AnalyticsContext(team_id=TEAM, selected_server="https://main", selected_server_name="Awesomation",
                            selected_server_hosts=("host-a", "host-b"))
-    spec = service.render({"preset": "kpi_radar", "filters": {"userinterface_name": "stb_tv"}}, ctx)["content_data"]["artifact_spec"]
+    spec = service.render({"preset": "kpi_radar", "filters": {"userinterface_name": "stb-testop"}}, ctx)["content_data"]["artifact_spec"]
     assert spec["options"]["scope_note"] == "Limited to the 2 host(s) of the selected server Awesomation"
-    spec = service.render({"preset": "kpi_radar", "filters": {"userinterface_name": "stb_tv"}}, CTX)["content_data"]["artifact_spec"]
+    spec = service.render({"preset": "kpi_radar", "filters": {"userinterface_name": "stb-testop"}}, CTX)["content_data"]["artifact_spec"]
     assert spec["options"]["scope_note"] is None
     tools = analytics_tools.AnalyticsTools()
     tools.service = service
-    text = tools.render_analytics_artifact({"preset": "kpi_radar", "filters": {"userinterface_name": "stb_tv"},
+    text = tools.render_analytics_artifact({"preset": "kpi_radar", "filters": {"userinterface_name": "stb-testop"},
                                             "_context_team_id": TEAM, "_context_selected_server": "https://main",
                                             "_context_selected_server_name": "Awesomation",
                                             "_context_selected_server_hosts": ["host-a"]})["content"][0]["text"]
@@ -765,7 +765,7 @@ def _kpi_rows_service(pick_rows, calls):
             return {"model": "analytics-tabular-v1", "source_id": source.id, "fields": ["userinterface_name", "sample_count"],
                     "rows": pick_rows, "row_count": len(pick_rows), "truncated": False, "units": {}, "time_grain": None}
         rows = [{"action_set_id": "a", "variant": "Base", "kpi_label": "Zap", "avg_kpi_ms": 10, "sample_count": 4}] \
-            if req["filters"]["userinterface_name"] == "stb_tv" else []
+            if req["filters"]["userinterface_name"] == "stb-testop" else []
         return {"model": "analytics-tabular-v1", "source_id": source.id, "fields": req["dimensions"] + req["metrics"],
                 "rows": rows, "row_count": len(rows), "truncated": False, "units": {}, "time_grain": None}
     service._run_query = run
@@ -775,12 +775,12 @@ def _kpi_rows_service(pick_rows, calls):
 def test_kpi_preset_without_interface_picks_the_one_with_most_samples():
     from backend_server.src.mcp.tools import analytics_tools as tools
     calls = []
-    service = _kpi_rows_service([{"userinterface_name": "stb_tv", "sample_count": 9}], calls)
+    service = _kpi_rows_service([{"userinterface_name": "stb-testop", "sample_count": 9}], calls)
     artifact = service.render({"preset": "kpi_trend", "time_range_days": 7}, ADMIN)
     options = artifact["content_data"]["artifact_spec"]["options"]
-    assert options["defaulted_filters"] == {"userinterface_name": "stb_tv"}
+    assert options["defaulted_filters"] == {"userinterface_name": "stb-testop"}
     assert "most KPI samples in scope" in options["defaulted_filters_note"]
-    assert options["filters"]["userinterface_name"] == "stb_tv"
+    assert options["filters"]["userinterface_name"] == "stb-testop"
     pick = calls[0]
     assert pick["sort"] == [{"field": "sample_count", "direction": "desc"}] and pick["limit"] == 1
     assert pick["time_range_days"] == 7 and "userinterface_name" not in pick["filters"]
@@ -791,9 +791,9 @@ def test_kpi_preset_prefers_the_conversations_interface_without_a_query():
     from dataclasses import replace
     calls = []
     service = _kpi_rows_service([], calls)
-    artifact = service.render({"preset": "kpi_slowest"}, replace(ADMIN, userinterface_name="stb_tv"))
+    artifact = service.render({"preset": "kpi_slowest"}, replace(ADMIN, userinterface_name="stb-testop"))
     options = artifact["content_data"]["artifact_spec"]["options"]
-    assert options["defaulted_filters"] == {"userinterface_name": "stb_tv"}
+    assert options["defaulted_filters"] == {"userinterface_name": "stb-testop"}
     assert "current interface" in options["defaulted_filters_note"]
     assert len(calls) == 1 and calls[0]["dimensions"] != ["userinterface_name"]
 
@@ -801,7 +801,7 @@ def test_kpi_preset_prefers_the_conversations_interface_without_a_query():
 def test_explicit_interface_is_not_defaulted_and_no_samples_renders_empty():
     calls = []
     service = _kpi_rows_service([], calls)
-    explicit = service.render({"preset": "kpi_radar", "filters": {"userinterface_name": "stb_tv"}}, ADMIN)
+    explicit = service.render({"preset": "kpi_radar", "filters": {"userinterface_name": "stb-testop"}}, ADMIN)
     assert explicit["content_data"]["artifact_spec"]["options"]["defaulted_filters"] is None
     empty = service.render({"preset": "kpi_radar"}, ADMIN)
     spec = empty["content_data"]["artifact_spec"]
@@ -810,7 +810,7 @@ def test_explicit_interface_is_not_defaulted_and_no_samples_renders_empty():
 
 def test_bridge_context_carries_the_current_interface():
     from backend_server.src.mcp.tools.analytics_tools import _context
-    assert _context({"_context_team_id": "t", "_context_userinterface_name": "stb_tv"}).userinterface_name == "stb_tv"
+    assert _context({"_context_team_id": "t", "_context_userinterface_name": "stb-testop"}).userinterface_name == "stb-testop"
 
 
 def _availability_service(rows_by_probe):
@@ -832,7 +832,7 @@ def _availability_service(rows_by_probe):
 def _kpi_text(service, **params):
     tools = analytics_tools.AnalyticsTools()
     tools.service = service
-    return tools.query_kpi_radar({"userinterface_name": "stb_tv", "variants": ["Base", "variant1"],
+    return tools.query_kpi_radar({"userinterface_name": "stb-testop", "variants": ["Base", "variant1"],
                                   "time_range_days": 30, "_context_team_id": TEAM, **params})["content"][0]["text"]
 
 
@@ -851,7 +851,7 @@ def test_empty_kpi_result_lists_other_interfaces_and_missing_variants():
         {"userinterface_name": "web_tv", "variant": "v2", "sample_count": 20}])
     text = _kpi_text(service)
     assert "web_tv (120 samples)" in text and "do not retry with guessed fields" in text
-    service, _ = _availability_service([{"userinterface_name": "stb_tv", "variant": "Base", "sample_count": 5}])
+    service, _ = _availability_service([{"userinterface_name": "stb-testop", "variant": "Base", "sample_count": 5}])
     assert "only for variants: Base" in _kpi_text(service)
 
 

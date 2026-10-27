@@ -33,8 +33,8 @@ def test_space_form_flag_is_not_doubled_by_a_positional():
 
 
 def test_positional_userinterface_when_the_parameters_do_not_name_it():
-    params = _build()({**DEP, 'userinterface_name': 'stb_tv', 'parameters': '--edges --max-iteration 10'})
-    assert params == 'stb_tv --max-iteration 10 --host host-clone-1 --device host'
+    params = _build()({**DEP, 'userinterface_name': 'stb-testop', 'parameters': '--edges --max-iteration 10'})
+    assert params == 'stb-testop --max-iteration 10 --host host-clone-1 --device host'
 
 
 def test_empty_equals_value_is_dropped_and_spaces_stay_quoted():

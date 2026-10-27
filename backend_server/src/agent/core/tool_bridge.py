@@ -11,6 +11,7 @@ import json
 from typing import Dict, Any, List, Optional
 
 from backend_server.src.mcp.mcp_instance import get_mcp_server
+from backend_server.src.lib.servers import turn
 from backend_server.src.mcp.tools.analytics_tools import ANALYTICS_TOOL_NAMES
 from backend_server.src.mcp.tools.custom_page_tools import CUSTOM_PAGE_TOOL_NAMES
 from backend_server.src.mcp.tools.masterchief_tools import MASTERCHIEF_PROPOSE_TOOL_NAMES
@@ -41,7 +42,8 @@ class ToolResultCache:
     def _make_key(self, tool_name: str, params: Dict[str, Any]) -> str:
         """Generate cache key from tool name and params"""
         params_str = json.dumps(params, sort_keys=True)
-        key_data = f"{tool_name}:{params_str}"
+        # The chat's server scope is part of the key: list_hosts in All mode is not list_hosts for one server.
+        key_data = f"{tool_name}:{turn.scope_tag()}:{params_str}"
         return hashlib.sha256(key_data.encode()).hexdigest()[:16]
     
     def get(self, tool_name: str, params: Dict[str, Any], ttl_seconds: int) -> Optional[Dict[str, Any]]:

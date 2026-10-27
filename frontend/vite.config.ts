@@ -285,7 +285,7 @@ function vptFeaturesPlugin(): Plugin {
 
 // ─── Runtime config for the mobile app (features/mobile-app) ───────────────────
 // Emits dist/runtime-config.json with the PUBLIC values the web bundle already ships
-// (Supabase URL + anon key, project name, slave server URLs). The Android app scans a QR that carries only
+// (Supabase URL + anon key, project name, server URL). The Android app scans a QR that carries only
 // the server URL and fetches this file, which keeps the QR small enough for a phone
 // camera. Nothing secret goes here — these strings are in the JS bundle anyway.
 function vptRuntimeConfigPlugin(): Plugin {
@@ -298,7 +298,10 @@ function vptRuntimeConfigPlugin(): Plugin {
         supabase_anon_key: process.env.VITE_SUPABASE_ANON_KEY ?? env.VITE_SUPABASE_ANON_KEY ?? '',
         project_name: (process.env.VITE_PROJECT_NAME ?? env.VITE_PROJECT_NAME ?? '').trim() || 'VirtualPyTest',
         server_url: process.env.VITE_SERVER_URL ?? env.VITE_SERVER_URL ?? '',
-        slave_server_url: process.env.VITE_SLAVE_SERVER_URL ?? env.VITE_SLAVE_SERVER_URL ?? '',
+        // No slave_server_url (TASK-179 P2): the other servers are now rows of the platform server
+        // list, read through GET /server/servers after sign-in, so there is no build-time value to
+        // publish. The Android app still reads this key (PayloadApplier, ClientCert.deploymentHosts);
+        // it treats a missing key as empty. Giving the app the list needs an app/backend change.
       },
       null,
       2,

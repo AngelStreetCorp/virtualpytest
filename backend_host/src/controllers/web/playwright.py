@@ -27,6 +27,7 @@ import hashlib
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, List
 
+from shared.src.lib.utils.secret_text import resolve_secret_text
 from shared.src.lib.utils.phase_timing import (
     t0 as _phase_t0,
     log_duration as _log_duration,
@@ -1716,6 +1717,11 @@ class PlaywrightWebController(PlaywrightVerificationsMixin, WebControllerInterfa
         try:
             print(f"[PLAYWRIGHT]: Inputting text to: {selector or '<focused field>'}")
             start_time = time.time()
+            try:
+                text, _ = resolve_secret_text(text)
+            except KeyError as missing:
+                return {'success': False, 'error': f"Host environment has no {missing.args[0]}",
+                        'execution_time': 0}
 
             # Get persistent page from browser+context
             page = await self._get_persistent_page()

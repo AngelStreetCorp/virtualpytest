@@ -3,7 +3,7 @@
 Mobile adapter — the Android PHONE platform for the content-surface suite.
 
 Platform facts this adapter is built on (verified live on the mobile
-app, device model `android_mobile`, userinterface `stb_android_mobile`):
+app, device model `android_mobile`, userinterface `androidmobile-<operator>`):
 
 * The navigation tree models the app's screens, not its content. The nodes are
   home, ENTRY, live, live_fullscreen, home_tvguide, tvguide_livetv, home_saved,

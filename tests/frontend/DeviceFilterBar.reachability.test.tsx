@@ -110,7 +110,8 @@ describe('DeviceFilterBar — unreachable options are hidden (BUG-0829)', () => 
     renderBar({ reachableOptions: { profiles: ['drone'] } });
     openMore();
     openCategory('Profiles');
-    expect(listedOptions()).toEqual(['drone']);
+    // The profile filter lists the short name of the profile ('Drone'), not its id.
+    expect(listedOptions()).toEqual(['Drone']);
   });
 
   it('shows them all when nothing is filtered yet (no dead end exists)', () => {

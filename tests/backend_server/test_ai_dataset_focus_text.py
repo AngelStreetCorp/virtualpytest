@@ -62,7 +62,7 @@ def _gt(group=HOME, glabel="home", node=REC, nlabel="home_recodings", focus="rec
 
 def _row(sid, gt=None, label_source="run", **kw):
     row = {"id": sid, "team_id": TEAM, "family": "screen-id", "object_key": f"{TEAM}/screen-id/stb/{sid}.jpg",
-           "dhash": HASH, "device_model": "stb", "userinterface": "stb_tv", "node_id": REC,
+           "dhash": HASH, "device_model": "stb", "userinterface": "stb-testop", "node_id": REC,
            "focus_label": None, "model_answer": None, "ground_truth": _gt() if gt is None else gt,
            "label_source": label_source, "is_failure": False, "label_conflict": False, "split": "train",
            "eval_version": None, "source_ref": None, "triage": None, "created_at": "2026-09-30T10:00:00Z"}
@@ -131,7 +131,7 @@ def test_human_set_focus_is_skipped_and_counted(ftp):
 
 def test_userinterface_and_limit(ftp):
     rows = [_row("a"), _row("b"), _row("w", userinterface="web_tv")]
-    assert [r["id"] for r in ftp.select_rows(rows, userinterface="stb_tv", limit=1)[0]] == ["a"]
+    assert [r["id"] for r in ftp.select_rows(rows, userinterface="stb-testop", limit=1)[0]] == ["a"]
 
 
 def test_export_is_blind_and_names_the_screen(ftp, tmp_path):
@@ -170,7 +170,7 @@ def test_export_dry_run_counts_by_group(ftp, capsys):
     args = ftp.build_arg_parser().parse_args(["export", "--team", TEAM, "--dry-run"])
     assert ftp.run_export(args, list_fn=_list_fn(rows)) == 0
     report = json.loads(capsys.readouterr().out)
-    assert report == {"would_select": 3, "by_group": {"stb_tv/home": 2, "stb_tv/apps": 1},
+    assert report == {"would_select": 3, "by_group": {"stb-testop/home": 2, "stb-testop/apps": 1},
                       "skipped": {"human_label": 1}}
 
 

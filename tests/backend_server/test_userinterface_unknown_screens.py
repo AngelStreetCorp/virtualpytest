@@ -48,7 +48,7 @@ def test_an_interface_that_exists_still_reports(client, monkeypatch):
     monkeypatch.setattr(routes, "get_userinterface_by_name",
                         lambda name, team, mode=None: {"id": "ui-1", "name": name})
 
-    resp = _post(client, "stb_tv")
+    resp = _post(client, "stb-testop")
 
     assert resp.status_code == 200
     body = resp.get_json()
@@ -63,7 +63,7 @@ def test_an_interface_that_exists_only_in_prod_still_reports(client, monkeypatch
 
     monkeypatch.setattr(routes, "get_userinterface_by_name", by_name)
 
-    resp = _post(client, "stb_tv")
+    resp = _post(client, "stb-testop")
 
     assert resp.status_code == 200
 

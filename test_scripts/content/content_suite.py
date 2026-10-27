@@ -125,6 +125,7 @@ main._script_args = [
     '--cases:str:radio,replay,vod,recording',
     '--platform:str:auto',
     '--max_items:int:3',
+    '--sweep:int:0',
     '--play_seconds:int:12',
     '--settle_ms:int:800',
     '--motion_threshold:float:1.0',
@@ -153,6 +154,8 @@ main._script_args = [
     '--stb_probe_gap_s:float:1.5',
     '--stb_record_diff_pct:float:2.0',
     '--stb_record_list_top_pct:float:0.25',
+    '--stb_list_end_diff_pct:float:0.5',
+    '--stb_nav_timeout_s:float:180',
     # --- web adapter -------------------------------------------------------
     '--probe_interval_s:float:2.0',
     '--nav_timeout_s:int:30',
@@ -170,6 +173,7 @@ main._arg_descriptions = {
     'userinterface': 'UI interface name (the TV, browser or phone UI)',
     'cases': 'Comma-separated cases: radio,replay,vod,recording',
     'platform': 'Platform adapter: auto, stb, web, mobile',
+    'sweep': 'Sweep mode: visit up to this many items per section, one OK/KO per item (0 = off)',
     'max_items': 'How many catalogue items to try per case',
     'play_seconds': 'How long an item may play before it counts as not started',
     'settle_ms': 'Pause after a navigation or a key press',
@@ -193,7 +197,7 @@ for _arg in ('stb_radio_nodes', 'stb_replay_nodes', 'stb_replay_asset_nodes', 's
              'stb_next_key', 'stb_record_key', 'stb_key_settle_s', 'stb_item_settle_s',
              'stb_list_settle_s', 'stb_live_settle_s', 'stb_record_settle_s',
              'stb_record_poll_s', 'stb_probe_retries', 'stb_probe_gap_s',
-             'stb_record_diff_pct', 'stb_record_list_top_pct'):
+             'stb_record_diff_pct', 'stb_record_list_top_pct', 'stb_list_end_diff_pct', 'stb_nav_timeout_s'):
     main._arg_descriptions[_arg] = f"STB adapter: {_arg.replace('stb_', '').replace('_', ' ')}."
 main._target_rules = {
     "target_type": "device",

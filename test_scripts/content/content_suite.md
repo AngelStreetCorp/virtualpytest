@@ -69,9 +69,9 @@ from stdout.
 
 | platform | device model | userinterface | how it plays |
 |----------|--------------|---------------|--------------|
-| `stb` | `stb` | `stb_tv` | IR remote keys + screen motion probe |
+| `stb` | `stb` | `stb-<operator>` | IR remote keys + screen motion probe |
 | `web` | `web` | the browser UI | Playwright; the `<video>` element's frame counter is the authority |
-| `mobile` | `android_mobile` | `stb_android_mobile` | appium / element clicks + screen motion probe |
+| `mobile` | `android_mobile` | `androidmobile-<operator>` | appium / element clicks + screen motion probe |
 
 The platform is detected from the device model when `--platform auto`.
 

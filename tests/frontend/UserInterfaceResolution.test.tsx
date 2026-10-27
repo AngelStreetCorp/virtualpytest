@@ -65,10 +65,10 @@ describe('useUserInterfaceResolution', () => {
   it('reports a failed load that is not a missing interface', async () => {
     ui.getUserInterfaceByName.mockRejectedValueOnce(new Error('HTTP 500'));
 
-    const { result } = resolveWith({ treeName: 'stb_tv' });
+    const { result } = resolveWith({ treeName: 'stb-testop' });
 
     await waitFor(() =>
-      expect(result.current.error).toBe('Could not load the user interface "stb_tv": HTTP 500'),
+      expect(result.current.error).toBe('Could not load the user interface "stb-testop": HTTP 500'),
     );
   });
 

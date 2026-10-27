@@ -31,12 +31,15 @@ from typing import Any, Callable, Dict, Iterable, List, Optional, Sequence
 # name -> platform. Platform names follow the device-model families
 # (shared/src/lib/config/device_capabilities.py): stb, android_tv, android_mobile, web ...
 CANONICAL_USERINTERFACES: Dict[str, str] = {
-    'stb_tv': 'stb',
     # 'iad_gui' (web) is out of scope: its gateway page (192.168.0.1) is not reachable from any
     # collecting host (human decision 2026-09-30). Its 6 seeded train rows stay.
     'youtube-web': 'web',
     'web_tv': 'web',
 }
+
+# Operator trees are named ``<platform>-<operator>`` (AGENTS.md, "Navigation Tree Naming"), so
+# the platform prefix puts them in scope without naming an operator here.
+CANONICAL_PREFIXES: Dict[str, str] = {'stb-': 'stb', 'web-': 'web'}
 
 # Same app as a canonical one (generated, copied, depth-limited, simulated, a settings
 # slice, a live-only slice) or a test fixture. Matched with fnmatch on the full name.
@@ -46,10 +49,11 @@ EXCLUDED_NAME_PATTERNS: tuple = (
 
 # Temporary trees whose samples are filed under a canonical app by
 # ``scripts/fold_temp_trees.py`` (owner, 2026-10-04): the stb4 acceptance pipeline's per-run
-# copies of the STB tree. Matched with fnmatch on the userinterface name.
+# copies of the STB tree. Pattern -> platform; the canonical tree itself is passed to
+# ``fold_temp_trees.py --canonical NAME``. Matched with fnmatch on the userinterface name.
 TEMP_TREE_ALIASES: Dict[str, str] = {
-    'acceptance-*-stb': 'stb_tv',
-    'qa-*-stb': 'stb_tv',
+    'acceptance-*-stb': 'stb',
+    'qa-*-stb': 'stb',
 }
 # Screen names of those copies that differ from the canonical app's, checked on a frame each
 # (2026-10-05): full-screen live TV, the options menu over live, the TV Guide grid, the audio
@@ -87,14 +91,25 @@ def excluded_pattern(name: str) -> Optional[str]:
     return None
 
 
+def canonical_platform(name: str) -> Optional[str]:
+    """Platform of a canonical app (exact name, else platform prefix), or None."""
+    if name in CANONICAL_USERINTERFACES:
+        return CANONICAL_USERINTERFACES[name]
+    for prefix, platform in CANONICAL_PREFIXES.items():
+        if (name or '').startswith(prefix):
+            return platform
+    return None
+
+
 def scope_refusal(name: str) -> Optional[str]:
     """Why ``name`` may not be seeded or counted as canonical, or None when it may."""
     pattern = excluded_pattern(name)
     if pattern:
         return f"'{name}' matches the exclusion pattern '{pattern}' (a copy or a fixture of a canonical app)"
-    if name not in CANONICAL_USERINTERFACES:
+    if canonical_platform(name) is None:
         return (f"'{name}' is not in CANONICAL_USERINTERFACES "
-                f"({', '.join(sorted(CANONICAL_USERINTERFACES))})")
+                f"({', '.join(sorted(CANONICAL_USERINTERFACES))}) and has no platform prefix "
+                f"({', '.join(sorted(CANONICAL_PREFIXES))})")
     return None
 
 
@@ -104,8 +119,9 @@ def platform_of_model(model: Optional[str]) -> str:
 
 def platform_of(name: str, models: Optional[Sequence[str]] = None) -> str:
     """Canonical platform of an app, else the platform of its first device model."""
-    if name in CANONICAL_USERINTERFACES:
-        return CANONICAL_USERINTERFACES[name]
+    platform = canonical_platform(name)
+    if platform:
+        return platform
     return platform_of_model((list(models or []) or [None])[0])
 
 

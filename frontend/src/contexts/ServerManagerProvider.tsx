@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from 'react';
 import { Socket } from 'socket.io-client';
 import { createServerSocket } from '../utils/serverSocket';
 import { ServerManagerContext } from './ServerManagerContext';
@@ -9,6 +9,11 @@ import { CACHE_CONFIG, STORAGE_KEYS } from '../config/constants';
 import { apiClient } from '../utils/apiClient';
 import { isAuthEnabled } from '../lib/supabase';
 import { ALL_SERVERS_SENTINEL, isAllServersSentinel } from '../lib/allServer/scope';
+import {
+  getPlatformServersVersion,
+  refreshPlatformServers,
+  subscribePlatformServers,
+} from '../lib/allServer/platformServers';
 import {
   discoverServerIdentity,
   getServerAuthInfo,
@@ -31,9 +36,11 @@ interface CachedData {
 /**
  * Keep the richer stats a lightweight refresh doesn't ask for.
  *
- * `include_system_stats=false` rounds return hosts without system_stats/service_health,
- * so overwriting the Dashboard's fuller entry with one of those would blank its gauges
- * between polls.
+ * `include_system_stats=false` rounds return hosts with only a few system_stats fields
+ * (monitor_profiles, monitoring_off, …) and no service_health, so overwriting the Dashboard's
+ * fuller entry with one of those would blank its gauges between polls. A host's fields from
+ * this round win over the previous ones (BUG-0956): the previous copy can be the localStorage
+ * cache from an earlier visit, and taking it whole kept a changed device profile stale forever.
  */
 const preserveRicherStats = (
   entry: ServerHostData,
@@ -55,7 +62,7 @@ const preserveRicherStats = (
       if (!prevHost?.system_stats) {
         return host;
       }
-      return { ...host, system_stats: prevHost.system_stats };
+      return { ...host, system_stats: { ...prevHost.system_stats, ...host.system_stats } };
     }),
   };
 };
@@ -81,8 +88,17 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
   const { isAuthenticated } = useAuthContext();
   const canFetch = !isAuthEnabled || isAuthenticated;
 
-  // Get all configured server URLs from environment
-  const availableServers = useMemo(() => getAllServerUrls(), []);
+  // Server list (TASK-179): the primary (VITE_SERVER_URL) plus the platform server list from
+  // `GET /server/servers`. The list is loaded once auth is available and re-published when Settings
+  // saves it, so the fan-out below re-runs instead of being computed once.
+  const platformServersVersion = useSyncExternalStore(
+    subscribePlatformServers,
+    getPlatformServersVersion,
+  );
+  const urlList = useMemo(() => getAllServerUrls(), [platformServersVersion]);
+  const urlListKey = urlList.join('\n');
+  // Same URLs, same array: a refetch that returns an unchanged list must not re-run the fan-out.
+  const availableServers = useMemo(() => urlList, [urlListKey]);
 
   // Selected server state with localStorage persistence. The sentinel
   // ALL_SERVERS_SENTINEL is also a valid value (it is the "All servers"
@@ -150,7 +166,6 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
   // callback (and re-trigger every fetch effect) on each discovery round.
   const serverAuthStatesRef = useRef<Record<string, ServerAuthState>>(serverAuthStates);
   serverAuthStatesRef.current = serverAuthStates;
-  
   // Server change transition state - blocks re-selection while streams initialize
   const [isServerChanging, setIsServerChanging] = useState(false);
   const serverChangeTimeoutRef = useRef<NodeJS.Timeout | null>(null);
@@ -182,16 +197,13 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
       log('[@ServerManager] Server change blocked:', { isServerChanging, sameServer: serverUrl === selectedServer });
       return;
     }
-    
     // Set transition state
     setIsServerChanging(true);
     log('[@ServerManager] Server change started - UI blocked for stream initialization');
-    
     // Clear any existing timeout
     if (serverChangeTimeoutRef.current) {
       clearTimeout(serverChangeTimeoutRef.current);
     }
-    
     // Update server selection
     setSelectedServerState(serverUrl);
     try {
@@ -204,7 +216,6 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
     // agent socket, which otherwise keeps talking to the previous server while
     // the UI shows the new one).
     window.dispatchEvent(new CustomEvent('vpt:server-changed', { detail: serverUrl }));
-    
     // Clear transition state after streams have time to initialize (2 seconds)
     serverChangeTimeoutRef.current = setTimeout(() => {
       setIsServerChanging(false);
@@ -400,10 +411,8 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
           )
           }
         );
-        
         if (response.ok) {
           const data = await response.json();
-          
           // Handle empty serverUrl (relative URLs behind nginx proxy)
           let cleanUrl = serverUrl;
           let serverPort = '80';
@@ -416,7 +425,6 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
             cleanUrl = serverUrl.replace(/^https?:\/\//, '').replace(/:\d+$/, '');
             serverPort = urlParts.port || (urlParts.protocol === 'https:' ? '443' : '80');
           }
-          
           const serverData = {
             server_info: {
               server_name: data.server_info?.server_name || 'Unknown Server',
@@ -528,12 +536,46 @@ export const ServerManagerProvider: React.FC<ServerManagerProviderProps> = ({ ch
   // worker on a synchronous fan-out of /health checks across every host. The /system
   // socket subscription (below) pushes host_registered / host_unregistered events,
   // so any stale state is corrected within seconds without blocking the page load.
+  const fetchedForServersRef = useRef<string>('');
   useEffect(() => {
     if (availableServers.length > 0 && canFetch) {
       log('[@ServerManager] Initial data fetch');
+      fetchedForServersRef.current = urlListKey;
       fetchServerData(false);
     }
   }, [canFetch]); // Re-run when auth state settles
+
+  // Load the platform server list from the primary once the user may call it.
+  useEffect(() => {
+    if (!canFetch || !availableServers[0]) return;
+    void refreshPlatformServers(buildServerUrlForServer(availableServers[0], '/server/servers'));
+    // The primary never changes after start-up; only auth settling matters.
+  }, [canFetch]);
+
+  // The list changed (loaded, or edited in Settings): fetch hosts for the new set of servers, and
+  // fall back to the first one when the selected server is no longer in the list.
+  useEffect(() => {
+    if (!canFetch || availableServers.length === 0) return;
+    if (fetchedForServersRef.current === urlListKey) return;
+    fetchedForServersRef.current = urlListKey;
+    const current = selectedServerRef.current;
+    if (current && !isAllServersSentinel(current) && !availableServers.includes(current)) {
+      setSelectedServerState(availableServers[0]);
+      try {
+        localStorage.setItem('selectedServer', availableServers[0]);
+      } catch {
+        // storage is a convenience only
+      }
+    }
+    // The cached hosts cover the old set of servers: drop it so the new ones are fetched, and let a
+    // round already in flight finish first (it would otherwise swallow this one).
+    try {
+      localStorage.removeItem(STORAGE_KEYS.SERVER_HOSTS_CACHE);
+    } catch {
+      // storage is a convenience only
+    }
+    void Promise.resolve(inFlightFetchRef.current).then(() => fetchServerData(false));
+  }, [urlListKey, canFetch]);
 
   // Push updates for host/lock state via /system socket namespace.
   useEffect(() => {

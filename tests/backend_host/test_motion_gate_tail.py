@@ -114,7 +114,7 @@ def test_gate_log_on_change_plus_heartbeat(mon, monkeypatch):
 
 
 def test_a_hero_trailer_behind_a_menu_is_not_live(mon):
-    """stb_tv home: the trailer gives static / box / full frames in turn. A single raw 'full' frame
+    """stb-testop home: the trailer gives static / box / full frames in turn. A single raw 'full' frame
     keeps the matched screen (gate 'motion'); live needs LIVE_WINDOW moving ticks in a row."""
     mon.localize_frame('device3', mon.frame, motion=STATIC)                       # home matched
     out = mon.localize_frame('device3', mon.frame, motion={'kind': 'full', 'state': 'ui', 'pct': 9.0})

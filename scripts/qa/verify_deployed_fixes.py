@@ -5,6 +5,7 @@ Needs: the deployed frontend (https://virtualpytest.angelstreet.io) and the
        auto-sign token from scripts/agent/auto_sign_token.sh.
 """
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -68,7 +69,7 @@ def main() -> int:
         page.screenshot(path=str(OUT / "bug-0775.png"))
 
         # BUG-0798 — every thumbnail of the unknown-screens page loads.
-        go("/configuration/interface/stb_tv/unknown", wait=12000)
+        go(f"/configuration/interface/{os.environ['QA_UI']}/unknown", wait=12000)
         for _ in range(10):
             page.mouse.wheel(0, 500)
             page.wait_for_timeout(400)

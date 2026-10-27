@@ -35,7 +35,7 @@ class _Api:
 
 LIVE = {'kind': 'live', 'node_id': 'n-live', 'label': 'live', 'confidence': 1.0, 'evidence': {}}
 UNKNOWN = {'kind': 'unknown', 'node_id': None, 'label': 'Unknown', 'confidence': 0.0, 'evidence': {}}
-NAV = {'host_name': 'h', 'device_id': 'device1', 'userinterface_name': 'stb_tv',
+NAV = {'host_name': 'h', 'device_id': 'device1', 'userinterface_name': 'stb-testop',
        'target_node_label': 'home', 'team_id': 't', 'include_screenshot': False}
 
 
@@ -46,7 +46,7 @@ def _execute_body(api):
 def test_localize_tool_returns_the_verdict():
     api = _Api(LIVE)
     out = navigation_tools.NavigationTools(api).localize(
-        {'host_name': 'h', 'device_id': 'device1', 'userinterface_name': 'stb_tv', 'team_id': 't'})
+        {'host_name': 'h', 'device_id': 'device1', 'userinterface_name': 'stb-testop', 'team_id': 't'})
     assert out['verdict'] == LIVE
     assert 'kind=live' in out['content'][0]['text'] and 'node_id=n-live' in out['content'][0]['text']
 
@@ -87,7 +87,7 @@ def test_no_image_monitor_no_localize(monkeypatch):
     monkeypatch.setattr(navigation_tools.NavigationTools, '_localize_off', staticmethod(lambda h, d: off))
     api = _Api(NODE)
     tools = navigation_tools.NavigationTools(api)
-    out = tools.localize({'host_name': 'h', 'device_id': 'device1', 'userinterface_name': 'stb_tv', 'team_id': 't'})
+    out = tools.localize({'host_name': 'h', 'device_id': 'device1', 'userinterface_name': 'stb-testop', 'team_id': 't'})
     assert out['isError'] and 'image monitor' in out['content'][0]['text']
     tools.navigate_to_node(dict(NAV))
     assert [e for e, _ in api.posts if e == '/server/navigation/localize'] == []

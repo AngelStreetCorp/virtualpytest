@@ -17,8 +17,10 @@ const baseProps = {
   profileFilter: [] as string[],
   onProfileFilterChange: vi.fn(),
 
-  uniqueDeviceModels: ['fire_tv_fireos', 'stb_tv', 'android_tv'] as string[],
-  deviceModelCounts: { fire_tv_fireos: 8, stb_tv: 14, android_tv: 2 },
+  uniqueDeviceModels: ['fire_tv_fireos', 'stb-testop', 'android_tv'] as string[],
+  // 'stb-testop' is quoted: the TASK-176 rename turned the model id into a
+  // hyphenated name, which is not a valid bare object key.
+  deviceModelCounts: { fire_tv_fireos: 8, 'stb-testop': 14, android_tv: 2 },
   deviceModelFilter: [] as string[],
   onDeviceModelFilterChange: vi.fn(),
 
@@ -61,11 +63,12 @@ describe('QuickfilterBadgeArea — visibility', () => {
     render(<QuickfilterBadgeArea {...baseProps} />);
     expect(screen.getByTestId('quickfilter-badge-area')).toBeTruthy();
     expect(screen.getByTestId('quickfilter-marker')).toBeTruthy();
-    expect(screen.getByText('counting_cars')).toBeTruthy();
-    expect(screen.getByText('egg_quality')).toBeTruthy();
-    expect(screen.getByText('tv_app')).toBeTruthy();
-    expect(screen.getByText('tv_lite')).toBeTruthy();
-    expect(screen.getByText('counting_cars').parentElement?.textContent).toContain('1');
+    // The chips carry the short name of the profile, not its id.
+    expect(screen.getByText('Car count')).toBeTruthy();
+    expect(screen.getByText('Eggs')).toBeTruthy();
+    expect(screen.getByText('TV')).toBeTruthy();
+    expect(screen.getByText('Lite')).toBeTruthy();
+    expect(screen.getByText('Car count').parentElement?.textContent).toContain('1');
   });
 });
 
@@ -80,7 +83,7 @@ describe('QuickfilterBadgeArea — chip toggle', () => {
         onProfileFilterChange={onProfileChange}
       />,
     );
-    fireEvent.click(screen.getByText('counting_cars'));
+    fireEvent.click(screen.getByText('Car count'));
     expect(onProfileChange).toHaveBeenCalledWith(['counting_cars']);
   });
 
@@ -95,7 +98,7 @@ describe('QuickfilterBadgeArea — chip toggle', () => {
         onProfileFilterChange={onProfileChange}
       />,
     );
-    fireEvent.click(screen.getByText('counting_cars'));
+    fireEvent.click(screen.getByText('Car count'));
     expect(onProfileChange).toHaveBeenCalledWith([]);
   });
 });
@@ -174,7 +177,7 @@ describe('QuickfilterBadgeArea — configure popover', () => {
     fireEvent.click(screen.getByTestId('quickfilter-config-row-models'));
     fireEvent.click(document.body);
     expect(screen.getByText('fire_tv_fireos')).toBeTruthy();
-    expect(screen.getByText('stb_tv')).toBeTruthy();
+    expect(screen.getByText('stb-testop')).toBeTruthy();
   });
 
   it('Clear empties the selection (the user can re-enable from the bolt)', () => {
@@ -214,13 +217,13 @@ describe('QuickfilterBadgeArea — store writes', () => {
         onFlagFilterChange={onFlagChange}
       />,
     );
-    fireEvent.click(screen.getByText('counting_cars'));
+    fireEvent.click(screen.getByText('Car count'));
     fireEvent.click(screen.getByText('fire_tv_fireos'));
     fireEvent.click(screen.getByText('loud'));
     expect(onProfileChange).toHaveBeenCalledWith(['counting_cars']);
     expect(onModelChange).toHaveBeenCalledWith(['fire_tv_fireos']);
     expect(onFlagChange).toHaveBeenCalledWith(['loud']);
     const area = screen.getByTestId('quickfilter-badge-area');
-    expect(within(area).getByText('tv_lite')).toBeTruthy();
+    expect(within(area).getByText('Lite')).toBeTruthy();
   });
 });

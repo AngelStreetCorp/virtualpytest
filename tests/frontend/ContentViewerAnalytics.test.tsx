@@ -62,7 +62,7 @@ describe('formatAnalyticsValue', () => {
   it('reads API timestamps as dates or minutes, leaves other values alone', () => {
     expect(formatAnalyticsValue('2026-09-17T00:00:00+00:00')).toBe('2026-09-17');
     expect(formatAnalyticsValue('2026-10-04T08:08:09.245602+00:00')).toBe('2026-10-04 08:08');
-    expect(formatAnalyticsValue('stb_tv')).toBe('stb_tv');
+    expect(formatAnalyticsValue('stb-testop')).toBe('stb-testop');
     expect(formatAnalyticsValue(null)).toBe('—');
     expect(formatAnalyticsValue(42)).toBe('42');
   });

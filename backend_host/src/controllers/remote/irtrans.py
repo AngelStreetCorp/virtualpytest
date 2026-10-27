@@ -125,7 +125,9 @@ class IRTransRemoteController(RemoteControllerInterface):
     def press_key(self, key: str) -> bool:
         """Send a single IR key press as a UDP `snd` command to the IRTrans box."""
         if not self.is_connected:
-            print(f"Remote[{self.device_type.upper()}]: ERROR - Not connected")
+            error = getattr(self, 'connect_error', None) or f"No IRTrans keymap loaded ({self.ir_config_file})"
+            print(f"Remote[{self.device_type.upper()}]: ERROR - Not connected: {error}")
+            self._record_send(False, error)
             return False
 
         key_upper = key.upper()
@@ -209,7 +211,12 @@ class IRTransRemoteController(RemoteControllerInterface):
 
         if command == 'press_key':
             key = params.get('key')
-            success = self.press_key(key) if key else False
+            if not key:
+                return {'success': False, 'error': 'press_key needs a key'}
+            if self.press_key(key):
+                return {'success': True}
+            # The panel shows `error`: the box's own RESULT line (unknown remote / command).
+            return {'success': False, 'error': self._last_send_error}
         elif command in ('get_pairing_status', 'get_status'):
             # Same command name the Take Control status-dot pipeline polls.
             return {'success': True, 'status': self.get_health()}

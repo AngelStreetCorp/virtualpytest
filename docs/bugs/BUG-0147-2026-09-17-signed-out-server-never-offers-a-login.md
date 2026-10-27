@@ -1,15 +1,15 @@
-# BUG-0144 — A signed-out server showed a padlock and "No servers connected", and never offered a login
+# BUG-0147 — A signed-out server showed a padlock and "No servers connected", and never offered a login
 
 > Bugs index: [README.md](README.md) · Release notes: [../release_note/README.md](../release_note/README.md)
 
 | Field     | Value                                                                        |
 |-----------|------------------------------------------------------------------------------|
-| ID        | BUG-0144                                                                     |
+| ID        | BUG-0147                                                                     |
 | Reported  | 2026-09-17                                                                   |
 | Status    | Fixed (committed; needs a frontend deploy and an APK rebuild)                 |
 | Severity  | High (a fresh mobile-app install cannot sign in at all — no path to the dialog) |
 | Area      | `frontend/src/components/common/ServerSelector.tsx`                          |
-| Fixed in  | Unreleased                                                                   |
+| Fixed in  | build 90256 |
 | Commit    | `9dfb6231f5`                                                                      |
 
 ---

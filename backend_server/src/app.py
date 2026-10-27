@@ -358,6 +358,7 @@ def register_all_server_routes(app):
             server_share_public_routes,
             server_themes_routes,
             server_dashboard_routes,
+            server_servers_routes,
         )
         # Import via absolute package path to avoid module alias split with emit callers
         # that import backend_server.src.routes.server_system_socket_routes.
@@ -476,6 +477,7 @@ def register_all_server_routes(app):
             (server_share_public_routes.server_share_public_bp, 'Public viewer of a shared report snapshot (secret link key, TASK-49)'),
             (server_themes_routes.server_themes_bp, 'Provided colour themes from config/themes (TASK-102)'),
             (server_dashboard_routes.server_dashboard_bp, 'Dashboard cards: summary + admin system (TASK-123)'),
+            (server_servers_routes.server_servers_bp, 'Platform server list (TASK-179)'),
         ]
         
         registered_count = 0

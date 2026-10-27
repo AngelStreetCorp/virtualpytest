@@ -107,11 +107,11 @@ Tests split by **where they execute**, and the split matters more than the test 
 
 Tier C is not a separate suite. The tier-B tests take their target from three env vars, so
 the identical test drives Chromium on `host-clone-1` or an IR remote on a real set-top box
-(`virtualpytest_web` and `stb_tv` both expose a `home` node, so the graph is unchanged):
+(`virtualpytest_web` and `stb-<operator>` both expose a `home` node, so the graph is unchanged):
 
 ```bash
 SERVER_URL=https://<pi-server-host> \
-DEVICE_HOST=vpt-pi1 DEVICE_ID=device3 DEVICE_USERINTERFACE=stb_tv \
+DEVICE_HOST=vpt-pi1 DEVICE_ID=device3 DEVICE_USERINTERFACE=stb-<operator> \
 pytest tests/backend_server/test_quicktest.py -m device
 ```
 

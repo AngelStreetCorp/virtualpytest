@@ -231,37 +231,7 @@ features/ai-dataset/results/
 claude-mods/agents/tsconfig.json
 claude-mods/fleet/tsconfig.json
 claude-mods/run-clock/tsconfig.json
-test_scripts/gw/email_imap_login.md
-test_scripts/gw/email_imap_login.py
-test_scripts/gw/gw_gui_advanced_profiles.json
-test_scripts/gw/gw_gui_advanced.md
-test_scripts/gw/gw_gui_advanced.py
-test_scripts/gw/gw_info_gui_profiles.json
-test_scripts/gw/gw_info_gui.md
-test_scripts/gw/gw_info_gui.py
-test_scripts/gw/gw_info_profiles.json
-test_scripts/gw/gw_info.md
-test_scripts/gw/gw_info.py
-test_scripts/gw/utils_gw_gui_flow.py
-test_scripts/gw/utils_gw_model_map.py
-test_scripts/gw/utils_gw_network copy.py
-test_scripts/gw/utils_gw_profile_detection.py
-test_scripts/gw/windows_lan_connection_information.md
-test_scripts/gw/windows_lan_connection_information.py
-test_scripts/gw/windows_networkassessmenttools.md
-test_scripts/gw/windows_networkassessmenttools.py
-
-# NAT rules helper — sets port-forwards on the customer gateway from
-# vpt-pi1's NW (its REST v1 endpoint). Credentials baked into the script.
-# Run only from vpt-pi1; the script is single-host automation.
-test_scripts/gw/gw_set_nat.md
-test_scripts/gw/gw_set_nat.py
-test_scripts/gw/gw_set_nat_re.py
-test_scripts/gw/gw_set_nat_rougetel.py
-# rougetel box (NB6VAC) port-forward GUI flow: script + per-GUI profiles.
-test_scripts/gw/gw_nat_gui.md
-test_scripts/gw/gw_nat_gui.py
-test_scripts/gw/gw_nat_gui_profiles.json
+# Customer gateway scripts live in test_scripts/gw/<codename>/ (local-only, listed in .git/info/exclude).
 
 # Local datasets, models and recordings for monitor profile work (TASK-90): never in git
 .local-data/

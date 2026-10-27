@@ -16,6 +16,12 @@ from typing import Optional, Tuple
 # One that is not configured is skipped, so listing it costs nothing.
 EXTERNAL_REMOTES = ['ir_remote', 'irtoy_remote', 'irtrans_remote', 'bluetooth_remote']
 
+# Power the same way: a smart plug (Tapo), the client's power API or Wake-on-LAN can sit in
+# front of any box we capture, so every such model accepts all three and the .env picks:
+# DEVICE{i}_POWER_NAME tapo* + POWER_IP → tapo, DEVICE{i}_POWER_API_URL → api_power,
+# DEVICE{i}_POWER_MAC → wol. One that is not configured is skipped.
+EXTERNAL_POWER = ['tapo', 'api_power', 'wol']
+
 # Device Model → Controllers Mapping
 DEVICE_CONTROLLER_MAP = {
     'android_mobile': {
@@ -31,7 +37,7 @@ DEVICE_CONTROLLER_MAP = {
         'remote': ['android_tv', *EXTERNAL_REMOTES],
         'desktop': [],
         'web': [],
-        'power': ['tapo', 'api_power', 'wol'],
+        'power': EXTERNAL_POWER,
         'network': []
     },
     'android_tablet': {
@@ -39,7 +45,7 @@ DEVICE_CONTROLLER_MAP = {
         'remote': ['android_mobile', *EXTERNAL_REMOTES],
         'desktop': [],
         'web': [],
-        'power': ['tapo', 'wol'],
+        'power': EXTERNAL_POWER,
         'network': []
     },
     # A paired phone running the VirtualPyTest app (features/mobile-app): frames arrive
@@ -59,7 +65,7 @@ DEVICE_CONTROLLER_MAP = {
         'remote': ['android_tv', *EXTERNAL_REMOTES],
         'desktop': [],
         'web': [],
-        'power': ['tapo', 'api_power', 'wol'],
+        'power': EXTERNAL_POWER,
         'network': []
     },
     # Fire TV on Vega OS (Amazon's Linux TV OS, TASK-57): reached by the stock adb client
@@ -71,7 +77,7 @@ DEVICE_CONTROLLER_MAP = {
         'remote': ['vega', *EXTERNAL_REMOTES],
         'desktop': [],
         'web': [],
-        'power': ['tapo', 'wol'],
+        'power': EXTERNAL_POWER,
         'network': []
     },
     'ios_mobile': {
@@ -110,7 +116,7 @@ DEVICE_CONTROLLER_MAP = {
         'remote': EXTERNAL_REMOTES,
         'desktop': [],
         'web': [],
-        'power': ['tapo', 'api_power', 'wol'],
+        'power': EXTERNAL_POWER,
         'network': []
     },
     'apple_tv': {
@@ -118,7 +124,7 @@ DEVICE_CONTROLLER_MAP = {
         'remote': EXTERNAL_REMOTES,
         'desktop': [],
         'web': [],
-        'power': ['tapo', 'wol'],
+        'power': EXTERNAL_POWER,
         'network': []
     },
     # TASK-71: an FX voice modem (Conexant CX93001, 0572:1349) on the host.
@@ -162,7 +168,7 @@ DEVICE_CONTROLLER_MAP = {
         'remote': EXTERNAL_REMOTES,
         'desktop': [],
         'web': [],
-        'power': ['tapo', 'api_power', 'wol'],
+        'power': EXTERNAL_POWER,
         'network': []
     },
     'host_vnc': {

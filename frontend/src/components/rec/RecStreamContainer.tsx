@@ -13,6 +13,7 @@ import { DroneTelemetryOverlay } from './DroneBatteryBadge';
 import { LocalizeVideoBadge } from './LocalizeVideoBadge';
 import { StreamStatsOverlay } from '../monitoring/StreamStatsOverlay';
 import { useWebRTCStats } from '../../hooks/controller/useWebRTCStats';
+import { featureVideoOverlays } from '../../config/features';
 import { useLiveStreamStats, type LiveStreamStats } from '../video/hooks/useLiveStreamStats';
 import { buildCaptureUrl, buildMetadataFileUrl, buildStreamUrl, withVncCacheBust } from '../../utils/buildUrlUtils';
 import { withVncViewportScale } from '../../utils/vncUtils';
@@ -601,6 +602,15 @@ const RecMonitoringLayer: React.FC<{
         fpsOut={fpsOut}
       />
       <StreamStatsOverlay host={host} pc={pc} live={live} deviceId={device?.device_id} />
+      {/* Feature overlays (the companion strip): EnhancedHLSPlayer draws them itself, the reused
+          preview stream, WebRTC and VNC players do not. This layer only exists with Monitoring on. */}
+      {device?.device_id && (
+        <Box sx={{ position: 'absolute', inset: 0, zIndex: 3000, pointerEvents: 'none' }}>
+          {featureVideoOverlays().map(({ Component }, i) => (
+            <Component key={i} hostName={host.host_name} deviceId={device.device_id} isLiveMode monitoringMode />
+          ))}
+        </Box>
+      )}
     </Box>
   );
 };

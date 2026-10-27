@@ -18,6 +18,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import subprocess
 import sys
 import urllib.parse
@@ -60,6 +61,84 @@ class Api:
 def count_nodes_edges(tree):
     meta = (tree or {}).get("metadata") or {}
     return len(meta.get("nodes") or []), len(meta.get("edges") or [])
+
+
+# The word "version", and a version value such as 3.11.5.3 (or V3.11.5.3). A localized row
+# label is NOT here on purpose: it is the app's own language, and a check that guessed it
+# would report a tree as broken because it reads a different word.
+VERSION_WORD = re.compile(r"versions?", re.I)
+VERSION_VALUE = re.compile(r"\bv?\d+\.\d+(?:\.\d+)+\b")
+
+
+def _strings(value):
+    """Every string in a params blob, at any depth."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, dict):
+        for v in value.values():
+            yield from _strings(v)
+    elif isinstance(value, (list, tuple)):
+        for v in value:
+            yield from _strings(v)
+
+
+def tree_rule(tree):
+    """The rule from AGENTS.md: every tree has a `settings` node and an `info` node that
+    reads the software version.
+
+    What the platform can decide on its own is the presence of the two nodes, and that is
+    what the verdict is about. Whether the `info` node reaches the version *row* is
+    app-specific — the row is labelled in the app's own language, and the model tree holds
+    the row without ever saying "version" — so the assertions the `info` node waits for are
+    reported next to the verdict and the judgement is left to whoever owns the tree.
+    """
+    meta = (tree or {}).get("metadata") or {}
+    nodes = meta.get("nodes") or []
+    edges = meta.get("edges") or []
+    labels = {(n.get("label") or "").strip().lower() for n in nodes}
+    settings, info = "settings" in labels, "info" in labels
+
+    info_node = next((n for n in nodes if (n.get("label") or "").strip().lower() == "info"), None)
+    assertions = []
+    for v in (info_node or {}).get("verifications") or []:
+        params = v.get("params") or {}
+        # the text the node waits for, not the name of the reference image it looks at
+        waits = next((params[k] for k in ("text", "search_term", "url_pattern", "element_id")
+                      if isinstance(params.get(k), str) and params[k].strip()), "")
+        if not waits:
+            waits = next((s for s in _strings(params) if s.strip()), "")
+        assertions.append({"command": v.get("command"), "waits_for": waits})
+
+    held = []
+    for n in nodes:
+        for v in n.get("verifications") or []:
+            held.extend(_strings(v.get("params") or {}))
+    for e in edges:
+        for aset in e.get("action_sets") or []:
+            for a in aset.get("actions") or []:
+                held.extend(_strings(a.get("params") or {}))
+
+    versions = []
+    for s in held:
+        if (VERSION_WORD.search(s) or VERSION_VALUE.search(s)) and s not in versions:
+            versions.append(s)
+
+    if not settings and not info:
+        verdict = "no settings node"
+    elif settings and info:
+        verdict = "settings and info"
+    elif settings:
+        verdict = "missing info node"
+    else:
+        verdict = "missing settings node"
+
+    return {
+        "settings_node": settings,
+        "info_node": info,
+        "verdict": verdict,
+        "info_assertions": assertions,
+        "version_strings": versions[:10],
+    }
 
 
 def validation_rows(api, team):
@@ -117,6 +196,7 @@ def main():
         tree = main_api.get(f"/server/navigationTrees/getTreeByUserInterfaceId/{uid}",
                             team_id=a.team_id).get("tree")
         nodes, edges = count_nodes_edges(tree)
+        rule = tree_rule(tree)
         variants = main_api.get(f"/server/userinterface/{uid}/variants", team_id=a.team_id).get("variants") or []
         publishes = main_api.get(f"/server/userinterface/{uid}/publishes", team_id=a.team_id).get("publishes") or []
         mine = sorted(runs.get(name, []), key=lambda r: r.get("started_at") or "", reverse=True)
@@ -129,6 +209,7 @@ def main():
             "root_tree": (tree or {}).get("id"),
             "nodes": nodes,
             "edges": edges,
+            "rule": rule,
             "updated_at": i.get("updated_at"),
             "created_at": i.get("created_at"),
             "published_version": i.get("published_version"),
@@ -144,9 +225,12 @@ def main():
     print(f"wrote {a.out}: {len(out)} interfaces")
     for e in out:
         last = e["validations"][0] if e["validations"] else None
+        rule = e.get("rule") or {}
+        mark = "-" if rule.get("verdict") == "no settings node" else rule.get("verdict")
         print(f"{e['name']:<42} {e['nodes']:>3}n/{e['edges']:>3}e  vars={len(e['variants'])} "
               f"pub={e['published_version']}  last_val={last['started_at'] if last else '-'}"
-              f"{'' if not last else (' OK' if last['success'] else ' FAIL')}")
+              f"{'' if not last else (' OK' if last['success'] else ' FAIL')}"
+              f"  rule={mark}")
     return 0
 
 

@@ -11,6 +11,7 @@ from ..utils.mcp_formatter import MCPFormatter
 from ..utils.lock_ownership import auto_lock
 from ..utils.screenshot_capture import capture_image_block
 from shared.src.lib.config.constants import APP_CONFIG, get_team_id
+from backend_server.src.lib.servers import turn
 
 
 # Upper bound of /server/navigation/execute: 5 + 30 + 5 + 120 s (see execute_navigation), plus slack.
@@ -201,8 +202,13 @@ class NavigationTools:
         Localize (owner, 2026-10-14): `monitoring_off` lists the devices whose profile runs no vpt-monitor-img,
         the same list the frontend reads. An unknown host is not refused here: the host refuses it itself."""
         try:
-            from backend_server.src.lib.utils.server_utils import get_host_manager
-            host = get_host_manager().get_host(host_name) or {}
+            if turn.target_url():
+                # The device belongs to another server: read that server's row, not this registry (TASK-179 section 6)
+                reply = turn.get_json('/server/system/getAllHosts', {'scope': 'local'}) or {}
+                host = next((h for h in reply.get('hosts') or [] if h.get('host_name') == host_name), {})
+            else:
+                from backend_server.src.lib.utils.server_utils import get_host_manager
+                host = get_host_manager().get_host(host_name) or {}
         except Exception:
             return None
         if device_id in ((host.get('system_stats') or {}).get('monitoring_off') or []):
@@ -224,7 +230,7 @@ class NavigationTools:
         tree's live node when one is flagged), node (a saved screen), overlay (popup / keyboard /
         notification, node_id = the screen under it), known_screen (screen memory), or unknown.
 
-        Example: localize(host_name='host1', device_id='device1', userinterface_name='stb_tv')
+        Example: localize(host_name='host1', device_id='device1', userinterface_name='stb-<operator>')
 
         Args:
             params: {
@@ -263,7 +269,7 @@ class NavigationTools:
         fingerprint, % with a device identity (android activity / web URL), the live node (or
         none), fingerprint age in days, active "Wrong screen?" corrections (TASK-107 goal 3).
 
-        Example: localize_coverage(userinterface_name='stb_tv')
+        Example: localize_coverage(userinterface_name='stb-<operator>')
 
         Args:
             params: {'userinterface_name': str (optional - one interface; all when omitted)}

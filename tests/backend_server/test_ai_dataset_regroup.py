@@ -55,12 +55,12 @@ GROUPS = _groups()
 
 def groups_for(team, ui):
     assert team == TEAM
-    return GROUPS if ui == "stb_tv" else None
+    return GROUPS if ui == "stb-testop" else None
 
 
 def _row(sid, node, label=None, source="run", dhash=H, **kw):
     row = {"id": sid, "team_id": TEAM, "family": "screen-id", "device_model": "stb",
-           "userinterface": "stb_tv", "node_id": node, "focus_label": None, "dhash": dhash,
+           "userinterface": "stb-testop", "node_id": node, "focus_label": None, "dhash": dhash,
            "ground_truth": {"node_id": node, "label": label or node} if node else None,
            "label_source": source, "label_conflict": False, "is_failure": False, "model_answer": None,
            "split": "train", "eval_version": None}
@@ -117,7 +117,7 @@ def test_dry_run_writes_nothing_and_reports(rg):
     code, text = _main(rg, db, "--dry-run", "--json")
     assert code == 0 and db.writes == []
     report = json.loads(text[text.index("{"):])
-    c = report["per_app"]["stb_tv"]
+    c = report["per_app"]["stb-testop"]
     assert (c.get("change"), c.get("unchanged", 0), c["unlabelled"], c["offtree"], c["stale"]) == (5, 0, 1, 1, 1)
     assert report["per_app"]["no_tree_app"]["no_tree"] == 1
     assert report["changed"] == 5 and report["written"] == 0
@@ -243,7 +243,7 @@ def client(monkeypatch):
 
     def fake_groups(team_id, ui):
         calls.append((team_id, ui))
-        return GROUPS if ui == "stb_tv" else None
+        return GROUPS if ui == "stb-testop" else None
     monkeypatch.setattr(routes.screen_group_scope, "groups_for", fake_groups)
     app = Flask(__name__)
 
@@ -258,20 +258,20 @@ def client(monkeypatch):
 
 
 def test_screen_groups_route_lists_the_groups_of_one_app(client):
-    r = client.get(f"/server/training-samples/screen-groups?team_id={TEAM}&userinterface=stb_tv")
+    r = client.get(f"/server/training-samples/screen-groups?team_id={TEAM}&userinterface=stb-testop")
     body = r.get_json()
     assert r.status_code == 200 and body["found"] is True
     home = next(g for g in body["groups"] if g["label"] == "home")
     assert [m["label"] for m in home["members"]] == ["home", "home_apps", "home_settings"]
     assert home["members"][1]["focus"] == "apps"
-    assert client.calls == [(TEAM, "stb_tv")]
+    assert client.calls == [(TEAM, "stb-testop")]
     none = client.get(f"/server/training-samples/screen-groups?team_id={TEAM}&userinterface=nope").get_json()
     assert none["found"] is False and none["groups"] == []
 
 
 def test_screen_groups_route_needs_team_app_and_admin(client):
-    assert client.get("/server/training-samples/screen-groups?userinterface=stb_tv").status_code == 400
+    assert client.get("/server/training-samples/screen-groups?userinterface=stb-testop").status_code == 400
     assert client.get(f"/server/training-samples/screen-groups?team_id={TEAM}").status_code == 400
-    r = client.get(f"/server/training-samples/screen-groups?team_id={TEAM}&userinterface=stb_tv",
+    r = client.get(f"/server/training-samples/screen-groups?team_id={TEAM}&userinterface=stb-testop",
                    headers={"X-Test-Role": "tester"})
     assert r.status_code == 403

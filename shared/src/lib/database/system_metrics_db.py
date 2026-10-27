@@ -10,136 +10,126 @@ from datetime import datetime, timezone
 from typing import Dict, Any, Optional, List
 from shared.src.lib.utils.supabase_utils import get_supabase_client
 
-# Simple cache to track existing open incidents and avoid 409 conflicts
-_open_incidents = set()
+# Whether each "host:capture_folder:component" stream has an open incident. Seeded from the database the
+# first time a process sees the stream, so a host restart neither opens a duplicate nor forgets to resolve
+# the incident a previous process opened (BUG-0960: 1 464 open rows, most of them duplicates).
+_open_incidents: Dict[str, bool] = {}
+
+STREAM_FAILING = ('stuck', 'stopped')
+# Models whose video only flows once the device is paired / connected (a Tello streams while the drone is on
+# and joined): a silent stream there is idle, not a failure, so it opens no incident and is not counted.
+ON_DEMAND_STREAM_MODELS = ('tello',)
 
 def get_supabase():
     """Get the Supabase client instance."""
     return get_supabase_client()
 
 
-def process_device_incidents(device_name: str, capture_folder: str, ffmpeg_status: str, monitor_status: str, host_name: str = None) -> dict:
+def _open_incident_query(supabase, host_name: str, capture_folder: str, component: str):
+    return (supabase.table('system_incident').select('incident_id, detected_at')
+            .eq('host_name', host_name).eq('capture_folder', capture_folder)
+            .eq('component', component).in_('status', ['open', 'in_progress']))
+
+
+def _sync_stream_incident(supabase, host_name: str, device_name: str, capture_folder: str,
+                          component: str, status: str, now: str) -> tuple:
+    """Open one incident while a stream component is stuck/stopped, resolve it once it is active again.
+
+    Returns (created, resolved).
+    """
+    if status not in STREAM_FAILING and status != 'active':
+        return 0, 0
+    key = f"{host_name}:{capture_folder}:{component}"
+    if key not in _open_incidents:
+        _open_incidents[key] = bool(_open_incident_query(supabase, host_name, capture_folder, component).execute().data)
+
+    if status in STREAM_FAILING:
+        if _open_incidents[key]:
+            return 0, 0
+        supabase.table('system_incident').insert({
+            'host_name': host_name,
+            'device_id': capture_folder,  # Use capture_folder as device_id
+            'device_name': device_name,
+            'capture_folder': capture_folder,
+            'component': component,
+            'incident_type': f'{component}_failure',
+            'severity': 'critical' if status == 'stopped' else 'high',
+            'status': 'open',
+            'detected_at': now,
+            'description': f'{"FFmpeg" if component == "ffmpeg" else "Monitor"} process {status}'
+        }).execute()
+        _open_incidents[key] = True
+        return 1, 0
+
+    if not _open_incidents[key]:
+        return 0, 0
+    resolved = 0
+    resolved_at = datetime.fromisoformat(now.replace('Z', '+00:00'))
+    for incident in _open_incident_query(supabase, host_name, capture_folder, component).execute().data or []:
+        detected_at = datetime.fromisoformat(incident['detected_at'].replace('Z', '+00:00'))
+        supabase.table('system_incident').update({
+            'status': 'resolved',
+            'resolved_at': now,
+            'total_duration_minutes': int((resolved_at - detected_at).total_seconds() / 60),
+            'resolution_notes': f'Auto-resolved: {"FFmpeg" if component == "ffmpeg" else "Monitor"} recovered'
+        }).eq('incident_id', incident['incident_id']).execute()
+        resolved += 1
+    _open_incidents[key] = False
+    return 0, resolved
+
+
+def process_device_incidents(device_name: str, capture_folder: str, ffmpeg_status: str, monitor_status: str,
+                             host_name: str = None, device_model: str = None) -> dict:
     """Simple, fast incident processing - host knows its own status, just INSERT/UPDATE directly"""
-    try:
-        supabase = get_supabase()
-        if supabase is None:
-            return {'incidents_created': 0, 'incidents_resolved': 0}
-        
-        incidents_created = 0
-        incidents_resolved = 0
-        current_time = datetime.now(timezone.utc).isoformat()
-        
-        # FFmpeg incident handling
-        ffmpeg_key = f"{host_name}:{capture_folder}:ffmpeg"
-        if ffmpeg_status in ['stuck', 'stopped']:
-            # Check cache first to avoid 409 conflicts
-            if ffmpeg_key not in _open_incidents:
-                try:
-                    incident_data = {
-                        'host_name': host_name,
-                        'device_id': capture_folder,  # Use capture_folder as device_id
-                        'device_name': device_name,
-                        'capture_folder': capture_folder,
-                        'component': 'ffmpeg',
-                        'incident_type': 'ffmpeg_failure',
-                        'severity': 'critical' if ffmpeg_status == 'stopped' else 'high',
-                        'status': 'open',
-                        'detected_at': current_time,
-                        'description': f'FFmpeg process {ffmpeg_status}'
-                    }
-                    result = supabase.table('system_incident').insert(incident_data).execute()
-                    if result.data:
-                        incidents_created += 1
-                        _open_incidents.add(ffmpeg_key)  # Cache the incident
-                except:
-                    pass  # Incident already exists, that's fine
-                
-        elif ffmpeg_status == 'active':
-            # UPDATE any open FFmpeg incidents to resolved with duration calculation
-            if ffmpeg_key in _open_incidents:
-                try:
-                    # First get the open incidents to calculate duration
-                    open_incidents = supabase.table('system_incident').select('incident_id, detected_at').eq('device_name', device_name).eq('capture_folder', capture_folder).eq('component', 'ffmpeg').in_('status', ['open', 'in_progress']).execute()
-                    
-                    if open_incidents.data:
-                        for incident in open_incidents.data:
-                            # Calculate duration in minutes
-                            detected_at = datetime.fromisoformat(incident['detected_at'].replace('Z', '+00:00'))
-                            resolved_at = datetime.fromisoformat(current_time.replace('Z', '+00:00'))
-                            duration_minutes = int((resolved_at - detected_at).total_seconds() / 60)
-                            
-                            # Update with duration
-                            supabase.table('system_incident').update({
-                                'status': 'resolved',
-                                'resolved_at': current_time,
-                                'total_duration_minutes': duration_minutes,
-                                'resolution_notes': 'Auto-resolved: FFmpeg recovered'
-                            }).eq('incident_id', incident['incident_id']).execute()
-                            
-                            incidents_resolved += 1
-                        _open_incidents.discard(ffmpeg_key)  # Remove from cache
-                except Exception as e:
-                    print(f"⚠️ Error resolving FFmpeg incident: {e}")
-                    pass
-        
-        # Monitor incident handling  
-        monitor_key = f"{host_name}:{capture_folder}:monitor"
-        if monitor_status in ['stuck', 'stopped']:
-            # Check cache first to avoid 409 conflicts
-            if monitor_key not in _open_incidents:
-                try:
-                    incident_data = {
-                        'host_name': host_name,
-                        'device_id': capture_folder,  # Use capture_folder as device_id
-                        'device_name': device_name,
-                        'capture_folder': capture_folder,
-                        'component': 'monitor',
-                        'incident_type': 'monitor_failure',
-                        'severity': 'critical' if monitor_status == 'stopped' else 'high',
-                        'status': 'open',
-                        'detected_at': current_time,
-                        'description': f'Monitor process {monitor_status}'
-                    }
-                    result = supabase.table('system_incident').insert(incident_data).execute()
-                    if result.data:
-                        incidents_created += 1
-                        _open_incidents.add(monitor_key)  # Cache the incident
-                except:
-                    pass  # Incident already exists, that's fine
-                
-        elif monitor_status == 'active':
-            # UPDATE any open Monitor incidents to resolved with duration calculation
-            if monitor_key in _open_incidents:
-                try:
-                    # First get the open incidents to calculate duration
-                    open_incidents = supabase.table('system_incident').select('incident_id, detected_at').eq('device_name', device_name).eq('capture_folder', capture_folder).eq('component', 'monitor').in_('status', ['open', 'in_progress']).execute()
-                    
-                    if open_incidents.data:
-                        for incident in open_incidents.data:
-                            # Calculate duration in minutes
-                            detected_at = datetime.fromisoformat(incident['detected_at'].replace('Z', '+00:00'))
-                            resolved_at = datetime.fromisoformat(current_time.replace('Z', '+00:00'))
-                            duration_minutes = int((resolved_at - detected_at).total_seconds() / 60)
-                            
-                            # Update with duration
-                            supabase.table('system_incident').update({
-                                'status': 'resolved',
-                                'resolved_at': current_time,
-                                'total_duration_minutes': duration_minutes,
-                                'resolution_notes': 'Auto-resolved: Monitor recovered'
-                            }).eq('incident_id', incident['incident_id']).execute()
-                            
-                            incidents_resolved += 1
-                        _open_incidents.discard(monitor_key)  # Remove from cache
-                except Exception as e:
-                    print(f"⚠️ Error resolving Monitor incident: {e}")
-                    pass
-        
-        return {'incidents_created': incidents_created, 'incidents_resolved': incidents_resolved}
-        
-    except Exception as e:
-        # Don't let incident processing break metrics storage
+    created = resolved = 0
+    if device_model in ON_DEMAND_STREAM_MODELS:
         return {'incidents_created': 0, 'incidents_resolved': 0}
+    supabase = get_supabase()
+    if supabase is None:
+        return {'incidents_created': 0, 'incidents_resolved': 0}
+    now = datetime.now(timezone.utc).isoformat()
+    for component, status in (('ffmpeg', ffmpeg_status), ('monitor', monitor_status)):
+        try:
+            c, r = _sync_stream_incident(supabase, host_name, device_name, capture_folder, component, status, now)
+            created += c
+            resolved += r
+        except Exception as e:
+            # Don't let incident processing break metrics storage
+            print(f"⚠️ Error syncing {component} incident for {device_name}: {e}")
+    return {'incidents_created': created, 'incidents_resolved': resolved}
+
+
+def get_stream_status(host_name: Optional[str] = None, minutes: int = 10) -> List[Dict[str, Any]]:
+    """Latest capture-stream state of every device that reported in the last ``minutes``.
+
+    One row per (host, capture_folder): ffmpeg/monitor status, when it reported, ``state`` (running, failing,
+    or idle for an on-demand model that is not streaming) and since when the open incident runs when the
+    stream is failing. Hosts report once a minute.
+    """
+    supabase = get_supabase()
+    since = datetime.fromtimestamp(datetime.now(timezone.utc).timestamp() - minutes * 60, timezone.utc).isoformat()
+    query = (supabase.table('system_device_metrics')
+             .select('host_name, device_name, device_model, capture_folder, ffmpeg_status, monitor_status, '
+                     'ffmpeg_last_activity, timestamp')
+             .gte('timestamp', since).neq('host_name', 'server'))
+    if host_name:
+        query = query.eq('host_name', host_name)
+    latest: Dict[tuple, Dict[str, Any]] = {}
+    for row in query.order('timestamp', desc=True).limit(5000).execute().data or []:
+        latest.setdefault((row['host_name'], row['capture_folder']), row)
+
+    incidents = supabase.table('system_incident').select('host_name, capture_folder, component, detected_at') \
+        .in_('status', ['open', 'in_progress']).order('detected_at').limit(5000).execute().data or []
+    first_open: Dict[tuple, str] = {}
+    for inc in incidents:
+        first_open.setdefault((inc['host_name'], inc['capture_folder']), inc['detected_at'])
+
+    rows = []
+    for key, row in sorted(latest.items()):
+        down = row.get('ffmpeg_status') in STREAM_FAILING or row.get('monitor_status') in STREAM_FAILING
+        state = ('idle' if row.get('device_model') in ON_DEMAND_STREAM_MODELS else 'failing') if down else 'running'
+        rows.append({**row, 'state': state, 'failing_since': first_open.get(key) if state == 'failing' else None})
+    return rows
 
 
 def process_incidents() -> dict:
@@ -291,7 +281,7 @@ def store_device_metrics(host_name: str, device_data: Dict[str, Any], system_sta
             
             # Process incidents for THIS device only (fast, non-blocking)
             try:
-                incident_result = process_device_incidents(device_data.get('device_name'), device_data.get('capture_folder'), device_data.get('ffmpeg_status'), device_data.get('monitor_status'), host_name)
+                incident_result = process_device_incidents(device_data.get('device_name'), device_data.get('capture_folder'), device_data.get('ffmpeg_status'), device_data.get('monitor_status'), host_name, device_data.get('device_model'))
                 if incident_result.get('incidents_created', 0) > 0 or incident_result.get('incidents_resolved', 0) > 0:
                     print(f"🚨 Device incidents: +{incident_result.get('incidents_created', 0)} created, +{incident_result.get('incidents_resolved', 0)} resolved")
             except Exception as e:

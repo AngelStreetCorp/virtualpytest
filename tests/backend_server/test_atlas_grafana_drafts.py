@@ -126,7 +126,7 @@ def test_time_series_drafts_use_grafana_long_format(drafts):
 
 
 def test_radar_and_plugin_marks_fall_back_to_core_panels(drafts):
-    result = drafts.create({"preset": "kpi_radar", "filters": {"userinterface_name": "stb_tv"}}, CTX, now=NOW)
+    result = drafts.create({"preset": "kpi_radar", "filters": {"userinterface_name": "stb-testop"}}, CTX, now=NOW)
     assert result["status"] == "draft"
     assert result["dashboard"]["panels"][0]["type"] == "barchart"
     assert any("no core Grafana panel" in note for note in result["diagnostics"])

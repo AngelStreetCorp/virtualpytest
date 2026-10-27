@@ -30,7 +30,7 @@ label** wins, then the alphabetically first label, then the node id. Determinist
 **Focus** of a member: ``None`` for the representative (the screen as entered, nothing extra
 focused). Otherwise the text of the node's first text verification (``waitForTextToAppear``,
 ``params.text``) **when no other node of the group checks the same text** (any ``|``
-alternative in common): on ``stb_tv`` Home and several tabs all check ``Home|Startseite``,
+alternative in common): on ``stb-<operator>`` Home and several tabs all check ``Home|Startseite``,
 which proves the screen, not the tab. Else the label after ``<group>_`` (``home_apps`` ->
 ``apps``), else the full node label.
 
@@ -59,6 +59,8 @@ loaded (the navigation executor's unified graph).
 """
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 
 DIRECTIONAL_KEYS = frozenset({'LEFT', 'RIGHT', 'UP', 'DOWN'})
@@ -70,17 +72,20 @@ ENTRY_NODE_TYPES = frozenset({'entry'})
 # The human overrides, per userinterface name: ``{node_label: group_label}`` (rules in the
 # module docstring). One source for the navigation hook (``overrides_for`` of the executor's
 # userinterface) and the ``features/ai-dataset`` scripts, which read it from here. Pure data.
-SCREEN_GROUP_OVERRIDES: Dict[str, Dict[str, str]] = {
-    'stb_tv': {
-        # apps -> apps_netflix is DOWN, HOME, DOWN on the live tree (HOME resets the tile
-        # focus), so the rule leaves the Apps screen apart from its 15 tiles. They are one
-        # screen: merge it, and the group takes the name "apps" (entered from home_apps by OK).
-        'apps': 'apps_netflix',
-        # The profile picker: "en" and "ge" are the same screen with another profile
-        # focused. The rule joins en to profile; ge joins them here.
-        'ge': 'en',
-    },
-}
+OVERRIDES_FILE = Path(__file__).resolve().parents[4] / 'docs' / 'agent' / 'ai' / 'screen_group_overrides.json'
+
+
+def _load_overrides(path: Path) -> Dict[str, Dict[str, str]]:
+    """The overrides file keyed by exact userinterface name; none when the file is missing."""
+    try:
+        data = json.loads(path.read_text(encoding='utf-8'))
+    except FileNotFoundError:
+        return {}
+    return {name: dict(groups) for name, groups in data.items()
+            if not name.startswith('_') and isinstance(groups, dict)}
+
+
+SCREEN_GROUP_OVERRIDES: Dict[str, Dict[str, str]] = _load_overrides(OVERRIDES_FILE)
 
 
 def overrides_for(userinterface: Optional[str]) -> Dict[str, str]:

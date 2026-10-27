@@ -146,7 +146,8 @@ const ScopePicker: React.FC = () => {
         '&:focus-visible': { outline: `2px solid ${P.accent}`, outlineOffset: 2 },
       }}
     >
-      <Box component="span" sx={{ flex: 1, minWidth: 0, textAlign: 'left', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      {/* Closed: the name is centred in the chip. Open: it stays left-aligned, like the popover rows. */}
+      <Box component="span" sx={{ flex: 1, minWidth: 0, textAlign: open ? 'left' : 'center', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
         {serverLabel}
       </Box>
       {filterCount > 0 && (

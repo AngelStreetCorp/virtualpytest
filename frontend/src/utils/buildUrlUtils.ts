@@ -19,6 +19,7 @@
 
 import { getEnv, APP_CONFIG, SERVER_CONFIG, STORAGE_KEYS } from '../config/constants';
 import { ALL_SERVERS_SENTINEL, isAllServersSentinel } from '../lib/allServer/scope';
+import { getPlatformServers } from '../lib/allServer/platformServers';
 
 // =====================================================
 // SERVER URL BUILDING (Frontend to Backend Server)
@@ -375,10 +376,12 @@ const serverIdentityKey = (url: string): string =>
   normalizeServerUrl(url).replace(/\/+$/, '').toLowerCase();
 
 /**
- * Get all configured server URLs (primary + slaves)
- * Reads VITE_SERVER_URL and VITE_SLAVE_SERVER_URL
+ * Get all configured server URLs: the primary (VITE_SERVER_URL, the bootstrap address) followed by
+ * the enabled rows of the platform server list (`GET /server/servers`, TASK-179), in the table's
+ * sort order. Before the list has loaded it is the copy cached in localStorage; before sign-in it
+ * is empty and only the primary is returned.
  *
- * Smart parsing handles multiple formats:
+ * The primary is parsed leniently (it may be written in several formats):
  * - Comma-separated: "url1,url2"
  * - JSON array: ["url1", "url2"]
  * - Stringified array: '["url1", "url2"]' or "['url1', 'url2']"
@@ -398,18 +401,17 @@ export const getAllServerUrls = (): string[] => {
     urls.push(...normalizedPrimary.filter(url => isValidServerUrl(url)));
   }
 
-  // Parse slave URLs (supports all formats)
-  const slaveUrls = getEnv('VITE_SLAVE_SERVER_URL');
-  if (slaveUrls) {
-    const parsedSlaves = parseUrlList(slaveUrls);
-    const normalizedSlaves = parsedSlaves.map(url => normalizeServerUrl(url));
-    urls.push(...normalizedSlaves.filter(url => isValidServerUrl(url)));
-  }
-
-  // Fall back to default if no URLs configured
+  // No bootstrap address configured: the default stands in as the primary.
   if (urls.length === 0 && SERVER_CONFIG.DEFAULT_URL) {
     urls.push(normalizeServerUrl(SERVER_CONFIG.DEFAULT_URL));
   }
+
+  // The other servers come from the platform server list; a row that is the primary is dropped below.
+  urls.push(
+    ...getPlatformServers()
+      .map(server => normalizeServerUrl(server.url))
+      .filter(url => isValidServerUrl(url)),
+  );
 
   const seen = new Set<string>();
   return urls.filter((url) => {

@@ -46,7 +46,7 @@ import UserInterfaceUnknown from '../../frontend/src/pages/UserInterfaceUnknown'
 describe('the Unknown screens table on a phone (BUG-0813)', () => {
   it('gives the table a minimum width and scrolls the container sideways', async () => {
     render(
-      <MemoryRouter initialEntries={['/configuration/interface/stb_tv/unknown']}>
+      <MemoryRouter initialEntries={['/configuration/interface/stb-testop/unknown']}>
         <Routes>
           <Route path="/configuration/interface/:name/unknown" element={<UserInterfaceUnknown />} />
         </Routes>
@@ -66,7 +66,7 @@ describe('the Unknown screens table on a phone (BUG-0813)', () => {
 
   it('still shows every header', async () => {
     render(
-      <MemoryRouter initialEntries={['/configuration/interface/stb_tv/unknown']}>
+      <MemoryRouter initialEntries={['/configuration/interface/stb-testop/unknown']}>
         <Routes>
           <Route path="/configuration/interface/:name/unknown" element={<UserInterfaceUnknown />} />
         </Routes>

@@ -154,15 +154,15 @@ def test_home_tabs_are_not_a_conflict_once_compared_by_group(rc):
                           [{"source_node_id": "home", "target_node_id": "home_apps", "default_action_set_id": "s",
                             "action_sets": [{"id": "s", "actions": [key]}]}])
     rows = [_row("h", "screen-id", INFO, {"node_id": "home", "label": "home"}, True, node="home",
-                 userinterface="stb_tv"),
+                 userinterface="stb-testop"),
             _row("t", "screen-id", NEAR, {"node_id": "home_apps", "label": "home_apps"}, True, node="home_apps",
-                 userinterface="stb_tv"),
+                 userinterface="stb-testop"),
             _row("g", "screen-id", NEAR, {"node_id": "guide", "label": "guide"}, False, node="guide",
-                 userinterface="stb_tv")]
+                 userinterface="stb-testop")]
     db = FakeDB(rows)
     out = io.StringIO()
     assert rc.main(["--team", TEAM, "--dry-run", "--json"], list_fn=db.list_samples,
-                   set_fn=db.set_label_conflict, groups_for=lambda team, ui: groups if ui == "stb_tv" else None,
+                   set_fn=db.set_label_conflict, groups_for=lambda team, ui: groups if ui == "stb-testop" else None,
                    out=out) == 0
     text = out.getvalue()
     report = json.loads(text[text.index('{\n  "team_id"'):])

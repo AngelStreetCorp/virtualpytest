@@ -1101,7 +1101,7 @@ class AnalyticsService:
                         "defaulted_filters_note": defaulted_filters.get("note"),
                         "filters": dict(query_request.get("filters") or {}),
                         # The UI sends the selected server's hosts; say so, or a result limited to them
-                        # (live: stb_tv KPIs live on another server's hosts) reads as "no data".
+                        # (live: stb-<operator> KPIs live on another server's hosts) reads as "no data".
                         "availability_note": data.get("availability_note") or None,
                         "scope_note": (self._selected_device_note(context)
                                        if str(query_request.get("scope") or "") == "current_device" else

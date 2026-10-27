@@ -43,7 +43,7 @@ LIVE_NODE_NAME = 'live'
 LIVE_LABEL = 'Live video'
 
 # The overlay step reads a STILL frame only: on moving content a lit subject on a dark surround
-# looks like a popup plate (a close-up film scene on stb_tv). Motion pct above this skips it.
+# looks like a popup plate (a close-up film scene on stb-<operator>). Motion pct above this skips it.
 OVERLAY_STILL_PCT = 1.0
 
 # Overlays that answer "where are we" (a tooltip is a hint on the page, not a different place).
@@ -149,7 +149,7 @@ def measure_motion(frames_bgr: List[Any]) -> Optional[Dict[str, Any]]:
 
     kind is 'full' when at least one pair is full-frame motion, NO pair is still and the LAST pair
     still moves like video (minor / full, at least SLOW_LIVE_MIN_PCT): live video keeps moving (a
-    slow scene gives full + minor over ~1 s, measured on stb_tv), while a zap, a fade or a screen
+    slow scene gives full + minor over ~1 s, measured on stb-<operator>), while a zap, a fade or a screen
     change ends on a still pair, or on the new screen's own box / band (a zap out of live onto a
     menu with a hero trailer: full 44 % then box 1 % on stb3). Otherwise kind/pct are those of the
     pair that moved most, a full pair reported as 'change'.

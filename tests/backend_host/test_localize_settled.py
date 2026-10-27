@@ -150,7 +150,7 @@ def _localizer(monkeypatch, flag, tmp_path):
         monkeypatch.setenv('DEVICE3_LOCALIZE_SETTLED', '1')
     else:
         monkeypatch.delenv('DEVICE3_LOCALIZE_SETTLED', raising=False)
-    monkeypatch.setenv('DEVICE3_USERINTERFACE', 'stb_tv')
+    monkeypatch.setenv('DEVICE3_USERINTERFACE', 'stb-testop')
     m = ml.MonitorLocalizer()
     helpers = _Helpers()
     monkeypatch.setattr(m, '_get_helpers', lambda: helpers)

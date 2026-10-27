@@ -295,6 +295,15 @@ DEPLOY_PHASE=server
 PROGRESS_ROLE=""
 STUB_LOG="${STUB_LOG}"
 STUB_MARKER_FILE="${STUB_MARKER_FILE}"
+# sync_and_restart installs the Python pins the repository declares before it restarts a service
+# (BUG-0957), so it reads the manifest, the venv owner and the deploy directory. The script
+# defines them at its top level; the harness has to, or the extracted function dies on an
+# unbound variable under `set -u` before it ever reaches the restart this file is about.
+VENV_USER="vpt_user"
+TARGET_DIR="/opt/virtualpytest"
+REPO_DIR="${REPO_DIR}"
+SERVER_REQS="backend_server/requirements.txt"
+HOST_REQS="backend_host/requirements.txt"
 rsync_push() { echo "RSYNC $1" >> "$STUB_LOG"; return 0; }
 defer_busy_host_restart() { return 1; }
 restart_and_status() { echo "RESTART $1 $2" >> "$STUB_LOG"; progress "$1" restart ok "$2"; return 0; }
@@ -313,11 +322,16 @@ class TestAnEmptyIdMeansRestart:
                   + _optional_functions(script_text, "read_remote")
                   + _functions(script_text, "ip_host_name")
                   + _optional_functions(script_text, "target_identities", "is_secondary_server_host")
+                  + _optional_functions(script_text, "repo_python_pins", "installed_version",
+                                        "pins_to_install", "install_python_pins")
                   + _functions(script_text, "progress_json_escape", "progress", "sync_and_restart")
                   + '\nsync_and_restart "srv" "vpt-server.service"\n')
         result = _run_bash(script, {**_fake_ssh(tmp_path), "STUB_LOG": str(log),
                                     "STUB_MARKER_FILE": str(marker_file),
                                     "SERVER_CODE_ID": server_code_id,
+                                    # A repository with no manifest: the pins step has nothing to
+                                    # install, so the test stays about the restart rule.
+                                    "REPO_DIR": str(tmp_path / "repo"),
                                     "HOME": str(tmp_path / "home")})
         assert result.returncode == 0, result.stderr[-2000:]
         return log.read_text(encoding="utf-8")

@@ -84,7 +84,7 @@ def _spec(result):
 def test_failing_testcases_for_this_device(tools):
     """“show failing testcases for this device”"""
     instance, driver = tools(lambda sql, values: [
-        {"script_name": "zap_check", "userinterface_name": "stb_tv", "host_name": "host-a",
+        {"script_name": "zap_check", "userinterface_name": "stb-testop", "host_name": "host-a",
          "device_name": "living-room-stb", "failure_count": 3, "last_run_at": "2026-10-02T10:00:00+00:00"}])
     spec = _spec(instance.render_analytics_artifact({"preset": "failing_testcases", "scope": "current_device", **CONTEXT}))
     sql, values = driver.statements[0]
@@ -129,24 +129,24 @@ KPI_ROWS = [
 
 
 def test_last_known_kpi_radar_for_stb_tv(tools):
-    """“provide the last known KPI radar for userinterface stb_tv”"""
+    """“provide the last known KPI radar for userinterface stb-testop”"""
     instance, driver = tools(lambda sql, values: KPI_ROWS)
-    result = instance.query_kpi_radar({"userinterface_name": "stb_tv", **CONTEXT})
+    result = instance.query_kpi_radar({"userinterface_name": "stb-testop", **CONTEXT})
     spec = _spec(result)
     assert spec["mark"] == "radar" and spec["provenance"]["preset"] == "kpi_radar"
     assert spec["encoding"] == {"x": "kpi_label", "series": "variant", "y": "avg_kpi_ms",
                                 "tooltip": ["kpi_label", "avg_kpi_ms", "sample_count", "action_set_id", "variant"],
                                 "time_grain": None}
     sql, values = driver.statements[0]
-    assert "er.kpi_measurement_ms IS NOT NULL" in sql and ["stb_tv"] in values
+    assert "er.kpi_measurement_ms IS NOT NULL" in sql and ["stb-testop"] in values
     assert spec["options"]["unit"] == "ms"
 
 
 def test_compare_v1_and_v2_kpi_over_30_days(tools):
-    """“compare v1 and v2 KPI for stb_tv over the last 30 days”"""
+    """“compare v1 and v2 KPI for stb-testop over the last 30 days”"""
     instance, driver = tools(lambda sql, values: KPI_ROWS)
     spec = _spec(instance.render_analytics_artifact({
-        "preset": "kpi_radar", "filters": {"userinterface_name": "stb_tv", "variant": ["v1", "v2"]},
+        "preset": "kpi_radar", "filters": {"userinterface_name": "stb-testop", "variant": ["v1", "v2"]},
         "time_range_days": 30,
         "comparison": {"align_by": "kpi_label", "series_field": "variant", "metric": "avg_kpi_ms",
                        "baseline": "v1", "candidate": "v2", "sample_metric": "sample_count"}, **CONTEXT}))
@@ -163,7 +163,7 @@ def test_only_regressions_over_ten_percent(tools):
     """“show only regressions over 10%”"""
     instance, _ = tools(lambda sql, values: KPI_ROWS)
     result = instance.query_analytics_data({
-        "preset": "kpi_radar", "filters": {"userinterface_name": "stb_tv"},
+        "preset": "kpi_radar", "filters": {"userinterface_name": "stb-testop"},
         "comparison": {"baseline": "v1", "candidate": "v2", "regression_over_percent": 10}, **CONTEXT})
     assert not result["isError"]
     rows = result["data"]["comparison"]["rows"]
@@ -179,7 +179,7 @@ def test_canvas_pass_rate_duration_trend_and_failing_cases_for_two_devices(tools
         if "date_trunc('day'" in sql:
             return [{"time": "2026-10-01T00:00:00+00:00", "avg_duration_ms": 61000, "run_count": 4}]
         if "FILTER (WHERE NOT sr.success) AS \"failure_count\"" in sql:
-            return [{"script_name": "zap_check", "userinterface_name": "stb_tv", "host_name": "host-a",
+            return [{"script_name": "zap_check", "userinterface_name": "stb-testop", "host_name": "host-a",
                      "device_name": "bedroom-tv", "failure_count": 2, "last_run_at": "2026-10-02T10:00:00+00:00"}]
         return [{"device_name": "living-room-stb", "pass_rate": 90.0, "run_count": 10},
                 {"device_name": "bedroom-tv", "pass_rate": 70.0, "run_count": 10}]
@@ -198,7 +198,7 @@ def test_canvas_pass_rate_duration_trend_and_failing_cases_for_two_devices(tools
 def test_kpi_radar_shortcut_compares_with_only_baseline_and_candidate(tools):
     """The comparison defaults to the chart's category, series, metric and sample count."""
     instance, _ = tools(lambda sql, values: KPI_ROWS)
-    spec = _spec(instance.query_kpi_radar({"userinterface_name": "stb_tv", "variants": ["v1", "v2"],
+    spec = _spec(instance.query_kpi_radar({"userinterface_name": "stb-testop", "variants": ["v1", "v2"],
                                            "comparison": {"baseline": "v1", "candidate": "v2"}, **CONTEXT}))
     comparison = spec["comparison"]
     assert (comparison["align_by"], comparison["series_field"], comparison["metric"], comparison["sample_metric"]) == (
@@ -219,7 +219,7 @@ def test_render_reply_lists_every_comparison_row(tools):
     """Live smoke: the reply showed 5 sample data rows, so Atlas reported 1 regression out of 5."""
     instance, _ = tools(lambda sql, values: KPI_ROWS)
     result = instance.render_analytics_artifact({
-        "preset": "kpi_radar", "filters": {"userinterface_name": "stb_tv"},
+        "preset": "kpi_radar", "filters": {"userinterface_name": "stb-testop"},
         "comparison": {"baseline": "v1", "candidate": "v2", "regression_over_percent": 10}, **CONTEXT})
     text = result["content"][0]["text"]
     assert "only regressions over 10.0%" in text and "2 rows, all listed" in text
@@ -231,16 +231,16 @@ def test_render_reply_lists_every_comparison_row(tools):
 def test_two_variants_are_compared_automatically(tools):
     """Live on the main server: without a comparison Atlas diffed the radar by hand and missed one."""
     instance, _ = tools(lambda sql, values: KPI_ROWS)
-    spec = _spec(instance.query_kpi_radar({"userinterface_name": "stb_tv", "variants": ["v1", "v2"], **CONTEXT}))
+    spec = _spec(instance.query_kpi_radar({"userinterface_name": "stb-testop", "variants": ["v1", "v2"], **CONTEXT}))
     assert spec["comparison"]["baseline"] == "v1" and spec["comparison"]["candidate"] == "v2"
-    spec = _spec(instance.query_kpi_radar({"userinterface_name": "stb_tv", **CONTEXT}))
+    spec = _spec(instance.query_kpi_radar({"userinterface_name": "stb-testop", **CONTEXT}))
     assert "comparison" not in spec
 
 
 def test_partial_comparison_is_filled_from_the_two_variants(tools):
     """Live: Atlas sent only a threshold and a wrong direction."""
     instance, _ = tools(lambda sql, values: KPI_ROWS)
-    spec = _spec(instance.query_kpi_radar({"userinterface_name": "stb_tv", "variants": ["v1", "v2"],
+    spec = _spec(instance.query_kpi_radar({"userinterface_name": "stb-testop", "variants": ["v1", "v2"],
                                            "comparison": {"direction": "higher_is_better", "regression_over_percent": 10},
                                            **CONTEXT}))
     comparison = spec["comparison"]

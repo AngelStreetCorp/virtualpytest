@@ -17,7 +17,7 @@ import { MatchPanel } from './MatchPanel';
 import { DebateCard, debateLabel } from './DebateCard';
 import { digestLabel, SummaryCard } from './SummaryCard';
 import { remainingLabel, TitleCard } from './TitleCard';
-import { O, OVERLAY_BG } from './overlayPalette';
+import { O } from './overlayPalette';
 
 const PROGRAMME_SCREENS = ['live_tv', 'vod_playback', 'advertisement'];
 const FACT_LABELS: Record<string, string> = {
@@ -132,18 +132,23 @@ export const CompanionStrip: React.FC<{ companion?: CompanionResult; show: boole
     && (!!companion.live || !!companion.facts || !!companion.progress || companion.template === 'summary' || companion.template === 'debate');
 
   return (
+    <>
     <Box
       onClick={() => canExpand && setExpanded((e) => !e)}
       sx={{
+        // A solid pill in the bottom centre: clear of the stats panels in the corners, and the
+        // game stays visible around it.
         position: 'absolute',
-        left: 0,
-        right: 0,
-        bottom: 0,
+        left: '50%',
+        transform: 'translateX(-50%)',
+        width: 'min(720px, 92%)',
+        bottom: 12,
         zIndex: 1200,
         pointerEvents: 'auto',
         cursor: canExpand ? 'pointer' : 'default',
-        backgroundColor: OVERLAY_BG,
-        borderTop: `1px solid ${O.borderColor}`,
+        backgroundColor: O.background,
+        border: `1px solid ${O.borderColor}`,
+        borderRadius: 2,
         color: O.textPrimary,
         opacity: stale ? 0.6 : 1,
         px: 1.5,
@@ -165,9 +170,35 @@ export const CompanionStrip: React.FC<{ companion?: CompanionResult; show: boole
         {canExpand && <Typography sx={{ fontSize: 12, color: O.textSecondary }}>{expanded ? '▾' : '▴'}</Typography>}
       </Box>
 
-      {expanded && canExpand && (
-        <Box sx={{ display: 'flex', gap: 2, mt: 1, pb: 0.5, alignItems: 'flex-start', flexWrap: 'wrap' }}
-          onClick={(e) => e.stopPropagation()}>
+    </Box>
+    {expanded && canExpand && (
+      // The card sits in the bottom centre above the strip, opaque so it reads over any picture,
+      // clear of the stats panels in the corners and leaving the game visible. Tap the strip to close it.
+      <Box
+        data-testid="companion-card"
+        sx={{
+          position: 'absolute',
+          bottom: 64,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          width: 'min(720px, 92%)',
+          maxHeight: '45%',
+          overflowY: 'auto',
+          zIndex: 1250,
+          pointerEvents: 'auto',
+          backgroundColor: O.background,
+          border: `1px solid ${O.borderColor}`,
+          borderRadius: 2,
+          boxShadow: '0 12px 40px rgba(0,0,0,0.6)',
+          color: O.textPrimary,
+          p: 2,
+          display: 'flex',
+          gap: 2,
+          alignItems: 'flex-start',
+          flexWrap: 'wrap',
+        }}
+        onClick={(e) => e.stopPropagation()}
+      >
           {companion.live ? (
             <>
               {/* The match once (left), the table and line-ups in the full width (right). */}
@@ -190,8 +221,8 @@ export const CompanionStrip: React.FC<{ companion?: CompanionResult; show: boole
               </Box>
             </>
           )}
-        </Box>
-      )}
-    </Box>
+      </Box>
+    )}
+    </>
   );
 };

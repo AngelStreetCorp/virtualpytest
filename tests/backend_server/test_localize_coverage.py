@@ -22,7 +22,7 @@ def test_summary_counts_screens_once_and_skips_entry_and_action():
         {'node_id': 'guide', 'label': 'TV Guide', 'node_type': 'menu', 'identity': 'web'},
         {'node_id': 'apps', 'node_type': None, 'updated_at': '2026-09-15T00:00:00Z'},
     ]
-    r = cov.summarize({'id': 'u1', 'name': 'stb_tv'}, nodes, corrections=2, now=NOW)
+    r = cov.summarize({'id': 'u1', 'name': 'stb-testop'}, nodes, corrections=2, now=NOW)
     assert r['screens'] == 4 and r['fingerprinted'] == 2 and r['fingerprinted_pct'] == 50.0
     assert r['identity'] == 1 and r['identity_pct'] == 25.0
     assert r['live_node'] == {'node_id': 'live', 'label': 'live'}
@@ -69,11 +69,11 @@ def test_mcp_tool_formats_one_line_per_interface(monkeypatch):
 
     class Api:
         def get(self, endpoint, params=None):
-            assert endpoint == '/server/navigation/localize/coverage' and params['userinterface_name'] == 'stb_tv'
+            assert endpoint == '/server/navigation/localize/coverage' and params['userinterface_name'] == 'stb-testop'
             return {'success': True, 'userinterfaces': [cov.summarize(
-                {'id': 'u1', 'name': 'stb_tv'}, [{'node_id': 'home', 'dhash': 'ab', 'captured_at': '2026-10-14T00:00:00Z'}], now=NOW)]}
+                {'id': 'u1', 'name': 'stb-testop'}, [{'node_id': 'home', 'dhash': 'ab', 'captured_at': '2026-10-14T00:00:00Z'}], now=NOW)]}
 
     tools = nt.NavigationTools.__new__(nt.NavigationTools)
     tools.api = Api()
-    out = tools.localize_coverage({'userinterface_name': 'stb_tv', 'team_id': 't'})
-    assert out['content'][0]['text'].startswith('stb_tv: 1/1 fingerprinted (100.0%), identity 0.0%, live node none')
+    out = tools.localize_coverage({'userinterface_name': 'stb-testop', 'team_id': 't'})
+    assert out['content'][0]['text'].startswith('stb-testop: 1/1 fingerprinted (100.0%), identity 0.0%, live node none')

@@ -1830,7 +1830,7 @@ class ScriptExecutor:
             logs_url = ""
             # The caller may declare the budget of this run; without one the defaults
             # apply: 1 hour for ordinary scripts, 4 hours for a full-tree validation of
-            # stb_tv (70+ min on a slow box, and the kill happens before any result is
+            # stb-<operator> (70+ min on a slow box, and the kill happens before any result is
             # written - BUG-0633).
             timeout_seconds = self.resolve_timeout_seconds(script_name)
             start_time_for_timeout = time.time()

@@ -182,7 +182,7 @@ def test_game_showcases_are_never_recorded(enabled_env, db, storage, ui):
 
 
 def test_a_tv_app_is_still_recorded(enabled_env, db, storage):
-    assert record(frame(1), userinterface="stb_tv") is not None
+    assert record(frame(1), userinterface="stb-testop") is not None
     assert record(frame(2), userinterface="acceptance-stb4-tv-20261003-1758-stb") is not None
 
 

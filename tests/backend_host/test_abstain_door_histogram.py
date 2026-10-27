@@ -397,7 +397,7 @@ def test_merge_adds_every_counter():
 
 
 def test_render_prints_a_frequency_ordered_table_with_a_percentage_per_door():
-    t = ah.Tally('stb_tv')
+    t = ah.Tally('stb-testop')
     t.add(_res(reason='low-content frame', state='blackscreen'))
     for _ in range(3):
         t.add(_res(reason='nav underline matched no node'))

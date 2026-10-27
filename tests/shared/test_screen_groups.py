@@ -55,7 +55,7 @@ TABS = ['home_tvguide', 'home_apps', 'home_replay', 'home_movies', 'home_recodin
 
 
 def stb_tree():
-    """The live stb_tv shape (TASK-27 step 4k): Home tabs chained by RIGHT, OK into screens."""
+    """The live stb-testop shape (TASK-27 step 4k): Home tabs chained by RIGHT, OK into screens."""
     nodes = [node('entry-node', 'ENTRY', node_type='entry'), node('home'), node('live'),
              node('apps'), node('replay'), node('settings'),
              node('apps_netflix'), node('apps_disney'), node('apps_youtube')]
@@ -184,7 +184,7 @@ def test_overrides_split_and_merge():
 
 
 def test_a_text_check_shared_across_the_group_is_not_a_focus():
-    """Live stb_tv: Home and several tabs check "Home|Startseite", home_apps checks "Home":
+    """Live stb-testop: Home and several tabs check "Home|Startseite", home_apps checks "Home":
     those prove the screen, not the tab, so the label suffix is the focus."""
     nodes, edges = stb_tree()
     texts = {'home': 'Home|Startseite', 'home_movies': 'Home|Startseite', 'home_apps': 'Home',
@@ -200,7 +200,7 @@ def test_a_text_check_shared_across_the_group_is_not_a_focus():
 
 
 def test_override_merges_a_node_into_the_group_of_any_member_and_renames():
-    """Live stb_tv: apps -> apps_netflix is DOWN, HOME, DOWN (not directional), so the tiles
+    """Live stb-testop: apps -> apps_netflix is DOWN, HOME, DOWN (not directional), so the tiles
     form their own group; one override puts the Apps screen with its tiles, named apps."""
     nodes, edges = stb_tree()
     for e in edges:
@@ -296,25 +296,34 @@ def test_grouped_labels_compare_by_group_in_core():
     assert training_samples.recompute_conflict_flags(rows) == ([], ['1', '2'])
 
 
-def test_core_overrides_stb_tv_profile_picker_and_apps():
+def test_overrides_file_is_keyed_by_exact_name_and_optional(tmp_path):
+    f = tmp_path / 'o.json'
+    f.write_text('{"_comment": "x", "stb-testop": {"apps": "apps_netflix"}}', encoding='utf-8')
+    assert sg._load_overrides(f) == {'stb-testop': {'apps': 'apps_netflix'}}
+    assert sg._load_overrides(tmp_path / 'missing.json') == {}
+
+
+def test_core_overrides_profile_picker_and_apps(monkeypatch):
     """Step 4k data in core: ge joins en in profile; apps joins its tiles."""
-    ov = sg.overrides_for('stb_tv')
+    monkeypatch.setitem(sg.SCREEN_GROUP_OVERRIDES, 'stb-testop', {'apps': 'apps_netflix', 'ge': 'en'})
+    ov = sg.overrides_for('stb-testop')
     assert ov == {'apps': 'apps_netflix', 'ge': 'en'} and sg.overrides_for('web_tv') == {}
     ov['x'] = 'y'                                                   # a copy
-    assert 'x' not in sg.SCREEN_GROUP_OVERRIDES['stb_tv']
+    assert 'x' not in sg.SCREEN_GROUP_OVERRIDES['stb-testop']
     nodes = [node('profile'), node('en', text='En'), node('ge', text='Geteilt'), node('home_profile')]
     edges = [edge('home_profile', 'profile', [key('OK')], [key('BACK')]),
              edge('profile', 'en', [key('DOWN')], [key('UP')]),
              edge('profile', 'ge', [key('OK')])]
-    groups = sg.from_rows(nodes, edges, sg.overrides_for('stb_tv'))
+    groups = sg.from_rows(nodes, edges, sg.overrides_for('stb-testop'))
     assert labels_of(groups, 'profile') == ['profile', 'en', 'ge']
     assert (groups.focus_of('en'), groups.focus_of('ge')) == ('En', 'Geteilt')
-    plain = sg.from_rows([dict(n, verifications=[]) for n in nodes], edges, sg.overrides_for('stb_tv'))
+    plain = sg.from_rows([dict(n, verifications=[]) for n in nodes], edges, sg.overrides_for('stb-testop'))
     assert (plain.focus_of('en'), plain.focus_of('ge')) == ('en', 'ge')   # no text check: the label
 
 
-def test_feature_reads_the_overrides_from_core():
+def test_feature_reads_the_overrides_from_core(monkeypatch):
     import importlib
+    monkeypatch.setitem(sg.SCREEN_GROUP_OVERRIDES, 'stb-testop', {'apps': 'apps_netflix'})
     scope = importlib.import_module('features.ai-dataset.lib.screen_group_scope')
     assert scope.SCREEN_GROUP_OVERRIDES is sg.SCREEN_GROUP_OVERRIDES
-    assert scope.overrides_for('stb_tv') == sg.overrides_for('stb_tv')
+    assert scope.overrides_for('stb-testop') == sg.overrides_for('stb-testop')

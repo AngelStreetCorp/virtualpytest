@@ -8,8 +8,8 @@ overlay / screen memory) over it, reporting accuracy per kind and per interface.
     python3 scripts/localize/bench.py build [--set DIR] [--per-ui 20]   # (re)build the labelled set
     python3 scripts/localize/bench.py run   [--set DIR]                  # score it, write results/<date>.json
     python3 scripts/localize/bench.py nightly                            # build + run (the timer calls this)
-    python3 scripts/localize/bench.py harvest-live --capture-dir DIR --ui stb_tv   # keep live triplets
-    python3 scripts/localize/bench.py harvest-nodes --capture-dir DIR --ui stb_tv --host H --device D --targets a,b
+    python3 scripts/localize/bench.py harvest-live --capture-dir DIR --ui stb-<operator>   # keep live triplets
+    python3 scripts/localize/bench.py harvest-nodes --capture-dir DIR --ui stb-<operator> --host H --device D --targets a,b
                                                                          # keep live frames of nodes after a goto
     python3 scripts/localize/bench.py overlay-set              # once: fixed overlay calibration set (reviewed labels)
     python3 scripts/localize/bench.py cheap23-import --src DIR # once: the 22 cheap Tier-2 frames
@@ -702,7 +702,7 @@ def main() -> int:
     ap.add_argument('--src', help='cheap23-import: folder holding the cold-pulled frames (cheap23.json `source`)')
     ap.add_argument('--capture-dir', help='harvest-live: the capture folder of a device on a live channel')
     ap.add_argument('--variant', help='nav-language-import: score the frames through this variant')
-    ap.add_argument('--ui', default='stb_tv', help='harvest-live: the interface the device runs')
+    ap.add_argument('--ui', default=os.environ.get('VPT_LOCALIZE_UI'), help='harvest-live: the interface the device runs (default env VPT_LOCALIZE_UI)')
     ap.add_argument('--count', type=int, default=12, help='harvest-live: triplets to keep')
     ap.add_argument('--set', default=DEFAULT_SET, help=f'labelled set directory (default {DEFAULT_SET})')
     ap.add_argument('--team', default=DEFAULT_TEAM)

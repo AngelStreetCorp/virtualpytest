@@ -3,9 +3,9 @@
 
 The stb4 acceptance pipeline builds its own copy of the STB tree on every run
 (``acceptance-stb4-tv-<date>-stb``, ``qa-anchor-check-stb``) and deletes it later. Its frames
-are real ``stb_tv`` screens with the same screen names, but their labels point at the copy's
+are real ``stb-<operator>`` screens with the same screen names, but their labels point at the copy's
 node ids, so once the copy is gone they have no screen list. Owner decision 2026-10-04: keep
-them (keeping is reversible, dropping is not) and file them under ``stb_tv``.
+them (keeping is reversible, dropping is not) and file them under ``stb-<operator>``.
 
 For every row of a team whose ``userinterface`` matches ``dataset_scope.TEMP_TREE_ALIASES``:
 
@@ -59,10 +59,11 @@ PAGE_SIZE = 500
 MAX_ROWS = 20000
 
 
-def canonical_for(userinterface: Optional[str]) -> Optional[str]:
-    """The canonical app a temporary tree's samples are filed under, or None."""
-    for pattern, canonical in dataset_scope.TEMP_TREE_ALIASES.items():
-        if userinterface and fnmatch.fnmatch(userinterface, pattern):
+def canonical_for(userinterface: Optional[str], canonical: str) -> Optional[str]:
+    """``canonical`` when the temporary tree is a copy of that app's platform, else None."""
+    platform = dataset_scope.platform_of(canonical)
+    for pattern, alias_platform in dataset_scope.TEMP_TREE_ALIASES.items():
+        if userinterface and alias_platform == platform and fnmatch.fnmatch(userinterface, pattern):
             return canonical
     return None
 
@@ -131,12 +132,13 @@ def fetch_rows(team_id: str, list_fn=None) -> List[Dict[str, Any]]:
 
 
 def fold(team_id: str, rows: List[Dict[str, Any]], groups_for: Callable[[str], Any],
-         write_fn: Optional[Callable[[Dict[str, Any], Dict[str, Any]], bool]]) -> Dict[str, Any]:
-    """Plan (and with ``write_fn`` apply) the fold of every temporary-tree row."""
+         write_fn: Optional[Callable[[Dict[str, Any], Dict[str, Any]], bool]],
+         canonical_name: str) -> Dict[str, Any]:
+    """Plan (and with ``write_fn`` apply) the fold of every temporary-tree row into ``canonical_name``."""
     counts: Counter = Counter()
     unmapped: Counter = Counter()
     for row in rows:
-        canonical = canonical_for(row.get('userinterface'))
+        canonical = canonical_for(row.get('userinterface'), canonical_name)
         if canonical is None:
             continue
         if row.get('eval_version'):
@@ -159,6 +161,7 @@ def fold(team_id: str, rows: List[Dict[str, Any]], groups_for: Callable[[str], A
 def main(argv: Optional[List[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0])
     parser.add_argument('--team', required=True, help='team_id (uuid); every query filters by it')
+    parser.add_argument('--canonical', required=True, help='the canonical app the copies are filed under')
     parser.add_argument('--apply', action='store_true', help='write (default: dry run)')
     args = parser.parse_args(argv)
     from shared.src.lib.ai import screen_groups
@@ -175,7 +178,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     def write(row, fields):
         return triage_db.regroup_write(args.team, str(row['id']), fields, row.get('label_source'))
 
-    report = fold(args.team, fetch_rows(args.team), groups_for, write if args.apply else None)
+    report = fold(args.team, fetch_rows(args.team), groups_for, write if args.apply else None, args.canonical)
     print(json.dumps({'dry_run': not args.apply, **report}, indent=2, ensure_ascii=False))
     return 0
 

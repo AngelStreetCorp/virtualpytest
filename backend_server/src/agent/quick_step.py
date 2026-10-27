@@ -43,6 +43,7 @@ POOL: dict[str, str] = {
     "list_actions": "list the remote keys / actions of a device",
     "dump_ui_elements": "dump the UI elements on a device's screen",
     "get_alerts": "list the open alerts / incidents",
+    "get_stream_status": "which device video streams are running, stuck or stopped (tiles on loading)",
 }
 BASE: tuple[str, ...] = ("show_page", "navigate_to_page", "take_control", "navigate_to_node", "capture_screenshot")
 
@@ -57,6 +58,7 @@ HINTS: dict[str, tuple[str, ...]] = {
     "list_actions": ("remote key", "keys of", "actions can", "what actions", "list the actions"),
     "dump_ui_elements": ("ui element", "dump the ui", "elements on"),
     "get_alerts": ("alert", "incident"),
+    "get_stream_status": ("stream", "loading", "tile", "ffmpeg", "not playing"),
     "list_hosts": ("hosts", "online", "offline", "down?"),
     # lock state only: "awake?" is a screen question (a screenshot), not a get_device_info one (live run 2026-10-26)
     "get_device_info": ("free or", "in use", "who is controlling", "status of"),
@@ -186,6 +188,10 @@ def missing_device(args: dict, devices: list[dict]) -> Optional[str]:
     (several matches) is not "missing" and still goes to the model.
     """
     devices = [d for d in (devices or []) if isinstance(d, dict)]
+    if not devices:
+        # No list to check against (an API client, or a page that sent none): the device may well exist on
+        # another server (TASK-179), so let the model and its owner lookup decide (BUG-0969).
+        return None
     name = args.get("device_name") if isinstance(args, dict) else None
     if isinstance(name, str) and name.strip():
         wanted = name.strip().lower()
@@ -201,8 +207,6 @@ def missing_device(args: dict, devices: list[dict]) -> Optional[str]:
 
 def missing_device_text(name: str, devices: list[dict]) -> str:
     names = sorted({str(d.get("device_name")) for d in devices or [] if isinstance(d, dict) and d.get("device_name")})
-    if not names:
-        return f'I can\'t find a device named "{name}": I don\'t see any device on this server right now.'
     shown = ", ".join(names[:8]) + (f" and {len(names) - 8} more" if len(names) > 8 else "")
     return f'I can\'t find a device named "{name}" here. Devices I can see: {shown}. Which one do you mean?'
 

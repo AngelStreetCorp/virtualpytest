@@ -34,6 +34,8 @@ from backend_server.src.lib.utils.lock_utils import (
     takeover_device_lock,
 )
 from backend_server.src.lib.utils.route_handlers import handle_route_exceptions
+from backend_server.src.lib.servers.merges import merge_locked_devices
+from backend_server.src.lib.servers.scope import supports_all_servers
 from backend_server.src.routes.server_system_socket_routes import emit_system_update
 
 # Create blueprint
@@ -495,6 +497,7 @@ def check_device_lock():
 
 @server_control_bp.route('/lockedDevices', methods=['GET'])
 @handle_route_exceptions('server_control:locked_devices')
+@supports_all_servers(merge_locked_devices)
 def get_locked_devices():
     """Get information about all currently locked devices"""
     _cleanup_stale_manual_locks()

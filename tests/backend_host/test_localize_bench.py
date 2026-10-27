@@ -55,14 +55,14 @@ def _cov(name, models, screens, fp, ident=0, live=None, age=None):
 def test_audit_flags():
     from datetime import datetime, timezone
     now = datetime(2026, 10, 16, 6, 0, tzinfo=timezone.utc)
-    cov = [_cov('acc-stb4', ['stb'], 30, 0), _cov('stb_tv', ['stb'], 68, 65, live={'label': 'live'}, age=120),
+    cov = [_cov('acc-stb4', ['stb'], 30, 0), _cov('stb-testop', ['stb'], 68, 65, live={'label': 'live'}, age=120),
            _cov('youtube-web', ['web'], 4, 4, age=10), _cov('phone_home', ['android_mobile'], 3, 2, ident=2, age=0),
            _cov('empty', ['stb'], 0, 0)]
     runs = [{'ran_at': '2026-10-14T03:40:00+00:00', 'accuracy': 52.4, 'per_kind': {'node': {'pct': 40.0}, 'live': {'pct': 75.0}}},
             {'ran_at': '2026-10-15T03:40:00+00:00', 'accuracy': 50.0, 'per_kind': {'node': {'pct': 33.2}, 'live': {'pct': 75.0}}}]
     flags = audit.flags_for(cov, runs, stale_days=90, drop=3, now=now)
     kinds = sorted(f.split()[0] + ' ' + f.split()[1].rstrip(':') for f in flags)
-    assert kinds == ['NO_IDENTITY youtube-web', 'NO_LIVE acc-stb4', 'REGRESSION node', 'STALE stb_tv', 'ZERO acc-stb4']
+    assert kinds == ['NO_IDENTITY youtube-web', 'NO_LIVE acc-stb4', 'REGRESSION node', 'STALE stb-testop', 'ZERO acc-stb4']
     assert audit.flags_for(cov[1:2], runs[:1], 200, 3, now=datetime(2026, 10, 20, tzinfo=timezone.utc)) == \
         ['BENCH_OLD latest bench run 2026-10-14T03:40:00+00:00 (> 36 h): check vpt-localize-bench.timer']
 

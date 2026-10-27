@@ -692,8 +692,38 @@ class PlaywrightUtils:
             return os.path.abspath(explicit)
         run_id = (os.environ.get('VPT_RUN_ID') or '').strip()
         if run_id:
-            return browser_port_allocator.run_profile_dir(base, run_id)
+            run_dir = browser_port_allocator.run_profile_dir(base, run_id)
+            if (os.environ.get('VPT_SEED_RUN_PROFILE') or '').strip() == '1':
+                PlaywrightUtils._seed_run_profile(base, run_dir)
+            return run_dir
         return base
+
+    # Parts of a Chrome profile that carry a login: cookies and the page storages. Never caches, history or locks.
+    _SEED_ITEMS = ('Cookies', 'Cookies-journal', 'Local Storage', 'Session Storage', 'IndexedDB', 'Preferences')
+
+    @staticmethod
+    def _seed_run_profile(base: str, run_dir: str) -> None:
+        """Opt-in (host env VPT_SEED_RUN_PROFILE=1): a run's empty profile starts with the logged-in session of the
+        host's persistent browser, for apps whose login needs a one-time code (TASK-178). Copies once per run."""
+        import shutil
+        marker = os.path.join(run_dir, '.seeded')
+        if os.path.exists(marker):
+            return
+        try:
+            src_default = os.path.join(base, 'Default')
+            dst_default = os.path.join(run_dir, 'Default')
+            os.makedirs(dst_default, exist_ok=True)
+            for item in PlaywrightUtils._SEED_ITEMS:
+                src = os.path.join(src_default, item)
+                dst = os.path.join(dst_default, item)
+                if os.path.isdir(src):
+                    shutil.copytree(src, dst, dirs_exist_ok=True)
+                elif os.path.isfile(src):
+                    shutil.copy2(src, dst)
+            open(marker, 'w').close()
+            print(f'[PlaywrightUtils] Seeded run profile {run_dir} from {base}')
+        except Exception as e:
+            print(f'[PlaywrightUtils] Run profile seeding failed (run starts empty): {e}')
 
     def _resolve_debug_port(self, debug_port: Optional[int]) -> int:
         """The Chrome debug port of this process.

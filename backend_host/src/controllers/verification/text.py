@@ -707,7 +707,7 @@ class TextVerificationController:
             result = helpers.detect_text_in_area(image_source_path, area)
 
             # include_elements: also each text with its area (the explorer's OCR dump), so a
-            # caller can write an OCR check cropped to where its text is, as stb_tv's checks
+            # caller can write an OCR check cropped to where its text is, as stb-<operator>'s checks
             # are. A full-frame OCR check on a picture background reads almost nothing
             # (stb4 show detail, 2026-10-04: "01:40" only; the button-row crop read
             # "Aufnehmen Episoden Merkliste" in 0.3 s).

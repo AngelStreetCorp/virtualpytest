@@ -5,6 +5,9 @@ import { useSocket } from '../../contexts/SocketContext';
 import { useAuthContext } from '../../contexts/auth/AuthContext';
 import { useWorkspaceContext } from '../../contexts/workspace/WorkspaceContext';
 import { useServerManager } from '../useServerManager';
+import { isAllServersSentinel } from '../../lib/allServer/scope';
+import { buildTurnAuth } from '../../lib/allServer/turnCredential';
+import { buildTurnScope } from '../../lib/allServer/turnScope';
 import { isAuthEnabled } from '../../lib/supabase';
 import { APP_CONFIG, getEnv } from '../../config/constants';
 import { AGENT_CHAT_LAYOUT } from '../../constants/agentChatTheme';
@@ -1825,8 +1828,16 @@ export const useAgentChat = () => {
     console.log('[useAgentChat] About to emit send_message via shared SocketContext');
 
     // Never send a host that is not one of the selected server's hosts (stale Target after a server switch).
-    const serverHostNames = (serverHostsData.find((entry) => entry.server_info.server_url === selectedServer)?.hosts || []).map((host) => host.host_name);
+    // In All servers mode the host may belong to any server.
+    const allServersMode = isAllServersSentinel(selectedServer);
+    const serverHostNames = (allServersMode
+      ? serverHostsData.flatMap((entry) => entry.hosts)
+      : serverHostsData.find((entry) => entry.server_info.server_url === selectedServer)?.hosts || []
+    ).map((host) => host.host_name);
     const hostInServer = !!hostNameRef.current && serverHostNames.includes(hostNameRef.current);
+    // TASK-179 P4: the user's login for this turn (read fresh, sent once, never kept) and the picker's scope.
+    const turnScope = buildTurnScope(selectedServer, serverHostsData, hostInServer ? hostNameRef.current : '');
+    const turnAuth = await buildTurnAuth();
 
     const sendContext = {
       // BUG-0401: one id per user send; the ack-watchdog resend carries the same id so the server
@@ -1844,6 +1855,8 @@ export const useAgentChat = () => {
       selected_server: selectedServer || '',
       selected_server_name: serverHostsData.find((entry) => entry.server_info.server_url === selectedServer)?.server_info.server_name || '',
       selected_server_hosts: serverHostNames,
+      ...turnScope,
+      ...(turnAuth.token || turnAuth.auto_sign ? { turn_auth: turnAuth } : {}),
       // The app's own Grafana base: lets the answer carry a link that opens, whichever server answers.
       grafana_base_url: getEnv('VITE_GRAFANA_URL'),
       available_devices: (allowAutoNavigationRef as any).availableDevices || [],

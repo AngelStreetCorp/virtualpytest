@@ -26,6 +26,13 @@ vi.mock('../../frontend/src/utils/buildUrlUtils', () => ({
   buildServerUrlForServer: (serverUrl: string, path: string) => `${serverUrl}${path}`,
 }));
 
+// The server list itself (TASK-179) is not under test here: pin it to the two servers above.
+vi.mock('../../frontend/src/lib/allServer/platformServers', () => ({
+  getPlatformServersVersion: () => 0,
+  subscribePlatformServers: () => () => {},
+  refreshPlatformServers: vi.fn(async () => {}),
+}));
+
 vi.mock('../../frontend/src/utils/apiClient', () => ({
   apiClient: vi.fn(),
 }));

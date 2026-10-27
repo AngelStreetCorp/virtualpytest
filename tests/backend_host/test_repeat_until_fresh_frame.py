@@ -58,7 +58,7 @@ class _FakeDevice:
     def __init__(self, verification_executor=None):
         self.host_name = "test-host"
         self.device_id = "device-test"
-        self.device_model = "stb_tv"
+        self.device_model = "stb-testop"
         self.device_name = "stb-test"
         self.navigation_context = {}
         self.verification_executor = verification_executor

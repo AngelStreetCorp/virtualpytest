@@ -176,10 +176,10 @@ describe('scope note and comparison layout (TASK-43 UI polish)', () => {
   });
 
   it('shows a defaulted-interface note once per canvas', () => {
-    const DEFAULTED = 'Interface: stb_tv (most KPI samples in scope); ask for another interface to change';
+    const DEFAULTED = 'Interface: stb-testop (most KPI samples in scope); ask for another interface to change';
     const panel = (title: string) => {
       const base = radar();
-      return { ...base, title, options: { ...base.options, defaulted_filters: { userinterface_name: 'stb_tv' }, defaulted_filters_note: DEFAULTED } };
+      return { ...base, title, options: { ...base.options, defaulted_filters: { userinterface_name: 'stb-testop' }, defaulted_filters_note: DEFAULTED } };
     };
     render(<AnalyticsArtifactViewer spec={canvas([panel('A'), panel('B')])} />);
     expect(screen.getAllByText(DEFAULTED)).toHaveLength(1);

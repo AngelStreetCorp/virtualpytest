@@ -299,7 +299,7 @@
       "ambiguous_keys": 0,
       "atlas_request": {
         "filters": {
-          "userinterface_name": "stb_tv"
+          "userinterface_name": "stb-testop"
         },
         "preset": "kpi_radar"
       },

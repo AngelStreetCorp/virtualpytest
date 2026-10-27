@@ -194,9 +194,16 @@ MILESTONES = [
               [CELADON, ROUTE7, ROUTE8, LAVENDER] + list(POKEMON_TOWER) + [FUJI_HOUSE],
               lambda r, m: POKE_FLUTE in bag(r), area=(GAME_CORNER, PATH_ROUTE7, PATH_WEST_EAST, PATH_ROUTE8) + ROCKET_HIDEOUT + POKEMON_TOWER, prepare=True),
     # Snorlax sleeps in the middle of Route 12: the flute wakes it, and it is beaten (or caught) to pass
+    # BUG-0968: the road to Fuchsia passes through the gate house across Route 15 (its two doors are on the
+    # route, (7, 8) and (14, 8)), and the world graph learns a map's links only when the runner has been
+    # inside it: the graph knew the door led to an unknown map, so it knew no way on to Fuchsia and the
+    # guide walked the runner back to Route 14 - whose own next waypoint is Route 15 again. The two swapped
+    # the runner for ever (the run of 20261027-052520: 2261 walk_targets, no milestone, no new map, no new
+    # square for 5 min of game time). The area holds the way on (the gate house of Route 15): the runner
+    # explores it, learns its doors and walks on to Fuchsia.
     Milestone("fuchsia", "Wake the Snorlax on Route 12 with the Poké Flute and walk Routes 12 to 15 to Fuchsia City",
               [LAVENDER, ROUTE12, ROUTE13, ROUTE14, ROUTE15, FUCHSIA], lambda r, m: r(ADDR["map"], 1)[0] == FUCHSIA,
-              area=(ROUTE12_GATE,), prepare=True),
+              area=(ROUTE12_GATE, ROUTE15_GATE), prepare=True),
     # the gym is a maze of invisible walls: they are real collision squares, so the grid knows them
     Milestone("soul_badge", "Beat Koga at the Fuchsia City gym", [FUCHSIA, FUCHSIA_GYM],
               lambda r, m: badges(r) >= 5, at_goal="challenge the gym leader", prepare=True),
@@ -289,8 +296,22 @@ MILESTONES = [
               # route" and the player stood still on Route 23 (the same_spot stall of run 20261023-213300).
               # The way on from the gate is Route 23 -> Victory Road 1F (the warp at (4, 31), 81 steps
               # away and reachable), so Route 23 comes before 1F on the waypoints.
+              #
+              # BUG-0962: the upper floors of Victory Road are not waypoints to the Elite Four.
+              # Measured on the live save (the world graph of the run 20261026-193346), Victory Road 3F
+              # (198) is a DEAD END: its four exits all lead back to Victory Road 2F (194) - (23, 7),
+              # (26, 8), (27, 15) and (2, 0) - and it has no edge exit at all. The way to Indigo
+              # Plateau is Route 23's north edge (map 34's north edge -> 9), and Route 23 is reached
+              # from Victory Road 1F ((8, 17) and (9, 17)) or from Victory Road 2F's east side
+              # ((29, 7) and (29, 8)). With 2F and 3F on the waypoints, the runner climbed from 2F to
+              # 3F, could not use the exit that leads to the way out (the warp at (26, 8), the one
+              # that lands next to Route 23 - a boulder was in the way), fell back to 2F and was sent
+              # up again: the lane ping-ponged between the two floors for ever (no_progress, the run
+              # 20261026-193346, map 194 at (6, 8)). Victory Road 1F stays a waypoint (the runner
+              # comes through the Route 22 gate and crosses it), but the floors above it are no
+              # waypoints: the waypoints are the way out (Route 23) and the goal.
               [VIRIDIAN_GYM, VIRIDIAN, ROUTE_22, ROUTE22_GATE, ROUTE_23,
-               VICTORY_ROAD_1F, VICTORY_ROAD_2F, VICTORY_ROAD_3F, INDIGO_PLATEAU, INDIGO_PLATEAU_LOBBY, HALL_OF_FAME],
+               VICTORY_ROAD_1F, INDIGO_PLATEAU, INDIGO_PLATEAU_LOBBY, HALL_OF_FAME],
               # BUG-0662: deferred when Surf is (Route 23 is crossed by Surf): without it the runner wandered Cerulean
               # for 10 stalls with no route
               lambda r, m: r(ADDR["map"], 1)[0] == HALL_OF_FAME or m.get("surf_deferred", False),

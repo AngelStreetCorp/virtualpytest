@@ -366,10 +366,10 @@ def test_the_summary_is_short_and_carries_no_per_second_lines(mod):
 
     class _Device:
         device_name = 'stb4'
-        device_model = 'stb_tv'
+        device_model = 'stb-testop'
 
     class _Args:
-        userinterface = 'stb_tv'
+        userinterface = 'stb-testop'
 
     rows = [{'second': i, 'mean_volume_db': -91.0, 'audio': False, 'audio_known': True}
             for i in range(30)]

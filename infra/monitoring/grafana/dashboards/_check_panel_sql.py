@@ -12,7 +12,7 @@ macros, so they are substituted here the way Grafana substitutes them
 `values.json` holds the values the dashboard variables are set to while checking
 (a stand-in for "every host / device / interface"):
 
-    {"hosts": ["vpt-pi1"], "devices": ["stb4"], "interfaces": ["stb_tv"]}
+    {"hosts": ["vpt-pi1"], "devices": ["stb4"], "interfaces": ["stb-<operator>"]}
 
 Without it, no host / device / interface filter is applied.
 """

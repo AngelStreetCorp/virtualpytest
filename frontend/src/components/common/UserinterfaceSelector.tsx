@@ -211,7 +211,7 @@ export const UserinterfaceSelector: React.FC<UserinterfaceSelectorProps> = ({
       onChange('');
       return;
     }
-    // Option values are composite ("dev:stb_tv" / "prod:stb_tv") so dev and
+    // Option values are composite ("dev:stb-<operator>" / "prod:stb-<operator>") so dev and
     // prod entries sharing a name stay distinct in the Select.
     const sep = raw.indexOf(':');
     const selMode = (raw.slice(0, sep) === 'prod' ? 'prod' : 'dev') as 'dev' | 'prod';

@@ -25,6 +25,7 @@ metadata:
     - "Show the last 200 lines of vpt-stream on host-clone-1"
     - "Preview, then clean expired captures on host-clone-1"
     - "Which services are running on vpt-pi1?"
+    - "Is any device stream stuck or loading?"
     - "Restart vpt-stream on host-clone-1"
 
   prompt_presets:
@@ -53,6 +54,7 @@ skills:
   - list_hosts
   - get_device_info
   - check_storage
+  - get_stream_status
   - ping_host
   - view_logs
   - propose_masterchief_op

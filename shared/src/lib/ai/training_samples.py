@@ -64,7 +64,7 @@ EXCLUDED_DEVICE_MODELS = frozenset({
 # Userinterfaces never collected, matched with fnmatch on the name (owner decisions):
 # - game showcases (TASK-33: 2048, Tetris, Flappy Bird, Pokémon), 2026-10-03: not TV / app screens;
 # (The stb4 acceptance pipeline's temporary trees ARE collected: owner, 2026-10-04, their frames
-# are filed under stb_tv by features/ai-dataset/scripts/fold_temp_trees.py.)
+# are filed under stb-<operator> by features/ai-dataset/scripts/fold_temp_trees.py.)
 EXCLUDED_USERINTERFACE_PATTERNS = ('game2048-*', 'tetris-*', 'flappy-*', 'pokemon-*')
 
 DHASH_GRID = 16          # same as ImageHelpers.FP_DHASH_GRID -> 256-bit hash

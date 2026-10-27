@@ -2017,10 +2017,23 @@ paths:
       operationId: server_control_routes_get_locked_devices_get_475d815b
       tags:
       - server/control
-      parameters: []
+      parameters:
+      - name: scope
+        in: query
+        required: false
+        description: '`all` also asks every other server of the list (`GET /server/servers`) with the caller''s own
+          Authorization Bearer or X-Auto-Sign (a service X-API-Key alone gets 403) and merges the answers (TASK-179);
+          `local` or absent answers for this server only.'
+        schema:
+          type: string
+          enum:
+          - all
+          - local
       responses:
         default:
-          description: Endpoint response; see the source route for response schema and status codes.
+          description: Endpoint response; see the source route for response schema and status codes. With `scope=all`
+            `locked_devices` is keyed `<server>:<device_key>`, each lock has `server` and `server_url`, and the payload
+            has `servers` (`name`, `url`, `ok`, `status`, `error`, `latency_ms`, `lock_count`).
   /server/control/navigation/execute:
     post:
       summary: Execute navigation on a host device.
@@ -9810,9 +9823,22 @@ paths:
         required: false
         schema:
           type: string
+      - name: scope
+        in: query
+        required: false
+        description: '`all` also asks every other server of the list (`GET /server/servers`) with the caller''s own
+          Authorization Bearer or X-Auto-Sign (a service X-API-Key alone gets 403) and merges the answers (TASK-179);
+          `local` or absent answers for this server only.'
+        schema:
+          type: string
+          enum:
+          - all
+          - local
       responses:
         default:
-          description: Endpoint response; see the source route for response schema and status codes.
+          description: Endpoint response; see the source route for response schema and status codes. With `scope=all`
+            each host also has `server`, `server_url` and an absolute `host_url`, and the payload has `servers`
+            (`name`, `url`, `ok`, `status`, `error`, `latency_ms`, `host_count`, `device_count`, failed servers included).
   /server/system/getDeviceActions:
     get:
       summary: Return action schemas for a specific device - lightweight endpoint for editing

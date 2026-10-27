@@ -1,10 +1,10 @@
-# BUG-0143 — Every UI dump taken through Appium came back empty, and an empty screen is a legitimate answer
+# BUG-0146 — Every UI dump taken through Appium came back empty, and an empty screen is a legitimate answer
 
 > Bugs index: [README.md](README.md) · Release notes: [../release_note/README.md](../release_note/README.md)
 
 | Field     | Value                                                                       |
 |-----------|-----------------------------------------------------------------------------|
-| ID        | BUG-0143                                                                    |
+| ID        | BUG-0146                                                                    |
 | Reported  | 2026-09-17                                                                  |
 | Status    | Fixed on `claude/platform-saucelabs-integration-hucpnd` (not yet merged to `main`) |
 | Severity  | High (every selector and element verification on an Appium-driven device saw a blank screen; nothing errored) |

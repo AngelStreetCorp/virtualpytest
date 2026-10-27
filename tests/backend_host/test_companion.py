@@ -1456,3 +1456,23 @@ def test_facts_gate_never_runs_in_the_callers_thread(tmp_path, monkeypatch):
     cache = enrich.FactCache(lambda prompt: {}, gate=lambda *a: asked.append(a) or {"success": False})
     entry = cache.get("k", profile, {"home_team": "LIL", "away_team": "BET"})
     assert entry["status"] == "pending" and asked == []
+
+
+def test_score_restart_clears_events_and_clock():
+    """A looping clip restarts at 0-0: its old goals and clock must not pile up."""
+    from features.companion.lib.scoreboard import ScoreStabiliser
+
+    def read(h, a, clock):
+        return {"visible": True, "home_score": h, "away_score": a, "clock": clock}
+
+    s = ScoreStabiliser("FRA", "GER")
+    for h, a, clock in [(0, 0, "10:00"), (1, 0, "20:00"), (1, 1, "64:10")]:
+        for _ in range(3):
+            s.feed(read(h, a, clock), now=0)
+    assert len(s.events) == 2
+    for _ in range(3):
+        s.feed(read(0, 0, "01:00"), now=0)
+    assert s.events == [] and s.minute == 1 and s.score == (0, 0)
+    for _ in range(3):
+        s.feed(read(1, 0, "05:00"), now=0)
+    assert len(s.events) == 1

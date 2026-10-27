@@ -22,7 +22,7 @@ Run (on a host):
     sudo -n -u vpt_user env VIRTUALPYTEST_REPO=/opt/virtualpytest PYTHONPATH=/opt/virtualpytest \
       /opt/virtualpytest/venv/bin/python3 \
       features/avq/backend_host/localize/unknown_screen_scan.py \
-        --capture-root /data/captures --userinterface stb_tv --team-id <uuid>
+        --capture-root /data/captures --userinterface stb-<operator> --team-id <uuid>
 
     ... add --apply to POST the findings.
 """
@@ -90,7 +90,7 @@ def find_frames(capture_root: str, ui: str, limit: Optional[int] = None,
     """Frame paths under ``<capture_root>/<capture_dir>``, newest first.
 
     ``capture_dir`` is the on-disk directory (``capture4``), which is NOT the interface name
-    (``stb_tv``) — the archive is named per device slot while the tree is named per interface.
+    (``stb-<operator>``) — the archive is named per device slot while the tree is named per interface.
 
     Ordered by modification time: the archiver rotates directories, and "newest first" is what
     makes a scan useful — the screens a device is showing now are the ones worth naming.
@@ -682,7 +682,7 @@ def parse_args(argv=None):
     p.add_argument('--capture-root', required=True,
                    help='directory holding per-interface capture folders')
     p.add_argument('--userinterface', required=True,
-                   help='interface NAME as the database knows it, e.g. stb_tv')
+                   help='interface NAME as the database knows it, e.g. stb-<operator>')
     p.add_argument('--capture-dir', default=None,
                    help='on-disk directory under --capture-root, e.g. capture4. Defaults to '
                         '--userinterface. The archive is named per device slot, the tree per '

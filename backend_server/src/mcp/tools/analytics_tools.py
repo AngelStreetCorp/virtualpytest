@@ -422,7 +422,7 @@ class AnalyticsTools:
         A canvas, dashboard or several charts in one request is ONE call with panels=[...] (1-6 panels), never one call per chart: the user sees only the latest artifact. Use a preset when one fits; otherwise choose allowlisted source fields and a mark.
         A canvas is 1-6 panel requests in 'panels'; shared filters/time/scope apply to every panel.
 
-        Example: render_analytics_artifact(preset='kpi_radar', filters={'userinterface_name':'stb_tv'}, time_range_days=30)
+        Example: render_analytics_artifact(preset='kpi_radar', filters={'userinterface_name':'stb-<operator>'}, time_range_days=30)
 
         Args:
             params: {
@@ -587,7 +587,7 @@ class AnalyticsTools:
         """
         Shortcut for the KPI Measurement radar; equivalent to render_analytics_artifact(preset='kpi_radar').
 
-        Example: query_kpi_radar(userinterface_name='stb_tv', time_range_days=30, variants=['Base','variant1'])
+        Example: query_kpi_radar(userinterface_name='stb-<operator>', time_range_days=30, variants=['Base','variant1'])
 
         Args:
             params: {

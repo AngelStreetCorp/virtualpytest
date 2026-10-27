@@ -26,7 +26,7 @@ pytestmark = pytest.mark.unit
 
 
 def _args(**over):
-    base = dict(capture_root='/tmp/does-not-matter', userinterface='stb_tv', auto_sign_token=None,
+    base = dict(capture_root='/tmp/does-not-matter', userinterface='stb-testop', auto_sign_token=None,
                 team_id='00000000-0000-0000-0000-000000000000', device_model=None,
                 server_url=None, auth_token=None, stride=1, limit=None,
                 motion_window=12, apply=False, json=None, upload_stills=True,
@@ -255,7 +255,7 @@ def test_resolve_requires_team_and_row(monkeypatch):
 def test_row_normalisation_fills_the_defaults_the_page_relies_on():
     from shared.src.lib.database.unknown_screens_db import _row_to_dict
 
-    row = _row_to_dict({'id': 'r', 'userinterface': 'stb_tv'})
+    row = _row_to_dict({'id': 'r', 'userinterface': 'stb-testop'})
     assert row['classification'] == 'unknown'
     assert row['status'] == 'pending'
     assert row['frame_count'] == 0
@@ -293,11 +293,11 @@ def test_default_list_returns_pending_rows_only(monkeypatch):
 
     fake = _FakeSupabase(result_data=[])
     monkeypatch.setattr(db, 'get_supabase', lambda: fake)
-    db.list_unknown_screens('team', userinterface='stb_tv')
+    db.list_unknown_screens('team', userinterface='stb-testop')
 
     eq_pairs = [a for kind, a in fake.filters if kind == 'eq']
     assert ('status', 'pending') in eq_pairs
-    assert ('userinterface', 'stb_tv') in eq_pairs
+    assert ('userinterface', 'stb-testop') in eq_pairs
     assert ('team_id', 'team') in eq_pairs
 
 
@@ -306,7 +306,7 @@ def test_include_resolved_drops_the_pending_filter(monkeypatch):
 
     fake = _FakeSupabase(result_data=[])
     monkeypatch.setattr(db, 'get_supabase', lambda: fake)
-    db.list_unknown_screens('team', userinterface='stb_tv', include_resolved=True)
+    db.list_unknown_screens('team', userinterface='stb-testop', include_resolved=True)
 
     eq_pairs = [a for kind, a in fake.filters if kind == 'eq']
     assert ('status', 'pending') not in eq_pairs
@@ -321,7 +321,7 @@ def test_a_content_row_carries_a_description(monkeypatch):
 
     fake = _FakeSupabase(result_data=[])
     monkeypatch.setattr(db, 'get_supabase', lambda: fake)
-    db.upsert_unknown_screens('team', 'stb_tv', [{'cluster_dhash': 'abc', 'description': 'live TV'}])
+    db.upsert_unknown_screens('team', 'stb-testop', [{'cluster_dhash': 'abc', 'description': 'live TV'}])
     assert fake.updated == []                       # no existing row, so it inserts instead
 
     from shared.src.lib.database.unknown_screens_db import _SCAN_FIELDS
@@ -336,7 +336,7 @@ def test_a_failed_upload_does_not_overwrite_a_stored_image_url(monkeypatch):
     fake = _FakeSupabase(result_data=[{'id': 'existing'}])     # row already exists
     monkeypatch.setattr(db, 'get_supabase', lambda: fake)
     db.upsert_unknown_screens(
-        'team', 'stb_tv',
+        'team', 'stb-testop',
         [{'cluster_dhash': 'abc', 'image_url': None, 'description': 'still up'}],
     )
     assert fake.updated, 'existing row should be updated'
@@ -352,7 +352,7 @@ def test_a_successful_upload_replaces_the_stored_image_url(monkeypatch):
     fake = _FakeSupabase(result_data=[{'id': 'existing'}])
     monkeypatch.setattr(db, 'get_supabase', lambda: fake)
     db.upsert_unknown_screens(
-        'team', 'stb_tv',
+        'team', 'stb-testop',
         [{'cluster_dhash': 'abc', 'image_url': 'r2://new-still.jpg'}],
     )
     assert fake.updated[0].get('image_url') == 'r2://new-still.jpg'
@@ -366,7 +366,7 @@ def test_a_new_row_still_inserts_a_null_image_url(monkeypatch):
     fake = _FakeSupabase(result_data=[])          # no existing row → insert path
     monkeypatch.setattr(db, 'get_supabase', lambda: fake)
     result = db.upsert_unknown_screens(
-        'team', 'stb_tv',
+        'team', 'stb-testop',
         [{'cluster_dhash': 'abc', 'image_url': None, 'description': 'first sighting'}],
     )
     assert result['inserted'] == 1
@@ -433,16 +433,16 @@ def test_all_four_routes_share_one_param_reader():
 # ---- the capture dir and the interface name are different things ------------------- #
 
 def test_capture_dir_defaults_to_the_interface_name():
-    args = scan_mod.parse_args(['--capture-root', '/tmp/x', '--userinterface', 'stb_tv',
+    args = scan_mod.parse_args(['--capture-root', '/tmp/x', '--userinterface', 'stb-testop',
                                 '--team-id', 't'])
     assert args.capture_dir is None
-    args = scan_mod.parse_args(['--capture-root', '/tmp/x', '--userinterface', 'stb_tv',
+    args = scan_mod.parse_args(['--capture-root', '/tmp/x', '--userinterface', 'stb-testop',
                                 '--team-id', 't', '--capture-dir', 'capture4'])
     assert args.capture_dir == 'capture4'
 
 
 def test_a_capture_dir_that_does_not_exist_is_reported_not_crashed(capsys):
-    args = scan_mod.parse_args(['--capture-root', '/nonexistent-root', '--userinterface', 'stb_tv',
+    args = scan_mod.parse_args(['--capture-root', '/nonexistent-root', '--userinterface', 'stb-testop',
                                 '--team-id', 't', '--capture-dir', 'capture4'])
     assert scan_mod.find_frames(args.capture_root, args.capture_dir) == []
 
@@ -524,11 +524,11 @@ def test_deciding_median_of_an_empty_series_is_zero():
 def test_post_json_lets_a_stale_findings_file_be_reposted_without_rescanning(tmp_path):
     path = tmp_path / 'findings.json'
     path.write_text('[{"cluster_dhash": "abc", "classification": "unknown"}]')
-    args = scan_mod.parse_args(['--capture-root', '/tmp/x', '--userinterface', 'stb_tv',
+    args = scan_mod.parse_args(['--capture-root', '/tmp/x', '--userinterface', 'stb-testop',
                                 '--team-id', 't', '--post-json', str(path)])
     assert args.post_json == str(path)
     # without --apply it must refuse to send anything
-    assert scan_mod.main(['--capture-root', '/tmp/x', '--userinterface', 'stb_tv',
+    assert scan_mod.main(['--capture-root', '/tmp/x', '--userinterface', 'stb-testop',
                           '--team-id', 't', '--post-json', str(path)]) == 0
 
 
@@ -558,9 +558,9 @@ def test_publish_still_returns_the_r2_key_not_a_presigned_url(monkeypatch):
 
     scan = scan_mod.UnknownScreenScan(_args())
     key = scan.publish_still(None, '/var/www/html/stream/capture4/captures/x.jpg', 'abc123def456')
-    assert key == 'navigation/stb_tv/unknown_abc123def456.jpg'
+    assert key == 'navigation/stb-testop/unknown_abc123def456.jpg'
     assert 'signature=' not in key
-    assert calls['ui'] == 'stb_tv'
+    assert calls['ui'] == 'stb-testop'
 
 
 def test_a_failed_upload_leaves_the_row_but_drops_the_still(monkeypatch):
@@ -653,7 +653,7 @@ def test_the_list_and_the_counts_both_ignore_retired_rows(monkeypatch):
 
     fake = _FakeSupabase(result_data=[])
     monkeypatch.setattr(db, 'get_supabase', lambda: fake)
-    db.list_unknown_screens('team', userinterface='stb_tv')
+    db.list_unknown_screens('team', userinterface='stb-testop')
 
     nulls = [a for kind, a in fake.filters if kind == 'is_']
     assert ('retired_at', 'null') in nulls
@@ -664,7 +664,7 @@ def test_upserting_clears_retired_at_so_a_reappearing_screen_comes_back(monkeypa
 
     fake = _FakeSupabase(result_data=[{'id': 'x'}])      # row already exists
     monkeypatch.setattr(db, 'get_supabase', lambda: fake)
-    db.upsert_unknown_screens('team', 'stb_tv', [{'cluster_dhash': 'abc'}])
+    db.upsert_unknown_screens('team', 'stb-testop', [{'cluster_dhash': 'abc'}])
 
     assert fake.updated, 'existing row should be updated'
     assert fake.updated[0].get('retired_at', 'MISSING') is None
@@ -676,7 +676,7 @@ def test_a_row_never_seen_by_any_scan_is_not_retired(monkeypatch):
 
     fake = _FakeSupabase(result_data=[])
     monkeypatch.setattr(db, 'get_supabase', lambda: fake)
-    db.retire_screens_not_seen('team', 'stb_tv', ['abc'])
+    db.retire_screens_not_seen('team', 'stb-testop', ['abc'])
 
     nots = [a for kind, a in fake.filters if kind == 'not_is_']
     assert ('last_scan_at', 'null') in nots
@@ -694,7 +694,7 @@ def test_retirement_negates_through_the_builder_property_not_by_calling_it(monke
     fake = _FakeSupabase(result_data=[])
     monkeypatch.setattr(db, 'get_supabase', lambda: fake)
 
-    assert db.retire_screens_not_seen('team', 'stb_tv', ['abc']) == 0
+    assert db.retire_screens_not_seen('team', 'stb-testop', ['abc']) == 0
     assert fake.updated, 'retirement must actually issue an UPDATE'
     assert fake.updated[0].get('retired_at')
 
@@ -704,7 +704,7 @@ def test_retirement_excludes_every_hash_the_scan_saw(monkeypatch):
 
     fake = _FakeSupabase(result_data=[])
     monkeypatch.setattr(db, 'get_supabase', lambda: fake)
-    db.retire_screens_not_seen('team', 'stb_tv', ['aaa', 'bbb', "c'c"])
+    db.retire_screens_not_seen('team', 'stb-testop', ['aaa', 'bbb', "c'c"])
 
     not_ins = [a for kind, a in fake.filters if kind == 'not_in_']
     assert not_ins, 'NOT IN filter must be applied'
@@ -721,7 +721,7 @@ def test_a_broken_retirement_reports_failure_instead_of_looking_like_nothing_to_
     fake = _FakeSupabase(raises=True)
     monkeypatch.setattr(db, 'get_supabase', lambda: fake)
 
-    assert db.retire_screens_not_seen('team', 'stb_tv', ['abc']) == db.RETIRE_FAILED
+    assert db.retire_screens_not_seen('team', 'stb-testop', ['abc']) == db.RETIRE_FAILED
 
 
 def test_retirement_runs_once_per_scan_not_once_per_batch():
@@ -773,7 +773,7 @@ def test_only_the_final_batch_asks_for_retirement(monkeypatch):
     # attribute is what takes effect.
     monkeypatch.setattr(_urlreq, 'urlopen', fake_urlopen)
 
-    args = _args(team_id='t', userinterface='stb_tv', server_url='http://x')
+    args = _args(team_id='t', userinterface='stb-testop', server_url='http://x')
     findings = [{'cluster_dhash': f'h{i}'} for i in range(5)]
     scan_mod.post_findings(args, findings, batch_size=2)
 

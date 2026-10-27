@@ -405,8 +405,8 @@ def test_router_offers_analytics_core_tools_for_analytics_questions(make_manager
         "show failing testcases for this device",
         "compare pass rate by device",
         "show degraded hosts",
-        "provide the last known KPI radar for userinterface stb_tv",
-        "compare v1 and v2 KPI for stb_tv over the last 30 days",
+        "provide the last known KPI radar for userinterface stb-testop",
+        "compare v1 and v2 KPI for stb-testop over the last 30 days",
         "show only regressions over 10%",
         "build a canvas with pass rate, duration trend, and failing cases for these two devices",
     ):

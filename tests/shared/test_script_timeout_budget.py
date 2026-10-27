@@ -42,7 +42,7 @@ def test_a_run_without_a_declared_budget_keeps_the_default():
 
 
 def test_a_full_tree_validation_keeps_its_four_hours():
-    """A validation of stb_tv takes 70+ min on a slow box (BUG-0633)."""
+    """A validation of stb-testop takes 70+ min on a slow box (BUG-0633)."""
     assert resolve_script_timeout_seconds('validation') == 4 * 3600
     assert resolve_script_timeout_seconds('validation.py') == 4 * 3600
 

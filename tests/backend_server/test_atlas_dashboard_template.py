@@ -328,7 +328,7 @@ def _draft_text_and_dashboard(tmp_path, params):
 def test_nothing_is_preselected_from_the_chat_context(tmp_path):
     """'pass rate by device' must not collapse to the chat's current device (live finding, TASK-43 p9/10)."""
     text, dashboard = _draft_text_and_dashboard(tmp_path, {
-        "_context_host_name": "host-1", "_context_device_id": "device1", "_context_userinterface_name": "stb_tv",
+        "_context_host_name": "host-1", "_context_device_id": "device1", "_context_userinterface_name": "stb-testop",
         "_context_workspace_id": "ws-1"})
     assert "Preselected filters: none." in text and "Every variable starts on All" in text
     assert "preselected to the current context" not in text.replace("do not say any filter was preselected to the current context", "")
@@ -367,7 +367,7 @@ def _rendering_tools(tmp_path, api=None, rows_for=None):
         return {"model": "analytics-tabular-v1", "source_id": source.id, "fields": fields, "rows": [],
                 "row_count": 0, "truncated": False, "units": {}, "time_grain": request.get("time_grain")}
     tools.service.query = query
-    tools.service._run_query = lambda pick, context, source: {"rows": [{"userinterface_name": "stb_tv"}]}
+    tools.service._run_query = lambda pick, context, source: {"rows": [{"userinterface_name": "stb-testop"}]}
     tools.drafts = _service(tmp_path)
     tools.publisher = RecordingPublisher()
     return tools
@@ -378,12 +378,12 @@ def test_canvas_draft_gets_the_defaulted_kpi_interface(tmp_path):
     result = tools.render_analytics_artifact({"panels": [KPI_PANEL, OTHER_PANEL], "_context_team_id": TEAM})
     assert "Grafana draft not created" not in result["content"][0]["text"]
     sent = tools.publisher.calls[0]
-    assert sent["panels"][0]["filters"]["userinterface_name"] == "stb_tv" and "preset" in sent["panels"][0]
+    assert sent["panels"][0]["filters"]["userinterface_name"] == "stb-testop" and "preset" in sent["panels"][0]
     # the primary builds it with a plain service: no context, no default lookup, same SQL as the render resolved
     built = _service(tmp_path).build(sent, CTX)
     assert sent["panels"][0]["filter_origin"]["userinterface_name"] == "defaulted"
     # BUG-0396: a defaulted interface is literal in its own panel; the variable stays All for the others
-    assert "'stb_tv'" in _sql(built["dashboard"], 0)
+    assert "'stb-testop'" in _sql(built["dashboard"], 0)
     assert built["validation"]["errors"] == []
     current = {v["name"]: v["current"] for v in built["dashboard"]["templating"]["list"]}
     assert current["user_interface"]["value"] == ["$__all"]
@@ -423,7 +423,7 @@ def test_create_grafana_draft_resolves_presets_like_the_render(tmp_path):
     tools = _rendering_tools(tmp_path)
     result = tools.create_grafana_draft({"title": "K", "panels": [KPI_PANEL, OTHER_PANEL], "_context_team_id": TEAM})
     assert result["isError"] is False and "not pushed" not in result["content"][0]["text"]
-    assert tools.publisher.calls[0]["panels"][0]["filters"]["userinterface_name"] == "stb_tv"
+    assert tools.publisher.calls[0]["panels"][0]["filters"]["userinterface_name"] == "stb-testop"
 
 
 def test_draft_failure_notes_are_short_and_user_facing(tmp_path):

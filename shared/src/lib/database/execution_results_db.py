@@ -22,7 +22,8 @@ def get_execution_results(
     execution_type: Optional[str] = None,
     tree_id: Optional[str] = None,
     limit: int = 100,
-    userinterface_name: Optional[str] = None
+    userinterface_name: Optional[str] = None,
+    tree_ids: Optional[List[str]] = None
 ) -> Dict:
     """Get execution results with filtering and enriched with tree/node/edge names."""
     try:
@@ -40,6 +41,8 @@ def get_execution_results(
             query = query.eq('execution_type', execution_type)
         if tree_id:
             query = query.eq('tree_id', tree_id)
+        if tree_ids:
+            query = query.in_('tree_id', tree_ids)
         
         # Execute query with ordering and limit
         result = query.order('executed_at', desc=True).limit(limit).execute()

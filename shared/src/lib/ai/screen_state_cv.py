@@ -110,11 +110,11 @@ OVERLAY_KEYBOARD_TOP_DIFF_MIN = 20.0
 OVERLAY_NOTIFICATION_TOP_FRAC = 0.03
 OVERLAY_NOTIFICATION_RIGHT_FRAC = 0.02
 # ... and is a BANNER, not a page: a bright photo that happens to reach the top-right corner
-# (a promo slate, 0.80 x 0.88 of the frame on stb_tv, BUG-0535) is not a notification.
+# (a promo slate, 0.80 x 0.88 of the frame on stb-<operator>, BUG-0535) is not a notification.
 OVERLAY_NOTIFICATION_MAX_W = 0.45
 OVERLAY_NOTIFICATION_MAX_H = 0.30
 # A modal popup floats INSIDE the frame: a plate touching a frame edge is part of the page (a promo
-# slate whose bright half spans the full height read as a popup on stb_tv, BUG-0535).
+# slate whose bright half spans the full height read as a popup on stb-<operator>, BUG-0535).
 OVERLAY_POPUP_EDGE_MARGIN = 0.01
 
 # A tooltip is a small bright patch that does NOT dim its page. NEW — needs tuning. The area gate

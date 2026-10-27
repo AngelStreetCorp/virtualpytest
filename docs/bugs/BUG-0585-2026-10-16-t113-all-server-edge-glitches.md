@@ -1,4 +1,4 @@
-# BUG-0579 — "All servers" edge-glitch bundle (TASK-113 PR-C follow-up)
+# BUG-0585 — "All servers" edge-glitch bundle (TASK-113 PR-C follow-up)
 
 - **When**: TASK-113 PR-C shipped 2026-10-15 (mobile ServerSelector,
   desktop ScopePicker, sentinel rehydration). The PoC validated the
